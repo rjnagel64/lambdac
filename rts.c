@@ -115,6 +115,9 @@ void mark_locals(void) {
     for (uint64_t i = 0; i < num_locals; i++) {
         // Mark based on allocation type.
         struct alloc_header *local = locals[i];
+        if (local == NULL) {
+            continue;
+        }
         switch (local->type) {
         case ALLOC_FUN:
             trace_fun((struct fun *)local);
