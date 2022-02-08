@@ -1,0 +1,60 @@
+-- Source
+-- Find the smallest square larger than 'x'
+let fun next_square x =
+  let fun go y =
+    let z = y*y in
+    if z >= x then z else go (y+1)
+  in
+  go 0
+in
+next_square 17
+
+-- CPS
+letfun next_square x k0 =
+  letfun go y k1 =
+    let z = y * y in
+    if z >= x then
+      k1 z
+    else
+      let t0 = y + 1 in
+      go t0 k1
+  in
+  go 0 k0
+in
+next_square 17 halt
+
+-- CC
+letfun {} next_square x k0 =
+  letfun {x = x, go = go} go y k1 =
+    let z = y * y in
+    if z >= x then
+      k1 z
+    else
+      let t0 = y + 1 in
+      go t0 k1
+  in
+  go 0 k0
+in
+next_square 17 halt
+
+-- Hoist
+-- Recursive function need access to their own closures, so treat the recursive
+-- occurrence as a free variable.
+letfun {x, go} go_code y k1 =
+  let z = y * y in
+  if z >= x then
+    k1 z
+  else
+    let t0 = y + 1 in
+    go t0 k1
+in
+letfun {} next_square_code x k0 =
+  -- Constructing the closure (exactly where the original function definition
+  -- used to be) now involves mutation to make a cyclic closure.
+  letfun go = {x = x, go = go} go_code in
+  go 0 k0
+in
+letfun next_square = {} next_square_code in
+next_square 17 halt
+
+-- C

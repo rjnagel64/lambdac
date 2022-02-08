@@ -7,3 +7,9 @@ rts.o: rts.c rts.h
 
 fact.o: fact.c rts.h
 	clang fact.c -c -o fact.o
+
+.PHONY: clean
+clean:
+	rm -f rts.o
+	rm -f fact.o
+	rm -f fact
