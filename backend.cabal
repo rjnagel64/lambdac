@@ -1,0 +1,33 @@
+cabal-version:      3.0
+name:               backend
+version:            0.1.0.0
+synopsis:           Experiments with compiler backends for functional languages
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Robert J Nagel
+maintainer:         rjnagel64@gmail.com
+
+category:           Language
+extra-source-files: CHANGELOG.md
+
+library
+    hs-source-dirs: src
+    default-language: Haskell2010
+    build-depends:
+        base ^>=4.14.3.0
+      , containers ^>=0.6.5.1
+      , mtl ^>=2.2.2
+    exposed-modules:
+      STLC
+      Runtime
+      Opt
+      -- F
+
+executable backend
+    hs-source-dirs: app
+    default-language: Haskell2010
+    main-is: Main.hs
+    build-depends:
+        base ^>=4.14.3.0
+      , backend
+

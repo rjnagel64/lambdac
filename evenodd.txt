@@ -1,0 +1,128 @@
+-- Source
+let fun
+  even x = if x == 0 then inl () else odd (x - 1)
+  odd x = if x == 0 then inr () else even (x - 1)
+in
+  even 5
+
+-- CPS
+letfun
+  even x k =
+    if x == 0 then
+      let z = inl () in k z
+    else
+      let t0 = x - 1 in
+      odd t0 k
+
+  odd x k =
+    if x == 0 then
+      let z = inr () in k z
+    else
+      let t0 = x - 1 in
+      even t0 k
+in
+even 5 halt
+
+-- CC
+letfun
+  {odd = odd}
+  even x k =
+    if x == 0 then
+      let z = inl () in k z
+    else
+      let t0 = x - 1 in
+      odd t0 k
+
+  {even = even}
+  odd x k =
+    if x == 0 then
+      let z = inr () in k z
+    else
+      let t0 = x - 1 in
+      even t0 k
+in
+even 5 halt
+
+-- Hoist
+letfun
+  {odd} even_code x k =
+    if x == 0 then
+      let z = inl () in k z
+    else
+      let t0 = x - 1 in
+      odd t0 k
+  {even} odd_code x k = _
+    if x == 0 then
+      let z = inr () in k z
+    else
+      let t0 = x - 1
+      even t0 k
+in
+letfun
+  even = {odd = odd} even_code
+  odd = {even = even} odd_code
+in
+even 5 halt
+
+-- C
+struct cont {
+  void *env;
+  void (*code)(void *env, value *arg);
+}
+
+struct fun {
+  void *env;
+  void (*code)(void *env, value *arg, struct cont *k);
+}
+
+
+void even_code(value *x, struct cont *k);
+void odd_code(value *x, struct cont *k);
+
+struct even_env {
+  struct fun *odd;
+};
+struct odd_env {
+  struct fun *even;
+};
+
+void even_code(void *env, value *x, struct cont *k) {
+  struct even_env *env0 = env;
+  int32_t t0 = value_int32(x);
+  if (t0 == 0) {
+    value *t1 = allocate_nil();
+    value *z = allocate_inl(t1);
+    __jump(k, z);
+  } else {
+    int32_t t1 = t0 - 1;
+    value *t2 = allocate_int32(t1);
+    __tailcall(env0->odd, t2, k);
+  }
+}
+
+void odd_code(void *env, value *x, struct cont *k) {
+  struct odd_env *env0 = env;
+  int32_t t0 = value_int32(x);
+  if (t0 == 0) {
+    value *t1 = allocate_nil();
+    value *z = allocate_inr(t1);
+    __jump(k, z);
+  } else {
+    int32_t t1 = t0 - 1;
+    value *t2 = allocate_int32(t1);
+    __tailcall(env0->even, t2, k);
+  }
+}
+
+void entry(void) {
+  struct even_env *even_env = allocate_even_env(NULL);
+  struct odd_env *odd_env = allocate_odd_env(NULL);
+  struct fun *even = alloc_fun(even_env, even_code);
+  struct fun *odd = alloc_fun(odd_env, odd_code);
+  even_env->odd = odd;
+  odd_env->even = even;
+
+  struct cont *k = alloc_cont(NULL, __halt_code);
+  value *t0 = allocate_int32(5);
+  __tailcall(even t0, k);
+}
