@@ -1,4 +1,5 @@
 {-# LANGUAGE StandaloneDeriving, DerivingVia, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE GADTs, DataKinds, KindSignatures #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Opt where
@@ -8,7 +9,11 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
+import Data.Int
+import Data.Traversable (for)
+
 import Control.Monad.Reader
+import Control.Monad.Writer
 
 -- [Compiling with Continuations, Continued] mostly.
 -- CPS transformation, Closure Conversion, hopefully C code generation.
@@ -27,6 +32,8 @@ newtype CoVar = CoVar String
 -- | Function names reference functions or closures.
 newtype FnName = FnName String
 
+-- TODO: Add booleans and if-expressions. They can be compiled more efficiently
+-- than case analysis on Either () ().
 data Term
   -- x
   = TmVarOcc TmVar
@@ -54,10 +61,13 @@ data Term
   | TmNil
 
 -- TODO: More primops.
+-- let y = primop(x+) in e
 -- LetPrimK :: TmVar -> PrimOp -> TermK -> TermK
 -- data PrimOp = PrimAddInt32 TmVar TmVar
 --
 -- Are there primops that take CoVar:s? Probably.
+
+-- TODO: Add booleans and an if-expression.
 
 -- f x := e
 data TmFun = TmFun TmVar TmVar Term
@@ -450,6 +460,7 @@ data TermC
   | CaseC TmVar CoVar CoVar -- case x of k1 | k2
 
 -- | @f {x+, k+} y k = e@
+-- TODO: Closures can capture functions as well.
 data ClosureDef = ClosureDef FnName [TmVar] [CoVar] TmVar CoVar TermC
 
 -- | @k {x+, k+} y = e@
@@ -510,102 +521,168 @@ cconv (LetFstK x y e) = LetFstC x y (cconv e)
 -- (LL is O(n^3) or O(n^2), CC is less?)
 -- https://pages.github.ccs.neu.edu/jhemann/21SP-CS4400/FAQ/closure-conv/
 
+
+
 data TopDecl
   = TopFun [FunDecl]
   | TopCont [ContDecl]
 
 data FunDecl
-  -- Enough information to define the environment, the code, and the tracing method.
-  = FunDecl _
+  -- TODO: Use C names, not TmVar/CoVar/FnName.
+  -- TODO: Include number of required locals slots
+  = FunDecl FnName CapturedVars TmVar CoVar TermH
 
 data ContDecl
-  = ContDecl _
+  -- TODO: Include number of required locals slots
+  = ContDecl CoVar CapturedVars TmVar TermH
 
 -- Local function and continuation bindings do not have code; they only
 -- reference the top-level bindings that do have code.
+--
+-- Invariant: the LHS of an allocation statement should be a 'CLocal'
 data TermH
-  = LetValH TmVar ValueH TermH
-  | LetFstH TmVar TmVar TermH
-  | JumpH CoVar TmVar
-  | CallH FnName TmVar CoVar
-  | CaseH TmVar CoVar CoVar
+  = LetValH (CName 'CLocal) ValueH TermH
+  | LetPrimH (CName 'CLocal) PrimOp TermH
+  -- Should fst and snd be special constructs or primitives?
+  -- Maybe constructs, if I extend to n-ary products.
+  | forall p. LetFstH (CName 'CLocal) (CName p) TermH
+  | forall p q. JumpH (CName p) (CName q)
+  | forall p q r. CallH (CName p) (CName q) (CName r)
+  | forall p q r. CaseH (CName p) (CName q) (CName r)
   -- Function and continuation closures may be mutually recursive.
   | AllocFun [FunAlloc] TermH
   | AllocCont [ContAlloc] TermH
+
+data ValueH
+  = IntValH Int32
+
+data PrimOp
+  = forall p q. PrimAddInt32 (CName p) (CName q)
+  | forall p q. PrimSubInt32 (CName p) (CName q)
+  | forall p q. PrimMulInt32 (CName p) (CName q)
 
 data FunAlloc
   -- Create a closure by providing all the function, continuation, and value
   -- arguments it closes over.
   -- I think that closing over FnName should only occur in a recursive
   -- situation. Bind groups should preferably be minimized before that.
-  = FunAlloc FnName CapturedVars
+  = FunAlloc FnName CapturedVars -- TODO: (var, CName) pairs? or just [CName]?
 
 data ContAlloc
   = ContAlloc CoVar CapturedVars
 
+data CName :: CPlace -> * where
+  LocalName :: CSort -> String -> CName 'CLocal
+  EnvRef :: CSort -> String -> CName 'CEnvRef
+
+data CSort = CFun | CCont | CValue
+
+data CPlace = CEnvRef | CLocal
+
+data SomeCName = forall p. SomeCName (CName p)
+
+instance Show (CName p) where
+  show (LocalName _ x) = x
+  show (EnvRef _ x) = "env->" ++ x
+
+
+newtype HoistM a = HoistM { runHoistM :: Writer [TopDecl] a }
+
+deriving newtype instance Functor HoistM
+deriving newtype instance Applicative HoistM
+deriving newtype instance Monad HoistM
+deriving newtype instance MonadWriter [TopDecl] HoistM
+
 -- | After closure conversion, the code for each function and continuation can
--- be lifted to the top level.
+-- be lifted to the top level. Additionally, map value, continuation, and
+-- function names to C names.
 --
 -- Return a list of bind groups.
 --
 -- (Hmm. This is a bottom-up traversal, I think.)
 -- TODO: I need to make sure function and continuation names are globally
 -- unique, so I can hoist them without conflicts.
-hoist :: TermC -> (TermH, [TopDecl])
-hoist (LetFstC x y e) = let (e', ds) = hoist e in (LetFstH x y e', ds)
-hoist (LetFunC fs e) = let (e', ds) = hoist e in (LetFunH fs' e', ds' ++ ds)
-  where
-    -- Top-level code for each f, along with hoisting the body of each f
-    ds' = _
-    -- Closure allocations consisting of env+code pointer
-    fs' = _
+hoist :: TermC -> HoistM TermH
+hoist (LetFstC x y e) = do
+  x' <- pure x -- TODO: rename 'x' doesn't shadow anything, extend context
+  y' <- pure y -- TODO: Use context to convert y :: TmVar into y' :: exists p. CName p 
+  e' <- hoist e
+  pure (LetFstH x y e')
+hoist (LetFunC fs e) = do
+  e' <- hoist e
+  (fs', ds') <- fmap unzip $ for fs $ \ (ClosureDef f ks xs x k body) -> do
+    body' <- hoist body
+    pure _
+  tell ds' -- TODO: This may be in the wrong order. If so, use 'Dual [TopDecl]'
+  pure (AllocFun fs' e')
 
--- Possibly add a unique to this.
-newtype CName = CName String
 
-data CapturedVars = CapturedVars [FnName] [CoVar] [TmVar]
+newtype CapturedVars = CapturedVars [CName 'CEnvRef]
 
 data FunNames
   = FunNames {
-    funEnvName :: CName
-  , funAllocName :: CName
-  , funCodeName :: CName
-  , funTraceName :: CName
+    funEnvName :: String
+  , funAllocName :: String
+  , funCodeName :: String
+  , funTraceName :: String
   }
 
 namesForFun :: FnName -> FunNames
 namesForFun (FnName f) =
   FunNames {
-    funEnvName = CName (f ++ "_env")
-  , funAllocName = CName ("allocate_" ++ f ++ "_env")
-  , funCodeName = CName (f ++ "_code")
-  , funTraceName = CName ("trace_" ++ f ++ "_env")
+    funEnvName = f ++ "_env"
+  , funAllocName = "allocate_" ++ f ++ "_env"
+  , funCodeName = f ++ "_code"
+  , funTraceName = "trace_" ++ f ++ "_env"
   }
 
 emitFunEnv :: FunNames -> CapturedVars -> [String]
-emitFunEnv ns (CapturedVars fns cos tms) =
-  ["struct " ++ (funEnvName ns) ++ " {"] ++
-  map (\ (FnName f) -> mkField "fun" f) ++
-  map (\ (CoVar k) -> mkField "cont" k) ++
-  map (\ (TmVar x) -> mkField "value" x) ++
+emitFunEnv ns (CapturedVars xs) =
+  ["struct " ++ funEnvName ns ++ " {"] ++
+  map mkField xs ++
   ["}"]
   where
-    mkField :: String -> String -> String
-    mkField ty n = "    struct " ++ ty ++ " *" ++ n ++ ";"
+    mkField :: CName 'CEnvRef -> String
+    mkField (EnvRef CFun f) = "    struct fun *" ++ show f ++ ";"
+    mkField (EnvRef CCont k) = "    struct cont *" ++ show k ++ ";"
+    mkField (EnvRef CValue x) = "    struct value *" ++ show x ++ ";"
 
 emitFunTrace :: FunNames -> CapturedVars -> [String]
-emitFunTrace ns (CapturedVars fns cos tms) =
+emitFunTrace ns (CapturedVars xs) =
   ["void " ++ funTraceName ns ++ "(void *envp) {"
   ,"    struct " ++ funEnvName ns ++ " *env = envp;"] ++
-  map (\ (FnName f) -> traceField "fun" f) ++
-  map (\ (CoVar k) -> traceField "cont" k) ++
-  map (\ (TmVar x) -> traceField "value" x) ++
+  map traceField xs ++
   ["}"]
   where
-    traceField :: String -> String -> String
-    traceField ty n = "    trace_" ++ ty ++ "(env->" ++ n ++ ");"
+    traceField :: CName 'CEnvRef -> String
+    traceField (EnvRef CFun f) = "    trace_fun(env->" ++ f ++ ");"
+    traceField (EnvRef CCont k) = "    trace_cont(env->" ++ k ++ ");"
+    traceField (EnvRef CValue x) = "    trace_value(env->" ++ x ++ ");"
 
-emitFunDecl :: FunDecl -> [String]
-emitFunDecl (FunDecl FnName [FnName] [CoVar] [TmVar] TmVar CoVar TermH) = _
+emitFunCode :: FunNames -> TmVar -> CoVar -> TermH -> [String]
+emitFunCode ns x k e =
+  ["void " ++ funCodeName ns ++ "(void *envp, struct value *" ++ show x ++ ", struct cont *" ++ show k ++ ") {"
+  ,"    struct " ++ funEnvName ns ++ " *env = envp"] ++
+  -- TODO: Allocate locals.
+  emitFunBody ns e ++
+  ["}"]
+
+emitFunBody :: FunNames -> TermH -> [String]
+emitFunBody ns (LetValH x (IntValH i) e) =
+  ["    struct value *" ++ show x ++ " = allocate_int32(" ++ show i ++");"] ++
+  emitFunBody ns e
+emitFunBody ns (LetPrimH x p e) =
+  ["    struct value *" ++ show x ++ " = " ++ emitPrimOp p ++ ";"] ++
+  emitFunBody ns e
+emitFunBody ns (JumpH k x) =
+  ["    JUMP(" ++ show k ++ ", " ++ show x ++ ");"]
+
+emitPrimOp :: PrimOp -> String
+-- TODO: I need to do different things when I reference the environment
+-- (env->x) versus use the argument (x).
+emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ show x ++ ", " ++ show y ++ ")"
+
+-- emitFunDecl :: FunDecl -> [String]
+-- emitFunDecl (FunDecl FnName [FnName] [CoVar] [TmVar] TmVar CoVar TermH) = _
   -- Env, allocate, trace, code.
 
