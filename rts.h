@@ -22,6 +22,9 @@ struct value {
     // TODO: Other value types.
     // TODO: Specialized value layouts based on type? (Overlaps with smarter
     // calling conventions)
+    // (That is, a function that accepts an 'Int32' should only have variants
+    // for the 'Int32#' constructor; a function that returns 'Either a b'
+    // should only have 'inl' and 'inr' variants, etc, etc.)
     int32_t int_value;
 };
 

@@ -212,6 +212,8 @@ void collect_from_value(struct value *v) {
     gc_threshold *= 2;
 }
 
+// Alternate idea to 'locals', based on CHICKEN Scheme: make allocation take a
+// C continuation, to resume if GC needs to be done.
 struct cont *allocate_cont(
         void *env,
         void (*code)(void *env, struct value *arg),
@@ -297,6 +299,9 @@ void control_halt(struct value *x) {
 // Provided by user.
 void program_entry(void);
 
+// TODO: Figure out how to properly allocate static closures.
+// It's definitely possible, but I'm not sure why my previous attempt didn't work.
+
 int main(void) {
     // Initialize halt continuation.
     /* halt = allocate_cont(NULL, halt_code); */
@@ -304,6 +309,7 @@ int main(void) {
     // Push initial activation record on stack
     program_entry();
 
+    // Main driver loop.
     int keep_running = 1;
     while (keep_running) {
         switch (next_step.type) {
@@ -349,6 +355,8 @@ int main(void) {
     }
 }
 
+// TODO: Eventually break primitive operations out into another file, once
+// there are enough.
 struct value *prim_addint32(struct value *x, struct value *y) {
     return allocate_int32(int32_value(x) + int32_value(y));
 }
