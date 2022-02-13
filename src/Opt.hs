@@ -1,5 +1,4 @@
 {-# LANGUAGE StandaloneDeriving, DerivingVia, FlexibleInstances, MultiParamTypeClasses #-}
-{-# LANGUAGE GADTs, DataKinds, KindSignatures #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Opt where
@@ -523,6 +522,53 @@ cconv (LetFstK x y e) = LetFstC x y (cconv e)
 
 
 
+data CName = LocalCName LocalName | EnvCName EnvName
+  deriving (Eq, Ord)
+data LocalName = LocalName CSort String
+  deriving (Eq, Ord)
+data EnvName = EnvName CSort String
+  deriving (Eq, Ord)
+data CSort = CFun | CCont | CValue
+  deriving (Eq, Ord)
+
+-- Local function and continuation bindings do not have code; they only
+-- reference the top-level bindings that do have code.
+--
+-- Invariant: the LHS of an allocation statement should be a 'CLocal'
+data TermH
+  = LetValH LocalName ValueH TermH
+  | LetPrimH LocalName PrimOp TermH
+  -- Should fst and snd be special constructs or primitives?
+  -- Maybe constructs, if I extend to n-ary products.
+  | LetFstH LocalName CName TermH
+  | JumpH CName CName
+  | CallH CName CName CName
+  | CaseH CName CName CName
+  -- Function and continuation closures may be mutually recursive.
+  | AllocFun [FunAlloc] TermH
+  | AllocCont [ContAlloc] TermH
+
+data ValueH
+  = IntValH Int32
+
+data PrimOp
+  = PrimAddInt32 CName CName
+  | PrimSubInt32 CName CName
+  | PrimMulInt32 CName CName
+
+-- TODO: Separately annotate variables captured from same bind group versus
+-- from elsewhere. Variables from same bind group need to be initialized with
+-- "NULL" first, and later patched.
+data FunAlloc
+  -- Create a closure by providing all the function, continuation, and value
+  -- arguments it closes over.
+  -- I think that closing over FnName should only occur in a recursive
+  -- situation. Bind groups should preferably be minimized before that.
+  = FunAlloc LocalName CapturedVars
+
+data ContAlloc
+  = ContAlloc LocalName CapturedVars
+
 data TopDecl
   = TopFun [FunDecl]
   | TopCont [ContDecl]
@@ -536,61 +582,23 @@ data ContDecl
   -- TODO: Include number of required locals slots
   = ContDecl CoVar CapturedVars TmVar TermH
 
--- Local function and continuation bindings do not have code; they only
--- reference the top-level bindings that do have code.
---
--- Invariant: the LHS of an allocation statement should be a 'CLocal'
-data TermH
-  = LetValH (CName 'CLocal) ValueH TermH
-  | LetPrimH (CName 'CLocal) PrimOp TermH
-  -- Should fst and snd be special constructs or primitives?
-  -- Maybe constructs, if I extend to n-ary products.
-  | forall p. LetFstH (CName 'CLocal) (CName p) TermH
-  | forall p q. JumpH (CName p) (CName q)
-  | forall p q r. CallH (CName p) (CName q) (CName r)
-  | forall p q r. CaseH (CName p) (CName q) (CName r)
-  -- Function and continuation closures may be mutually recursive.
-  | AllocFun [FunAlloc] TermH
-  | AllocCont [ContAlloc] TermH
 
-data ValueH
-  = IntValH Int32
+data HoistEnv = HoistEnv (Map TmVar CName) (Map CoVar CName) (Map FnName CName)
 
-data PrimOp
-  = forall p q. PrimAddInt32 (CName p) (CName q)
-  | forall p q. PrimSubInt32 (CName p) (CName q)
-  | forall p q. PrimMulInt32 (CName p) (CName q)
+inScopeSet :: HoistM (Set CName)
+inScopeSet = do
+  HoistEnv tms cos fns <- ask
+  let tmScope = Set.fromList $ map snd $ Map.toList tms
+  let coScope = Set.fromList $ map snd $ Map.toList cos
+  let fnScope = Set.fromList $ map snd $ Map.toList fns
+  pure (Set.unions [tmScope, coScope, fnScope])
 
-data FunAlloc
-  -- Create a closure by providing all the function, continuation, and value
-  -- arguments it closes over.
-  -- I think that closing over FnName should only occur in a recursive
-  -- situation. Bind groups should preferably be minimized before that.
-  = FunAlloc FnName CapturedVars -- TODO: (var, CName) pairs? or just [CName]?
-
-data ContAlloc
-  = ContAlloc CoVar CapturedVars
-
-data CName :: CPlace -> * where
-  LocalName :: CSort -> String -> CName 'CLocal
-  EnvRef :: CSort -> String -> CName 'CEnvRef
-
-data CSort = CFun | CCont | CValue
-
-data CPlace = CEnvRef | CLocal
-
-data SomeCName = forall p. SomeCName (CName p)
-
-instance Show (CName p) where
-  show (LocalName _ x) = x
-  show (EnvRef _ x) = "env->" ++ x
-
-
-newtype HoistM a = HoistM { runHoistM :: Writer [TopDecl] a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (Writer [TopDecl]) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
+deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter [TopDecl] HoistM
 
 -- | After closure conversion, the code for each function and continuation can
@@ -604,20 +612,49 @@ deriving newtype instance MonadWriter [TopDecl] HoistM
 -- unique, so I can hoist them without conflicts.
 hoist :: TermC -> HoistM TermH
 hoist (LetFstC x y e) = do
-  x' <- pure x -- TODO: rename 'x' doesn't shadow anything, extend context
-  y' <- pure y -- TODO: Use context to convert y :: TmVar into y' :: exists p. CName p 
-  e' <- hoist e
-  pure (LetFstH x y e')
+  y' <- hoistTmVarOcc y
+  (x', e') <- withTmPlace x $ hoist e
+  -- x' <- pure x -- TODO: rename 'x' doesn't shadow anything, extend context
+  -- e' <- hoist e
+  pure (LetFstH x' y' e')
 hoist (LetFunC fs e) = do
   e' <- hoist e
-  (fs', ds') <- fmap unzip $ for fs $ \ (ClosureDef f ks xs x k body) -> do
+  (fs', ds') <- fmap unzip $ for fs $ \ (ClosureDef f xs ks x k body) -> do
+    f' <- pure f -- occurrence or binder?
+    let fa = FunAlloc f' _
     body' <- hoist body
-    pure _
-  tell ds' -- TODO: This may be in the wrong order. If so, use 'Dual [TopDecl]'
+    let fd = FunDecl f _ x k body'
+    pure (fa, fd)
+  tell [TopFun ds'] -- TODO: This may be in the wrong order. If so, use 'Dual [TopDecl]'
   pure (AllocFun fs' e')
 
+hoistTmVarOcc :: TmVar -> HoistM CName
+hoistTmVarOcc x = do
+  (HoistEnv tms _ _) <- ask
+  pure (tms Map.! x)
 
-newtype CapturedVars = CapturedVars [CName 'CEnvRef]
+withTmPlace :: TmVar -> HoistM a -> HoistM (LocalName, a)
+withTmPlace x m = do
+  x' <- makeTmPlace x
+  a <- local (f x') m
+  pure (x', a)
+  where
+    f :: LocalName -> HoistEnv -> HoistEnv
+    f x' (HoistEnv tms cos fns) = HoistEnv (Map.insert x (LocalCName x') tms) cos fns
+
+makeTmPlace :: TmVar -> HoistM LocalName
+makeTmPlace (TmVar x) = do
+  go x (0 :: Int) <$> inScopeSet
+  where
+    go x i iss =
+      let v = (LocalName CValue (x ++ show i)) in
+      -- I think this is fine. We might shadow local names, which is bad, but
+      -- environment references are guarded by 'env->'.
+      if Set.member (LocalCName v) iss then go x (i+1) iss else v
+
+
+
+newtype CapturedVars = CapturedVars [EnvName]
 
 data FunNames
   = FunNames {
@@ -642,11 +679,13 @@ emitFunEnv ns (CapturedVars xs) =
   map mkField xs ++
   ["}"]
   where
-    mkField :: CName 'CEnvRef -> String
-    mkField (EnvRef CFun f) = "    struct fun *" ++ show f ++ ";"
-    mkField (EnvRef CCont k) = "    struct cont *" ++ show k ++ ";"
-    mkField (EnvRef CValue x) = "    struct value *" ++ show x ++ ";"
+    mkField :: EnvName -> String
+    mkField (EnvName CFun f) = "    struct fun *" ++ f ++ ";"
+    mkField (EnvName CCont k) = "    struct cont *" ++ k ++ ";"
+    mkField (EnvName CValue x) = "    struct value *" ++ x ++ ";"
 
+-- TODO: What if 'env' is the name that gets shadowed? (I.e., the function
+-- parameter is named 'env')
 emitFunTrace :: FunNames -> CapturedVars -> [String]
 emitFunTrace ns (CapturedVars xs) =
   ["void " ++ funTraceName ns ++ "(void *envp) {"
@@ -654,14 +693,16 @@ emitFunTrace ns (CapturedVars xs) =
   map traceField xs ++
   ["}"]
   where
-    traceField :: CName 'CEnvRef -> String
-    traceField (EnvRef CFun f) = "    trace_fun(env->" ++ f ++ ");"
-    traceField (EnvRef CCont k) = "    trace_cont(env->" ++ k ++ ");"
-    traceField (EnvRef CValue x) = "    trace_value(env->" ++ x ++ ");"
+    traceField :: EnvName -> String
+    traceField (EnvName CFun f) = "    trace_fun(env->" ++ f ++ ");"
+    traceField (EnvName CCont k) = "    trace_cont(env->" ++ k ++ ");"
+    traceField (EnvName CValue x) = "    trace_value(env->" ++ x ++ ");"
 
-emitFunCode :: FunNames -> TmVar -> CoVar -> TermH -> [String]
+-- TODO: What if 'env' is the name that gets shadowed? (I.e., the function
+-- parameter is named 'env')
+emitFunCode :: FunNames -> LocalName -> LocalName -> TermH -> [String]
 emitFunCode ns x k e =
-  ["void " ++ funCodeName ns ++ "(void *envp, struct value *" ++ show x ++ ", struct cont *" ++ show k ++ ") {"
+  ["void " ++ funCodeName ns ++ "(void *envp, " ++ emitPlaceName x ++ ", " ++ emitPlaceName k ++ ") {"
   ,"    struct " ++ funEnvName ns ++ " *env = envp"] ++
   -- TODO: Allocate locals.
   emitFunBody ns e ++
@@ -669,18 +710,25 @@ emitFunCode ns x k e =
 
 emitFunBody :: FunNames -> TermH -> [String]
 emitFunBody ns (LetValH x (IntValH i) e) =
-  ["    struct value *" ++ show x ++ " = allocate_int32(" ++ show i ++");"] ++
+  ["    " ++ emitPlaceName x ++ " = allocate_int32(" ++ show i ++");"] ++
   emitFunBody ns e
 emitFunBody ns (LetPrimH x p e) =
-  ["    struct value *" ++ show x ++ " = " ++ emitPrimOp p ++ ";"] ++
+  ["    " ++ emitPlaceName x ++ " = " ++ emitPrimOp p ++ ";"] ++
   emitFunBody ns e
 emitFunBody ns (JumpH k x) =
-  ["    JUMP(" ++ show k ++ ", " ++ show x ++ ");"]
+  ["    JUMP(" ++ emitNameOccurrence k ++ ", " ++ emitNameOccurrence x ++ ");"]
 
 emitPrimOp :: PrimOp -> String
--- TODO: I need to do different things when I reference the environment
--- (env->x) versus use the argument (x).
-emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ show x ++ ", " ++ show y ++ ")"
+emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitNameOccurrence x ++ ", " ++ emitNameOccurrence y ++ ");"
+
+emitPlaceName :: LocalName -> String
+emitPlaceName (LocalName CFun f) = "struct fun *" ++ f
+emitPlaceName (LocalName CCont k) = "struct cont *" ++ k
+emitPlaceName (LocalName CValue x) = "struct value *" ++ x
+
+emitNameOccurrence :: CName -> String
+emitNameOccurrence (LocalCName (LocalName _ x)) = x
+emitNameOccurrence (EnvCName (EnvName _ x)) = "env->" ++ x
 
 -- emitFunDecl :: FunDecl -> [String]
 -- emitFunDecl (FunDecl FnName [FnName] [CoVar] [TmVar] TmVar CoVar TermH) = _
