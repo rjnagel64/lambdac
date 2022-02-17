@@ -1,5 +1,5 @@
 
-module F where
+module Experiments.F where
 
 -- Compile System F to something
 -- Inspired by A Type-Preserving Compiler in Haskell, but without the

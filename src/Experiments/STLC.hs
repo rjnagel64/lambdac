@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs, DataKinds, KindSignatures, TypeFamilies, FlexibleInstances #-}
 
-module STLC where
+module Experiments.STLC where
 
 -- PHOAS implementation of continuation passing style for well-typed STLC.
 -- Based on [Parametric Higher-Order Abstract Syntax for Mechanized Semantics]

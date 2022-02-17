@@ -1,4 +1,4 @@
-module Runtime where
+module Experiments.Runtime where
 
 -- Based on [Making a Fast Curry: Push/Enter versus Eval/Apply]
 

@@ -18,10 +18,15 @@ library
       , containers ^>=0.6.5.1
       , mtl ^>=2.2.2
     exposed-modules:
-      STLC
-      Runtime
+      Experiments.STLC
+      Experiments.Runtime
       Opt
-      -- F
+      Source
+      CPS
+      CC
+      Hoist
+      Emit
+      -- Experiments.F
 
 executable backend
     hs-source-dirs: app
