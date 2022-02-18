@@ -10,6 +10,23 @@ import Control.Monad.Reader
 import qualified Source as S
 import Source (Term(..), TmFun(..))
 
+-- call/cc: pass function return continuation to argument?
+-- what if call/cc in contdef? in let-binding?
+--
+-- Maybe
+--   fun callcc f k = f k k;
+-- ?
+-- I think that's the CPS representation, but I don't know how the source-level
+-- version or the CPS translation works.
+--
+-- Typing rule for call/cc is Pierce's Law or something?
+--
+-- CPS transform for shift/reset?
+-- Actually, not really. call/cc and control effects cause computational impurity,
+-- which I don't want to deal with right now. Even if 'reset' can be used to
+-- encapsulate the impurity.
+
+
 -- All sorts of variables exist in the same namespace.
 newtype TmVar = TmVar String
   deriving (Eq, Ord)

@@ -1,6 +1,6 @@
 {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving #-}
 
-module CC (TermC(..), ClosureDef(..), ContClosureDef(..), Name(..)) where
+module CC (TermC(..), ClosureDef(..), ContClosureDef(..), Name(..), ValueC(..)) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -68,12 +68,27 @@ data TermC
 -- | @f {x+} y k = e@
 -- Closures capture two sets of names: those from outer scopes, and those from
 -- the same recursive bind group.
-data ClosureDef = ClosureDef Name [Name] [Name] Name Name TermC
+data ClosureDef
+  = ClosureDef {
+    closureName :: Name
+  , closureFreeNames :: [Name]
+  , closureRecNames :: [Name]
+  , closureParam :: Name
+  , closureCont :: Name
+  , closureBody :: TermC
+  }
 
 -- | @k {x+} y = e@
 -- Closures capture two sets of names: those from outer scopes, and those from
 -- the same recursive bind group.
-data ContClosureDef = ContClosureDef Name [Name] [Name] Name TermC
+data ContClosureDef
+  = ContClosureDef {
+    contClosureName :: Name
+  , contClosureFreeNames :: [Name]
+  , contClosureRecNames :: [Name]
+  , contClosureParam :: Name
+  , contClosureBody :: TermC
+  }
 
 data ValueC
   = PairC Name Name
