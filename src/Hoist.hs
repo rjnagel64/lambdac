@@ -17,7 +17,7 @@ import Control.Monad.Reader
 import Control.Monad.Writer
 
 import Data.Int
-import Data.Traversable (for)
+import Data.Traversable (for, mapAccumL)
 
 import qualified CC as C
 import CC (TermC(..), ValueC(..))
@@ -42,6 +42,8 @@ data PlaceName = PlaceName Sort String
 data FieldName = FieldName Sort String
 
 -- | 'DeclName's are used to refer to top-level functions and continuations.
+-- They are introduced by (hoisting) function/continuation closure bingings,
+-- and used when allocating function/continuation closures.
 newtype DeclName = DeclName String
 
 
@@ -49,6 +51,9 @@ data TopDecl
   = TopFun [FunDecl]
   | TopCont [ContDecl]
 
+-- TODO: Generalize arguments from 1 value + 1 cont to list of places. This is
+-- needed for future calling conventions, and also making a pattern match in
+-- hoistFunClosure safer.
 data FunDecl
   -- TODO: Include or compute number of required local slots
   = FunDecl DeclName EnvDecl PlaceName PlaceName TermH
@@ -95,7 +100,10 @@ data PrimOp
   | PrimMulInt32 Name Name
 
 -- TODO: Map C.Name DeclName for names that refer to top-level closures.
-data HoistEnv = HoistEnv (Map C.Name PlaceName) (Map C.Name FieldName)
+-- Note: FieldName:s should not be nested? after closure conversion, all names
+-- in a definition are either parameters, local temporaries, or environment
+-- field references.
+data HoistEnv = HoistEnv (Map C.Name PlaceName) (Map C.Name FieldName) (Map C.Name DeclName)
 
 
 newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (Writer [TopDecl]) a }
@@ -125,7 +133,7 @@ hoist (LetFstC x y e) = do
   (x', e') <- withPlace x Value $ hoist e
   pure (LetFstH x' y' e')
 hoist (LetFunC fs e) = do
-  (fs', ds', e') <- withClosures (map C.closureName fs) $ do
+  (fs', ds', e') <- withClosures (map C.closureName fs) Fun $ do
     (fs', ds') <- fmap unzip $ traverse hoistFunClosure fs
     e' <- hoist e
     pure (fs', ds', e')
@@ -140,40 +148,71 @@ hoistValue (InlC x) = InlH <$> hoistVarOcc x
 hoistValue (InrC x) = InrH <$> hoistVarOcc x
 hoistValue NilC = pure NilH
 
--- TODO: function and continuation bindings bring place names into scope.
-withClosures :: [C.Name] -> HoistM a -> HoistM a
-withClosures xs m = _
+-- | Extend the hoisting environment with place names for each closure in a
+-- binding group.
+withClosures :: [C.Name] -> Sort -> HoistM a -> HoistM a
+withClosures xs s m = do
+  HoistEnv scope _ _ <- ask
+  -- TODO: This name-freshening logic is still a mess.
+  let (scope', xs') = mapAccumL pickName scope xs
+      pickName sc x = let x' = loop sc x 0 in (Map.insert x x' sc, x')
+      loop sc (C.Name x) i = let x' = C.Name (x ++ show i) in case Map.lookup x' sc of
+        Nothing -> (PlaceName s (x ++ show i))
+        Just _ -> loop sc (C.Name x) (i+1)
+  let extendEnv (HoistEnv places fields decls) = HoistEnv scope' fields decls
+  local extendEnv m
 
 hoistFunClosure :: C.ClosureDef -> HoistM (FunAlloc, FunDecl)
 hoistFunClosure (C.ClosureDef f free rec x k body) = do
-  f' <- hoistClosureName f
+  -- Actually, hasn't 'f' been given a top-level name already, because of
+  -- hoisting the bind group?
+  -- So instead of generating a name, I should be looking up the closure name.
+  f' <- lookupClosureName f
   enva <- EnvAlloc <$> traverse hoistVarOcc (free ++ rec)
   let fa = FunAlloc f' enva
-  (fields', (x', (k', body'))) <-
-    withFields (free ++ rec) $ withPlace x Value $ withPlace k Cont $ hoist body
+  -- TODO: Infer sorts of each field. Fields are captured from in-scope
+  -- places, so do that here.
+  fields <- traverse inferSort (free ++ rec)
+  (fields', places', body') <- inClosure fields [(x, Value), (k, Cont)] $ hoist body
   let envd = EnvDecl fields'
+  let [x', k'] = places' -- Safe: inClosure preserves length; inClosure called with 2 places.
   let fd = FunDecl f' envd x' k' body'
   pure (fa, fd)
 
--- I need sorts for each of these names. I need to preserve that info through
--- closure-conversion. Can I infer the sort from the environment? Technically,
--- yes, because field names are derived from in-scope place names, but that
--- feels rather messy.
-withFields :: [C.Name] -> HoistM a -> HoistM ([FieldName], a)
-withFields xs m = _
+-- | Replace the set of fields and places in the environment, while leaving the
+-- set of declaration names intact. This is because inside a closure, all names
+-- refer to either a local variable/parameter (a place), a captured variable (a
+-- field), or to a closure that has been hoisted to the top level (a decl)
+inClosure :: [(C.Name, Sort)] -> [(C.Name, Sort)] -> HoistM a -> HoistM ([FieldName], [PlaceName], a)
+inClosure fields places m = do
+  -- Because this is a new top-level context, we do not have to worry about shadowing anything.
+  let places' = map (\ (x@(C.Name x'), s) -> (x, PlaceName s x')) places
+  let fields' = map (\ (x@(C.Name x'), s) -> (x, FieldName s x')) fields
+  -- Preserve 'DeclName's?
+  let replaceEnv (HoistEnv _ _ decls) = HoistEnv (Map.fromList places') (Map.fromList fields') decls
+  r <- local replaceEnv m
+  pure (map snd fields', map snd places', r)
 
-makeField :: C.Name -> HoistM FieldName
-makeField x = _
+lookupClosureName :: C.Name -> HoistM DeclName
+lookupClosureName f = do
+  HoistEnv _ _ decls <- ask
+  pure (decls Map.! f)
 
-hoistClosureName :: C.Name -> HoistM DeclName
--- TODO: Include Map C.Name DeclName in hoist env.
-hoistClosureName f = _
+-- | Infer the sort of a name by looking up what place or field it refers to.
+-- TODO: Provide this information as part of closure conversion, rather than
+-- needing to infer it.
+inferSort :: C.Name -> HoistM (C.Name, Sort)
+inferSort x = do
+  HoistEnv places fields decls <- ask
+  case Map.lookup x places of
+    Just (PlaceName s _) -> pure (x, s)
+    Nothing -> error "Sort of name unknown" -- Lookup fields? I don't think so.
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
 hoistVarOcc x = do
-  HoistEnv ps fs <- ask
+  HoistEnv ps fs ds <- ask
   case Map.lookup x ps of
     Just (PlaceName _ x') -> pure (LocalName x')
     -- TODO: WRONG. local variables do not refer to decls. They refer to
@@ -187,19 +226,20 @@ hoistVarOcc x = do
 withPlace :: C.Name -> Sort -> HoistM a -> HoistM (PlaceName, a)
 withPlace x s m = do
   x' <- makePlace x s
-  let f (HoistEnv places fields) = HoistEnv (Map.insert x x' places) fields
+  let f (HoistEnv places fields decls) = HoistEnv (Map.insert x x' places) fields decls
   a <- local f m
   pure (x', a)
 
 makePlace :: C.Name -> Sort -> HoistM PlaceName
 makePlace (C.Name x) s = do
-  HoistEnv places _ <- ask
+  HoistEnv places _ _ <- ask
   go x (0 :: Int) places
   where
+    go :: String -> Int -> Map C.Name PlaceName -> HoistM PlaceName
     go x i ps =
-      let v = (LocalName (x ++ show i)) in
+      let x' = (C.Name (x ++ show i)) in -- TODO: C.prime :: C.Name -> C.Name
       -- I think this is fine. We might shadow local names, which is bad, but
       -- environment references are guarded by 'env->'.
-      case Map.lookup _ ps of
-        Nothing -> pure _
+      case Map.lookup x' ps of
+        Nothing -> pure (PlaceName s (x ++ show i))
         Just _ -> go x (i+1) ps
