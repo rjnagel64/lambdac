@@ -1,6 +1,16 @@
 {-# LANGUAGE StandaloneDeriving, DerivingVia, FlexibleInstances, MultiParamTypeClasses #-}
 
-module CPS (TermK(..), TmVar(..), CoVar(..), FnName(..), FunDef(..), ContDef(..), ValueK(..)) where
+module CPS
+    ( TermK(..)
+    , TmVar(..)
+    , CoVar(..)
+    , FnName(..)
+    , FunDef(..)
+    , ContDef(..)
+    , ValueK(..)
+
+    , cpsMain
+    ) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -175,6 +185,14 @@ cpsTail (TmPair e1 e2) k =
     cps e2 $ \x2 ->
       freshTm "x" $ \x ->
         pure (LetValK x (PairK x1 x2) (JumpK k x))
+
+
+-- TODO: Make 'HALT' a real continuation, not just an arbitarily-named variable.
+-- HaltK :: TmVar -> TermK
+cpsMain :: Term -> TermK
+cpsMain e = runFresh $ cpsTail e (CoVar "HALT")
+-- cpsMain e = runFresh $ cps e $ \z -> HaltK z
+
 
 newtype FreshM a = FreshM { runFreshM :: Reader (Map String Int) a }
 

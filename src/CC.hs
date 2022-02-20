@@ -1,6 +1,14 @@
 {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving #-}
 
-module CC (TermC(..), ClosureDef(..), ContClosureDef(..), Name(..), ValueC(..)) where
+module CC
+  ( TermC(..)
+  , ClosureDef(..)
+  , ContClosureDef(..)
+  , Name(..)
+  , ValueC(..)
+
+  , cconv
+  ) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)

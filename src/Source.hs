@@ -12,6 +12,7 @@ newtype CoVar = CoVar String
 
 -- TODO: Add booleans and if-expressions. They can be compiled more efficiently
 -- than case analysis on Either () ().
+-- TODO: Add let-expressions
 data Term
   -- x
   = TmVarOcc TmVar

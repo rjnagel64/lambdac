@@ -1,5 +1,5 @@
 
-module Emit () where
+module Emit (emitProgram) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -8,7 +8,9 @@ import Data.List (intercalate)
 
 import qualified Hoist as H
 import Hoist
--- import Hoist (TermH(..), Sort(..), PlaceName(..), FieldName(..), Name(..), FunDecl(..), EnvDecl(..), FunAlloc(..))
+
+emitProgram :: ([H.TopDecl], TermH) -> [String]
+emitProgram (ds, e) = emitFunBody (namesForDecl (DeclName "<entry>")) e
 
 data DeclNames
   = DeclNames {

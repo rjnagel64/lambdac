@@ -19,6 +19,10 @@ module Hoist
     , EnvDecl(..)
     , FunAlloc(..)
     , EnvAlloc(..)
+    , TopDecl(..)
+
+    , runHoist
+    , hoist
     ) where
 
 import qualified Data.Map as Map
@@ -126,6 +130,10 @@ deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter [TopDecl] HoistM
+
+runHoist :: HoistM a -> (a, [TopDecl])
+runHoist = runWriter . flip runReaderT emptyEnv . runHoistM
+  where emptyEnv = HoistEnv mempty mempty mempty
 
 
 -- | After closure conversion, the code for each function and continuation can
