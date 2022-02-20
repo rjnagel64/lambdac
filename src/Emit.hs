@@ -107,12 +107,12 @@ emitFunAlloc :: DeclNames -> [FunAlloc] -> [String]
 emitFunAlloc ns fs = map emitAlloc fs ++ concatMap emitPatch fs
   where
     bindGroup :: Set String
-    bindGroup = Set.fromList $ map (\ (FunAlloc (DeclName f) _) -> f) fs
+    bindGroup = Set.fromList $ map (\ (FunAlloc _ (DeclName f) _) -> f) fs
 
     -- Names in bindGroup -> NULL
     emitAlloc :: FunAlloc -> String
-    emitAlloc (FunAlloc (DeclName f) (EnvAlloc xs)) =
-      "    struct fun *" ++ f ++ " = " ++ "allocate_fun(" ++ intercalate ", " args ++ ");"
+    emitAlloc (FunAlloc (PlaceName Fun p) (DeclName f) (EnvAlloc xs)) =
+      "    struct fun *" ++ p ++ " = " ++ "allocate_fun(" ++ intercalate ", " args ++ ");"
       where
         args = [envArg, codeArg, traceArg]
         -- Allocate closure environment here, with NULL for cyclic captures.
@@ -124,10 +124,10 @@ emitFunAlloc ns fs = map emitAlloc fs ++ concatMap emitPatch fs
 
     -- Assign to each name in the bindGroup
     emitPatch :: FunAlloc -> [String]
-    emitPatch (FunAlloc f (EnvAlloc xs)) =
+    emitPatch (FunAlloc (PlaceName _ p) f (EnvAlloc xs)) =
       -- Is the field name the same as the local variable name? I'm not quite
       -- certain. Strange things can happen.
-      ["env->" ++ x ++ " = " ++ x ++ ";" | LocalName x <- xs, Set.member x bindGroup]
+      [p ++ "->env->" ++ x ++ " = " ++ x ++ ";" | LocalName x <- xs, Set.member x bindGroup]
 
 emitPlaceName :: PlaceName -> String
 emitPlaceName (PlaceName Fun f) = "struct fun *" ++ f

@@ -34,6 +34,7 @@ import Data.Set (Set)
 
 import Control.Monad.Reader
 import Control.Monad.Writer
+import Control.Monad.State
 
 import Data.Int
 import Data.Traversable (for, mapAccumL)
@@ -74,6 +75,7 @@ data FieldName = FieldName Sort String
 -- They are introduced by (hoisting) function/continuation closure bingings,
 -- and used when allocating function/continuation closures.
 newtype DeclName = DeclName String
+  deriving (Eq, Ord)
 
 instance Show DeclName where
   show (DeclName d) = d
@@ -110,10 +112,12 @@ data TermH
   | AllocCont [ContAlloc] TermH
 
 data FunAlloc
-  = FunAlloc DeclName EnvAlloc
+  -- @struct fun *foo_17 = allocate_fun(foo_env(...), foo_code, foo_trace);@
+  = FunAlloc { funAllocPlace :: PlaceName, funAllocDecl :: DeclName, funAllocEnv :: EnvAlloc }
 
 data ContAlloc
-  = ContAlloc DeclName EnvAlloc
+  -- @struct cont *k_32 = allocate_cont(k_env(...), k_code, k_trace);@
+  = ContAlloc { contAllocPlace :: PlaceName, contAllocDecl :: DeclName, contAllocEnv :: EnvAlloc }
 
 -- TODO: When allocating an environment, I need to distinguish between names
 -- that are bound normally, and names that must be bound cyclically.
@@ -131,24 +135,24 @@ data PrimOp
   | PrimSubInt32 Name Name
   | PrimMulInt32 Name Name
 
--- TODO: Map C.Name DeclName for names that refer to top-level closures.
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
 -- field references.
-data HoistEnv = HoistEnv (Map C.Name PlaceName) (Map C.Name FieldName) (Map C.Name DeclName)
+data HoistEnv = HoistEnv (Map C.Name PlaceName) (Map C.Name FieldName)
 
 
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (Writer [TopDecl]) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer [TopDecl])) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter [TopDecl] HoistM
+deriving newtype instance MonadState (Set DeclName) HoistM
 
 runHoist :: HoistM a -> (a, [TopDecl])
-runHoist = runWriter . flip runReaderT emptyEnv . runHoistM
-  where emptyEnv = HoistEnv mempty mempty mempty
+runHoist = runWriter . flip evalStateT Set.empty . flip runReaderT emptyEnv . runHoistM
+  where emptyEnv = HoistEnv mempty mempty
 
 
 -- | After closure conversion, the code for each function and continuation can
@@ -160,6 +164,7 @@ runHoist = runWriter . flip runReaderT emptyEnv . runHoistM
 -- TODO: I need to make sure function and continuation names are globally
 -- unique, so I can hoist them without conflicts.
 hoist :: TermC -> HoistM TermH
+hoist (JumpC x k) = JumpH <$> hoistVarOcc x <*> hoistVarOcc k
 hoist (LetValC x v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x Value $ hoist e
@@ -169,14 +174,51 @@ hoist (LetFstC x y e) = do
   (x', e') <- withPlace x Value $ hoist e
   pure (LetFstH x' y' e')
 hoist (LetFunC fs e) = do
-  (fs', ds', e') <- withClosures (map C.closureName fs) Fun $ do
-    (fs', ds') <- fmap unzip $ traverse hoistFunClosure fs
-    e' <- hoist e
-    pure (fs', ds', e')
+  fdecls <- declareClosureNames fs
+  ds' <- traverse hoistFunClosure fdecls
+
   -- TODO: This may be in the wrong order. If so, use 'Dual [TopDecl]'
   tell [TopFun ds']
-  pure (AllocFun fs' e')
-hoist (JumpC x k) = JumpH <$> hoistVarOcc x <*> hoistVarOcc k
+
+  placesForFunAllocs fdecls $ \fplaces -> do
+    fs' <- for fplaces $ \ (p, d, C.ClosureDef _f free rec _x _k _e) -> do
+      env <- traverse hoistVarOcc (free ++ rec)
+      pure (FunAlloc p d (EnvAlloc env))
+    e' <- hoist e
+    pure (AllocFun fs' e')
+
+placesForFunAllocs :: [(DeclName, C.ClosureDef)] -> ([(PlaceName, DeclName, C.ClosureDef)] -> HoistM a) -> HoistM a
+placesForFunAllocs fdecls k = do
+  HoistEnv scope _ <- ask
+  let
+    pickPlace sc (d, def@(C.ClosureDef (C.Name f) _ _ _ _ _)) =
+      let p = go sc f 0 in (Map.insert (C.Name f) p sc, (p, d, def))
+    go sc f i = case Map.lookup (C.Name (f ++ show i)) sc of
+      Nothing -> PlaceName Fun (f ++ show i)
+      Just _ -> go sc f (i+1)
+  let (scope', fplaces) = mapAccumL pickPlace scope fdecls
+  let extend (HoistEnv _ fields) = HoistEnv scope' fields
+  local extend (k fplaces)
+
+
+-- This is actually a generic extend-with-places function.
+-- Almost redundant with 'withPlace', but this doesn't return the place name.
+withAllocationNames :: [(C.Name, PlaceName)] -> HoistM a -> HoistM a
+withAllocationNames xs m = local extend m
+  where
+    extend (HoistEnv places fields) = HoistEnv (foldr (uncurry Map.insert) places xs) fields
+
+declareClosureNames :: [C.ClosureDef] -> HoistM [(DeclName, C.ClosureDef)]
+declareClosureNames fs = for fs $ \def -> do
+  let
+    (C.Name f) = C.closureName def
+    pickName i ds =
+      let d = DeclName (f ++ show i) in
+      if Set.member d ds then pickName (i+1) ds else (d, Set.insert d ds)
+  (d, decls') <- pickName 0 <$> get
+  put decls'
+  pure (d, def)
+
 
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (PairC x y) = PairH <$> hoistVarOcc x <*> hoistVarOcc y
@@ -184,36 +226,32 @@ hoistValue (InlC x) = InlH <$> hoistVarOcc x
 hoistValue (InrC x) = InrH <$> hoistVarOcc x
 hoistValue NilC = pure NilH
 
+
 -- | Extend the hoisting environment with place names for each closure in a
 -- binding group.
 withClosures :: [C.Name] -> Sort -> HoistM a -> HoistM a
 withClosures xs s m = do
-  HoistEnv scope _ _ <- ask
+  HoistEnv scope _ <- ask
   -- TODO: This name-freshening logic is still a mess.
   let (scope', xs') = mapAccumL pickName scope xs
       pickName sc x = let x' = loop sc x 0 in (Map.insert x x' sc, x')
       loop sc (C.Name x) i = let x' = C.Name (x ++ show i) in case Map.lookup x' sc of
         Nothing -> (PlaceName s (x ++ show i))
         Just _ -> loop sc (C.Name x) (i+1)
-  let extendEnv (HoistEnv places fields decls) = HoistEnv scope' fields decls
+  -- ... Hang on, aren't the closures being defined in a bindgroup declarations?
+  -- Or maybe it's a declaration/allocation divide again. Decl for the
+  -- declaration, place for the allocation/body.
+  let extendEnv (HoistEnv places fields) = HoistEnv scope' fields
   local extendEnv m
 
-hoistFunClosure :: C.ClosureDef -> HoistM (FunAlloc, FunDecl)
-hoistFunClosure (C.ClosureDef f free rec x k body) = do
-  -- Actually, hasn't 'f' been given a top-level name already, because of
-  -- hoisting the bind group?
-  -- So instead of generating a name, I should be looking up the closure name.
-  f' <- lookupClosureName f
-  enva <- EnvAlloc <$> traverse hoistVarOcc (free ++ rec)
-  let fa = FunAlloc f' enva
-  -- TODO: Infer sorts of each field. Fields are captured from in-scope
-  -- places, so do that here.
+hoistFunClosure :: (DeclName, C.ClosureDef) -> HoistM FunDecl
+hoistFunClosure (fdecl, C.ClosureDef f free rec x k body) = do
   fields <- traverse inferSort (free ++ rec)
   (fields', places', body') <- inClosure fields [(x, Value), (k, Cont)] $ hoist body
   let envd = EnvDecl fields'
   let [x', k'] = places' -- Safe: inClosure preserves length; inClosure called with 2 places.
-  let fd = FunDecl f' envd x' k' body'
-  pure (fa, fd)
+  let fd = FunDecl fdecl envd x' k' body'
+  pure (fd)
 
 -- | Replace the set of fields and places in the environment, while leaving the
 -- set of declaration names intact. This is because inside a closure, all names
@@ -225,24 +263,16 @@ inClosure fields places m = do
   let places' = map (\ (x@(C.Name x'), s) -> (x, PlaceName s x')) places
   let fields' = map (\ (x@(C.Name x'), s) -> (x, FieldName s x')) fields
   -- Preserve 'DeclName's?
-  let replaceEnv (HoistEnv _ _ decls) = HoistEnv (Map.fromList places') (Map.fromList fields') decls
+  let replaceEnv (HoistEnv _ _) = HoistEnv (Map.fromList places') (Map.fromList fields')
   r <- local replaceEnv m
   pure (map snd fields', map snd places', r)
-
-lookupClosureName :: C.Name -> HoistM DeclName
-lookupClosureName f = do
-  HoistEnv _ _ decls <- ask
-  case Map.lookup f decls of
-    Nothing -> let C.Name x = f in error ("closure declaration not found: " ++ x)
-    Just d -> pure d
-  -- pure (decls Map.! f)
 
 -- | Infer the sort of a name by looking up what place or field it refers to.
 -- TODO: Provide this information as part of closure conversion, rather than
 -- needing to infer it.
 inferSort :: C.Name -> HoistM (C.Name, Sort)
 inferSort x = do
-  HoistEnv places fields decls <- ask
+  HoistEnv places fields <- ask
   case Map.lookup x places of
     Just (PlaceName s _) -> pure (x, s)
     Nothing -> error "Sort of name unknown" -- Lookup fields? I don't think so.
@@ -251,7 +281,7 @@ inferSort x = do
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
 hoistVarOcc x = do
-  HoistEnv ps fs ds <- ask
+  HoistEnv ps fs <- ask
   case Map.lookup x ps of
     Just (PlaceName _ x') -> pure (LocalName x')
     -- TODO: WRONG. local variables do not refer to decls. They refer to
@@ -265,13 +295,13 @@ hoistVarOcc x = do
 withPlace :: C.Name -> Sort -> HoistM a -> HoistM (PlaceName, a)
 withPlace x s m = do
   x' <- makePlace x s
-  let f (HoistEnv places fields decls) = HoistEnv (Map.insert x x' places) fields decls
+  let f (HoistEnv places fields) = HoistEnv (Map.insert x x' places) fields
   a <- local f m
   pure (x', a)
 
 makePlace :: C.Name -> Sort -> HoistM PlaceName
 makePlace (C.Name x) s = do
-  HoistEnv places _ _ <- ask
+  HoistEnv places _ <- ask
   go x (0 :: Int) places
   where
     go :: String -> Int -> Map C.Name PlaceName -> HoistM PlaceName
@@ -289,6 +319,10 @@ indent n s = replicate n ' ' ++ s
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (JumpH k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
+pprintTerm n (LetFstH x y e) =
+  indent n ("let " ++ place x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
+  where
+    place (PlaceName p x) = show p ++ " " ++ x
 
 pprintTop :: TopDecl -> String
 pprintTop (TopFun fs) = "fun {\n" ++ concatMap (pprintFunDecl 2) fs ++ "}\n"
