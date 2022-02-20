@@ -33,6 +33,7 @@ main = do
 
   putStrLn $ "--- Hoisting ---"
   let (srcH, decls) = H.runHoist $ H.hoist srcC
+  putStrLn $ concatMap H.pprintTop decls ++ H.pprintTerm 0 srcH
 
   putStrLn $ "--- Code Generation ---"
   let obj = unlines $ E.emitProgram (decls, srcH)

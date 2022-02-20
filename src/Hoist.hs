@@ -23,6 +23,8 @@ module Hoist
 
     , runHoist
     , hoist
+    , pprintTop
+    , pprintTerm
     ) where
 
 import qualified Data.Map as Map
@@ -35,6 +37,7 @@ import Control.Monad.Writer
 
 import Data.Int
 import Data.Traversable (for, mapAccumL)
+import Data.List (intercalate)
 
 import qualified CC as C
 import CC (TermC(..), ValueC(..))
@@ -49,8 +52,17 @@ import CC (TermC(..), ValueC(..))
 data Name = LocalName String | EnvName String
   deriving (Eq, Ord)
 
+instance Show Name where
+  show (LocalName x) = x
+  show (EnvName x) = "@." ++ x
+
 data Sort = Fun | Cont | Value
   deriving (Eq, Ord)
+
+instance Show Sort where
+  show Fun = "fun"
+  show Cont = "cont"
+  show Value = "value"
 
 -- Place names declare a reference to an object: value, function, or continuation.
 -- They are used as parameters and also as local temporaries.
@@ -62,6 +74,9 @@ data FieldName = FieldName Sort String
 -- They are introduced by (hoisting) function/continuation closure bingings,
 -- and used when allocating function/continuation closures.
 newtype DeclName = DeclName String
+
+instance Show DeclName where
+  show (DeclName d) = d
 
 
 data TopDecl
@@ -267,3 +282,22 @@ makePlace (C.Name x) s = do
       case Map.lookup x' ps of
         Nothing -> pure (PlaceName s (x ++ show i))
         Just _ -> go x (i+1) ps
+
+
+indent :: Int -> String -> String
+indent n s = replicate n ' ' ++ s
+
+pprintTerm :: Int -> TermH -> String
+pprintTerm n (JumpH k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
+
+pprintTop :: TopDecl -> String
+pprintTop (TopFun fs) = "fun {\n" ++ concatMap (pprintFunDecl 2) fs ++ "}\n"
+
+pprintFunDecl :: Int -> FunDecl -> String
+pprintFunDecl n (FunDecl f (EnvDecl fs) x k e) =
+  indent n (show f ++ " " ++ env ++ " " ++ place x ++ " " ++ place k ++ " =\n") ++ pprintTerm (n+2) e
+  where
+    env = "{" ++ intercalate ", " (map field fs) ++ "}"
+
+    field (FieldName s x) = show s ++ " " ++ x
+    place (PlaceName s x) = show s ++ " " ++ x
