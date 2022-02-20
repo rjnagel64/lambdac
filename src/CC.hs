@@ -8,12 +8,15 @@ module CC
   , ValueC(..)
 
   , cconv
+  , pprintTerm
   ) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified Data.Map as Map
 import Data.Map (Map)
+
+import Data.List (intercalate)
 
 import qualified CPS as K
 import CPS (TermK(..), FunDef(..), ContDef(..), ValueK(..))
@@ -51,6 +54,9 @@ import CPS (TermK(..), FunDef(..), ContDef(..), ValueK(..))
 -- The sort of a name can be determined from where it is bound.
 newtype Name = Name String
   deriving (Eq, Ord)
+
+instance Show Name where
+  show (Name x) = x
 
 tmVar :: K.TmVar -> Name
 tmVar (K.TmVar x) = Name x
@@ -179,6 +185,11 @@ cconv (LetContK ks e) = LetContC (map ann ks) (cconv e)
 cconv (JumpK k x) = JumpC (coVar k) (tmVar x)
 cconv (CallK f x k) = CallC (fnName f) (tmVar x) (coVar k)
 cconv (LetFstK x y e) = LetFstC (tmVar x) (tmVar y) (cconv e)
+cconv (LetValK x v e) = LetValC (tmVar x) (cconvValue v) (cconv e)
+
+cconvValue :: ValueK -> ValueC
+cconvValue NilK = NilC
+cconvValue (PairK x y) = PairC (tmVar x) (tmVar y)
 
 -- What does well-typed closure conversion look like?
 -- How are the values in a closure bound?
@@ -188,3 +199,28 @@ cconv (LetFstK x y e) = LetFstC (tmVar x) (tmVar y) (cconv e)
 -- call site remains mostly the same), LL requires altering the call sites.
 -- (LL is O(n^3) or O(n^2), CC is less?)
 -- https://pages.github.ccs.neu.edu/jhemann/21SP-CS4400/FAQ/closure-conv/
+
+
+indent :: Int -> String -> String
+indent n s = replicate n ' ' ++ s
+
+pprintTerm :: Int -> TermC -> String
+pprintTerm n (JumpC k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
+pprintTerm n (CallC f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
+pprintTerm n (LetFunC fs e) =
+  indent n "letfun\n" ++ concatMap (pprintClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
+pprintTerm n (LetValC x v e) =
+  indent n ("let " ++ show x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetFstC x y e) =
+  indent n ("let " ++ show x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
+
+pprintValue :: ValueC -> String
+pprintValue NilC = "()"
+pprintValue (PairC x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+
+pprintClosureDef :: Int -> ClosureDef -> String
+pprintClosureDef n (ClosureDef f free rec x k e) =
+  indent n env ++ indent n (show f ++ " " ++ show x ++ " " ++ show k ++ " =\n") ++ pprintTerm (n+2) e
+  where
+    env = "{" ++ intercalate ", " vars ++ "}\n"
+    vars = map show (free ++ rec)

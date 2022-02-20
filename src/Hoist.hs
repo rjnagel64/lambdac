@@ -217,7 +217,10 @@ inClosure fields places m = do
 lookupClosureName :: C.Name -> HoistM DeclName
 lookupClosureName f = do
   HoistEnv _ _ decls <- ask
-  pure (decls Map.! f)
+  case Map.lookup f decls of
+    Nothing -> let C.Name x = f in error ("closure declaration not found: " ++ x)
+    Just d -> pure d
+  -- pure (decls Map.! f)
 
 -- | Infer the sort of a name by looking up what place or field it refers to.
 -- TODO: Provide this information as part of closure conversion, rather than

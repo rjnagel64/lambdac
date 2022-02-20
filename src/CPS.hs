@@ -10,6 +10,7 @@ module CPS
     , ValueK(..)
 
     , cpsMain
+    , pprintTerm
     ) where
 
 import qualified Data.Map as Map
@@ -44,6 +45,13 @@ newtype CoVar = CoVar String
   deriving (Eq, Ord)
 newtype FnName = FnName String
   deriving (Eq, Ord)
+
+instance Show TmVar where
+  show (TmVar x) = x
+instance Show CoVar where
+  show (CoVar k) = k
+instance Show FnName where
+  show (FnName f) = f
 
 -- | Terms in continuation-passing style.
 --
@@ -185,6 +193,17 @@ cpsTail (TmPair e1 e2) k =
     cps e2 $ \x2 ->
       freshTm "x" $ \x ->
         pure (LetValK x (PairK x1 x2) (JumpK k x))
+cpsTail (TmFst e) k =
+  cps e $ \z ->
+    freshTm "x" $ \x ->
+      pure (LetFstK x z (JumpK k x))
+cpsTail TmNil k =
+  freshTm "x" $ \x ->
+    pure (LetValK x NilK (JumpK k x))
+cpsTail (TmApp e1 e2) k =
+  cps e1 $ \ (TmVar f) ->
+    cps e2 $ \x ->
+      pure (CallK (FnName f) x k)
 
 
 -- TODO: Make 'HALT' a real continuation, not just an arbitarily-named variable.
@@ -218,3 +237,30 @@ freshCo x k = do
 runFresh :: FreshM a -> a
 runFresh = flip runReader Map.empty . runFreshM
 
+
+indent :: Int -> String -> String
+indent n s = replicate n ' ' ++ s
+
+pprintTerm :: Int -> TermK -> String
+pprintTerm n (JumpK k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
+pprintTerm n (CallK f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
+pprintTerm n (LetValK x v e) =
+  indent n ("let " ++ show x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetFunK fs e) =
+  indent n "letfun\n" ++ concatMap (pprintFunDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
+pprintTerm n (LetContK ks e) =
+  indent n "letcont\n" ++ concatMap (pprintContDef (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
+pprintTerm n (LetFstK x y e) =
+  indent n ("let " ++ show x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
+
+pprintValue :: ValueK -> String
+pprintValue NilK = "()"
+pprintValue (PairK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+
+pprintFunDef :: Int -> FunDef -> String
+pprintFunDef n (FunDef f x k e) =
+  indent n (show f ++ " " ++ show x ++ " " ++ show k ++ " =\n") ++ pprintTerm (n+2) e
+
+pprintContDef :: Int -> ContDef -> String
+pprintContDef n (ContDef k x e) =
+  indent n (show k ++ " " ++ show x ++ " " ++ " =\n") ++ pprintTerm (n+2) e

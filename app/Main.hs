@@ -22,9 +22,18 @@ main = do
   putStrLn "Hello, Haskell!"
   -- putStrLn $ pprintTerm emptyScope $ cpsTerm e
 
-  -- ... Did I never provide a "HALT" continuation?
+  -- TODO: Dump IR after each phase.
+  putStrLn $ "--- CPS Transform ---"
   let srcK = K.cpsMain src
+  putStrLn $ K.pprintTerm 0 srcK
+
+  putStrLn $ "--- Closure Conversion ---"
   let srcC = C.cconv srcK
+  putStrLn $ C.pprintTerm 0 srcC
+
+  putStrLn $ "--- Hoisting ---"
   let (srcH, decls) = H.runHoist $ H.hoist srcC
+
+  putStrLn $ "--- Code Generation ---"
   let obj = unlines $ E.emitProgram (decls, srcH)
   putStrLn obj
