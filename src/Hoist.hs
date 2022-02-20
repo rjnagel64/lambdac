@@ -6,7 +6,20 @@
   , FlexibleInstances
   #-}
 
-module Hoist () where
+module Hoist
+    ( TermH(..)
+    , ValueH(..)
+    , PrimOp(..)
+    , Sort(..)
+    , Name(..)
+    , PlaceName(..)
+    , FieldName(..)
+    , DeclName(..)
+    , FunDecl(..)
+    , EnvDecl(..)
+    , FunAlloc(..)
+    , EnvAlloc(..)
+    ) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)

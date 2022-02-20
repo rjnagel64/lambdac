@@ -2,7 +2,7 @@
 
 module Main where
 
-import STLC
+import Experiments.STLC
 
 e :: Term v 'TyBool
 e = TmApp (TmLam "x" (\x -> TmVarOcc x)) TmTrue

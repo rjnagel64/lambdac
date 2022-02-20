@@ -1,63 +1,93 @@
 
 module Emit () where
 
-import CC (TermC(..), CName(..))
+import qualified Data.Set as Set
+import Data.Set (Set)
 
-newtype CapturedVars = CapturedVars [EnvName]
+import Data.List (intercalate)
 
-data FunNames
-  = FunNames {
-    funEnvName :: String
-  , funAllocName :: String
-  , funCodeName :: String
-  , funTraceName :: String
+import qualified Hoist as H
+import Hoist
+-- import Hoist (TermH(..), Sort(..), PlaceName(..), FieldName(..), Name(..), FunDecl(..), EnvDecl(..), FunAlloc(..))
+
+data DeclNames
+  = DeclNames {
+    declEnvName :: String
+  , declAllocName :: String
+  , declCodeName :: String
+  , declTraceName :: String
   }
 
-namesForFun :: FnName -> FunNames
-namesForFun (FnName f) =
-  FunNames {
-    funEnvName = f ++ "_env"
-  , funAllocName = "allocate_" ++ f ++ "_env"
-  , funCodeName = f ++ "_code"
-  , funTraceName = "trace_" ++ f ++ "_env"
+namesForDecl :: DeclName -> DeclNames
+namesForDecl (DeclName f) =
+  DeclNames {
+    declEnvName = f ++ "_env"
+  , declAllocName = "allocate_" ++ f ++ "_env"
+  , declCodeName = f ++ "_code"
+  , declTraceName = "trace_" ++ f ++ "_env"
   }
 
-emitFunEnv :: FunNames -> CapturedVars -> [String]
-emitFunEnv ns (CapturedVars xs) =
-  ["struct " ++ funEnvName ns ++ " {"] ++
-  map mkField xs ++
-  ["}"]
+-- TODO: Bind groups have to be emitted all at once so that proper ordering can
+-- be achieved.
+emitFunDecl :: H.FunDecl -> [String]
+emitFunDecl (H.FunDecl d envd x k e) =
+  emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitFunCode ns x k e
   where
-    mkField :: EnvName -> String
-    mkField (EnvName CFun f) = "    struct fun *" ++ f ++ ";"
-    mkField (EnvName CCont k) = "    struct cont *" ++ k ++ ";"
-    mkField (EnvName CValue x) = "    struct value *" ++ x ++ ";"
+    ns = namesForDecl d
 
--- TODO: What if 'env' is the name that gets shadowed? (I.e., the function
--- parameter is named 'env' ot 'envp')
-emitFunTrace :: FunNames -> CapturedVars -> [String]
-emitFunTrace ns (CapturedVars xs) =
-  ["void " ++ funTraceName ns ++ "(void *envp) {"
-  ,"    struct " ++ funEnvName ns ++ " *env = envp;"] ++
-  map traceField xs ++
+emitEnvDecl :: DeclNames -> EnvDecl -> [String]
+emitEnvDecl ns (EnvDecl fs) =
+  ["struct " ++ declEnvName ns ++ " {"] ++
+  map mkField fs ++
   ["}"]
   where
-    traceField :: EnvName -> String
-    traceField (EnvName CFun f) = "    trace_fun(env->" ++ f ++ ");"
-    traceField (EnvName CCont k) = "    trace_cont(env->" ++ k ++ ");"
-    traceField (EnvName CValue x) = "    trace_value(env->" ++ x ++ ");"
+    mkField (FieldName Fun f) = "    struct fun *" ++ f ++ ";";
+    mkField (FieldName Cont k) = "    struct cont *" ++ k ++ ";";
+    mkField (FieldName Value x) = "    struct value *" ++ x ++ ";"
+
+emitEnvAlloc :: DeclNames -> EnvDecl -> [String]
+emitEnvAlloc ns (EnvDecl fs) =
+  ["struct " ++ declEnvName ns ++ " *" ++ declAllocName ns ++ "(" ++ params ++ ") {"] ++
+  ["    struct " ++ declEnvName ns ++ " *env = malloc(sizeof(struct " ++ declEnvName ns ++ "));"] ++
+  map assignField fs ++
+  ["return env;"
+  ,"}"]
+  where
+    params = intercalate ", " (map mkParam fs)
+
+    mkParam (FieldName Fun f) = "struct fun *" ++ f
+    mkParam (FieldName Cont f) = "struct cont *" ++ f
+    mkParam (FieldName Value f) = "struct value *" ++ f
+
+    assignField :: FieldName -> String
+    assignField (FieldName _ x) = "    env->" ++ x ++ " = " ++ x ++ ";"
+
+-- | Emit a method to trace a closure environment.
+-- We do not need to worry about shadowing the name 'env' here because 'envp'
+-- and 'env' are the only local variables in this function.
+emitEnvTrace :: DeclNames -> EnvDecl -> [String]
+emitEnvTrace ns (EnvDecl fs) =
+  ["void " ++ declTraceName ns ++ "(void *envp) {"
+  ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
+  map traceField fs ++
+  ["}"]
+  where
+    traceField :: FieldName -> String
+    traceField (FieldName Fun f) = "    trace_fun(env->" ++ f ++ ");"
+    traceField (FieldName Cont k) = "    trace_cont(env->" ++ k ++ ");"
+    traceField (FieldName Value x) = "    trace_value(env->" ++ x ++ ");"
 
 -- TODO: What if 'env' is the name that gets shadowed? (I.e., the function
 -- parameter is named 'env')
-emitFunCode :: FunNames -> LocalName -> LocalName -> TermH -> [String]
+emitFunCode :: DeclNames -> PlaceName -> PlaceName -> TermH -> [String]
 emitFunCode ns x k e =
-  ["void " ++ funCodeName ns ++ "(void *envp, " ++ emitPlaceName x ++ ", " ++ emitPlaceName k ++ ") {"
-  ,"    struct " ++ funEnvName ns ++ " *env = envp"] ++
+  ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitPlaceName x ++ ", " ++ emitPlaceName k ++ ") {"
+  ,"    struct " ++ declEnvName ns ++ " *env = envp"] ++
   -- TODO: Allocate locals.
   emitFunBody ns e ++
   ["}"]
 
-emitFunBody :: FunNames -> TermH -> [String]
+emitFunBody :: DeclNames -> TermH -> [String]
 emitFunBody ns (LetValH x (IntValH i) e) =
   ["    " ++ emitPlaceName x ++ " = allocate_int32(" ++ show i ++");"] ++
   emitFunBody ns e
@@ -71,37 +101,42 @@ emitFunBody ns (JumpH k x) =
 emitPrimOp :: PrimOp -> String
 emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitNameOccurrence x ++ ", " ++ emitNameOccurrence y ++ ");"
 
-emitFunAlloc :: FunNames -> [FunAlloc] -> [String]
+emitFunAlloc :: DeclNames -> [FunAlloc] -> [String]
 emitFunAlloc ns fs = map emitAlloc fs ++ concatMap emitPatch fs
   where
-    -- TODO: These are LocalName, but the actual occurrences in xs are EnvName.
-    -- I suppose hoist should distinguish between recursive and non-recursive captures.
-    bindGroup :: Set LocalName -- Or Set?
-    bindGroup = Set.fromList $ map (\ (FunAlloc f _) -> f) fs
+    bindGroup :: Set String
+    bindGroup = Set.fromList $ map (\ (FunAlloc (DeclName f) _) -> f) fs
 
     -- Names in bindGroup -> NULL
     emitAlloc :: FunAlloc -> String
-    emitAlloc (FunAlloc f (CapturedVars xs)) =
-      -- Environment with bound variables, code pointer, tracing pointer
-      emitPlaceName f ++ " = " ++ funAllocName ns ++ "(" ++ _ ++ ");"
+    emitAlloc (FunAlloc (DeclName f) (EnvAlloc xs)) =
+      "    struct fun *" ++ f ++ " = " ++ "allocate_fun(" ++ intercalate ", " args ++ ");"
+      where
+        args = [envArg, codeArg, traceArg]
+        -- Allocate closure environment here, with NULL for cyclic captures.
+        envArg = declAllocName ns ++ "(" ++ intercalate ", " (map allocArg xs) ++ ")"
+        allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
+        allocArg (EnvName x) = x
+        codeArg = declCodeName ns
+        traceArg = declTraceName ns
 
     -- Assign to each name in the bindGroup
     emitPatch :: FunAlloc -> [String]
-    emitPatch (FunAlloc f (CapturedVars xs)) = concatMap g xs
-      where
-        -- env->x = x
-        -- Or maybe
-        -- env->x = x0
-        g x = if Set.notMember x bindGroup then [] else [_]
+    emitPatch (FunAlloc f (EnvAlloc xs)) =
+      -- Is the field name the same as the local variable name? I'm not quite
+      -- certain. Strange things can happen.
+      ["env->" ++ x ++ " = " ++ x ++ ";" | LocalName x <- xs, Set.member x bindGroup]
 
-emitPlaceName :: LocalName -> String
-emitPlaceName (LocalName CFun f) = "struct fun *" ++ f
-emitPlaceName (LocalName CCont k) = "struct cont *" ++ k
-emitPlaceName (LocalName CValue x) = "struct value *" ++ x
+emitPlaceName :: PlaceName -> String
+emitPlaceName (PlaceName Fun f) = "struct fun *" ++ f
+emitPlaceName (PlaceName Cont k) = "struct cont *" ++ k
+emitPlaceName (PlaceName Value x) = "struct value *" ++ x
 
-emitNameOccurrence :: CName -> String
-emitNameOccurrence (LocalCName (LocalName _ x)) = x
-emitNameOccurrence (EnvCName (EnvName _ x)) = "env->" ++ x
+-- TODO: Parametrize this by what the name of the environment pointer is.
+-- There may be situations where 'env' or 'envp' is the name of a parameter.
+emitNameOccurrence :: Name -> String
+emitNameOccurrence (LocalName x) = x
+emitNameOccurrence (EnvName x) = "env->" ++ x
 
 -- emitFunDecl :: FunDecl -> [String]
 -- emitFunDecl (FunDecl FnName [FnName] [CoVar] [TmVar] TmVar CoVar TermH) = _
