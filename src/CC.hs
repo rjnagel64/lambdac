@@ -74,9 +74,10 @@ data TermC
   | LetFstC Name Name TermC -- let x = fst y in e, projection
   | LetFunC [ClosureDef] TermC
   | LetContC [ContClosureDef] TermC
-  | JumpC Name Name -- k x
   -- Invoke a closure by providing a value for the only remaining argument.
+  | JumpC Name Name -- k x
   | CallC Name Name Name -- f x k
+  | HaltC Name
   | CaseC Name Name Name -- case x of k1 | k2
 
 -- | @f {x+} y k = e@
@@ -150,6 +151,7 @@ class Close a where
   close :: a -> Env
 
 instance Close TermK where
+  close (HaltK x) = unit (tmVar x)
   close (JumpK k x) = unit (coVar k) <> unit (tmVar x)
   close (LetFstK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
   close (LetFunK fs e) = foldMap g fs <> bind fs' (close e)
@@ -184,6 +186,7 @@ cconv (LetContK ks e) = LetContC (map ann ks) (cconv e)
     ks' = Set.fromList $ map (\ (ContDef k _ _) -> coVar k) ks
 cconv (JumpK k x) = JumpC (coVar k) (tmVar x)
 cconv (CallK f x k) = CallC (fnName f) (tmVar x) (coVar k)
+cconv (HaltK x) = HaltC (tmVar x)
 cconv (LetFstK x y e) = LetFstC (tmVar x) (tmVar y) (cconv e)
 cconv (LetValK x v e) = LetValC (tmVar x) (cconvValue v) (cconv e)
 
@@ -205,10 +208,13 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintTerm :: Int -> TermC -> String
+pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (JumpC k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
 pprintTerm n (CallC f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
+pprintTerm n (LetContC fs e) =
+  indent n "letcont\n" ++ concatMap (pprintContClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetValC x v e) =
   indent n ("let " ++ show x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFstC x y e) =
@@ -221,6 +227,13 @@ pprintValue (PairC x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintClosureDef :: Int -> ClosureDef -> String
 pprintClosureDef n (ClosureDef f free rec x k e) =
   indent n env ++ indent n (show f ++ " " ++ show x ++ " " ++ show k ++ " =\n") ++ pprintTerm (n+2) e
+  where
+    env = "{" ++ intercalate ", " vars ++ "}\n"
+    vars = map show (free ++ rec)
+
+pprintContClosureDef :: Int -> ContClosureDef -> String
+pprintContClosureDef n (ContClosureDef k free rec x e) =
+  indent n env ++ indent n (show k ++ " " ++ show x ++ " =\n") ++ pprintTerm (n+2) e
   where
     env = "{" ++ intercalate ", " vars ++ "}\n"
     vars = map show (free ++ rec)

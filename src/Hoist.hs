@@ -18,6 +18,7 @@ module Hoist
     , FunDecl(..)
     , EnvDecl(..)
     , FunAlloc(..)
+    , ContAlloc(..)
     , EnvAlloc(..)
     , TopDecl(..)
 
@@ -106,6 +107,7 @@ data TermH
   | LetFstH PlaceName Name TermH
   | JumpH Name Name
   | CallH Name Name Name
+  | HaltH Name
   | CaseH Name Name Name
   -- Function and continuation closures may be mutually recursive.
   | AllocFun [FunAlloc] TermH
@@ -164,6 +166,7 @@ runHoist = runWriter . flip evalStateT Set.empty . flip runReaderT emptyEnv . ru
 -- TODO: I need to make sure function and continuation names are globally
 -- unique, so I can hoist them without conflicts.
 hoist :: TermC -> HoistM TermH
+hoist (HaltC x) = HaltH <$> hoistVarOcc x
 hoist (JumpC x k) = JumpH <$> hoistVarOcc x <*> hoistVarOcc k
 hoist (CallC f x k) = CallH <$> hoistVarOcc f <*> hoistVarOcc x <*> hoistVarOcc k
 hoist (LetValC x v e) = do
@@ -187,6 +190,20 @@ hoist (LetFunC fs e) = do
       pure (FunAlloc p d (EnvAlloc env))
     e' <- hoist e
     pure (AllocFun fs' e')
+hoist (LetContC ks e) = do
+  kdecls <- declareContClosureNames ks
+  ds' <- traverse hoistContClosure kdecls
+
+  -- TODO: This may be in the wrong order. If so, use 'Dual [TopDecl]'
+  tell [TopCont ds']
+
+  placesForContAllocs kdecls $ \kplaces -> do
+    ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k free rec _x _e) -> do
+      env <- traverse hoistVarOcc (free ++ rec)
+      pure (ContAlloc p d (EnvAlloc env))
+    e' <- hoist e
+    pure (AllocCont ks' e')
+
 
 placesForFunAllocs :: [(DeclName, C.ClosureDef)] -> ([(PlaceName, DeclName, C.ClosureDef)] -> HoistM a) -> HoistM a
 placesForFunAllocs fdecls k = do
@@ -201,6 +218,19 @@ placesForFunAllocs fdecls k = do
   let extend (HoistEnv _ fields) = HoistEnv scope' fields
   local extend (k fplaces)
 
+placesForContAllocs :: [(DeclName, C.ContClosureDef)] -> ([(PlaceName, DeclName, C.ContClosureDef)] -> HoistM a) -> HoistM a
+placesForContAllocs kdecls k = do
+  HoistEnv scope _ <- ask
+  let
+    pickPlace sc (d, def@(C.ContClosureDef (C.Name k) _ _ _ _)) =
+      let p = go sc k 0 in (Map.insert (C.Name k) p sc, (p, d, def))
+    go sc k i = case Map.lookup (C.Name (k ++ show i)) sc of
+      Nothing -> PlaceName Cont (k ++ show i)
+      Just _ -> go sc k (i+1)
+  let (scope', kplaces) = mapAccumL pickPlace scope kdecls
+  let extend (HoistEnv _ fields) = HoistEnv scope' fields
+  local extend (k kplaces)
+
 
 -- This is actually a generic extend-with-places function.
 -- Almost redundant with 'withPlace', but this doesn't return the place name.
@@ -213,6 +243,17 @@ declareClosureNames :: [C.ClosureDef] -> HoistM [(DeclName, C.ClosureDef)]
 declareClosureNames fs = for fs $ \def -> do
   let
     (C.Name f) = C.closureName def
+    pickName i ds =
+      let d = DeclName (f ++ show i) in
+      if Set.member d ds then pickName (i+1) ds else (d, Set.insert d ds)
+  (d, decls') <- pickName 0 <$> get
+  put decls'
+  pure (d, def)
+
+declareContClosureNames :: [C.ContClosureDef] -> HoistM [(DeclName, C.ContClosureDef)]
+declareContClosureNames fs = for fs $ \def -> do
+  let
+    (C.Name f) = C.contClosureName def
     pickName i ds =
       let d = DeclName (f ++ show i) in
       if Set.member d ds then pickName (i+1) ds else (d, Set.insert d ds)
@@ -252,7 +293,16 @@ hoistFunClosure (fdecl, C.ClosureDef f free rec x k body) = do
   let envd = EnvDecl fields'
   let [x', k'] = places' -- Safe: inClosure preserves length; inClosure called with 2 places.
   let fd = FunDecl fdecl envd x' k' body'
-  pure (fd)
+  pure fd
+
+hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ContDecl
+hoistContClosure (kdecl, C.ContClosureDef k free rec x body) = do
+  fields <- traverse inferSort (free ++ rec)
+  (fields', places', body') <- inClosure fields [(x, Value)] $ hoist body
+  let envd = EnvDecl fields'
+  let [x'] = places' -- Safe: inClosure preserves length; inClosure called with 1 place.
+  let kd = ContDecl kdecl envd x' body'
+  pure kd
 
 -- | Replace the set of fields and places in the environment, while leaving the
 -- set of declaration names intact. This is because inside a closure, all names
@@ -320,6 +370,7 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintTerm :: Int -> TermH -> String
+pprintTerm n (HaltH x) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (JumpH k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
 pprintTerm n (CallH f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
 pprintTerm n (LetValH x v e) =
@@ -330,6 +381,8 @@ pprintTerm n (LetFstH x y e) =
   where place (PlaceName s x) = show s ++ " " ++ x
 pprintTerm n (AllocFun fs e) =
   indent n "let\n" ++ concatMap (pprintFunAlloc (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
+pprintTerm n (AllocCont ks e) =
+  indent n "let\n" ++ concatMap (pprintContAlloc (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
 
 pprintValue :: ValueH -> String
 pprintValue NilH = "()"
@@ -337,6 +390,7 @@ pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintTop :: TopDecl -> String
 pprintTop (TopFun fs) = "fun {\n" ++ concatMap (pprintFunDecl 2) fs ++ "}\n"
+pprintTop (TopCont ks) = "cont {\n" ++ concatMap (pprintContDecl 2) ks ++ "}\n"
 
 pprintFunDecl :: Int -> FunDecl -> String
 pprintFunDecl n (FunDecl f (EnvDecl fs) x k e) =
@@ -347,8 +401,23 @@ pprintFunDecl n (FunDecl f (EnvDecl fs) x k e) =
     field (FieldName s x) = show s ++ " " ++ x
     place (PlaceName s x) = show s ++ " " ++ x
 
+pprintContDecl :: Int -> ContDecl -> String
+pprintContDecl n (ContDecl k (EnvDecl fs) x e) =
+  indent n (show k ++ " " ++ env ++ " " ++ place x ++ " =\n") ++ pprintTerm (n+2) e
+  where
+    env = "{" ++ intercalate ", " (map field fs) ++ "}"
+
+    field (FieldName s x) = show s ++ " " ++ x
+    place (PlaceName s x) = show s ++ " " ++ x
+
 pprintFunAlloc :: Int -> FunAlloc -> String
 pprintFunAlloc n (FunAlloc p d (EnvAlloc env)) = indent n $ place p ++ " = " ++ show d ++ " " ++ env'
+  where
+    place (PlaceName s x) = show s ++ " " ++ x
+    env' = "{" ++ intercalate ", " (map show env) ++ "}\n"
+
+pprintContAlloc :: Int -> ContAlloc -> String
+pprintContAlloc n (ContAlloc p d (EnvAlloc env)) = indent n $ place p ++ " = " ++ show d ++ " " ++ env'
   where
     place (PlaceName s x) = show s ++ " " ++ x
     env' = "{" ++ intercalate ", " (map show env) ++ "}\n"

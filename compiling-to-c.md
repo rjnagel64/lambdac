@@ -27,3 +27,9 @@ Trampolined tail calls, GC, data layout, and primops.
 
 Optimizations on `TermK` (inlining, DCE, CSE, etc.). Optimizations in codegen
 (calling conventions, etc.)
+
+## Appendix D: References and Inspiration
+
+* Compiling with Continuations, Continued: inspire CPS, CC
+* CHICKEN Internals: The Garbage Collector: reference C generation
+* GHC RTS: reference thunk entry code

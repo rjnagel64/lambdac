@@ -81,6 +81,8 @@ data TermK
   | CallK FnName TmVar CoVar
   -- case x of k1 | k2, branch
   | CaseK TmVar CoVar CoVar
+  -- halt x
+  | HaltK TmVar
 
 -- | Named basic blocks
 -- @k x := e@
@@ -206,11 +208,8 @@ cpsTail (TmApp e1 e2) k =
       pure (CallK (FnName f) x k)
 
 
--- TODO: Make 'HALT' a real continuation, not just an arbitarily-named variable.
--- HaltK :: TmVar -> TermK
 cpsMain :: Term -> TermK
-cpsMain e = runFresh $ cpsTail e (CoVar "HALT")
--- cpsMain e = runFresh $ cps e $ \z -> HaltK z
+cpsMain e = runFresh $ cps e (\z -> pure (HaltK z))
 
 
 newtype FreshM a = FreshM { runFreshM :: Reader (Map String Int) a }
@@ -244,6 +243,7 @@ indent n s = replicate n ' ' ++ s
 pprintTerm :: Int -> TermK -> String
 pprintTerm n (JumpK k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
 pprintTerm n (CallK f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
+pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (LetValK x v e) =
   indent n ("let " ++ show x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFunK fs e) =
@@ -263,4 +263,4 @@ pprintFunDef n (FunDef f x k e) =
 
 pprintContDef :: Int -> ContDef -> String
 pprintContDef n (ContDef k x e) =
-  indent n (show k ++ " " ++ show x ++ " " ++ " =\n") ++ pprintTerm (n+2) e
+  indent n (show k ++ " " ++ show x ++ " =\n") ++ pprintTerm (n+2) e
