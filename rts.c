@@ -78,9 +78,30 @@ void store_local(size_t i, struct alloc_header *alloc) {
 
 static uint32_t current_mark = 0;
 
+void trace_value(struct value *v);
+
+void trace_prod(struct value *v) {
+    trace_value((struct value *)v->words[0]);
+    trace_value((struct value *)v->words[1]);
+}
+
+void trace_sum(struct value *v) {
+    // Skip the discriminant.
+    trace_value((struct value *)v->words[1]);
+}
+
 void trace_value(struct value *v) {
-    v->header.mark = current_mark;
-    // TODO: Add fields/variants to 'struct value'
+    switch (v->header.type) {
+    case ALLOC_CONST:
+        break;
+    case ALLOC_PROD:
+        trace_prod(v);
+        break;
+    case ALLOC_SUM:
+        trace_sum(v);
+        break;
+    // No other cases possible.
+    }
 }
 
 void trace_fun(struct fun *f) {
@@ -91,6 +112,26 @@ void trace_fun(struct fun *f) {
 void trace_cont(struct cont *k) {
     k->header.mark = current_mark;
     k->trace_env(k->env);
+}
+
+void trace_alloc(struct alloc_header *alloc) {
+    switch (alloc->type) {
+    case ALLOC_FUN:
+        trace_fun((struct fun *)alloc);
+        break;
+    case ALLOC_CONT:
+        trace_cont((struct cont *)alloc);
+        break;
+    case ALLOC_CONST:
+        // No fields to trace
+        break;
+    case ALLOC_PROD:
+        trace_prod((struct value *)alloc);
+        break;
+    case ALLOC_SUM:
+        trace_sum((struct value *)alloc);
+        break;
+    }
 }
 
 
@@ -118,17 +159,7 @@ void mark_locals(void) {
         if (local == NULL) {
             continue;
         }
-        switch (local->type) {
-        case ALLOC_FUN:
-            trace_fun((struct fun *)local);
-            break;
-        case ALLOC_CONT:
-            trace_cont((struct cont *)local);
-            break;
-        case ALLOC_VALUE:
-            trace_value((struct value *)local);
-            break;
-        }
+        trace_alloc(local);
     }
 }
 
@@ -163,7 +194,9 @@ void sweep(void) {
                 }
             }
             break;
-        case ALLOC_VALUE:
+        case ALLOC_CONST:
+        case ALLOC_PROD:
+        case ALLOC_SUM:
             if (alloc->mark != current_mark) {
                 // All fields are managed by GC.
                 free(alloc);
@@ -253,10 +286,10 @@ struct fun *allocate_fun(
 }
 
 struct value *allocate_int32(int32_t x) {
-    struct value *v = malloc(sizeof(struct value));
-    v->header.type = ALLOC_VALUE;
+    struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
+    v->header.type = ALLOC_CONST;
     v->header.next = first_allocation;
-    v->int_value = x;
+    v->words[0] = (uintptr_t)x;
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
@@ -266,10 +299,82 @@ struct value *allocate_int32(int32_t x) {
     return v;
 }
 
-
 int32_t int32_value(struct value *v) {
-    // Unchecked.
-    return v->int_value;
+    // Unchecked. Use only on int32 values.
+    return (int32_t)v->words[0];
+}
+
+// TODO: This does not allow allocating (id, not). Functions and continuations are not 'struct value'.
+// To rectify this, I think I need to move towards the info-table approach.
+// All GC objects are info pointer followed by fields. For product, fields are
+// components. For sum, fields are discriminant and payload. For closure,
+// fields are captures. For constants, fields are value.
+struct value *allocate_pair(struct value *x, struct value *y) {
+    struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
+    v->header.type = ALLOC_PROD;
+    v->header.next = first_allocation;
+    v->words[0] = (uintptr_t)x;
+    v->words[1] = (uintptr_t)y;
+
+    first_allocation = (struct alloc_header *)v;
+    num_allocs++;
+    if (num_allocs > gc_threshold) {
+        collect_from_value(v);
+    }
+    return v;
+}
+
+struct value *project_fst(struct value *v) {
+    // Unchecked. Use only on (a, b) values.
+    return (struct value *)v->words[0];
+}
+
+struct value *project_snd(struct value *v) {
+    // Unchecked. Use only on (a, b) values.
+    return (struct value *)v->words[1];
+}
+
+struct value *allocate_nil(void) {
+    struct value *v = malloc(sizeof(struct value));
+    v->header.type = ALLOC_CONST;
+    v->header.next = first_allocation;
+
+    first_allocation = (struct alloc_header *)v;
+    num_allocs++;
+    if (num_allocs > gc_threshold) {
+        collect_from_value(v);
+    }
+    return v;
+}
+
+struct value *allocate_inl(struct value *x) {
+    struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
+    v->header.type = ALLOC_SUM;
+    v->header.next = first_allocation;
+    v->words[0] = 0;
+    v->words[1] = (uintptr_t)x;
+
+    first_allocation = (struct alloc_header *)v;
+    num_allocs++;
+    if (num_allocs > gc_threshold) {
+        collect_from_value(v);
+    }
+    return v;
+}
+
+struct value *allocate_inr(struct value *y) {
+    struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
+    v->header.type = ALLOC_SUM;
+    v->header.next = first_allocation;
+    v->words[0] = 1;
+    v->words[1] = (uintptr_t)y;
+
+    first_allocation = (struct alloc_header *)v;
+    num_allocs++;
+    if (num_allocs > gc_threshold) {
+        collect_from_value(v);
+    }
+    return v;
 }
 
 
@@ -346,7 +451,9 @@ int main(void) {
             free(((struct cont *)alloc)->env);
             free(alloc);
             break;
-        case ALLOC_VALUE:
+        case ALLOC_CONST:
+        case ALLOC_PROD:
+        case ALLOC_SUM:
             // All fields are managed by GC.
             free(alloc);
             break;

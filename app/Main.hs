@@ -31,3 +31,7 @@ main = do
   putStrLn $ "--- Code Generation ---"
   let obj = unlines $ E.emitProgram (decls, srcH)
   putStrLn obj
+
+  -- TODO: Name output file based on input file
+  -- TODO: Generate Makefile fragment?
+  writeFile "out.c" obj

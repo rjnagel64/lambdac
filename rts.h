@@ -7,7 +7,9 @@
 enum allocation_type {
     ALLOC_FUN,
     ALLOC_CONT,
-    ALLOC_VALUE,
+    ALLOC_CONST,
+    ALLOC_PROD,
+    ALLOC_SUM,
 };
 
 struct alloc_header {
@@ -17,19 +19,50 @@ struct alloc_header {
 };
 
 // int32#, nil, pair, inl, or inr
+// struct value {
+//     struct alloc_header header;
+//     // TODO: Other value types.
+//     // TODO: Specialized value layouts based on type? (Overlaps with smarter
+//     // calling conventions)
+//     // (That is, a function that accepts an 'Int32' should only have variants
+//     // for the 'Int32#' constructor; a function that returns 'Either a b'
+//     // should only have 'inl' and 'inr' variants, etc, etc.)
+//     int32_t int_value;
+// };
+
+// New value layout:
+// inl x is [hdr|0|&x],
+// inr y in [hdr|1|&y],
+// (x, y) is [hdr|&x|&y],
+// () is [hdr|0],
+// n is [hdr|0|n]
+// Other sums and products proceed in analogous manner.
+// No unboxed sums, though?
+//
+// TODO: Figure out how to trace these. (number & location of GC fields)
+// (CHICKEN has different allocation types for 'GC all fields' 'GC all but
+// first', 'GC none', etc.)
+// (GHC has info tables, value carries pointer to info table?)
+//
+// TODO: Currently, pairs cannot contain functions. To fix this, I think I need to move to the info-table version of things.
 struct value {
     struct alloc_header header;
-    // TODO: Other value types.
-    // TODO: Specialized value layouts based on type? (Overlaps with smarter
-    // calling conventions)
-    // (That is, a function that accepts an 'Int32' should only have variants
-    // for the 'Int32#' constructor; a function that returns 'Either a b'
-    // should only have 'inl' and 'inr' variants, etc, etc.)
-    int32_t int_value;
+    // uint32_t discriminant;
+    // Count of words is not necessary? In-bounds access of fields is
+    // guaranteed by static typing. (Might be necessary for GC.)
+    uintptr_t words[]; // TODO: Rename this to cells?
 };
 
-struct value *allocate_int32(int32_t x);
+struct value *allocate_int32(int32_t x); // Corresponds to Int32# constructor.
 int32_t int32_value(struct value *v); // partial
+
+struct value *allocate_pair(struct value *x, struct value *y);
+struct value *project_fst(struct value *v);
+struct value *project_snd(struct value *v);
+
+struct value *allocate_nil(void);
+struct value *allocate_inl(struct value *v);
+struct value *allocate_inr(struct value *v);
 
 struct cont {
     struct alloc_header header;

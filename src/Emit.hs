@@ -34,7 +34,7 @@ prologue = ["#include \"rts.h\""]
 
 emitEntryPoint :: TermH -> [String]
 emitEntryPoint e =
-  ["void entry_point(void) {"] ++
+  ["void program_entry(void) {"] ++
   emitClosureBody (namesForDecl (DeclName "<entry>")) e ++
   ["}"]
 
@@ -114,7 +114,7 @@ emitFunCode ns x k e =
 emitContCode :: DeclNames -> PlaceName -> TermH -> [String]
 emitContCode ns x e =
   ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitPlace x ++ ") {"
-  ,"    struct " ++ declEnvName ns ++ " *env = envp"] ++
+  ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
   -- TODO: Allocate locals.
   emitClosureBody ns e ++
   ["}"]

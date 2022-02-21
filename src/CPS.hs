@@ -156,6 +156,7 @@ cps (TmCase e xl el xr er) k =
             er' <- cpsTail er j
             e' <- k x
             pure $
+              -- TODO: Case branches that accept multiple arguments at once
               LetContK [ContDef j x e'] $
                 LetContK [ContDef k1 (var xl) el'] $
                   LetContK [ContDef k2 (var xr) er'] $
