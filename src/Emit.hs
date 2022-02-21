@@ -91,7 +91,16 @@ emitFunCode ns x k e =
 
 emitFunBody :: DeclNames -> TermH -> [String]
 emitFunBody ns (LetValH x (IntValH i) e) =
-  ["    " ++ emitPlaceName x ++ " = allocate_int32(" ++ show i ++");"] ++
+  ["    " ++ emitPlaceName x ++ " = allocate_int32(" ++ show i ++ ");"] ++
+  emitFunBody ns e
+emitFunBody ns (LetValH x NilH e) =
+  ["    " ++ emitPlaceName x ++ " = allocate_nil();"] ++
+  emitFunBody ns e
+emitFunBody ns (LetValH x (PairH y z) e) =
+  ["    " ++ emitPlaceName x ++ " = allocate_pair(" ++ emitNameOccurrence y ++ ", " ++ emitNameOccurrence z ++ ");"] ++
+  emitFunBody ns e
+emitFunBody ns (LetFstH x y e) =
+  ["    " ++ emitPlaceName x ++ " = project_fst(" ++ emitNameOccurrence y ++ ");"] ++
   emitFunBody ns e
 emitFunBody ns (LetPrimH x p e) =
   ["    " ++ emitPlaceName x ++ " = " ++ emitPrimOp p ++ ";"] ++
@@ -99,6 +108,8 @@ emitFunBody ns (LetPrimH x p e) =
 emitFunBody ns (AllocFun fs e) = emitFunAlloc ns fs ++ emitFunBody ns e
 emitFunBody ns (JumpH k x) =
   ["    JUMP(" ++ emitNameOccurrence k ++ ", " ++ emitNameOccurrence x ++ ");"]
+emitFunBody ns (CallH f x k) =
+  ["    TAILCALL(" ++ emitNameOccurrence f ++ ", " ++ emitNameOccurrence x ++ ", " ++ emitNameOccurrence k ++ ");"]
 
 emitPrimOp :: PrimOp -> String
 emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitNameOccurrence x ++ ", " ++ emitNameOccurrence y ++ ");"

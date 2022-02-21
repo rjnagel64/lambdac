@@ -348,7 +348,7 @@ pprintFunDecl n (FunDecl f (EnvDecl fs) x k e) =
     place (PlaceName s x) = show s ++ " " ++ x
 
 pprintFunAlloc :: Int -> FunAlloc -> String
-pprintFunAlloc n (FunAlloc p d (EnvAlloc env)) = place p ++ " = " ++ show d ++ " " ++ env'
+pprintFunAlloc n (FunAlloc p d (EnvAlloc env)) = indent n $ place p ++ " = " ++ show d ++ " " ++ env'
   where
     place (PlaceName s x) = show s ++ " " ++ x
     env' = "{" ++ intercalate ", " (map show env) ++ "}\n"
