@@ -30,6 +30,9 @@ Optimizations on `TermK` (inlining, DCE, CSE, etc.). Optimizations in codegen
 
 ## Appendix D: References and Inspiration
 
+inspire: Detail from this were used to implement this
+reference: I implemented things using my ideas, and then found that my ideas are well-known
+
 * Compiling with Continuations, Continued: inspire CPS, CC
 * CHICKEN Internals: The Garbage Collector: reference C generation
 * GHC RTS: reference thunk entry code

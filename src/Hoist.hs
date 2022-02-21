@@ -16,6 +16,7 @@ module Hoist
     , FieldName(..)
     , DeclName(..)
     , FunDecl(..)
+    , ContDecl(..)
     , EnvDecl(..)
     , FunAlloc(..)
     , ContAlloc(..)

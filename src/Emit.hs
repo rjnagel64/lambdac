@@ -10,7 +10,7 @@ import qualified Hoist as H
 import Hoist
 
 emitProgram :: ([H.TopDecl], TermH) -> [String]
-emitProgram (ds, e) = emitFunBody (namesForDecl (DeclName "<entry>")) e
+emitProgram (ds, e) = prologue ++ concatMap emitTopDecl ds ++ emitEntryPoint e
 
 data DeclNames
   = DeclNames {
@@ -29,30 +29,52 @@ namesForDecl (DeclName f) =
   , declTraceName = "trace_" ++ f ++ "_env"
   }
 
+prologue :: [String]
+prologue = ["#include \"rts.h\""]
+
+emitEntryPoint :: TermH -> [String]
+emitEntryPoint e =
+  ["void entry_point(void) {"] ++
+  emitClosureBody (namesForDecl (DeclName "<entry>")) e ++
+  ["}"]
+
+emitTopDecl :: TopDecl -> [String]
+emitTopDecl (TopFun fs) = concatMap emitFunDecl fs
+emitTopDecl (TopCont ks) = concatMap emitContDecl ks
+
 -- TODO: Bind groups have to be emitted all at once so that proper ordering can
 -- be achieved.
 emitFunDecl :: H.FunDecl -> [String]
 emitFunDecl (H.FunDecl d envd x k e) =
   emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitFunCode ns x k e
-  where
-    ns = namesForDecl d
+  where ns = namesForDecl d
+
+emitContDecl :: H.ContDecl -> [String]
+emitContDecl (H.ContDecl d envd x e) =
+  emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitContCode ns x e
+  where ns = namesForDecl d
 
 emitEnvDecl :: DeclNames -> EnvDecl -> [String]
 emitEnvDecl ns (EnvDecl fs) =
   ["struct " ++ declEnvName ns ++ " {"] ++
   map mkField fs ++
-  ["}"]
+  ["};"]
   where
     mkField (FieldName Fun f) = "    struct fun *" ++ f ++ ";";
     mkField (FieldName Cont k) = "    struct cont *" ++ k ++ ";";
     mkField (FieldName Value x) = "    struct value *" ++ x ++ ";"
 
+-- TODO: Remember to include allocation header
 emitEnvAlloc :: DeclNames -> EnvDecl -> [String]
+emitEnvAlloc ns (EnvDecl []) =
+  ["struct " ++ declEnvName ns ++ " *" ++ declAllocName ns ++ "(void) {"
+  ,"    return NULL;"
+  ,"}"]
 emitEnvAlloc ns (EnvDecl fs) =
   ["struct " ++ declEnvName ns ++ " *" ++ declAllocName ns ++ "(" ++ params ++ ") {"] ++
   ["    struct " ++ declEnvName ns ++ " *env = malloc(sizeof(struct " ++ declEnvName ns ++ "));"] ++
   map assignField fs ++
-  ["return env;"
+  ["    return env;"
   ,"}"]
   where
     params = intercalate ", " (map mkParam fs)
@@ -83,37 +105,47 @@ emitEnvTrace ns (EnvDecl fs) =
 -- parameter is named 'env')
 emitFunCode :: DeclNames -> PlaceName -> PlaceName -> TermH -> [String]
 emitFunCode ns x k e =
-  ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitPlaceName x ++ ", " ++ emitPlaceName k ++ ") {"
-  ,"    struct " ++ declEnvName ns ++ " *env = envp"] ++
+  ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitPlace x ++ ", " ++ emitPlace k ++ ") {"
+  ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
   -- TODO: Allocate locals.
-  emitFunBody ns e ++
+  emitClosureBody ns e ++
   ["}"]
 
-emitFunBody :: DeclNames -> TermH -> [String]
-emitFunBody ns (LetValH x (IntValH i) e) =
-  ["    " ++ emitPlaceName x ++ " = allocate_int32(" ++ show i ++ ");"] ++
-  emitFunBody ns e
-emitFunBody ns (LetValH x NilH e) =
-  ["    " ++ emitPlaceName x ++ " = allocate_nil();"] ++
-  emitFunBody ns e
-emitFunBody ns (LetValH x (PairH y z) e) =
-  ["    " ++ emitPlaceName x ++ " = allocate_pair(" ++ emitNameOccurrence y ++ ", " ++ emitNameOccurrence z ++ ");"] ++
-  emitFunBody ns e
-emitFunBody ns (LetFstH x y e) =
-  ["    " ++ emitPlaceName x ++ " = project_fst(" ++ emitNameOccurrence y ++ ");"] ++
-  emitFunBody ns e
-emitFunBody ns (LetPrimH x p e) =
-  ["    " ++ emitPlaceName x ++ " = " ++ emitPrimOp p ++ ";"] ++
-  emitFunBody ns e
-emitFunBody ns (AllocFun fs e) = emitFunAlloc fs ++ emitFunBody ns e
-emitFunBody ns (AllocCont ks e) = emitContAlloc ks ++ emitFunBody ns e
-emitFunBody ns (JumpH k x) =
-  ["    JUMP(" ++ emitNameOccurrence k ++ ", " ++ emitNameOccurrence x ++ ");"]
-emitFunBody ns (CallH f x k) =
-  ["    TAILCALL(" ++ emitNameOccurrence f ++ ", " ++ emitNameOccurrence x ++ ", " ++ emitNameOccurrence k ++ ");"]
+emitContCode :: DeclNames -> PlaceName -> TermH -> [String]
+emitContCode ns x e =
+  ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitPlace x ++ ") {"
+  ,"    struct " ++ declEnvName ns ++ " *env = envp"] ++
+  -- TODO: Allocate locals.
+  emitClosureBody ns e ++
+  ["}"]
+
+emitClosureBody :: DeclNames -> TermH -> [String]
+emitClosureBody ns (LetValH x (IntValH i) e) =
+  ["    " ++ emitPlace x ++ " = allocate_int32(" ++ show i ++ ");"] ++
+  emitClosureBody ns e
+emitClosureBody ns (LetValH x NilH e) =
+  ["    " ++ emitPlace x ++ " = allocate_nil();"] ++
+  emitClosureBody ns e
+emitClosureBody ns (LetValH x (PairH y z) e) =
+  ["    " ++ emitPlace x ++ " = allocate_pair(" ++ emitName y ++ ", " ++ emitName z ++ ");"] ++
+  emitClosureBody ns e
+emitClosureBody ns (LetFstH x y e) =
+  ["    " ++ emitPlace x ++ " = project_fst(" ++ emitName y ++ ");"] ++
+  emitClosureBody ns e
+emitClosureBody ns (LetPrimH x p e) =
+  ["    " ++ emitPlace x ++ " = " ++ emitPrimOp p ++ ";"] ++
+  emitClosureBody ns e
+emitClosureBody ns (AllocFun fs e) = emitFunAlloc fs ++ emitClosureBody ns e
+emitClosureBody ns (AllocCont ks e) = emitContAlloc ks ++ emitClosureBody ns e
+emitClosureBody ns (HaltH x) =
+  ["    HALT(" ++ emitName x ++ ");"]
+emitClosureBody ns (JumpH k x) =
+  ["    JUMP(" ++ emitName k ++ ", " ++ emitName x ++ ");"]
+emitClosureBody ns (CallH f x k) =
+  ["    TAILCALL(" ++ emitName f ++ ", " ++ emitName x ++ ", " ++ emitName k ++ ");"]
 
 emitPrimOp :: PrimOp -> String
-emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitNameOccurrence x ++ ", " ++ emitNameOccurrence y ++ ");"
+emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName x ++ ", " ++ emitName y ++ ");"
 
 emitFunAlloc :: [FunAlloc] -> [String]
 emitFunAlloc fs = map emitAlloc fs ++ concatMap emitPatch fs
@@ -169,16 +201,16 @@ emitContAlloc fs = map emitAlloc fs ++ concatMap emitPatch fs
       -- certain. Strange things can happen.
       [p ++ "->env->" ++ x ++ " = " ++ x ++ ";" | LocalName x <- xs, Set.member x bindGroup]
 
-emitPlaceName :: PlaceName -> String
-emitPlaceName (PlaceName Fun f) = "struct fun *" ++ f
-emitPlaceName (PlaceName Cont k) = "struct cont *" ++ k
-emitPlaceName (PlaceName Value x) = "struct value *" ++ x
+emitPlace :: PlaceName -> String
+emitPlace (PlaceName Fun f) = "struct fun *" ++ f
+emitPlace (PlaceName Cont k) = "struct cont *" ++ k
+emitPlace (PlaceName Value x) = "struct value *" ++ x
 
 -- TODO: Parametrize this by what the name of the environment pointer is.
 -- There may be situations where 'env' or 'envp' is the name of a parameter.
-emitNameOccurrence :: Name -> String
-emitNameOccurrence (LocalName x) = x
-emitNameOccurrence (EnvName x) = "env->" ++ x
+emitName :: Name -> String
+emitName (LocalName x) = x
+emitName (EnvName x) = "env->" ++ x
 
 -- emitFunDecl :: FunDecl -> [String]
 -- emitFunDecl (FunDecl FnName [FnName] [CoVar] [TmVar] TmVar CoVar TermH) = _
