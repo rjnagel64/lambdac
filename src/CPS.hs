@@ -161,6 +161,7 @@ cps (TmCase e xl el xr er) k =
                   LetContK [ContDef k2 (var xr) er'] $
                     CaseK z k1 k2
 cps (TmPair e1 e2) k =
+  -- Problem: ((), ()) picks x0 as the temporary for both ()s
   cps e1 $ \v1 ->
     cps e2 $ \v2 ->
       freshTm "x" $ \x ->
@@ -191,10 +192,10 @@ cpsTail (TmInl e) k =
     freshTm "x" $ \x ->
       pure (LetValK x (InlK z) (JumpK k x))
 cpsTail (TmPair e1 e2) k =
-  cps e1 $ \x1 ->
-    cps e2 $ \x2 ->
+  cps e1 $ \v1 ->
+    cps e2 $ \v2 ->
       freshTm "x" $ \x ->
-        pure (LetValK x (PairK x1 x2) (JumpK k x))
+        pure (LetValK x (PairK v1 v2) (JumpK k x))
 cpsTail (TmFst e) k =
   cps e $ \z ->
     freshTm "x" $ \x ->
@@ -223,14 +224,14 @@ freshTm :: String -> (TmVar -> FreshM a) -> FreshM a
 freshTm x k = do
   scope <- ask
   case Map.lookup x scope of
-    Nothing -> local (Map.insert x 0) (k (TmVar (x ++ "0")))
+    Nothing -> local (Map.insert x 1) (k (TmVar (x ++ "0")))
     Just i -> local (Map.insert x (i+1)) (k (TmVar (x ++ show i)))
 
 freshCo :: String -> (CoVar -> FreshM a) -> FreshM a
 freshCo x k = do
   scope <- ask
   case Map.lookup x scope of
-    Nothing -> local (Map.insert x 0) (k (CoVar (x ++ "0")))
+    Nothing -> local (Map.insert x 1) (k (CoVar (x ++ "0")))
     Just i -> local (Map.insert x (i+1)) (k (CoVar (x ++ show i)))
 
 runFresh :: FreshM a -> a
