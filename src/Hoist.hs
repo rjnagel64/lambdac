@@ -165,6 +165,7 @@ runHoist = runWriter . flip evalStateT Set.empty . flip runReaderT emptyEnv . ru
 -- unique, so I can hoist them without conflicts.
 hoist :: TermC -> HoistM TermH
 hoist (JumpC x k) = JumpH <$> hoistVarOcc x <*> hoistVarOcc k
+hoist (CallC f x k) = CallH <$> hoistVarOcc f <*> hoistVarOcc x <*> hoistVarOcc k
 hoist (LetValC x v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x Value $ hoist e
@@ -280,7 +281,8 @@ inferSort x = do
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
-hoistVarOcc x = do
+-- TODO: Properly include the "HALT" continuation, so that this hack doesn't exist.
+hoistVarOcc x = if x == C.Name "HALT" then pure (LocalName "HALT") else do
   HoistEnv ps fs <- ask
   case Map.lookup x ps of
     Just (PlaceName _ x') -> pure (LocalName x')
@@ -288,7 +290,7 @@ hoistVarOcc x = do
     -- closures and values, from local scope and the environment.
     Nothing -> case Map.lookup x fs of
       Just (FieldName _ x') -> pure (EnvName x')
-      Nothing -> error "not in scope"
+      Nothing -> error ("not in scope: " ++ show x)
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.
@@ -319,10 +321,19 @@ indent n s = replicate n ' ' ++ s
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (JumpH k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
+pprintTerm n (CallH f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
+pprintTerm n (LetValH x v e) =
+  indent n ("let " ++ place x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
+  where place (PlaceName s x) = show s ++ " " ++ x
 pprintTerm n (LetFstH x y e) =
   indent n ("let " ++ place x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
-  where
-    place (PlaceName p x) = show p ++ " " ++ x
+  where place (PlaceName s x) = show s ++ " " ++ x
+pprintTerm n (AllocFun fs e) =
+  indent n "let\n" ++ concatMap (pprintFunAlloc (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
+
+pprintValue :: ValueH -> String
+pprintValue NilH = "()"
+pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintTop :: TopDecl -> String
 pprintTop (TopFun fs) = "fun {\n" ++ concatMap (pprintFunDecl 2) fs ++ "}\n"
@@ -335,3 +346,9 @@ pprintFunDecl n (FunDecl f (EnvDecl fs) x k e) =
 
     field (FieldName s x) = show s ++ " " ++ x
     place (PlaceName s x) = show s ++ " " ++ x
+
+pprintFunAlloc :: Int -> FunAlloc -> String
+pprintFunAlloc n (FunAlloc p d (EnvAlloc env)) = place p ++ " = " ++ show d ++ " " ++ env'
+  where
+    place (PlaceName s x) = show s ++ " " ++ x
+    env' = "{" ++ intercalate ", " (map show env) ++ "}\n"
