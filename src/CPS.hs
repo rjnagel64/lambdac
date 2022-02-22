@@ -9,6 +9,8 @@ module CPS
     , ContDef(..)
     , ValueK(..)
 
+    , TypeK(..)
+
     , cpsMain
     , pprintTerm
     ) where
@@ -172,6 +174,10 @@ cps (TmFst e) k =
   cps e $ \v ->
     freshTm "x" $ \x ->
       LetFstK x v <$> k x
+cps (TmSnd e) k =
+  cps e $ \v ->
+    freshTm "x" $ \x ->
+      LetSndK x v <$> k x
 cps TmNil k =
   freshTm "x" $ \x -> LetValK x NilK <$> k x
 cps (TmInt i) k =
@@ -183,18 +189,35 @@ cps (TmLet x e1 e2) k = do
 
 cpsFun :: TmFun -> FreshM FunDef
 cpsFun (TmFun f x e) = freshCo "k" $ \k -> FunDef (fnName f) (var x) k <$> cpsTail e k
-  where
-    fnName (S.TmVar x) = FnName x
+  where fnName (S.TmVar y) = FnName y
 
 -- | CPS-convert a term in tail position.
 -- In tail position, the continuation is always a continuation variable, which
 -- allows for simpler translations.
 cpsTail :: Term -> CoVar -> FreshM TermK
 cpsTail (TmVarOcc x) k = pure (JumpK k (var x))
+cpsTail (TmLam x e) k =
+  freshTm "f" $ \ (TmVar f) ->
+    freshCo "k" $ \k' ->
+      let mkFun e' = [FunDef (FnName f) (var x) k' e'] in
+      LetFunK <$> (mkFun <$> cpsTail e k') <*> pure (JumpK k (TmVar f))
+cpsTail (TmLet x e1 e2) k =
+  -- let x = e1 in e2
+  -- -->
+  -- let j x = [[e2]] k in [[e1]] j
+  freshCo "j" $ \j ->
+    let mkCont e2' = [ContDef j (var x) e2'] in
+    LetContK <$> (mkCont <$> cpsTail e2 k) <*> cpsTail e1 j
+cpsTail (TmRecFun fs e) k = do
+  LetFunK <$> traverse cpsFun fs <*> cpsTail e k
 cpsTail (TmInl e) k =
   cps e $ \z ->
     freshTm "x" $ \x ->
       pure (LetValK x (InlK z) (JumpK k x))
+cpsTail (TmInr e) k =
+  cps e $ \z ->
+    freshTm "x" $ \x ->
+      pure (LetValK x (InrK z) (JumpK k x))
 cpsTail (TmPair e1 e2) k =
   cps e1 $ \v1 ->
     cps e2 $ \v2 ->
@@ -204,13 +227,31 @@ cpsTail (TmFst e) k =
   cps e $ \z ->
     freshTm "x" $ \x ->
       pure (LetFstK x z (JumpK k x))
+cpsTail (TmSnd e) k =
+  cps e $ \z ->
+    freshTm "x" $ \x ->
+      pure (LetSndK x z (JumpK k x))
 cpsTail TmNil k =
   freshTm "x" $ \x ->
     pure (LetValK x NilK (JumpK k x))
+cpsTail (TmInt i) k =
+  freshTm "x" $ \x ->
+    pure (LetValK x (IntK i) (JumpK k x))
 cpsTail (TmApp e1 e2) k =
   cps e1 $ \ (TmVar f) ->
     cps e2 $ \x ->
       pure (CallK (FnName f) x k)
+cpsTail (TmCase e xl el xr er) k =
+  cps e $ \z ->
+    freshCo "k1" $ \k1 ->
+      freshCo "k2" $ \k2 -> do
+        el' <- cpsTail el k
+        er' <- cpsTail er k
+        pure $
+          -- TODO: Case branches that accept multiple arguments at once
+          LetContK [ContDef k1 (var xl) el'] $
+            LetContK [ContDef k2 (var xr) er'] $
+              CaseK z k1 k2
 
 
 cpsMain :: Term -> TermK
@@ -246,9 +287,11 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintTerm :: Int -> TermK -> String
+pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
 pprintTerm n (CallK f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
-pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
+pprintTerm n (CaseK x k1 k2) =
+  indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetValK x v e) =
   indent n ("let " ++ show x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFunK fs e) =
@@ -257,11 +300,15 @@ pprintTerm n (LetContK ks e) =
   indent n "letcont\n" ++ concatMap (pprintContDef (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetFstK x y e) =
   indent n ("let " ++ show x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetSndK x y e) =
+  indent n ("let " ++ show x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 
 pprintValue :: ValueK -> String
 pprintValue NilK = "()"
 pprintValue (PairK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntK i) = show i
+pprintValue (InlK x) = "inl " ++ show x
+pprintValue (InrK y) = "inr " ++ show y
 
 pprintFunDef :: Int -> FunDef -> String
 pprintFunDef n (FunDef f x k e) =

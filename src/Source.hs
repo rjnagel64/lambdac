@@ -1,5 +1,10 @@
 
-module Source (Term(..), TmVar(..), TmFun(..)) where
+module Source
+  ( Term(..)
+  , TmVar(..)
+  , TmFun(..)
+  , Type(..)
+  ) where
 
 -- | Term variables stand for values
 newtype TmVar = TmVar String

@@ -13,6 +13,10 @@ extra-source-files: CHANGELOG.md
 library
     hs-source-dirs: src
     default-language: Haskell2010
+    ghc-options:
+      -Wall
+      -Wincomplete-uni-patterns
+      -Wincomplete-record-updates
     build-depends:
         base ^>=4.14.3.0
       , containers ^>=0.6.5.1
