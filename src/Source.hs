@@ -12,7 +12,6 @@ newtype CoVar = CoVar String
 
 -- TODO: Add booleans and if-expressions. They can be compiled more efficiently
 -- than case analysis on Either () ().
--- TODO: Add let-expressions
 data Term
   -- x
   = TmVarOcc TmVar
@@ -38,6 +37,8 @@ data Term
   | TmRecFun [TmFun] Term
   -- ()
   | TmNil
+  -- 17
+  | TmInt Int
 
 -- TODO: More primops.
 -- let y = primop(x+) in e
@@ -45,8 +46,9 @@ data Term
 -- data PrimOp = PrimAddInt32 TmVar TmVar
 --
 -- Are there primops that take CoVar:s? Probably.
+--
+-- Just do it. The code duplication is unavoidable.
 
--- TODO: Add booleans and an if-expression.
 
 -- f x := e
 data TmFun = TmFun TmVar TmVar Term

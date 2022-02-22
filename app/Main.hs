@@ -9,7 +9,8 @@ import qualified Hoist as H
 import qualified Emit as E
 
 src :: S.Term
-src = S.TmApp (S.TmLam x (S.TmFst (S.TmVarOcc x))) (S.TmPair S.TmNil S.TmNil)
+-- src = S.TmApp (S.TmLam x (S.TmFst (S.TmVarOcc x))) (S.TmPair S.TmNil S.TmNil)
+src = S.TmApp (S.TmLam x (S.TmFst (S.TmVarOcc x))) (S.TmPair (S.TmInt 17) (S.TmInt 32))
   where x = S.TmVar "x"
 
 main :: IO ()

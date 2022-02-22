@@ -127,7 +127,7 @@ data ContAlloc
 newtype EnvAlloc = EnvAlloc [Name]
 
 data ValueH
-  = IntValH Int32
+  = IntH Int32
   | PairH Name Name
   | InlH Name
   | InrH Name
@@ -268,6 +268,7 @@ hoistValue (PairC x y) = PairH <$> hoistVarOcc x <*> hoistVarOcc y
 hoistValue (InlC x) = InlH <$> hoistVarOcc x
 hoistValue (InrC x) = InrH <$> hoistVarOcc x
 hoistValue NilC = pure NilH
+hoistValue (IntC i) = pure (IntH (fromIntegral i))
 
 
 -- | Extend the hoisting environment with place names for each closure in a
@@ -388,6 +389,7 @@ pprintTerm n (AllocCont ks e) =
 pprintValue :: ValueH -> String
 pprintValue NilH = "()"
 pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (IntH i) = show i
 
 pprintTop :: TopDecl -> String
 pprintTop (TopFun fs) = "fun {\n" ++ concatMap (pprintFunDecl 2) fs ++ "}\n"

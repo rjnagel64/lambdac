@@ -120,7 +120,7 @@ emitContCode ns x e =
   ["}"]
 
 emitClosureBody :: DeclNames -> TermH -> [String]
-emitClosureBody ns (LetValH x (IntValH i) e) =
+emitClosureBody ns (LetValH x (IntH i) e) =
   ["    " ++ emitPlace x ++ " = allocate_int32(" ++ show i ++ ");"] ++
   emitClosureBody ns e
 emitClosureBody ns (LetValH x NilH e) =

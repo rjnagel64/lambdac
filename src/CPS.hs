@@ -98,6 +98,7 @@ data ValueK
   | PairK TmVar TmVar
   | InlK TmVar
   | InrK TmVar
+  | IntK Int
 
 data TypeK
   -- unit
@@ -173,6 +174,8 @@ cps (TmFst e) k =
       LetFstK x v <$> k x
 cps TmNil k =
   freshTm "x" $ \x -> LetValK x NilK <$> k x
+cps (TmInt i) k =
+  freshTm "x" $ \x -> LetValK x (IntK i) <$> k x
 cps (TmLet x e1 e2) k = do
   e2' <- cps e2 k
   freshCo "j" $ \j ->
@@ -258,6 +261,7 @@ pprintTerm n (LetFstK x y e) =
 pprintValue :: ValueK -> String
 pprintValue NilK = "()"
 pprintValue (PairK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (IntK i) = show i
 
 pprintFunDef :: Int -> FunDef -> String
 pprintFunDef n (FunDef f x k e) =

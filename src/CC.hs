@@ -110,6 +110,7 @@ data ValueC
   | InlC Name
   | InrC Name
   | NilC
+  | IntC Int
 
 -- @(free, inBindGroup)@.
 newtype EnvVars = EnvVars (Set Name, Set Name)
@@ -193,6 +194,7 @@ cconv (LetValK x v e) = LetValC (tmVar x) (cconvValue v) (cconv e)
 cconvValue :: ValueK -> ValueC
 cconvValue NilK = NilC
 cconvValue (PairK x y) = PairC (tmVar x) (tmVar y)
+cconvValue (IntK i) = IntC i
 
 -- What does well-typed closure conversion look like?
 -- How are the values in a closure bound?
@@ -223,6 +225,7 @@ pprintTerm n (LetFstC x y e) =
 pprintValue :: ValueC -> String
 pprintValue NilC = "()"
 pprintValue (PairC x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (IntC i) = show i
 
 pprintClosureDef :: Int -> ClosureDef -> String
 pprintClosureDef n (ClosureDef f free rec x k e) =
