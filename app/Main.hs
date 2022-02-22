@@ -34,5 +34,5 @@ main = do
   putStrLn obj
 
   -- TODO: Name output file based on input file
-  -- TODO: Generate Makefile fragment?
+  -- TODO: Generate Makefile fragment? Yes. Gen-C each module, Gen-makefile, make -f $exe.make $exe
   writeFile "out.c" obj

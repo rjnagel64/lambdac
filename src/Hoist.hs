@@ -106,6 +106,7 @@ data TermH
   -- fst and snd are built-in constructs, for when I expand to n-ary products
   -- and projections.
   | LetFstH PlaceName Name TermH
+  | LetSndH PlaceName Name TermH
   | JumpH Name Name
   | CallH Name Name Name
   | HaltH Name
@@ -170,11 +171,16 @@ hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = HaltH <$> hoistVarOcc x
 hoist (JumpC x k) = JumpH <$> hoistVarOcc x <*> hoistVarOcc k
 hoist (CallC f x k) = CallH <$> hoistVarOcc f <*> hoistVarOcc x <*> hoistVarOcc k
+hoist (CaseC x k1 k2) = CaseH <$> hoistVarOcc x <*> hoistVarOcc k1 <*> hoistVarOcc k2
 hoist (LetValC x v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x Value $ hoist e
   pure $ LetValH x' v' e'
 hoist (LetFstC x y e) = do
+  y' <- hoistVarOcc y
+  (x', e') <- withPlace x Value $ hoist e
+  pure (LetFstH x' y' e')
+hoist (LetSndC x y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x Value $ hoist e
   pure (LetFstH x' y' e')
@@ -211,7 +217,7 @@ placesForFunAllocs fdecls k = do
   HoistEnv scope _ <- ask
   let
     pickPlace sc (d, def@(C.ClosureDef (C.Name f) _ _ _ _ _)) =
-      let p = go sc f 0 in (Map.insert (C.Name f) p sc, (p, d, def))
+      let p = go sc f (0 :: Int) in (Map.insert (C.Name f) p sc, (p, d, def))
     go sc f i = case Map.lookup (C.Name (f ++ show i)) sc of
       Nothing -> PlaceName Fun (f ++ show i)
       Just _ -> go sc f (i+1)
@@ -223,22 +229,15 @@ placesForContAllocs :: [(DeclName, C.ContClosureDef)] -> ([(PlaceName, DeclName,
 placesForContAllocs kdecls k = do
   HoistEnv scope _ <- ask
   let
-    pickPlace sc (d, def@(C.ContClosureDef (C.Name k) _ _ _ _)) =
-      let p = go sc k 0 in (Map.insert (C.Name k) p sc, (p, d, def))
-    go sc k i = case Map.lookup (C.Name (k ++ show i)) sc of
-      Nothing -> PlaceName Cont (k ++ show i)
-      Just _ -> go sc k (i+1)
+    pickPlace sc (d, def@(C.ContClosureDef (C.Name defk) _ _ _ _)) =
+      let p = go sc defk (0 :: Int) in (Map.insert (C.Name defk) p sc, (p, d, def))
+    go sc j i = case Map.lookup (C.Name (j ++ show i)) sc of
+      Nothing -> PlaceName Cont (j ++ show i)
+      Just _ -> go sc j (i+1)
   let (scope', kplaces) = mapAccumL pickPlace scope kdecls
   let extend (HoistEnv _ fields) = HoistEnv scope' fields
   local extend (k kplaces)
 
-
--- This is actually a generic extend-with-places function.
--- Almost redundant with 'withPlace', but this doesn't return the place name.
-withAllocationNames :: [(C.Name, PlaceName)] -> HoistM a -> HoistM a
-withAllocationNames xs m = local extend m
-  where
-    extend (HoistEnv places fields) = HoistEnv (foldr (uncurry Map.insert) places xs) fields
 
 declareClosureNames :: [C.ClosureDef] -> HoistM [(DeclName, C.ClosureDef)]
 declareClosureNames fs = for fs $ \def -> do
@@ -247,7 +246,7 @@ declareClosureNames fs = for fs $ \def -> do
     pickName i ds =
       let d = DeclName (f ++ show i) in
       if Set.member d ds then pickName (i+1) ds else (d, Set.insert d ds)
-  (d, decls') <- pickName 0 <$> get
+  (d, decls') <- pickName (0 :: Int) <$> get
   put decls'
   pure (d, def)
 
@@ -258,7 +257,7 @@ declareContClosureNames fs = for fs $ \def -> do
     pickName i ds =
       let d = DeclName (f ++ show i) in
       if Set.member d ds then pickName (i+1) ds else (d, Set.insert d ds)
-  (d, decls') <- pickName 0 <$> get
+  (d, decls') <- pickName (0 :: Int) <$> get
   put decls'
   pure (d, def)
 
@@ -271,25 +270,8 @@ hoistValue NilC = pure NilH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 
 
--- | Extend the hoisting environment with place names for each closure in a
--- binding group.
-withClosures :: [C.Name] -> Sort -> HoistM a -> HoistM a
-withClosures xs s m = do
-  HoistEnv scope _ <- ask
-  -- TODO: This name-freshening logic is still a mess.
-  let (scope', xs') = mapAccumL pickName scope xs
-      pickName sc x = let x' = loop sc x 0 in (Map.insert x x' sc, x')
-      loop sc (C.Name x) i = let x' = C.Name (x ++ show i) in case Map.lookup x' sc of
-        Nothing -> (PlaceName s (x ++ show i))
-        Just _ -> loop sc (C.Name x) (i+1)
-  -- ... Hang on, aren't the closures being defined in a bindgroup declarations?
-  -- Or maybe it's a declaration/allocation divide again. Decl for the
-  -- declaration, place for the allocation/body.
-  let extendEnv (HoistEnv places fields) = HoistEnv scope' fields
-  local extendEnv m
-
 hoistFunClosure :: (DeclName, C.ClosureDef) -> HoistM FunDecl
-hoistFunClosure (fdecl, C.ClosureDef f free rec x k body) = do
+hoistFunClosure (fdecl, C.ClosureDef _f free rec x k body) = do
   fields <- traverse inferSort (free ++ rec)
   (fields', places', body') <- inClosure fields [(x, Value), (k, Cont)] $ hoist body
   let envd = EnvDecl fields'
@@ -298,7 +280,7 @@ hoistFunClosure (fdecl, C.ClosureDef f free rec x k body) = do
   pure fd
 
 hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ContDecl
-hoistContClosure (kdecl, C.ContClosureDef k free rec x body) = do
+hoistContClosure (kdecl, C.ContClosureDef _k free rec x body) = do
   fields <- traverse inferSort (free ++ rec)
   (fields', places', body') <- inClosure fields [(x, Value)] $ hoist body
   let envd = EnvDecl fields'
@@ -325,7 +307,7 @@ inClosure fields places m = do
 -- needing to infer it.
 inferSort :: C.Name -> HoistM (C.Name, Sort)
 inferSort x = do
-  HoistEnv places fields <- ask
+  HoistEnv places _ <- ask
   case Map.lookup x places of
     Just (PlaceName s _) -> pure (x, s)
     Nothing -> error "Sort of name unknown" -- Lookup fields? I don't think so.
@@ -359,13 +341,13 @@ makePlace (C.Name x) s = do
   go x (0 :: Int) places
   where
     go :: String -> Int -> Map C.Name PlaceName -> HoistM PlaceName
-    go x i ps =
-      let x' = (C.Name (x ++ show i)) in -- TODO: C.prime :: C.Name -> C.Name
+    go v i ps =
+      let v' = (C.Name (v ++ show i)) in -- TODO: C.prime :: C.Name -> C.Name
       -- I think this is fine. We might shadow local names, which is bad, but
       -- environment references are guarded by 'env->'.
-      case Map.lookup x' ps of
-        Nothing -> pure (PlaceName s (x ++ show i))
-        Just _ -> go x (i+1) ps
+      case Map.lookup v' ps of
+        Nothing -> pure (PlaceName s (v ++ show i))
+        Just _ -> go v (i+1) ps
 
 
 indent :: Int -> String -> String
@@ -375,12 +357,16 @@ pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH x) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (JumpH k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
 pprintTerm n (CallH f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
+pprintTerm n (CaseH x k1 k2) =
+  indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetValH x v e) =
-  indent n ("let " ++ place x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
-  where place (PlaceName s x) = show s ++ " " ++ x
+  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFstH x y e) =
-  indent n ("let " ++ place x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
-  where place (PlaceName s x) = show s ++ " " ++ x
+  indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetSndH x y e) =
+  indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetPrimH x p e) =
+  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintPrim p ++ ";\n") ++ pprintTerm n e
 pprintTerm n (AllocFun fs e) =
   indent n "let\n" ++ concatMap (pprintFunAlloc (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (AllocCont ks e) =
@@ -390,6 +376,19 @@ pprintValue :: ValueH -> String
 pprintValue NilH = "()"
 pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntH i) = show i
+pprintValue (InlH x) = "inl " ++ show x
+pprintValue (InrH y) = "inr " ++ show y
+
+pprintPrim :: PrimOp -> String
+pprintPrim (PrimAddInt32 x y) = "prim_addint32(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimSubInt32 x y) = "prim_subint32(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimMulInt32 x y) = "prim_mulint32(" ++ show x ++ ", " ++ show y ++ ")"
+
+pprintPlace :: PlaceName -> String
+pprintPlace (PlaceName s x) = show s ++ " " ++ x
+
+pprintField :: FieldName -> String
+pprintField (FieldName s x) = show s ++ " " ++ x
 
 pprintTop :: TopDecl -> String
 pprintTop (TopFun fs) = "fun {\n" ++ concatMap (pprintFunDecl 2) fs ++ "}\n"
@@ -397,30 +396,21 @@ pprintTop (TopCont ks) = "cont {\n" ++ concatMap (pprintContDecl 2) ks ++ "}\n"
 
 pprintFunDecl :: Int -> FunDecl -> String
 pprintFunDecl n (FunDecl f (EnvDecl fs) x k e) =
-  indent n (show f ++ " " ++ env ++ " " ++ place x ++ " " ++ place k ++ " =\n") ++ pprintTerm (n+2) e
-  where
-    env = "{" ++ intercalate ", " (map field fs) ++ "}"
-
-    field (FieldName s x) = show s ++ " " ++ x
-    place (PlaceName s x) = show s ++ " " ++ x
+  indent n (show f ++ " " ++ env ++ " " ++ pprintPlace x ++ " " ++ pprintPlace k ++ " =\n") ++
+  pprintTerm (n+2) e
+  where env = "{" ++ intercalate ", " (map pprintField fs) ++ "}"
 
 pprintContDecl :: Int -> ContDecl -> String
 pprintContDecl n (ContDecl k (EnvDecl fs) x e) =
-  indent n (show k ++ " " ++ env ++ " " ++ place x ++ " =\n") ++ pprintTerm (n+2) e
-  where
-    env = "{" ++ intercalate ", " (map field fs) ++ "}"
-
-    field (FieldName s x) = show s ++ " " ++ x
-    place (PlaceName s x) = show s ++ " " ++ x
+  indent n (show k ++ " " ++ env ++ " " ++ pprintPlace x ++ " =\n") ++ pprintTerm (n+2) e
+  where env = "{" ++ intercalate ", " (map pprintField fs) ++ "}"
 
 pprintFunAlloc :: Int -> FunAlloc -> String
-pprintFunAlloc n (FunAlloc p d (EnvAlloc env)) = indent n $ place p ++ " = " ++ show d ++ " " ++ env'
-  where
-    place (PlaceName s x) = show s ++ " " ++ x
-    env' = "{" ++ intercalate ", " (map show env) ++ "}\n"
+pprintFunAlloc n (FunAlloc p d (EnvAlloc env)) =
+  indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ env'
+  where env' = "{" ++ intercalate ", " (map show env) ++ "}\n"
 
 pprintContAlloc :: Int -> ContAlloc -> String
-pprintContAlloc n (ContAlloc p d (EnvAlloc env)) = indent n $ place p ++ " = " ++ show d ++ " " ++ env'
-  where
-    place (PlaceName s x) = show s ++ " " ++ x
-    env' = "{" ++ intercalate ", " (map show env) ++ "}\n"
+pprintContAlloc n (ContAlloc p d (EnvAlloc env)) =
+  indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ env'
+  where env' = "{" ++ intercalate ", " (map show env) ++ "}\n"
