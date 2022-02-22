@@ -347,6 +347,34 @@ struct value *allocate_nil(void) {
     return v;
 }
 
+struct value *allocate_true(void) {
+    struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
+    v->header.type = ALLOC_CONST;
+    v->header.next = first_allocation;
+    v->words[0] = 0;
+
+    first_allocation = (struct alloc_header *)v;
+    num_allocs++;
+    if (num_allocs > gc_threshold) {
+        collect_from_value(v);
+    }
+    return v;
+}
+
+struct value *allocate_false(void) {
+    struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
+    v->header.type = ALLOC_CONST;
+    v->header.next = first_allocation;
+    v->words[0] = 1;
+
+    first_allocation = (struct alloc_header *)v;
+    num_allocs++;
+    if (num_allocs > gc_threshold) {
+        collect_from_value(v);
+    }
+    return v;
+}
+
 struct value *allocate_inl(struct value *x) {
     struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
     v->header.type = ALLOC_SUM;
@@ -474,6 +502,14 @@ struct value *prim_subint32(struct value *x, struct value *y) {
 
 struct value *prim_mulint32(struct value *x, struct value *y) {
     return allocate_int32(int32_value(x) * int32_value(y));
+}
+
+struct value *prim_iszero(struct value *x) {
+    if (int32_value(x) == 0) {
+        return allocate_true();
+    } else {
+        return allocate_false();
+    }
 }
 
 // vim: set et sts=4 sw=4:

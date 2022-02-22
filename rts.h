@@ -60,7 +60,11 @@ struct value *allocate_pair(struct value *x, struct value *y);
 struct value *project_fst(struct value *v);
 struct value *project_snd(struct value *v);
 
+// TODO: true, false, and nil are truly constant. Return a single shared
+// instance of them?
 struct value *allocate_nil(void);
+struct value *allocate_true(void);
+struct value *allocate_false(void);
 struct value *allocate_inl(struct value *v);
 struct value *allocate_inr(struct value *v);
 
@@ -108,5 +112,6 @@ void control_halt(struct value *x);
 struct value *prim_addint32(struct value *x, struct value *y);
 struct value *prim_subint32(struct value *x, struct value *y);
 struct value *prim_mulint32(struct value *x, struct value *y);
+struct value *prim_iszero(struct value *x);
 
 #endif
