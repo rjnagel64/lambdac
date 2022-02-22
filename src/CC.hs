@@ -13,8 +13,6 @@ module CC
 
 import qualified Data.Set as Set
 import Data.Set (Set)
-import qualified Data.Map as Map
-import Data.Map (Map)
 
 import Data.List (intercalate)
 
@@ -72,6 +70,7 @@ fnName (K.FnName f) = Name f
 data TermC
   = LetValC Name ValueC TermC -- let x = v in e, allocation
   | LetFstC Name Name TermC -- let x = fst y in e, projection
+  | LetSndC Name Name TermC
   | LetFunC [ClosureDef] TermC
   | LetContC [ContClosureDef] TermC
   -- Invoke a closure by providing a value for the only remaining argument.
@@ -124,7 +123,7 @@ instance Semigroup Env where
   Env f <> Env g = Env $ \binding -> f binding <> g binding
 
 instance Monoid Env where
-  mempty = Env $ \binding -> mempty
+  mempty = Env $ \_ -> mempty
 
 bindRec :: [Name] -> Env -> Env
 bindRec xs vs = Env $ \binding -> case runEnv vs binding of
@@ -154,14 +153,32 @@ class Close a where
 instance Close TermK where
   close (HaltK x) = unit (tmVar x)
   close (JumpK k x) = unit (coVar k) <> unit (tmVar x)
+  close (LetValK x v e) = close v <> bind [tmVar x] (close e)
+  close (CallK f x k) = unit (fnName f) <> unit (tmVar x) <> unit (coVar k)
+  close (CaseK x k1 k2) = unit (tmVar x) <> unit (coVar k1) <> unit (coVar k2)
   close (LetFstK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
+  close (LetSndK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
   close (LetFunK fs e) = foldMap g fs <> bind fs' (close e)
     where
       -- In each definition, all the all definitions and also the parameters are in scope.
       g :: FunDef -> Env
-      g (FunDef f x k e) = bindRec fs' $ bind [tmVar x, coVar k] $ close e
+      g (FunDef _f x k e') = bindRec fs' $ bind [tmVar x, coVar k] $ close e'
       fs' :: [Name]
       fs' = map (\ (FunDef f _ _ _) -> fnName f) fs
+  close (LetContK ks e) = foldMap g ks <> bind ks' (close e)
+    where
+      -- In each definition, all the all definitions and also the parameters are in scope.
+      g :: ContDef -> Env
+      g (ContDef _k x e') = bindRec ks' $ bind [tmVar x] $ close e'
+      ks' :: [Name]
+      ks' = map (\ (ContDef k _ _) -> coVar k) ks
+
+instance Close ValueK where
+  close NilK = mempty
+  close (IntK _) = mempty
+  close (InlK x) = unit (tmVar x)
+  close (InrK y) = unit (tmVar y)
+  close (PairK x y) = unit (tmVar x) <> unit (tmVar y)
 
 instance Close FunDef where
   close (FunDef f x k e) = bind [fnName f, tmVar x, coVar k] $ close e
@@ -175,26 +192,30 @@ instance Close ContDef where
 cconv :: TermK -> TermC
 cconv (LetFunK fs e) = LetFunC (map ann fs) (cconv e)
   where
-    ann fun@(FunDef f x k e) =
+    ann fun@(FunDef f x k e') =
       let EnvVars (vs, vs') = runEnv (close fun) fs' in
-      ClosureDef (fnName f) (Set.toList vs) (Set.toList vs') (tmVar x) (coVar k) (cconv e)
+      ClosureDef (fnName f) (Set.toList vs) (Set.toList vs') (tmVar x) (coVar k) (cconv e')
     fs' = Set.fromList $ map (\ (FunDef f _ _ _) -> fnName f) fs
 cconv (LetContK ks e) = LetContC (map ann ks) (cconv e)
   where
-    ann kont@(ContDef k x e) =
+    ann kont@(ContDef k x e') =
       let EnvVars (vs, vs') = runEnv (close kont) ks' in
-      ContClosureDef (coVar k) (Set.toList vs) (Set.toList vs') (tmVar x) (cconv e)
+      ContClosureDef (coVar k) (Set.toList vs) (Set.toList vs') (tmVar x) (cconv e')
     ks' = Set.fromList $ map (\ (ContDef k _ _) -> coVar k) ks
+cconv (HaltK x) = HaltC (tmVar x)
 cconv (JumpK k x) = JumpC (coVar k) (tmVar x)
 cconv (CallK f x k) = CallC (fnName f) (tmVar x) (coVar k)
-cconv (HaltK x) = HaltC (tmVar x)
+cconv (CaseK x k1 k2) = CaseC (tmVar x) (coVar k1) (coVar k2)
 cconv (LetFstK x y e) = LetFstC (tmVar x) (tmVar y) (cconv e)
+cconv (LetSndK x y e) = LetSndC (tmVar x) (tmVar y) (cconv e)
 cconv (LetValK x v e) = LetValC (tmVar x) (cconvValue v) (cconv e)
 
 cconvValue :: ValueK -> ValueC
 cconvValue NilK = NilC
 cconvValue (PairK x y) = PairC (tmVar x) (tmVar y)
 cconvValue (IntK i) = IntC i
+cconvValue (InlK x) = InlC (tmVar x)
+cconvValue (InrK y) = InrC (tmVar y)
 
 -- What does well-typed closure conversion look like?
 -- How are the values in a closure bound?
@@ -221,11 +242,17 @@ pprintTerm n (LetValC x v e) =
   indent n ("let " ++ show x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFstC x y e) =
   indent n ("let " ++ show x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetSndC x y e) =
+  indent n ("let " ++ show x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (CaseC x k1 k2) =
+  indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 
 pprintValue :: ValueC -> String
 pprintValue NilC = "()"
 pprintValue (PairC x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntC i) = show i
+pprintValue (InlC x) = "inl " ++ show x
+pprintValue (InrC y) = "inr " ++ show y
 
 pprintClosureDef :: Int -> ClosureDef -> String
 pprintClosureDef n (ClosureDef f free rec x k e) =
