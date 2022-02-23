@@ -71,6 +71,7 @@ data TermC
   = LetValC Name ValueC TermC -- let x = v in e, allocation
   | LetFstC Name Name TermC -- let x = fst y in e, projection
   | LetSndC Name Name TermC
+  | LetAddC Name Name Name TermC
   | LetFunC [ClosureDef] TermC
   | LetContC [ContClosureDef] TermC
   -- Invoke a closure by providing a value for the only remaining argument.
@@ -158,6 +159,7 @@ instance Close TermK where
   close (CaseK x k1 k2) = unit (tmVar x) <> unit (coVar k1) <> unit (coVar k2)
   close (LetFstK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
   close (LetSndK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
+  close (LetAddK z x y e) = unit (tmVar x) <> unit (tmVar y) <> bind [tmVar z] (close e)
   close (LetFunK fs e) = foldMap g fs <> bind fs' (close e)
     where
       -- In each definition, all the all definitions and also the parameters are in scope.
@@ -209,6 +211,7 @@ cconv (CaseK x k1 k2) = CaseC (tmVar x) (coVar k1) (coVar k2)
 cconv (LetFstK x y e) = LetFstC (tmVar x) (tmVar y) (cconv e)
 cconv (LetSndK x y e) = LetSndC (tmVar x) (tmVar y) (cconv e)
 cconv (LetValK x v e) = LetValC (tmVar x) (cconvValue v) (cconv e)
+cconv (LetAddK z x y e) = LetAddC (tmVar z) (tmVar x) (tmVar y) (cconv e)
 
 cconvValue :: ValueK -> ValueC
 cconvValue NilK = NilC
@@ -246,6 +249,8 @@ pprintTerm n (LetSndC x y e) =
   indent n ("let " ++ show x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (CaseC x k1 k2) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
+pprintTerm n (LetAddC z x y e) =
+  indent n ("let " ++ show z ++ " = " ++ show x ++ " + " ++ show y ++ ";\n") ++ pprintTerm n e
 
 pprintValue :: ValueC -> String
 pprintValue NilC = "()"

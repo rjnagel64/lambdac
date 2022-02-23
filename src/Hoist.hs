@@ -184,6 +184,11 @@ hoist (LetSndC x y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x Value $ hoist e
   pure (LetFstH x' y' e')
+hoist (LetAddC z x y e) = do
+  x' <- hoistVarOcc x
+  y' <- hoistVarOcc y
+  (z', e') <- withPlace z Value $ hoist e
+  pure (LetPrimH z' (PrimAddInt32 x' y') e')
 hoist (LetFunC fs e) = do
   fdecls <- declareClosureNames fs
   ds' <- traverse hoistFunClosure fdecls
@@ -310,7 +315,7 @@ inferSort x = do
   HoistEnv places _ <- ask
   case Map.lookup x places of
     Just (PlaceName s _) -> pure (x, s)
-    Nothing -> error "Sort of name unknown" -- Lookup fields? I don't think so.
+    Nothing -> error ("Sort of name " ++ show x ++ " unknown") -- Lookup fields? I don't think so.
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.

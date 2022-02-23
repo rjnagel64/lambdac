@@ -353,6 +353,7 @@ struct value *allocate_nil(void) {
     return v;
 }
 
+// TODO: Should these be inl ()/inr (), or 0/1?
 struct value *allocate_true(void) {
     struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_CONST;
