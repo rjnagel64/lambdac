@@ -9,6 +9,11 @@ void not_implemented(const char *msg) {
     exit(1);
 }
 
+void panic(const char *msg) {
+    printf("RTS error: %s\n", msg);
+    exit(1);
+}
+
 enum next_type {
     JUMP_NEXT,
     TAILCALL_NEXT,
@@ -100,7 +105,8 @@ void trace_value(struct value *v) {
     case ALLOC_SUM:
         trace_sum(v);
         break;
-    // No other cases possible.
+    default:
+        panic("unreachable allocation type");
     }
 }
 
@@ -425,6 +431,22 @@ void control_halt(struct value *x) {
     next_step.fun = NULL;
     next_step.arg = x;
     next_step.kont = NULL;
+}
+
+void control_case(struct value *x, struct cont *k1, struct cont *k2) {
+    next_step.type = JUMP_NEXT;
+    next_step.fun = NULL;
+    next_step.arg = (struct value *)x->words[1];
+    switch (x->words[0]) {
+    case 0:
+        next_step.kont = k1;
+        break;
+    case 1:
+        next_step.kont = k2;
+        break;
+    default:
+        panic("invalid discriminant");
+    }
 }
 
 

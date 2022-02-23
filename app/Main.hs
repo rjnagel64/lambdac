@@ -13,6 +13,8 @@ src :: S.Term
 src = S.TmApp (S.TmLam x (S.TmFst (S.TmVarOcc x))) (S.TmPair (S.TmInt 17) (S.TmInt 32))
   where x = S.TmVar "x"
 
+-- TODO: A native string type, probably like 'Text' not [Char]?
+
 main :: IO ()
 main = do
   putStrLn "Hello, Haskell!"

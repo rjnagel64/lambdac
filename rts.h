@@ -104,10 +104,12 @@ void store_local(size_t i, struct alloc_header *alloc);
 void control_jump(struct cont *k, struct value *x);
 void control_call(struct fun *f, struct value *x, struct cont *k);
 void control_halt(struct value *x);
+void control_case(struct value *x, struct cont *k1, struct cont *k2);
 
 #define JUMP(k, x) { control_jump(k, x); return; }
 #define TAILCALL(f, x, k) { control_call(f, x, k); return; }
 #define HALT(x) { control_halt(x); return; }
+#define CASE(x, k1, k2) { control_case(x, k1, k2); return; }
 
 struct value *prim_addint32(struct value *x, struct value *y);
 struct value *prim_subint32(struct value *x, struct value *y);
