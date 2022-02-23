@@ -35,7 +35,7 @@ prologue = ["#include \"rts.h\""]
 emitEntryPoint :: TermH -> [String]
 emitEntryPoint e =
   ["void program_entry(void) {"] ++
-  emitClosureBody (namesForDecl (DeclName "<entry>")) e ++
+  emitClosureBody e ++
   ["}"]
 
 emitTopDecl :: TopDecl -> [String]
@@ -43,7 +43,8 @@ emitTopDecl (TopFun fs) = concatMap emitFunDecl fs
 emitTopDecl (TopCont ks) = concatMap emitContDecl ks
 
 -- TODO: Bind groups have to be emitted all at once so that proper ordering can
--- be achieved.
+-- be achieved. (Or not? All recursive occurrences happen through closure
+-- fields.)
 emitFunDecl :: H.FunDecl -> [String]
 emitFunDecl (H.FunDecl d envd x k e) =
   emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitFunCode ns x k e
@@ -108,7 +109,7 @@ emitFunCode ns x k e =
   ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitPlace x ++ ", " ++ emitPlace k ++ ") {"
   ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
   -- TODO: Allocate locals.
-  emitClosureBody ns e ++
+  emitClosureBody e ++
   ["}"]
 
 emitContCode :: DeclNames -> PlaceName -> TermH -> [String]
@@ -116,90 +117,95 @@ emitContCode ns x e =
   ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitPlace x ++ ") {"
   ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
   -- TODO: Allocate locals.
-  emitClosureBody ns e ++
+  emitClosureBody e ++
   ["}"]
 
-emitClosureBody :: DeclNames -> TermH -> [String]
-emitClosureBody ns (LetValH x (IntH i) e) =
+emitClosureBody :: TermH -> [String]
+emitClosureBody (LetValH x (IntH i) e) =
   ["    " ++ emitPlace x ++ " = allocate_int32(" ++ show i ++ ");"] ++
-  emitClosureBody ns e
-emitClosureBody ns (LetValH x NilH e) =
+  emitClosureBody e
+emitClosureBody (LetValH x NilH e) =
   ["    " ++ emitPlace x ++ " = allocate_nil();"] ++
-  emitClosureBody ns e
-emitClosureBody ns (LetValH x (PairH y z) e) =
+  emitClosureBody e
+emitClosureBody (LetValH x (PairH y z) e) =
   ["    " ++ emitPlace x ++ " = allocate_pair(" ++ emitName y ++ ", " ++ emitName z ++ ");"] ++
-  emitClosureBody ns e
-emitClosureBody ns (LetFstH x y e) =
+  emitClosureBody e
+emitClosureBody (LetValH x (InlH y) e) =
+  ["    " ++ emitPlace x ++ " = allocate_inl(" ++ emitName y ++ ");"] ++
+  emitClosureBody e
+emitClosureBody (LetValH x (InrH y) e) =
+  ["    " ++ emitPlace x ++ " = allocate_inr(" ++ emitName y ++ ");"] ++
+  emitClosureBody e
+emitClosureBody (LetFstH x y e) =
   ["    " ++ emitPlace x ++ " = project_fst(" ++ emitName y ++ ");"] ++
-  emitClosureBody ns e
-emitClosureBody ns (LetPrimH x p e) =
+  emitClosureBody e
+emitClosureBody (LetSndH x y e) =
+  ["    " ++ emitPlace x ++ " = project_snd(" ++ emitName y ++ ");"] ++
+  emitClosureBody e
+emitClosureBody (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp p ++ ";"] ++
-  emitClosureBody ns e
-emitClosureBody ns (AllocFun fs e) = emitFunAlloc fs ++ emitClosureBody ns e
-emitClosureBody ns (AllocCont ks e) = emitContAlloc ks ++ emitClosureBody ns e
-emitClosureBody ns (HaltH x) =
+  emitClosureBody e
+emitClosureBody (AllocFun fs e) = emitFunAlloc fs ++ emitClosureBody e
+emitClosureBody (AllocCont ks e) = emitContAlloc ks ++ emitClosureBody e
+emitClosureBody (HaltH x) =
   ["    HALT(" ++ emitName x ++ ");"]
-emitClosureBody ns (JumpH k x) =
+emitClosureBody (JumpH k x) =
   ["    JUMP(" ++ emitName k ++ ", " ++ emitName x ++ ");"]
-emitClosureBody ns (CallH f x k) =
+emitClosureBody (CallH f x k) =
   ["    TAILCALL(" ++ emitName f ++ ", " ++ emitName x ++ ", " ++ emitName k ++ ");"]
+emitClosureBody (CaseH x k1 k2) =
+  ["    CASE(" ++ emitName x ++ ", " ++ emitName k1 ++ ", " ++ emitName k2 ++ ");"]
 
 emitPrimOp :: PrimOp -> String
 emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName x ++ ", " ++ emitName y ++ ");"
+emitPrimOp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName x ++ ", " ++ emitName y ++ ");"
+emitPrimOp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName x ++ ", " ++ emitName y ++ ");"
 
 emitFunAlloc :: [FunAlloc] -> [String]
-emitFunAlloc fs = map emitAlloc fs ++ concatMap emitPatch fs
+emitFunAlloc fs =
+  map (\ (FunAlloc p d env) -> emitAlloc bindGroup p d env) fs ++
+  concatMap (\ (FunAlloc p _ env) -> emitPatch bindGroup p env) fs
   where
     bindGroup :: Set String
     bindGroup = Set.fromList $ map (\ (FunAlloc _ (DeclName f) _) -> f) fs
 
-    -- Names in bindGroup -> NULL
-    emitAlloc :: FunAlloc -> String
-    emitAlloc (FunAlloc (PlaceName Fun p) d@(DeclName f) (EnvAlloc xs)) =
-      "    struct fun *" ++ p ++ " = " ++ "allocate_fun(" ++ intercalate ", " args ++ ");"
-      where
-        ns = namesForDecl d
-        args = [envArg, codeArg, traceArg]
-        -- Allocate closure environment here, with NULL for cyclic captures.
-        envArg = declAllocName ns ++ "(" ++ intercalate ", " (map allocArg xs) ++ ")"
-        allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
-        allocArg (EnvName x) = x
-        codeArg = declCodeName ns
-        traceArg = declTraceName ns
-
-    -- Assign to each name in the bindGroup
-    emitPatch :: FunAlloc -> [String]
-    emitPatch (FunAlloc (PlaceName _ p) f (EnvAlloc xs)) =
-      -- Is the field name the same as the local variable name? I'm not quite
-      -- certain. Strange things can happen.
-      [p ++ "->env->" ++ x ++ " = " ++ x ++ ";" | LocalName x <- xs, Set.member x bindGroup]
-
 emitContAlloc :: [ContAlloc] -> [String]
-emitContAlloc fs = map emitAlloc fs ++ concatMap emitPatch fs
+emitContAlloc fs =
+  map (\ (ContAlloc p d env) -> emitAlloc bindGroup p d env) fs ++
+  concatMap (\ (ContAlloc p _ env) -> emitPatch bindGroup p env) fs
   where
     bindGroup :: Set String
     bindGroup = Set.fromList $ map (\ (ContAlloc _ (DeclName f) _) -> f) fs
 
-    -- Names in bindGroup -> NULL
-    emitAlloc :: ContAlloc -> String
-    emitAlloc (ContAlloc (PlaceName Cont p) d@(DeclName f) (EnvAlloc xs)) =
-      "    struct cont *" ++ p ++ " = " ++ "allocate_cont(" ++ intercalate ", " args ++ ");"
-      where
-        ns = namesForDecl d
-        args = [envArg, codeArg, traceArg]
-        -- Allocate closure environment here, with NULL for cyclic captures.
-        envArg = declAllocName ns ++ "(" ++ intercalate ", " (map allocArg xs) ++ ")"
-        allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
-        allocArg (EnvName x) = x
-        codeArg = declCodeName ns
-        traceArg = declTraceName ns
+-- Names in bindGroup -> NULL
+emitAlloc :: Set String -> PlaceName -> DeclName -> EnvAlloc -> String
+emitAlloc bindGroup (PlaceName Fun p) d (EnvAlloc xs) =
+  "    struct fun *" ++ p ++ " = " ++ "allocate_fun(" ++ intercalate ", " args ++ ");"
+  where
+    ns = namesForDecl d
+    args = [envArg, codeArg, traceArg]
+    -- Allocate closure environment here, with NULL for cyclic captures.
+    envArg = declAllocName ns ++ "(" ++ intercalate ", " (map allocArg xs) ++ ")"
+    allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
+    allocArg (EnvName x) = x
+    codeArg = declCodeName ns
+    traceArg = declTraceName ns
+emitAlloc bindGroup (PlaceName Cont p) d (EnvAlloc xs) =
+  "    struct cont *" ++ p ++ " = " ++ "allocate_cont(" ++ intercalate ", " args ++ ");"
+  where
+    ns = namesForDecl d
+    args = [envArg, codeArg, traceArg]
+    -- Allocate closure environment here, with NULL for cyclic captures.
+    envArg = declAllocName ns ++ "(" ++ intercalate ", " (map allocArg xs) ++ ")"
+    allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
+    allocArg (EnvName x) = x
+    codeArg = declCodeName ns
+    traceArg = declTraceName ns
+emitAlloc _ (PlaceName Value _) _ _ = error "Values are not allocated through this function."
 
-    -- Assign to each name in the bindGroup
-    emitPatch :: ContAlloc -> [String]
-    emitPatch (ContAlloc (PlaceName _ p) f (EnvAlloc xs)) =
-      -- Is the field name the same as the local variable name? I'm not quite
-      -- certain. Strange things can happen.
-      [p ++ "->env->" ++ x ++ " = " ++ x ++ ";" | LocalName x <- xs, Set.member x bindGroup]
+emitPatch :: Set String -> PlaceName -> EnvAlloc -> [String]
+emitPatch bindGroup (PlaceName _ p) (EnvAlloc xs) =
+  [p ++ "->env->" ++ x ++ " = " ++ x ++ ";" | LocalName x <- xs, Set.member x bindGroup]
 
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName Fun f) = "struct fun *" ++ f
