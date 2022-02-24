@@ -2,10 +2,11 @@
 
 module CC
   ( TermC(..)
-  , ClosureDef(..)
+  , FunClosureDef(..)
   , ContClosureDef(..)
   , Name(..)
   , ValueC(..)
+  , Sort(..)
 
   , cconv
   , pprintTerm
@@ -58,12 +59,25 @@ instance Show Name where
 
 tmVar :: K.TmVar -> Name
 tmVar (K.TmVar x) = Name x
+-- tmVar (K.TmVar x) = (Name x, Value)
 
 coVar :: K.CoVar -> Name
 coVar (K.CoVar k) = Name k
 
 fnName :: K.FnName -> Name
 fnName (K.FnName f) = Name f
+
+-- This is really a simplified of type information.
+-- Value = int | bool | t1 * t2 | t1 + t2 | ()
+-- Fun = (t1 * (t2 -> 0)) -> 0
+-- Cont = t1 -> 0
+data Sort = Fun | Cont | Value
+  deriving (Eq, Ord)
+
+instance Show Sort where
+  show Fun = "fun"
+  show Cont = "cont"
+  show Value = "value"
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -73,7 +87,7 @@ data TermC
   | LetSndC Name Name TermC
   | LetAddC Name Name Name TermC
   | LetIsZeroC Name Name TermC
-  | LetFunC [ClosureDef] TermC
+  | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
   -- Invoke a closure by providing a value for the only remaining argument.
   | JumpC Name Name -- k x
@@ -84,14 +98,14 @@ data TermC
 -- | @f {x+} y k = e@
 -- Closures capture two sets of names: those from outer scopes, and those from
 -- the same recursive bind group.
-data ClosureDef
-  = ClosureDef {
-    closureName :: Name
-  , closureFreeNames :: [Name]
-  , closureRecNames :: [Name]
-  , closureParam :: Name
-  , closureCont :: Name
-  , closureBody :: TermC
+data FunClosureDef
+  = FunClosureDef {
+    funClosureName :: Name
+  , funClosureFreeNames :: [(Name, Sort)]
+  , funClosureRecNames :: [(Name, Sort)]
+  , funClosureParam :: Name
+  , funClosureCont :: Name
+  , funClosureBody :: TermC
   }
 
 -- | @k {x+} y = e@
@@ -100,8 +114,8 @@ data ClosureDef
 data ContClosureDef
   = ContClosureDef {
     contClosureName :: Name
-  , contClosureFreeNames :: [Name]
-  , contClosureRecNames :: [Name]
+  , contClosureFreeNames :: [(Name, Sort)]
+  , contClosureRecNames :: [(Name, Sort)]
   , contClosureParam :: Name
   , contClosureBody :: TermC
   }
@@ -114,7 +128,7 @@ data ValueC
   | IntC Int
 
 -- @(free, inBindGroup)@.
-newtype EnvVars = EnvVars (Set Name, Set Name)
+newtype EnvVars = EnvVars (Set (Name, Sort), Set (Name, Sort))
   deriving newtype (Semigroup, Monoid)
 
 -- | @bound -> binding -> (free, inBinding)@
@@ -127,7 +141,7 @@ instance Semigroup Env where
 instance Monoid Env where
   mempty = Env $ \_ -> mempty
 
-bindRec :: [Name] -> Env -> Env
+bindRec :: [(Name, Sort)] -> Env -> Env
 bindRec xs vs = Env $ \binding -> case runEnv vs binding of
   -- Any variable in 'free' that refers to xs is a bound occurrence.
   -- Any variable in 'rec' that refers to xs is not a reference to the current
@@ -135,71 +149,69 @@ bindRec xs vs = Env $ \binding -> case runEnv vs binding of
   EnvVars (free, rec) -> EnvVars (free Set.\\ xs', rec Set.\\ xs')
   where xs' = Set.fromList xs
 
-bind :: [Name] -> Env -> Env
+bind :: [(Name, Sort)] -> Env -> Env
 bind xs vs = Env $ \binding -> case runEnv vs binding of
   EnvVars (free, rec) -> EnvVars (free Set.\\ xs', rec Set.\\ xs')
   where xs' = Set.fromList xs
 
-unit :: Name -> Env
+unit :: (Name, Sort) -> Env
 unit x = Env $ \binding ->
-  if Set.member x binding then
+  if Set.member (fst x) binding then
     EnvVars (Set.empty, Set.singleton x)
   else
     EnvVars (Set.singleton x, Set.empty)
 
 class Close a where
-  -- TODO: Better name. This is still a free variable traversal, really.
-  -- It doesn't do that actual work of "closing", as that's in 'cconv'.
+  -- TODO: Better name for 'close'
+  -- Find the set of environment fields needed by an expression.
   close :: a -> Env
 
 instance Close TermK where
-  close (HaltK x) = unit (tmVar x)
-  close (JumpK k x) = unit (coVar k) <> unit (tmVar x)
-  close (LetValK x v e) = close v <> bind [tmVar x] (close e)
-  close (CallK f x k) = unit (fnName f) <> unit (tmVar x) <> unit (coVar k)
-  close (CaseK x k1 k2) = unit (tmVar x) <> unit (coVar k1) <> unit (coVar k2)
-  close (LetFstK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
-  close (LetSndK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
-  close (LetIsZeroK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
-  close (LetAddK z x y e) = unit (tmVar x) <> unit (tmVar y) <> bind [tmVar z] (close e)
+  close (HaltK x) = unit (tmVar x, Value)
+  close (JumpK k x) = unit (coVar k, Cont) <> unit (tmVar x, Value)
+  close (LetValK x v e) = close v <> bind [(tmVar x, Value)] (close e)
+  close (CallK f x k) = unit (fnName f, Fun) <> unit (tmVar x, Value) <> unit (coVar k, Cont)
+  close (CaseK x k1 k2) = unit (tmVar x, Value) <> unit (coVar k1, Cont) <> unit (coVar k2, Cont)
+  close (LetFstK x y e) = unit (tmVar y, Value) <> bind [(tmVar x, Value)] (close e)
+  close (LetSndK x y e) = unit (tmVar y, Value) <> bind [(tmVar x, Value)] (close e)
+  close (LetIsZeroK x y e) = unit (tmVar y, Value) <> bind [(tmVar x, Value)] (close e)
+  close (LetAddK z x y e) = unit (tmVar x, Value) <> unit (tmVar y, Value) <> bind [(tmVar z, Value)] (close e)
   close (LetFunK fs e) = foldMap g fs <> bind fs' (close e)
     where
       -- In each definition, all the all definitions and also the parameters are in scope.
       g :: FunDef -> Env
-      g (FunDef _f x k e') = bindRec fs' $ bind [tmVar x, coVar k] $ close e'
-      fs' :: [Name]
-      fs' = map (\ (FunDef f _ _ _) -> fnName f) fs
+      g (FunDef _f x k e') = bindRec fs' $ bind [(tmVar x, Value), (coVar k, Cont)] $ close e'
+      fs' :: [(Name, Sort)]
+      fs' = map (\ (FunDef f _ _ _) -> (fnName f, Fun)) fs
   close (LetContK ks e) = foldMap g ks <> bind ks' (close e)
     where
       -- In each definition, all the all definitions and also the parameters are in scope.
       g :: ContDef -> Env
-      g (ContDef _k x e') = bindRec ks' $ bind [tmVar x] $ close e'
-      ks' :: [Name]
-      ks' = map (\ (ContDef k _ _) -> coVar k) ks
+      g (ContDef _k x e') = bindRec ks' $ bind [(tmVar x, Value)] $ close e'
+      ks' :: [(Name, Sort)]
+      ks' = map (\ (ContDef k _ _) -> (coVar k, Cont)) ks
 
 instance Close ValueK where
   close NilK = mempty
   close (IntK _) = mempty
-  close (InlK x) = unit (tmVar x)
-  close (InrK y) = unit (tmVar y)
-  close (PairK x y) = unit (tmVar x) <> unit (tmVar y)
+  close (InlK x) = unit (tmVar x, Value)
+  close (InrK y) = unit (tmVar y, Value)
+  close (PairK x y) = unit (tmVar x, Value) <> unit (tmVar y, Value)
 
 instance Close FunDef where
-  close (FunDef f x k e) = bind [fnName f, tmVar x, coVar k] $ close e
+  -- Recursive occurrences are free, so 'f' is not bound.
+  close (FunDef f x k e) = bind [(tmVar x, Value), (coVar k, Cont)] $ close e
 
 instance Close ContDef where
-  close (ContDef k x e) = bind [coVar k, tmVar x] $ close e
+  -- Recursive occurrences are free, so 'k' is not bound.
+  close (ContDef k x e) = bind [(tmVar x, Value)] $ close e
 
--- TODO: Recursive occurrences count as free variables, because they need to be
--- present in the closure environment.
--- TODO: Occurrences from the same recursive bind group should be stored separately.
 cconv :: TermK -> TermC
 cconv (LetFunK fs e) = LetFunC (map ann fs) (cconv e)
   where
-    -- TODO: Recursive occurrences count a free occurrences.
     ann fun@(FunDef f x k e') =
       let EnvVars (vs, vs') = runEnv (close fun) fs' in
-      ClosureDef (fnName f) (Set.toList vs) (Set.toList vs') (tmVar x) (coVar k) (cconv e')
+      FunClosureDef (fnName f) (Set.toList vs) (Set.toList vs') (tmVar x) (coVar k) (cconv e')
     fs' = Set.fromList $ map (\ (FunDef f _ _ _) -> fnName f) fs
 cconv (LetContK ks e) = LetContC (map ann ks) (cconv e)
   where
@@ -265,8 +277,8 @@ pprintValue (IntC i) = show i
 pprintValue (InlC x) = "inl " ++ show x
 pprintValue (InrC y) = "inr " ++ show y
 
-pprintClosureDef :: Int -> ClosureDef -> String
-pprintClosureDef n (ClosureDef f free rec x k e) =
+pprintClosureDef :: Int -> FunClosureDef -> String
+pprintClosureDef n (FunClosureDef f free rec x k e) =
   indent n env ++ indent n (show f ++ " " ++ show x ++ " " ++ show k ++ " =\n") ++ pprintTerm (n+2) e
   where
     env = "{" ++ intercalate ", " vars ++ "}\n"

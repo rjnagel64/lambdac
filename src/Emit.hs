@@ -65,13 +65,13 @@ emitEnvDecl ns (EnvDecl fs) =
     mkField (FieldName Cont k) = "    struct cont *" ++ k ++ ";";
     mkField (FieldName Value x) = "    struct value *" ++ x ++ ";"
 
--- TODO: Remember to include allocation header
 emitEnvAlloc :: DeclNames -> EnvDecl -> [String]
 emitEnvAlloc ns (EnvDecl []) =
   ["struct " ++ declEnvName ns ++ " *" ++ declAllocName ns ++ "(void) {"
   ,"    return NULL;"
   ,"}"]
 emitEnvAlloc ns (EnvDecl fs) =
+  -- TODO: What if there is a parameter named 'env'?
   ["struct " ++ declEnvName ns ++ " *" ++ declAllocName ns ++ "(" ++ params ++ ") {"] ++
   ["    struct " ++ declEnvName ns ++ " *env = malloc(sizeof(struct " ++ declEnvName ns ++ "));"] ++
   map assignField fs ++
@@ -206,7 +206,7 @@ emitAlloc _ (PlaceName Value _) _ _ = error "Values are not allocated through th
 
 emitPatch :: Set String -> PlaceName -> EnvAlloc -> [String]
 emitPatch bindGroup (PlaceName _ p) (EnvAlloc xs) =
-  [p ++ "->env->" ++ x ++ " = " ++ x ++ ";" | LocalName x <- xs, Set.member x bindGroup]
+  ["    " ++ p ++ "->env->" ++ x ++ " = " ++ x ++ ";" | LocalName x <- xs, Set.member x bindGroup]
 
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName Fun f) = "struct fun *" ++ f

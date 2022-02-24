@@ -43,7 +43,7 @@ import Data.Traversable (for, mapAccumL)
 import Data.List (intercalate)
 
 import qualified CC as C
-import CC (TermC(..), ValueC(..))
+import CC (TermC(..), ValueC(..), Sort(..))
 
 -- This is only for free occurrences? Binders use a different type for names? Yeah.
 -- LocalName is for 'x'
@@ -58,14 +58,6 @@ data Name = LocalName String | EnvName String
 instance Show Name where
   show (LocalName x) = x
   show (EnvName x) = "@." ++ x
-
-data Sort = Fun | Cont | Value
-  deriving (Eq, Ord)
-
-instance Show Sort where
-  show Fun = "fun"
-  show Cont = "cont"
-  show Value = "value"
 
 -- Place names declare a reference to an object: value, function, or continuation.
 -- They are used as parameters and also as local temporaries.
@@ -201,8 +193,8 @@ hoist (LetFunC fs e) = do
   tell [TopFun ds']
 
   placesForFunAllocs fdecls $ \fplaces -> do
-    fs' <- for fplaces $ \ (p, d, C.ClosureDef _f free rec _x _k _e) -> do
-      env <- traverse hoistVarOcc (free ++ rec)
+    fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f free rec _x _k _e) -> do
+      env <- traverse (hoistVarOcc . fst) (free ++ rec)
       pure (FunAlloc p d (EnvAlloc env))
     e' <- hoist e
     pure (AllocFun fs' e')
@@ -214,17 +206,17 @@ hoist (LetContC ks e) = do
 
   placesForContAllocs kdecls $ \kplaces -> do
     ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k free rec _x _e) -> do
-      env <- traverse hoistVarOcc (free ++ rec)
+      env <- traverse (hoistVarOcc . fst) (free ++ rec)
       pure (ContAlloc p d (EnvAlloc env))
     e' <- hoist e
     pure (AllocCont ks' e')
 
 
-placesForFunAllocs :: [(DeclName, C.ClosureDef)] -> ([(PlaceName, DeclName, C.ClosureDef)] -> HoistM a) -> HoistM a
+placesForFunAllocs :: [(DeclName, C.FunClosureDef)] -> ([(PlaceName, DeclName, C.FunClosureDef)] -> HoistM a) -> HoistM a
 placesForFunAllocs fdecls k = do
   HoistEnv scope _ <- ask
   let
-    pickPlace sc (d, def@(C.ClosureDef (C.Name f) _ _ _ _ _)) =
+    pickPlace sc (d, def@(C.FunClosureDef (C.Name f) _ _ _ _ _)) =
       let p = go sc f (0 :: Int) in (Map.insert (C.Name f) p sc, (p, d, def))
     go sc f i = case Map.lookup (C.Name (f ++ show i)) sc of
       Nothing -> PlaceName Fun (f ++ show i)
@@ -247,10 +239,10 @@ placesForContAllocs kdecls k = do
   local extend (k kplaces)
 
 
-declareClosureNames :: [C.ClosureDef] -> HoistM [(DeclName, C.ClosureDef)]
+declareClosureNames :: [C.FunClosureDef] -> HoistM [(DeclName, C.FunClosureDef)]
 declareClosureNames fs = for fs $ \def -> do
   let
-    (C.Name f) = C.closureName def
+    (C.Name f) = C.funClosureName def
     pickName i ds =
       let d = DeclName (f ++ show i) in
       if Set.member d ds then pickName (i+1) ds else (d, Set.insert d ds)
@@ -278,9 +270,9 @@ hoistValue NilC = pure NilH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 
 
-hoistFunClosure :: (DeclName, C.ClosureDef) -> HoistM FunDecl
-hoistFunClosure (fdecl, C.ClosureDef _f free rec x k body) = do
-  fields <- traverse inferSort (free ++ rec)
+hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM FunDecl
+hoistFunClosure (fdecl, C.FunClosureDef _f free rec x k body) = do
+  let fields = free ++ rec
   (fields', places', body') <- inClosure fields [(x, Value), (k, Cont)] $ hoist body
   let envd = EnvDecl fields'
   let [x', k'] = places' -- Safe: inClosure preserves length; inClosure called with 2 places.
@@ -289,7 +281,7 @@ hoistFunClosure (fdecl, C.ClosureDef _f free rec x k body) = do
 
 hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ContDecl
 hoistContClosure (kdecl, C.ContClosureDef _k free rec x body) = do
-  fields <- traverse inferSort (free ++ rec)
+  let fields = free ++ rec
   (fields', places', body') <- inClosure fields [(x, Value)] $ hoist body
   let envd = EnvDecl fields'
   let [x'] = places' -- Safe: inClosure preserves length; inClosure called with 1 place.
@@ -310,21 +302,9 @@ inClosure fields places m = do
   r <- local replaceEnv m
   pure (map snd fields', map snd places', r)
 
--- | Infer the sort of a name by looking up what place or field it refers to.
--- TODO: Provide this information as part of closure conversion, rather than
--- needing to infer it.
-inferSort :: C.Name -> HoistM (C.Name, Sort)
-inferSort x = do
-  HoistEnv places _ <- ask
-  case Map.lookup x places of
-    Just (PlaceName s _) -> pure (x, s)
-    Nothing -> error ("Sort of name " ++ show x ++ " unknown") -- Lookup fields? I don't think so.
-
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
--- TODO: Properly include the "HALT" continuation, so that this hack doesn't exist.
--- hoistVarOcc x = if x == C.Name "HALT" then pure (LocalName "HALT") else do
 hoistVarOcc x = do
   HoistEnv ps fs <- ask
   case Map.lookup x ps of
