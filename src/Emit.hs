@@ -157,15 +157,15 @@ emitClosureBody (CaseH x k1 k2) =
   ["    CASE(" ++ emitName x ++ ", " ++ emitName k1 ++ ", " ++ emitName k2 ++ ");"]
 
 emitPrimOp :: PrimOp -> String
-emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName x ++ ", " ++ emitName y ++ ");"
-emitPrimOp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName x ++ ", " ++ emitName y ++ ");"
-emitPrimOp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName x ++ ", " ++ emitName y ++ ");"
-emitPrimOp (PrimIsZero32 x) = "prim_iszero32(" ++ emitName x ++ ");"
+emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
+emitPrimOp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
+emitPrimOp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
+emitPrimOp (PrimIsZero32 x) = "prim_iszero32(" ++ emitName x ++ ")"
 
 emitFunAlloc :: [FunAlloc] -> [String]
 emitFunAlloc fs =
   map (\ (FunAlloc p d env) -> emitAlloc bindGroup p d env) fs ++
-  concatMap (\ (FunAlloc p _ env) -> emitPatch bindGroup p env) fs
+  concatMap (\ (FunAlloc p d env) -> emitPatch (namesForDecl d) bindGroup p env) fs
   where
     bindGroup :: Set String
     bindGroup = Set.fromList $ map (\ (FunAlloc _ (DeclName f) _) -> f) fs
@@ -173,7 +173,7 @@ emitFunAlloc fs =
 emitContAlloc :: [ContAlloc] -> [String]
 emitContAlloc fs =
   map (\ (ContAlloc p d env) -> emitAlloc bindGroup p d env) fs ++
-  concatMap (\ (ContAlloc p _ env) -> emitPatch bindGroup p env) fs
+  concatMap (\ (ContAlloc p d env) -> emitPatch (namesForDecl d) bindGroup p env) fs
   where
     bindGroup :: Set String
     bindGroup = Set.fromList $ map (\ (ContAlloc _ (DeclName f) _) -> f) fs
@@ -186,7 +186,7 @@ emitAlloc bindGroup (PlaceName Fun p) d (EnvAlloc xs) =
     ns = namesForDecl d
     args = [envArg, codeArg, traceArg]
     -- Allocate closure environment here, with NULL for cyclic captures.
-    envArg = declAllocName ns ++ "(" ++ intercalate ", " (map allocArg xs) ++ ")"
+    envArg = declAllocName ns ++ "(" ++ intercalate ", " (map (allocArg . snd) xs) ++ ")"
     allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
     allocArg (EnvName x) = x
     codeArg = declCodeName ns
@@ -197,16 +197,17 @@ emitAlloc bindGroup (PlaceName Cont p) d (EnvAlloc xs) =
     ns = namesForDecl d
     args = [envArg, codeArg, traceArg]
     -- Allocate closure environment here, with NULL for cyclic captures.
-    envArg = declAllocName ns ++ "(" ++ intercalate ", " (map allocArg xs) ++ ")"
+    envArg = declAllocName ns ++ "(" ++ intercalate ", " (map (allocArg . snd) xs) ++ ")"
     allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
-    allocArg (EnvName x) = x
+    allocArg (EnvName x) = "env->" ++ x -- TODO: What if environment has different name?
     codeArg = declCodeName ns
     traceArg = declTraceName ns
 emitAlloc _ (PlaceName Value _) _ _ = error "Values are not allocated through this function."
 
-emitPatch :: Set String -> PlaceName -> EnvAlloc -> [String]
-emitPatch bindGroup (PlaceName _ p) (EnvAlloc xs) =
-  ["    " ++ p ++ "->env->" ++ x ++ " = " ++ x ++ ";" | LocalName x <- xs, Set.member x bindGroup]
+emitPatch :: DeclNames -> Set String -> PlaceName -> EnvAlloc -> [String]
+emitPatch ns bindGroup (PlaceName _ p) (EnvAlloc xs) =
+  ["    " ++ env ++ "->" ++ f ++ " = " ++ x ++ ";" | (FieldName _ f, LocalName x) <- xs, Set.member x bindGroup]
+  where env = "((struct " ++ declEnvName ns ++ " *)" ++ p ++ "->env)"
 
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName Fun f) = "struct fun *" ++ f

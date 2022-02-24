@@ -115,9 +115,7 @@ data ContAlloc
   -- @struct cont *k_32 = allocate_cont(k_env(...), k_code, k_trace);@
   = ContAlloc { contAllocPlace :: PlaceName, contAllocDecl :: DeclName, contAllocEnv :: EnvAlloc }
 
--- TODO: When allocating an environment, I need to distinguish between names
--- that are bound normally, and names that must be bound cyclically.
-newtype EnvAlloc = EnvAlloc [Name]
+newtype EnvAlloc = EnvAlloc [(FieldName, Name)]
 
 data ValueH
   = IntH Int32
@@ -194,7 +192,7 @@ hoist (LetFunC fs e) = do
 
   placesForFunAllocs fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f free rec _x _k _e) -> do
-      env <- traverse (hoistVarOcc . fst) (free ++ rec)
+      env <- traverse envAllocField (free ++ rec)
       pure (FunAlloc p d (EnvAlloc env))
     e' <- hoist e
     pure (AllocFun fs' e')
@@ -206,10 +204,16 @@ hoist (LetContC ks e) = do
 
   placesForContAllocs kdecls $ \kplaces -> do
     ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k free rec _x _e) -> do
-      env <- traverse (hoistVarOcc . fst) (free ++ rec)
+      env <- traverse envAllocField (free ++ rec)
       pure (ContAlloc p d (EnvAlloc env))
     e' <- hoist e
     pure (AllocCont ks' e')
+
+envAllocField :: (C.Name, Sort) -> HoistM (FieldName, Name)
+envAllocField (C.Name x, s) = do
+  let field = FieldName s x
+  x' <- hoistVarOcc (C.Name x)
+  pure (field, x')
 
 
 placesForFunAllocs :: [(DeclName, C.FunClosureDef)] -> ([(PlaceName, DeclName, C.FunClosureDef)] -> HoistM a) -> HoistM a
@@ -398,9 +402,12 @@ pprintContDecl n (ContDecl k (EnvDecl fs) x e) =
 pprintFunAlloc :: Int -> FunAlloc -> String
 pprintFunAlloc n (FunAlloc p d (EnvAlloc env)) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ env'
-  where env' = "{" ++ intercalate ", " (map show env) ++ "}\n"
+  where env' = "{" ++ intercalate ", " (map pprintAllocArg env) ++ "}\n"
 
 pprintContAlloc :: Int -> ContAlloc -> String
 pprintContAlloc n (ContAlloc p d (EnvAlloc env)) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ env'
-  where env' = "{" ++ intercalate ", " (map show env) ++ "}\n"
+  where env' = "{" ++ intercalate ", " (map pprintAllocArg env) ++ "}\n"
+
+pprintAllocArg :: (FieldName, Name) -> String
+pprintAllocArg (field, x) = pprintField field ++ " = " ++ show x

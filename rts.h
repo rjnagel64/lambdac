@@ -70,14 +70,14 @@ struct value *allocate_inr(struct value *v);
 
 struct cont {
     struct alloc_header header;
-    struct env_header *env;
+    void *env;
     void (*code)(void *env, struct value *arg);
     void (*trace_env)(void *env);
 };
 
 struct fun {
     struct alloc_header header;
-    struct env_header *env;
+    void *env;
     void (*code)(void *env, struct value *arg, struct cont *kont);
     void (*trace_env)(void *env);
 };
@@ -114,6 +114,6 @@ void control_case(struct value *x, struct cont *k1, struct cont *k2);
 struct value *prim_addint32(struct value *x, struct value *y);
 struct value *prim_subint32(struct value *x, struct value *y);
 struct value *prim_mulint32(struct value *x, struct value *y);
-struct value *prim_iszero(struct value *x);
+struct value *prim_iszero32(struct value *x);
 
 #endif

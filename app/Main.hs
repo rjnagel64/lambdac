@@ -42,10 +42,7 @@ parseFile f = readFile f >>= parseString
 
 src :: String
 -- src = "let fun f x = case iszero x of { inl z -> 33; inr z -> f (x + -1) }; in f 10"
-src = "let fun f x = f x; in f 10"
--- src = "iszero 33"
--- src = "if x < 2 then 1 else fib (n - 1) + fib (n - 2)"
--- src = "let fun fib x = if x < 2 then 1 else fib (n - 1) + fib (n - 2); in fib 5"
+src = "let fun f x = case iszero x of { inl z -> 0; inr z -> x + f (x + -1) }; in f 10"
 
 main :: IO ()
 main = do
