@@ -31,20 +31,17 @@ import qualified Emit as E
 -- Note: Returning multiple values from a function is passing multiple values
 -- to the continuation.
 
-parse :: String -> S.Term
-parse = either (error . ("parse error: "++) . show) id . P.parseTerm . L.lex
-
 parseString :: String -> IO S.Term
 parseString s = case P.parseTerm (L.lex s) of
-  Left EOF -> putStrLn "unexpected EOF" >> exitFailure
-  Left (ErrorAt msg) -> putStrLn ("parse error:" ++ msg) >> exitFailure
+  Left P.EOF -> putStrLn "unexpected EOF" >> exitFailure
+  Left (P.ErrorAt msg) -> putStrLn ("parse error:" ++ msg) >> exitFailure
   Right x -> pure x
 
 parseFile :: FilePath -> IO S.Term
-parseFile f = readFile >>= parseString
+parseFile f = readFile f >>= parseString
 
 src :: String
-src = "case inr 33 of { inl x -> x + 1; inr y -> y }"
+src = "case inl 33 of { inl x -> x + 1; inr y -> y }"
 
 main :: IO ()
 main = do
