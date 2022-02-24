@@ -160,6 +160,7 @@ emitPrimOp :: PrimOp -> String
 emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName x ++ ", " ++ emitName y ++ ");"
 emitPrimOp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName x ++ ", " ++ emitName y ++ ");"
 emitPrimOp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName x ++ ", " ++ emitName y ++ ");"
+emitPrimOp (PrimIsZero32 x) = "prim_iszero32(" ++ emitName x ++ ");"
 
 emitFunAlloc :: [FunAlloc] -> [String]
 emitFunAlloc fs =

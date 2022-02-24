@@ -71,6 +71,8 @@ data TermK
   | LetFstK TmVar TmVar TermK
   -- let x = snd y in e
   | LetSndK TmVar TmVar TermK
+  -- let x = iszero y in e
+  | LetIsZeroK TmVar TmVar TermK
   -- let z = x + y in e
   -- TODO: Extend LetAddK to LetArithK for sub, mul, div, compare, etc.
   | LetAddK TmVar TmVar TmVar TermK
@@ -195,6 +197,10 @@ cps (TmAdd e1 e2) k =
     cps e2 $ \y ->
       freshTm "z" $ \z ->
         LetAddK z x y <$> k z
+cps (TmIsZero e) k =
+  cps e $ \v ->
+    freshTm "x" $ \x ->
+      LetIsZeroK x v <$> k x
 
 cpsFun :: TmFun -> FreshM FunDef
 cpsFun (TmFun f x e) = freshCo "k" $ \k -> FunDef (fnName f) (var x) k <$> cpsTail e k
@@ -251,6 +257,10 @@ cpsTail (TmAdd e1 e2) k =
     cps e2 $ \y ->
       freshTm "z" $ \z ->
         pure (LetAddK z x y (JumpK k z))
+cpsTail (TmIsZero e) k =
+  cps e $ \z ->
+    freshTm "x" $ \x ->
+      pure (LetIsZeroK x z (JumpK k x))
 cpsTail (TmApp e1 e2) k =
   cps e1 $ \ (TmVar f) ->
     cps e2 $ \x ->
@@ -316,6 +326,8 @@ pprintTerm n (LetFstK x y e) =
   indent n ("let " ++ show x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndK x y e) =
   indent n ("let " ++ show x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetIsZeroK x y e) =
+  indent n ("let " ++ show x ++ " = iszero " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetAddK z x y e) =
   indent n ("let " ++ show z ++ " = " ++ show x ++ " + " ++ show y ++ ";\n") ++ pprintTerm n e
 

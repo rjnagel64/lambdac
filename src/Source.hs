@@ -46,6 +46,8 @@ data Term
   | TmInt Int
   -- e1 + e2
   | TmAdd Term Term
+  -- iszero e
+  | TmIsZero Term
 
 -- TODO: More primops.
 -- let y = primop(x+) in e

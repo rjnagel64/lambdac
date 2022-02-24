@@ -29,13 +29,18 @@ import Source
   ')' { TokRParen _ }
   '{' { TokLBrace _ }
   '}' { TokRBrace _ }
+  '<' { TokLAngle _ }
+  '>' { TokRAngle _ }
   'fun' { TokFun _ }
   'case' { TokCase _ }
   'of' { TokOf _ }
+  'let' { TokLet _ }
+  'in' { TokIn _ }
   'inl' { TokInl _ }
   'inr' { TokInr _ }
   'fst' { TokFst _ }
   'snd' { TokSnd _ }
+  'iszero' { TokIsZero _ } -- TODO: Replace with `\x -> x == 0`
   'true' { TokTrue _ }
   'false' { TokFalse _ }
   'if' { TokIf _ }
@@ -47,22 +52,26 @@ import Source
 
 -- Precedence goes here, low to high
 
-%right '->'
+%right '->' 'in'
 %left '+'
 
 %%
 
 Term :: { Term }
      : AppTerm { $1 }
-     -- precedence: `λx -> e1 + e2` should be `λx -> (e1 + e2)`, not `(λx -> e1) + e2`.
      | '\\' ID '->' Term { TmLam (var $2) $4 }
-     | Term '+' Term { TmAdd $1 $3 }
+     | 'let' ID '=' Term 'in' Term { TmLet (var $2) $4 $6 }
+     | 'let' FunBinds 'in' Term { TmRecFun $2 $4 }
      | 'case' Term 'of' '{' 'inl' ID '->' Term ';' 'inr' ID '->' Term '}'
        { TmCase $2 (var $6) $8 (var $11) $13 }
+
+     | Term '+' Term { TmAdd $1 $3 }
+
      | 'inl' ATerm { TmInl $2 }
      | 'inr' ATerm { TmInr $2 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
+     | 'iszero' ATerm { TmIsZero $2 }
 
 AppTerm :: { Term }
         : ATerm { $1 }
@@ -73,6 +82,13 @@ ATerm :: { Term }
      | '(' ')' { TmNil }
      | ID { TmVarOcc (var $1) }
      | INT { TmInt (int $1) }
+
+FunBinds :: { [TmFun] }
+         : FunBind { [$1] }
+         | FunBinds FunBind { $1 ++ [$2] } -- TODO: DList
+
+FunBind :: { TmFun }
+        : 'fun' ID ID '=' Term ';' { TmFun (var $2) (var $3) $5 }
 
 {
 data ParseError = EOF | ErrorAt String

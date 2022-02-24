@@ -72,6 +72,7 @@ data TermC
   | LetFstC Name Name TermC -- let x = fst y in e, projection
   | LetSndC Name Name TermC
   | LetAddC Name Name Name TermC
+  | LetIsZeroC Name Name TermC
   | LetFunC [ClosureDef] TermC
   | LetContC [ContClosureDef] TermC
   -- Invoke a closure by providing a value for the only remaining argument.
@@ -159,6 +160,7 @@ instance Close TermK where
   close (CaseK x k1 k2) = unit (tmVar x) <> unit (coVar k1) <> unit (coVar k2)
   close (LetFstK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
   close (LetSndK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
+  close (LetIsZeroK x y e) = unit (tmVar y) <> bind [tmVar x] (close e)
   close (LetAddK z x y e) = unit (tmVar x) <> unit (tmVar y) <> bind [tmVar z] (close e)
   close (LetFunK fs e) = foldMap g fs <> bind fs' (close e)
     where
@@ -194,6 +196,7 @@ instance Close ContDef where
 cconv :: TermK -> TermC
 cconv (LetFunK fs e) = LetFunC (map ann fs) (cconv e)
   where
+    -- TODO: Recursive occurrences count a free occurrences.
     ann fun@(FunDef f x k e') =
       let EnvVars (vs, vs') = runEnv (close fun) fs' in
       ClosureDef (fnName f) (Set.toList vs) (Set.toList vs') (tmVar x) (coVar k) (cconv e')
@@ -210,6 +213,7 @@ cconv (CallK f x k) = CallC (fnName f) (tmVar x) (coVar k)
 cconv (CaseK x k1 k2) = CaseC (tmVar x) (coVar k1) (coVar k2)
 cconv (LetFstK x y e) = LetFstC (tmVar x) (tmVar y) (cconv e)
 cconv (LetSndK x y e) = LetSndC (tmVar x) (tmVar y) (cconv e)
+cconv (LetIsZeroK x y e) = LetIsZeroC (tmVar x) (tmVar y) (cconv e)
 cconv (LetValK x v e) = LetValC (tmVar x) (cconvValue v) (cconv e)
 cconv (LetAddK z x y e) = LetAddC (tmVar z) (tmVar x) (tmVar y) (cconv e)
 
@@ -247,6 +251,8 @@ pprintTerm n (LetFstC x y e) =
   indent n ("let " ++ show x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndC x y e) =
   indent n ("let " ++ show x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetIsZeroC x y e) =
+  indent n ("let " ++ show x ++ " = iszero " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (CaseC x k1 k2) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetAddC z x y e) =

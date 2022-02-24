@@ -527,11 +527,12 @@ struct value *prim_mulint32(struct value *x, struct value *y) {
     return allocate_int32(int32_value(x) * int32_value(y));
 }
 
+// TODO: Use booleansm, not inl ()/inr ()
 struct value *prim_iszero(struct value *x) {
     if (int32_value(x) == 0) {
-        return allocate_true();
+        return allocate_inl(allocate_nil());
     } else {
-        return allocate_false();
+        return allocate_inr(allocate_nil());
     }
 }
 

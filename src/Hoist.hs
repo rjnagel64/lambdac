@@ -138,6 +138,7 @@ data PrimOp
   = PrimAddInt32 Name Name
   | PrimSubInt32 Name Name
   | PrimMulInt32 Name Name
+  | PrimIsZero32 Name
 
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
@@ -184,6 +185,10 @@ hoist (LetSndC x y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x Value $ hoist e
   pure (LetFstH x' y' e')
+hoist (LetIsZeroC x y e) = do
+  y' <- hoistVarOcc y
+  (x', e') <- withPlace x Value $ hoist e
+  pure (LetPrimH x' (PrimIsZero32 y') e')
 hoist (LetAddC z x y e) = do
   x' <- hoistVarOcc x
   y' <- hoistVarOcc y
@@ -193,7 +198,6 @@ hoist (LetFunC fs e) = do
   fdecls <- declareClosureNames fs
   ds' <- traverse hoistFunClosure fdecls
 
-  -- TODO: This may be in the wrong order. If so, use 'Dual [TopDecl]'
   tell [TopFun ds']
 
   placesForFunAllocs fdecls $ \fplaces -> do
@@ -206,7 +210,6 @@ hoist (LetContC ks e) = do
   kdecls <- declareContClosureNames ks
   ds' <- traverse hoistContClosure kdecls
 
-  -- TODO: This may be in the wrong order. If so, use 'Dual [TopDecl]'
   tell [TopCont ds']
 
   placesForContAllocs kdecls $ \kplaces -> do
@@ -321,7 +324,8 @@ inferSort x = do
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
 -- TODO: Properly include the "HALT" continuation, so that this hack doesn't exist.
-hoistVarOcc x = if x == C.Name "HALT" then pure (LocalName "HALT") else do
+-- hoistVarOcc x = if x == C.Name "HALT" then pure (LocalName "HALT") else do
+hoistVarOcc x = do
   HoistEnv ps fs <- ask
   case Map.lookup x ps of
     Just (PlaceName _ x') -> pure (LocalName x')
@@ -388,6 +392,7 @@ pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt32 x y) = "prim_addint32(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimSubInt32 x y) = "prim_subint32(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimMulInt32 x y) = "prim_mulint32(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimIsZero32 x) = "prim_iszero32(" ++ show x ++ ")"
 
 pprintPlace :: PlaceName -> String
 pprintPlace (PlaceName s x) = show s ++ " " ++ x

@@ -43,6 +43,8 @@ tokens :-
   ")" { tok TokRParen }
   "{" { tok TokLBrace }
   "}" { tok TokRBrace }
+  "<" { tok TokLAngle }
+  ">" { tok TokRAngle }
 
   "fun" { tok TokFun }
   "let" { tok TokLet }
@@ -53,13 +55,14 @@ tokens :-
   "inr" { tok TokInr }
   "fst" { tok TokFst }
   "snd" { tok TokSnd }
+  "iszero" { tok TokIsZero }
   "true" { tok TokTrue }
   "false" { tok TokFalse }
   "if" { tok TokIf }
   "then" { tok TokThen }
   "else" { tok TokElse }
 
-  $digit+ { toks TokINT }
+  [\- \+]? $digit+ { toks TokINT }
 
   $idstart $idcont* { toks TokID }
 
@@ -95,6 +98,8 @@ data Token
   | TokRParen Loc
   | TokLBrace Loc
   | TokRBrace Loc
+  | TokLAngle Loc
+  | TokRAngle Loc
 
   | TokID Loc String
   | TokINT Loc String
@@ -111,6 +116,7 @@ data Token
   | TokInr Loc
   | TokFst Loc
   | TokSnd Loc
+  | TokIsZero Loc
 
   | TokTrue Loc
   | TokFalse Loc
@@ -131,6 +137,8 @@ instance Located Token where
   loc (TokRParen l) = l
   loc (TokLBrace l) = l
   loc (TokRBrace l) = l
+  loc (TokLAngle l) = l
+  loc (TokRAngle l) = l
   loc (TokPlus l) = l
   loc (TokID l _) = l
   loc (TokINT l _) = l
@@ -143,6 +151,7 @@ instance Located Token where
   loc (TokInr l) = l
   loc (TokFst l) = l
   loc (TokSnd l) = l
+  loc (TokIsZero l) = l
   loc (TokTrue l) = l
   loc (TokFalse l) = l
   loc (TokIf l) = l

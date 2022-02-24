@@ -41,12 +41,14 @@ parseFile :: FilePath -> IO S.Term
 parseFile f = readFile f >>= parseString
 
 src :: String
-src = "case inl 33 of { inl x -> x + 1; inr y -> y }"
+-- src = "let fun f x = case iszero x of { inl z -> 33; inr z -> f (x + -1) }; in f 10"
+src = "let fun f x = f x; in f 10"
+-- src = "iszero 33"
+-- src = "if x < 2 then 1 else fib (n - 1) + fib (n - 2)"
+-- src = "let fun fib x = if x < 2 then 1 else fib (n - 1) + fib (n - 2); in fib 5"
 
 main :: IO ()
 main = do
-  putStrLn "Hello, Haskell!"
-
   srcS <- parseString src
 
   putStrLn $ "--- CPS Transform ---"

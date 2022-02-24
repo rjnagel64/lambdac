@@ -1,4 +1,5 @@
 cabal-version:      3.0
+-- TODO: Rename to lambdac
 name:               backend
 version:            0.1.0.0
 synopsis:           Experiments with compiler backends for functional languages

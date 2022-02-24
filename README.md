@@ -18,11 +18,11 @@ Code is compiled to C and linked with a rather small runtime.
   closures with cyclic references to each other.
 * Tracing GC through closure environments: Eventually, I just added an extra
   function pointer to each closure that performs the appropriate tracing.
-*
+* Hoisting: ultimately, the purpose of hoisting is to separate the
+  *declaration* of closure types from the *allocation* of those closures.
 
 # Planned features and improvements
 
-* Sums and products, projections and case analysis.
 * A type-checker
 * Smarter calling conventions: currently, all functions accept one boxed
   argument and pass one boxed argument to their continuation. Passing multiple
@@ -44,8 +44,8 @@ Code is compiled to C and linked with a rather small runtime.
 
 # References
 
-* Compiling with Continuations, Continued
-* That paper about PHOAS
+* *Compiling with Continuations, Continued* by Andrew Kennedy
+* That paper about PHOAS 
 * jozefg gist about closure conversion
 * It turns out, my compilation scheme is quite similar to a simplified version
   of [CHICKEN Scheme](https://www.more-magic.net/posts/internals-gc.html)
