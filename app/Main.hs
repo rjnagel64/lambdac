@@ -2,6 +2,10 @@
 
 module Main where
 
+import System.Exit
+
+import qualified Lexer as L
+import qualified Parser as P
 import qualified Source as S
 import qualified CPS as K
 import qualified CC as C
@@ -14,27 +18,42 @@ import qualified Emit as E
 
 -- TODO: A native string type, probably like 'Text' not [Char]?
 
-src :: S.Term
-src = S.TmCase (S.TmInr (S.TmInt 33)) x (S.TmAdd (S.TmVarOcc x) (S.TmInt 1)) y (S.TmAdd (S.TmVarOcc y) (S.TmInt (-3)))
-  where
-    x = S.TmVar "x"
-    y = S.TmVar "y"
-
--- TODO: case isZero x of inl _ ->  31; inr _ -> 19
--- TODO: case isZero x of inl _ -> 31; inr _ -> x + x
 -- TODO: case inr 33 of inl x -> x + 1; inr y -> y - 3
---
--- pred :: Int -> Either () Int?
+-- src :: S.Term
+-- src = S.TmCase (S.TmInr (S.TmInt 33)) x (S.TmAdd (S.TmVarOcc x) (S.TmInt 1)) y (S.TmAdd (S.TmVarOcc y) (S.TmInt (-3)))
+--   where
+--     x = S.TmVar "x"
+--     y = S.TmVar "y"
+
+-- TODO: Implement ==
+-- TODO: Test factorial.
 
 -- Note: Returning multiple values from a function is passing multiple values
 -- to the continuation.
+
+parse :: String -> S.Term
+parse = either (error . ("parse error: "++) . show) id . P.parseTerm . L.lex
+
+parseString :: String -> IO S.Term
+parseString s = case P.parseTerm (L.lex s) of
+  Left EOF -> putStrLn "unexpected EOF" >> exitFailure
+  Left (ErrorAt msg) -> putStrLn ("parse error:" ++ msg) >> exitFailure
+  Right x -> pure x
+
+parseFile :: FilePath -> IO S.Term
+parseFile f = readFile >>= parseString
+
+src :: String
+src = "case inr 33 of { inl x -> x + 1; inr y -> y }"
 
 main :: IO ()
 main = do
   putStrLn "Hello, Haskell!"
 
+  srcS <- parseString src
+
   putStrLn $ "--- CPS Transform ---"
-  let srcK = K.cpsMain src
+  let srcK = K.cpsMain srcS
   putStrLn $ K.pprintTerm 0 srcK
 
   putStrLn $ "--- Closure Conversion ---"

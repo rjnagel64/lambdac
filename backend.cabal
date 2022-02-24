@@ -21,16 +21,23 @@ library
         base ^>=4.14.3.0
       , containers ^>=0.6.5.1
       , mtl ^>=2.2.2
+      , array ^>=0.5.4.0
+    build-tool-depends:
+        alex:alex ^>=3.2
+      , happy:happy ^>=1.19
     exposed-modules:
       Experiments.STLC
       Experiments.Runtime
-      Opt
+      -- Experiments.F
+      Lexer
+      Loc
+      Parser
       Source
       CPS
+      Opt
       CC
       Hoist
       Emit
-      -- Experiments.F
 
 executable backend
     hs-source-dirs: app
