@@ -18,18 +18,6 @@ struct alloc_header {
     struct alloc_header *next;
 };
 
-// int32#, nil, pair, inl, or inr
-// struct value {
-//     struct alloc_header header;
-//     // TODO: Other value types.
-//     // TODO: Specialized value layouts based on type? (Overlaps with smarter
-//     // calling conventions)
-//     // (That is, a function that accepts an 'Int32' should only have variants
-//     // for the 'Int32#' constructor; a function that returns 'Either a b'
-//     // should only have 'inl' and 'inr' variants, etc, etc.)
-//     int32_t int_value;
-// };
-
 // New value layout:
 // inl x is [hdr|0|&x],
 // inr y in [hdr|1|&y],
@@ -66,10 +54,6 @@ struct fun {
     void (*code)(void *env, struct value *arg, struct cont *kont);
     void (*trace_env)(void *env);
 };
-
-void trace_value(struct value *v);
-void trace_fun(struct fun *f);
-void trace_cont(struct cont *k);
 
 struct cont *allocate_cont(
         void *env,
