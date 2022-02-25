@@ -12,19 +12,6 @@ import qualified CC as C
 import qualified Hoist as H
 import qualified Emit as E
 
--- src :: S.Term
--- src = S.TmApp (S.TmLam x (S.TmFst (S.TmVarOcc x))) (S.TmPair (S.TmInt 17) (S.TmInt 32))
---   where x = S.TmVar "x"
-
--- TODO: A native string type, probably like 'Text' not [Char]?
-
--- TODO: case inr 33 of inl x -> x + 1; inr y -> y - 3
--- src :: S.Term
--- src = S.TmCase (S.TmInr (S.TmInt 33)) x (S.TmAdd (S.TmVarOcc x) (S.TmInt 1)) y (S.TmAdd (S.TmVarOcc y) (S.TmInt (-3)))
---   where
---     x = S.TmVar "x"
---     y = S.TmVar "y"
-
 -- TODO: Implement ==
 -- TODO: Test factorial.
 
@@ -41,7 +28,6 @@ parseFile :: FilePath -> IO S.Term
 parseFile f = readFile f >>= parseString
 
 src :: String
--- src = "let fun f x = case iszero x of { inl z -> 33; inr z -> f (x + -1) }; in f 10"
 src = "let fun f x = case iszero x of { inl z -> 0; inr z -> x + f (x + -1) }; in f 10"
 
 main :: IO ()

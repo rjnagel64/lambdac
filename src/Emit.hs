@@ -220,7 +220,3 @@ emitName :: Name -> String
 emitName (LocalName x) = x
 emitName (EnvName x) = "env->" ++ x
 
--- emitFunDecl :: FunDecl -> [String]
--- emitFunDecl (FunDecl FnName [FnName] [CoVar] [TmVar] TmVar CoVar TermH) = _
-  -- Env, allocate, trace, code.
-

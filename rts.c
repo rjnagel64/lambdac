@@ -36,23 +36,23 @@ static struct alloc_header *first_allocation;
 static uint64_t num_allocs = 0;
 static uint64_t gc_threshold = 256;
 
-// Local variables in current function.
+// The locals vector serves as an extra set of GC roots, for values allocated
+// during the lifetime of a function.
 static struct alloc_header **locals = NULL;
+static size_t num_locals = 0;
+static size_t locals_capacity = 0;
 
-// Idea: The need for a global 'locals' (oxymoron) array can be obviated by
-// having each code block stack-allocate appropriately-sized arrays to hold the
-// locals.
-//
-// Then, calls to allocate_fun, allocate_cont, allocate_int32, etc. can take
-// the "locals pointer" as an argument and use that as an extra set of roots.
-void allocate_locals(size_t count) {
-    locals = realloc(locals, count * sizeof(struct alloc_header *));
-    num_locals = count;
-    memset(locals, 0, count * sizeof(struct alloc_header *));
+void reset_locals() {
+    num_locals = 0;
 }
 
-void store_local(size_t i, struct alloc_header *alloc) {
-    locals[i] = alloc;
+void push_local(struct alloc_header *local) {
+    if (num_locals == locals_capacity) {
+        locals_capacity *= 2;
+        locals = realloc(locals, locals_capacity * sizeof(struct alloc_header *));
+    }
+    locals[num_locals] = local;
+    num_locals++;
 }
 
 
@@ -84,6 +84,8 @@ void store_local(size_t i, struct alloc_header *alloc) {
 static uint32_t current_mark = 0;
 
 void trace_value(struct value *v);
+void trace_fun(struct fun *f);
+void trace_cont(struct cont *k);
 
 void trace_prod(struct value *v) {
     trace_value((struct value *)v->words[0]);
@@ -159,12 +161,9 @@ void mark_root(void) {
 }
 
 void mark_locals(void) {
-    for (uint64_t i = 0; i < num_locals; i++) {
+    for (size_t i = 0; i < num_locals; i++) {
         // Mark based on allocation type.
         struct alloc_header *local = locals[i];
-        if (local == NULL) {
-            continue;
-        }
         trace_alloc(local);
     }
 }
@@ -219,40 +218,14 @@ void sweep(void) {
     }
 }
 
-// These three functions can be merged by outlining the "trace relevant
-// structure" into the allocate_whatever functions.
-void collect_from_cont(struct cont *k) {
+void collect() {
     current_mark++;
-    trace_cont(k);
-
     mark_root();
     mark_locals();
     sweep();
     gc_threshold *= 2;
 }
 
-void collect_from_fun(struct fun *f) {
-    current_mark++;
-    trace_fun(f);
-
-    mark_root();
-    mark_locals();
-    sweep();
-    gc_threshold *= 2;
-}
-
-void collect_from_value(struct value *v) {
-    current_mark++;
-    trace_value(v);
-
-    mark_root();
-    mark_locals();
-    sweep();
-    gc_threshold *= 2;
-}
-
-// Alternate idea to 'locals', based on CHICKEN Scheme: make allocation take a
-// C continuation, to resume if GC needs to be done.
 struct cont *allocate_cont(
         void *env,
         void (*code)(void *env, struct value *arg),
@@ -266,8 +239,9 @@ struct cont *allocate_cont(
 
     first_allocation = (struct alloc_header *)k;
     num_allocs++;
+    push_local(first_allocation);
     if (num_allocs > gc_threshold) {
-        collect_from_cont(k);
+        collect();
     }
     return k;
 }
@@ -285,8 +259,9 @@ struct fun *allocate_fun(
 
     first_allocation = (struct alloc_header *)f;
     num_allocs++;
+    push_local(first_allocation);
     if (num_allocs > gc_threshold) {
-        collect_from_fun(f);
+        collect();
     }
     return f;
 }
@@ -299,15 +274,11 @@ struct value *allocate_int32(int32_t x) {
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
+    push_local(first_allocation);
     if (num_allocs > gc_threshold) {
-        collect_from_value(v);
+        collect();
     }
     return v;
-}
-
-int32_t int32_value(struct value *v) {
-    // Unchecked. Use only on int32 values.
-    return (int32_t)v->words[0];
 }
 
 // TODO: This does not allow allocating (id, not). Functions and continuations are not 'struct value'.
@@ -324,20 +295,11 @@ struct value *allocate_pair(struct value *x, struct value *y) {
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
+    push_local(first_allocation);
     if (num_allocs > gc_threshold) {
-        collect_from_value(v);
+        collect();
     }
     return v;
-}
-
-struct value *project_fst(struct value *v) {
-    // Unchecked. Use only on (a, b) values.
-    return (struct value *)v->words[0];
-}
-
-struct value *project_snd(struct value *v) {
-    // Unchecked. Use only on (a, b) values.
-    return (struct value *)v->words[1];
 }
 
 struct value *allocate_nil(void) {
@@ -347,13 +309,14 @@ struct value *allocate_nil(void) {
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
+    push_local(first_allocation);
     if (num_allocs > gc_threshold) {
-        collect_from_value(v);
+        collect();
     }
     return v;
 }
 
-// TODO: Should these be inl ()/inr (), or 0/1?
+// TODO: Make booleans like 0/1, instead of inl ()/inr ()
 struct value *allocate_true(void) {
     struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_CONST;
@@ -362,8 +325,9 @@ struct value *allocate_true(void) {
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
+    push_local(first_allocation);
     if (num_allocs > gc_threshold) {
-        collect_from_value(v);
+        collect();
     }
     return v;
 }
@@ -376,8 +340,9 @@ struct value *allocate_false(void) {
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
+    push_local(first_allocation);
     if (num_allocs > gc_threshold) {
-        collect_from_value(v);
+        collect();
     }
     return v;
 }
@@ -391,8 +356,9 @@ struct value *allocate_inl(struct value *x) {
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
+    push_local(first_allocation);
     if (num_allocs > gc_threshold) {
-        collect_from_value(v);
+        collect();
     }
     return v;
 }
@@ -406,10 +372,27 @@ struct value *allocate_inr(struct value *y) {
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
+    push_local(first_allocation);
     if (num_allocs > gc_threshold) {
-        collect_from_value(v);
+        collect();
     }
     return v;
+}
+
+
+int32_t int32_value(struct value *v) {
+    // Unchecked. Use only on int32 values.
+    return (int32_t)v->words[0];
+}
+
+struct value *project_fst(struct value *v) {
+    // Unchecked. Use only on (a, b) values.
+    return (struct value *)v->words[0];
+}
+
+struct value *project_snd(struct value *v) {
+    // Unchecked. Use only on (a, b) values.
+    return (struct value *)v->words[1];
 }
 
 
@@ -459,8 +442,10 @@ void program_entry(void);
 // It's definitely possible, but I'm not sure why my previous attempt didn't work.
 
 int main(void) {
-    // Initialize halt continuation.
-    /* halt = allocate_cont(NULL, halt_code); */
+    // Initialize the locals vector.
+    locals_capacity = 8;
+    locals = malloc(locals_capacity * sizeof(struct alloc_header *));
+    num_locals = 0;
 
     // Push initial activation record on stack
     program_entry();
@@ -468,6 +453,7 @@ int main(void) {
     // Main driver loop.
     int keep_running = 1;
     while (keep_running) {
+        num_locals = 0;
         switch (next_step.type) {
         case JUMP_NEXT:
             next_step.kont->code(next_step.kont->env, next_step.arg);
