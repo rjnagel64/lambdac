@@ -1,35 +1,6 @@
 
-#include <stdio.h>
-#include <string.h>
-
-#include "rts.h"
-
-void not_implemented(const char *msg) {
-    printf("Not implemented: %s\n", msg);
-    exit(1);
-}
-
-void panic(const char *msg) {
-    printf("RTS error: %s\n", msg);
-    exit(1);
-}
-
-enum next_type {
-    JUMP_NEXT,
-    TAILCALL_NEXT,
-    HALT_NEXT,
-};
-
-struct next_action {
-    enum next_type type;
-    struct fun *fun;
-    struct value *arg;
-    struct cont *kont;
-};
-
-// Next action to take. A GC root.
-static struct next_action next_step;
-
+#include "alloc.h"
+#include "panic.h"
 
 // All allocations.
 static struct alloc_header *first_allocation;
@@ -42,7 +13,20 @@ static struct alloc_header **locals = NULL;
 static size_t num_locals = 0;
 static size_t locals_capacity = 0;
 
-void reset_locals() {
+void init_locals(void) {
+    locals_capacity = 8;
+    locals = malloc(locals_capacity * sizeof(struct alloc_header *));
+    num_locals = 0;
+}
+
+void destroy_locals(void) {
+    free(locals);
+    locals = NULL;
+    num_locals = 0;
+    locals_capacity = 0;
+}
+
+void reset_locals(void) {
     num_locals = 0;
 }
 
@@ -54,7 +38,6 @@ void push_local(struct alloc_header *local) {
     locals[num_locals] = local;
     num_locals++;
 }
-
 
 // Some sort of tracing GC.
 // Linked list of all allocations.
@@ -82,10 +65,6 @@ void push_local(struct alloc_header *local) {
 // every 'struct fun' and 'struct cont' needs a tracing map.)
 
 static uint32_t current_mark = 0;
-
-void trace_value(struct value *v);
-void trace_fun(struct fun *f);
-void trace_cont(struct cont *k);
 
 void trace_prod(struct value *v) {
     trace_value((struct value *)v->words[0]);
@@ -143,24 +122,11 @@ void trace_alloc(struct alloc_header *alloc) {
 }
 
 
-void mark_root(void) {
-    switch (next_step.type) {
-    case TAILCALL_NEXT:
-        trace_fun(next_step.fun);
-        trace_cont(next_step.kont);
-        trace_value(next_step.arg);
-        break;
-    case JUMP_NEXT:
-        trace_cont(next_step.kont);
-        trace_value(next_step.arg);
-        break;
-    case HALT_NEXT:
-        trace_value(next_step.arg);
-        break;
-    }
-}
+// Hook to trace any roots known to the driver program.
+// Provided at runtime startup, by the main driver.
+void (*trace_roots)(void);
 
-void mark_locals(void) {
+void trace_locals(void) {
     for (size_t i = 0; i < num_locals; i++) {
         // Mark based on allocation type.
         struct alloc_header *local = locals[i];
@@ -218,12 +184,37 @@ void sweep(void) {
     }
 }
 
-void collect() {
+void collect(void) {
     current_mark++;
-    mark_root();
-    mark_locals();
+    trace_roots();
+    trace_locals();
     sweep();
     gc_threshold *= 2;
+}
+
+void sweep_all_allocations(void) {
+    for (struct alloc_header *alloc = first_allocation; alloc != NULL;) {
+        struct alloc_header *next = alloc->next;
+        switch (alloc->type) {
+        case ALLOC_FUN:
+            // Fields in env are managed by GC.
+            free(((struct fun *)alloc)->env);
+            free(alloc);
+            break;
+        case ALLOC_CONT:
+            // Fields in env are managed by GC.
+            free(((struct cont *)alloc)->env);
+            free(alloc);
+            break;
+        case ALLOC_CONST:
+        case ALLOC_PROD:
+        case ALLOC_SUM:
+            // All fields are managed by GC.
+            free(alloc);
+            break;
+        }
+        alloc = next;
+    }
 }
 
 struct cont *allocate_cont(
@@ -395,131 +386,3 @@ struct value *project_snd(struct value *v) {
     return (struct value *)v->words[1];
 }
 
-
-void control_jump(struct cont *k, struct value *x) {
-    next_step.type = JUMP_NEXT;
-    next_step.fun = NULL;
-    next_step.arg = x;
-    next_step.kont = k;
-}
-
-void control_call(struct fun *f, struct value *x, struct cont *k) {
-    next_step.type = TAILCALL_NEXT;
-    next_step.fun = f;
-    next_step.arg = x;
-    next_step.kont = k;
-}
-
-void control_halt(struct value *x) {
-    next_step.type = HALT_NEXT;
-    next_step.fun = NULL;
-    next_step.arg = x;
-    next_step.kont = NULL;
-}
-
-void control_case(struct value *x, struct cont *k1, struct cont *k2) {
-    next_step.type = JUMP_NEXT;
-    next_step.fun = NULL;
-    next_step.arg = (struct value *)x->words[1];
-    switch (x->words[0]) {
-    case 0:
-        next_step.kont = k1;
-        break;
-    case 1:
-        next_step.kont = k2;
-        break;
-    default:
-        panic("invalid discriminant");
-    }
-}
-
-
-
-// Provided by user.
-void program_entry(void);
-
-// TODO: Figure out how to properly allocate static closures.
-// It's definitely possible, but I'm not sure why my previous attempt didn't work.
-
-int main(void) {
-    // Initialize the locals vector.
-    locals_capacity = 8;
-    locals = malloc(locals_capacity * sizeof(struct alloc_header *));
-    num_locals = 0;
-
-    // Push initial activation record on stack
-    program_entry();
-
-    // Main driver loop.
-    int keep_running = 1;
-    while (keep_running) {
-        num_locals = 0;
-        switch (next_step.type) {
-        case JUMP_NEXT:
-            next_step.kont->code(next_step.kont->env, next_step.arg);
-            // fun, cont, and arg will be collected by GC.
-            break;
-        case TAILCALL_NEXT:
-            next_step.fun->code(next_step.fun->env, next_step.arg, next_step.kont);
-            // fun, cont, and arg will be collected by GC.
-            break;
-        case HALT_NEXT:
-            printf("done.\n");
-            int32_t result = int32_value(next_step.arg);
-            printf("result = %d\n", result);
-            keep_running = 0;
-            // fun, cont, and arg will be collected by GC.
-            break;
-        }
-    }
-
-    // Cleanup.
-    free(locals);
-    for (struct alloc_header *alloc = first_allocation; alloc != NULL;) {
-        struct alloc_header *next = alloc->next;
-        switch (alloc->type) {
-        case ALLOC_FUN:
-            // Fields in env are managed by GC.
-            free(((struct fun *)alloc)->env);
-            free(alloc);
-            break;
-        case ALLOC_CONT:
-            // Fields in env are managed by GC.
-            free(((struct cont *)alloc)->env);
-            free(alloc);
-            break;
-        case ALLOC_CONST:
-        case ALLOC_PROD:
-        case ALLOC_SUM:
-            // All fields are managed by GC.
-            free(alloc);
-            break;
-        }
-        alloc = next;
-    }
-}
-
-// TODO: Eventually break primitive operations out into another file, once
-// there are enough.
-struct value *prim_addint32(struct value *x, struct value *y) {
-    return allocate_int32(int32_value(x) + int32_value(y));
-}
-
-struct value *prim_subint32(struct value *x, struct value *y) {
-    return allocate_int32(int32_value(x) - int32_value(y));
-}
-
-struct value *prim_mulint32(struct value *x, struct value *y) {
-    return allocate_int32(int32_value(x) * int32_value(y));
-}
-
-// TODO: Use booleans, not inl ()/inr ()
-struct value *prim_iszero32(struct value *x) {
-    if (int32_value(x) == 0) {
-        return allocate_inl(allocate_nil());
-    } else {
-        return allocate_inr(allocate_nil());
-    }
-}
-
-// vim: set et sts=4 sw=4:

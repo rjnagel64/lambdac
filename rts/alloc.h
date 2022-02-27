@@ -1,5 +1,5 @@
-#ifndef __RTS_H__
-#define __RTS_H__
+#ifndef __ALLOC_H__
+#define __ALLOC_H__
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -18,6 +18,10 @@ struct alloc_header {
     struct alloc_header *next;
 };
 
+void init_locals(void);
+void destroy_locals(void);
+void reset_locals(void);
+
 // New value layout:
 // inl x is [hdr|0|&x],
 // inr y in [hdr|1|&y],
@@ -32,13 +36,14 @@ struct alloc_header {
 // first', 'GC none', etc.)
 // (GHC has info tables, value carries pointer to info table?)
 //
-// TODO: Currently, pairs cannot contain functions. To fix this, I think I need to move to the info-table version of things.
+// TODO: Currently, pairs cannot contain functions. To fix this, I need to
+// merge 'struct fun' and 'struct cont' into 'struct value', having envp, code,
+// trace being words[0], [1], and [2], I guess.
 struct value {
     struct alloc_header header;
-    // uint32_t discriminant;
     // Count of words is not necessary? In-bounds access of fields is
     // guaranteed by static typing. (Might be necessary for GC.)
-    uintptr_t words[]; // TODO: Rename this to cells?
+    uintptr_t words[];
 };
 
 struct cont {
@@ -55,6 +60,14 @@ struct fun {
     void (*trace_env)(void *env);
 };
 
+void trace_value(struct value *v);
+void trace_fun(struct fun *f);
+void trace_cont(struct cont *k);
+
+void (*trace_roots)(void);
+void collect(void);
+void sweep_all_allocations(void);
+
 struct cont *allocate_cont(
         void *env,
         void (*code)(void *env, struct value *arg),
@@ -63,6 +76,7 @@ struct fun *allocate_fun(
         void *env,
         void (*code)(void *env, struct value *arg, struct cont *kont),
         void (*trace_env)(void *env));
+
 struct value *allocate_pair(struct value *x, struct value *y);
 struct value *allocate_inl(struct value *v);
 struct value *allocate_inr(struct value *v);
@@ -78,24 +92,5 @@ struct value *project_fst(struct value *v);
 struct value *project_snd(struct value *v);
 int32_t int32_value(struct value *v); // partial
 
-
-// static uint64_t num_locals = 0;
-// void allocate_locals(size_t count);
-// void store_local(size_t i, struct alloc_header *alloc);
-
-void control_jump(struct cont *k, struct value *x);
-void control_call(struct fun *f, struct value *x, struct cont *k);
-void control_halt(struct value *x);
-void control_case(struct value *x, struct cont *k1, struct cont *k2);
-
-#define JUMP(k, x) { control_jump(k, x); return; }
-#define TAILCALL(f, x, k) { control_call(f, x, k); return; }
-#define HALT(x) { control_halt(x); return; }
-#define CASE(x, k1, k2) { control_case(x, k1, k2); return; }
-
-struct value *prim_addint32(struct value *x, struct value *y);
-struct value *prim_subint32(struct value *x, struct value *y);
-struct value *prim_mulint32(struct value *x, struct value *y);
-struct value *prim_iszero32(struct value *x);
 
 #endif

@@ -29,6 +29,7 @@ parseFile f = readFile f >>= parseString
 
 src :: String
 src = "let fun f x = case iszero x of { inl z -> 0; inr z -> x + f (x + -1) }; in f 10"
+-- src = "2 + 2"
 
 main :: IO ()
 main = do
