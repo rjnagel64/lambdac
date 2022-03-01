@@ -53,6 +53,9 @@ struct cont {
     void (*trace_env)(void *env);
 };
 
+// TODO: Functions need to be a type of value, so I can have 'let f y h = ...; in k f'.
+// I think I generally need to make closures take a `struct alloc_header *` as
+// their argument, not `struct value *`.
 struct fun {
     struct alloc_header header;
     void *env;
@@ -77,6 +80,8 @@ struct fun *allocate_fun(
         void (*code)(void *env, struct value *arg, struct cont *kont),
         void (*trace_env)(void *env));
 
+// TODO: Make these take struct alloc_header * instead
+// (This way, function and continuation closures can be stored in pairs and sums)
 struct value *allocate_pair(struct value *x, struct value *y);
 struct value *allocate_inl(struct value *v);
 struct value *allocate_inr(struct value *v);
@@ -88,6 +93,7 @@ struct value *allocate_nil(void);
 struct value *allocate_true(void);
 struct value *allocate_false(void);
 
+// TODO: Make these return struct alloc_header * instead
 struct value *project_fst(struct value *v);
 struct value *project_snd(struct value *v);
 int32_t int32_value(struct value *v); // partial

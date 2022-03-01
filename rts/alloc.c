@@ -66,6 +66,9 @@ void push_local(struct alloc_header *local) {
 
 static uint32_t current_mark = 0;
 
+// TODO: Remember to mark values after tracing subterms
+// TODO: What if there is a cycle? I think I will stack overflow, then.
+// (=> tricolor mark-sweep?)
 void trace_prod(struct value *v) {
     trace_value((struct value *)v->words[0]);
     trace_value((struct value *)v->words[1]);
@@ -76,6 +79,7 @@ void trace_sum(struct value *v) {
     trace_value((struct value *)v->words[1]);
 }
 
+// TODO: Eventually, this will become redundant with trace_alloc.
 void trace_value(struct value *v) {
     switch (v->header.type) {
     case ALLOC_CONST:
