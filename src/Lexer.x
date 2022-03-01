@@ -30,7 +30,7 @@ tokens :-
   $white+ ;
   "--" .* ;
 
-  "\\" { tok TokLambda }
+  [\\] { tok TokLambda }
   "->" { tok TokArrow }
   ";" { tok TokSemi }
   ":" { tok TokColon }
