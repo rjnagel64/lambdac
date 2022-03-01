@@ -31,7 +31,7 @@ parseString s = case P.parseTerm (L.lex s) of
 parseFile :: FilePath -> IO S.Term
 parseFile f = readFile f >>= parseString
 
--- src = "let fun f x = case iszero x of { inl z -> 0; inr z -> x + f (x + -1) }; in f 10"
+-- src = "let fun f x = case iszero x of { inl z -> 1; inr z -> x + f (x + -1) }; in f 10"
 -- src = "\\x -> x"
 -- src = "2 + 2"
 
@@ -66,7 +66,7 @@ main = do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK
 
-  let srcC = C.cconv srcK
+  let srcC = C.runConv $ C.cconv srcK
   when (driverDumpCC args) $ do
     putStrLn $ "--- Closure Conversion ---"
     putStrLn $ C.pprintTerm 0 srcC

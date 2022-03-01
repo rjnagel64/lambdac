@@ -188,7 +188,7 @@ emitAlloc bindGroup (PlaceName Fun p) d (EnvAlloc xs) =
     -- Allocate closure environment here, with NULL for cyclic captures.
     envArg = declAllocName ns ++ "(" ++ intercalate ", " (map (allocArg . snd) xs) ++ ")"
     allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
-    allocArg (EnvName x) = x
+    allocArg (EnvName x) = "env->" ++ x -- TODO: What if environment has different name?
     codeArg = declCodeName ns
     traceArg = declTraceName ns
 emitAlloc bindGroup (PlaceName Cont p) d (EnvAlloc xs) =

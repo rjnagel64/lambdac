@@ -8,4 +8,4 @@ let
   fun inc x = x + 1;
   fun id y = y;
 in
-  either inc id (inl 17)
+  either inc id (inr 17)

@@ -1,6 +1,7 @@
 *.swp
 *.swo
 *.o
+*.a
 fact
 demo
 dist-newstyle/

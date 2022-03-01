@@ -1,0 +1,8 @@
+let
+  fun tri n =
+    case iszero n of {
+      inl y -> 0;
+      inr z -> n + tri (n + -1)
+    };
+in
+tri 10
