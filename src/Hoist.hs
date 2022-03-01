@@ -61,9 +61,9 @@ instance Show Name where
 
 -- Place names declare a reference to an object: value, function, or continuation.
 -- They are used as parameters and also as local temporaries.
-data PlaceName = PlaceName Sort String
+data PlaceName = PlaceName { placeSort :: Sort, placeName :: String }
 
-data FieldName = FieldName Sort String
+data FieldName = FieldName { fieldSort :: Sort, fieldName :: String }
 
 -- | 'DeclName's are used to refer to top-level functions and continuations.
 -- They are introduced by (hoisting) function/continuation closure bingings,

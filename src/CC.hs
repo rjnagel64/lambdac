@@ -164,9 +164,13 @@ unit x = Env $ \binding ->
 class Close a where
   -- TODO: Better name for 'close'
   -- Find the set of environment fields needed by an expression.
+  -- 'fieldsFor', maybe?
   close :: a -> Env
 
 instance Close TermK where
+  -- TODO: This is wrong. The sort of a name should be inferred from what it is
+  -- bound to, not where it's used. The prime example is `let fun f y h = ...;
+  -- in k f`. `f` is bound to a function, but used as an argument.
   close (HaltK x) = unit (tmVar x, Value)
   close (JumpK k x) = unit (coVar k, Cont) <> unit (tmVar x, Value)
   close (LetValK x v e) = close v <> bind [(tmVar x, Value)] (close e)
@@ -282,11 +286,11 @@ pprintClosureDef n (FunClosureDef f free rec x k e) =
   indent n env ++ indent n (show f ++ " " ++ show x ++ " " ++ show k ++ " =\n") ++ pprintTerm (n+2) e
   where
     env = "{" ++ intercalate ", " vars ++ "}\n"
-    vars = map show (free ++ rec)
+    vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
 
 pprintContClosureDef :: Int -> ContClosureDef -> String
 pprintContClosureDef n (ContClosureDef k free rec x e) =
   indent n env ++ indent n (show k ++ " " ++ show x ++ " =\n") ++ pprintTerm (n+2) e
   where
     env = "{" ++ intercalate ", " vars ++ "}\n"
-    vars = map show (free ++ rec)
+    vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
