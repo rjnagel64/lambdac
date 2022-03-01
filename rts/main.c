@@ -30,18 +30,19 @@ int main(void) {
         switch (next_step.type) {
         case JUMP_NEXT:
             next_step.kont->code(next_step.kont->env, next_step.arg);
-            // fun, cont, and arg will be collected by GC.
             break;
         case TAILCALL_NEXT:
             next_step.fun->code(next_step.fun->env, next_step.arg, next_step.kont);
-            // fun, cont, and arg will be collected by GC.
             break;
         case HALT_NEXT:
             printf("done.\n");
-            int32_t result = int32_value(next_step.arg);
-            printf("result = %d\n", result);
+            if (next_step.arg.header.type == ALLOC_CONST) {
+                int32_t result = int32_value(next_step.arg);
+                printf("result = %d\n", result);
+            } else {
+                printf("FIXME: display values other than integers\n");
+            }
             keep_running = 0;
-            // fun, cont, and arg will be collected by GC.
             break;
         }
     }
