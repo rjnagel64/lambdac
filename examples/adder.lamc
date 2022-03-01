@@ -1,0 +1,3 @@
+let fun adder x = \y -> x + y; in
+let add3 = adder3 in
+add3 5

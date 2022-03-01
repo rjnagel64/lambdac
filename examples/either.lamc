@@ -1,0 +1,11 @@
+let
+  fun either f = \g -> \x -> case x of {
+    inl a -> f a;
+    inr b -> g b
+  };
+in
+let
+  fun inc x = x + 1;
+  fun id y = y;
+in
+  either inc id (inl 17)
