@@ -121,26 +121,14 @@ emitContCode ns x e =
   ["}"]
 
 emitClosureBody :: TermH -> [String]
-emitClosureBody (LetValH x (IntH i) e) =
-  ["    " ++ emitPlace x ++ " = allocate_int32(" ++ show i ++ ");"] ++
-  emitClosureBody e
-emitClosureBody (LetValH x NilH e) =
-  ["    " ++ emitPlace x ++ " = allocate_nil();"] ++
-  emitClosureBody e
-emitClosureBody (LetValH x (PairH y z) e) =
-  ["    " ++ emitPlace x ++ " = allocate_pair(" ++ emitName y ++ ", " ++ emitName z ++ ");"] ++
-  emitClosureBody e
-emitClosureBody (LetValH x (InlH y) e) =
-  ["    " ++ emitPlace x ++ " = allocate_inl(" ++ emitName y ++ ");"] ++
-  emitClosureBody e
-emitClosureBody (LetValH x (InrH y) e) =
-  ["    " ++ emitPlace x ++ " = allocate_inr(" ++ emitName y ++ ");"] ++
+emitClosureBody (LetValH x v e) =
+  ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc v ++ ";"] ++
   emitClosureBody e
 emitClosureBody (LetFstH x y e) =
-  ["    " ++ emitPlace x ++ " = project_fst(" ++ emitName y ++ ");"] ++
+  ["    " ++ emitPlace x ++ " = AS_VALUE(project_fst(" ++ emitName y ++ "));"] ++
   emitClosureBody e
 emitClosureBody (LetSndH x y e) =
-  ["    " ++ emitPlace x ++ " = project_snd(" ++ emitName y ++ ");"] ++
+  ["    " ++ emitPlace x ++ " = AS_VALUE(project_snd(" ++ emitName y ++ "));"] ++
   emitClosureBody e
 emitClosureBody (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp p ++ ";"] ++
@@ -155,6 +143,13 @@ emitClosureBody (CallH f x k) =
   ["    TAILCALL(" ++ emitName f ++ ", " ++ emitName x ++ ", " ++ emitName k ++ ");"]
 emitClosureBody (CaseH x k1 k2) =
   ["    CASE(" ++ emitName x ++ ", " ++ emitName k1 ++ ", " ++ emitName k2 ++ ");"]
+
+emitValueAlloc :: ValueH -> String
+emitValueAlloc (IntH i) = "allocate_int32(" ++ show i ++ ")"
+emitValueAlloc NilH = "allocate_nil()"
+emitValueAlloc (PairH y z) = "allocate_pair(" ++ emitName y ++ ", " ++ emitName z ++ ")"
+emitValueAlloc (InlH y) = "allocate_inl(" ++ emitName y ++ ")"
+emitValueAlloc (InrH y) = "allocate_inr(" ++ emitName y ++ ")"
 
 emitPrimOp :: PrimOp -> String
 emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"

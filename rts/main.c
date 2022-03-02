@@ -36,7 +36,7 @@ int main(void) {
             break;
         case HALT_NEXT:
             printf("done.\n");
-            if (next_step.arg.header.type == ALLOC_CONST) {
+            if (next_step.arg->header.type == ALLOC_CONST) {
                 int32_t result = int32_value(next_step.arg);
                 printf("result = %d\n", result);
             } else {

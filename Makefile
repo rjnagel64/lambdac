@@ -11,6 +11,7 @@ fact: fact.o rts/librts.a
 fact.o: fact.c rts/rts.h
 	clang -I./rts/ -c fact.c -o fact.o
 
+# TODO: Compile RTS with optimizations
 rts/librts.a: rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/main.o
 	ar -crs rts/librts.a rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/main.o
 

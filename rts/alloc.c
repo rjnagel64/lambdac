@@ -380,13 +380,13 @@ int32_t int32_value(struct value *v) {
     return (int32_t)v->words[0];
 }
 
-struct value *project_fst(struct value *v) {
+struct alloc_header *project_fst(struct value *v) {
     // Unchecked. Use only on (a, b) values.
-    return (struct value *)v->words[0];
+    return (struct alloc_header *)v->words[0];
 }
 
-struct value *project_snd(struct value *v) {
+struct alloc_header *project_snd(struct value *v) {
     // Unchecked. Use only on (a, b) values.
-    return (struct value *)v->words[1];
+    return (struct alloc_header *)v->words[1];
 }
 
