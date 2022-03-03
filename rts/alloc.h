@@ -55,7 +55,7 @@ struct value {
 struct cont {
     struct alloc_header header;
     void *env;
-    void (*code)(void *env, struct value *arg);
+    void (*code)(void *env, struct alloc_header *arg);
     void (*trace_env)(void *env);
 };
 
@@ -67,7 +67,7 @@ struct cont {
 struct fun {
     struct alloc_header header;
     void *env;
-    void (*code)(void *env, struct value *arg, struct cont *kont);
+    void (*code)(void *env, struct alloc_header *arg, struct cont *kont);
     void (*trace_env)(void *env);
 };
 
@@ -76,6 +76,7 @@ struct fun {
 void trace_value(struct value *v);
 void trace_fun(struct fun *f);
 void trace_cont(struct cont *k);
+void trace_alloc(struct alloc_header *v);
 
 void (*trace_roots)(void);
 void collect(void);
@@ -83,11 +84,11 @@ void sweep_all_allocations(void);
 
 struct cont *allocate_cont(
         void *env,
-        void (*code)(void *env, struct value *arg),
+        void (*code)(void *env, struct alloc_header *arg),
         void (*trace_env)(void *env));
 struct fun *allocate_fun(
         void *env,
-        void (*code)(void *env, struct value *arg, struct cont *kont),
+        void (*code)(void *env, struct alloc_header *arg, struct cont *kont),
         void (*trace_env)(void *env));
 
 // TODO: Make these take struct alloc_header * instead

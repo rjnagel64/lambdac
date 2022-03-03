@@ -138,9 +138,9 @@ emitClosureBody (AllocCont ks e) = emitContAlloc ks ++ emitClosureBody e
 emitClosureBody (HaltH x) =
   ["    HALT(" ++ emitName x ++ ");"]
 emitClosureBody (JumpH k x) =
-  ["    JUMP(" ++ emitName k ++ ", " ++ emitName x ++ ");"]
+  ["    JUMP(" ++ emitName k ++ ", " ++ asAlloc (emitName x) ++ ");"]
 emitClosureBody (CallH f x k) =
-  ["    TAILCALL(" ++ emitName f ++ ", " ++ emitName x ++ ", " ++ emitName k ++ ");"]
+  ["    TAILCALL(" ++ emitName f ++ ", " ++ asAlloc (emitName x) ++ ", " ++ emitName k ++ ");"]
 emitClosureBody (CaseH x k1 k2) =
   ["    CASE(" ++ emitName x ++ ", " ++ emitName k1 ++ ", " ++ emitName k2 ++ ");"]
 
@@ -156,6 +156,9 @@ emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName x ++ ", " ++ emitNa
 emitPrimOp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 emitPrimOp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 emitPrimOp (PrimIsZero32 x) = "prim_iszero32(" ++ emitName x ++ ")"
+
+asAlloc :: String -> String
+asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
 emitFunAlloc :: [FunAlloc] -> [String]
 emitFunAlloc fs =

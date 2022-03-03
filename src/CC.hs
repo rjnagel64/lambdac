@@ -81,6 +81,12 @@ fnName (K.FnName f) = Name f
 -- Value = int | bool | t1 * t2 | t1 + t2 | ()
 -- Fun = (t1 * (t2 -> 0)) -> 0
 -- Cont = t1 -> 0
+--
+-- Perhaps I should add
+-- Alloc = Value | Fun | Cont
+-- (Or maybe call it Uniform? Currently necessary to e.g. pass functions to continuations)
+-- (More generally, for uniform representation of polymorphism.)
+-- (Yes. Add this.)
 data Sort = Fun | Cont | Value
   deriving (Eq, Ord)
 

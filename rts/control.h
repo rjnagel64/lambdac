@@ -1,6 +1,8 @@
 #ifndef __CONTROL_H__
 #define __CONTROL_H__
 
+#include "alloc.h"
+
 enum next_type {
     JUMP_NEXT,
     TAILCALL_NEXT,
@@ -10,7 +12,7 @@ enum next_type {
 struct next_action {
     enum next_type type;
     struct fun *fun;
-    struct value *arg;
+    struct alloc_header *arg;
     struct cont *kont;
 };
 
@@ -20,9 +22,9 @@ struct next_action next_step;
 
 void mark_root(void);
 
-void control_jump(struct cont *k, struct value *x);
-void control_call(struct fun *f, struct value *x, struct cont *k);
-void control_halt(struct value *x);
+void control_jump(struct cont *k, struct alloc_header *x);
+void control_call(struct fun *f, struct alloc_header *x, struct cont *k);
+void control_halt(struct alloc_header *x);
 void control_case(struct value *x, struct cont *k1, struct cont *k2);
 
 #define JUMP(k, x) { control_jump(k, x); return; }

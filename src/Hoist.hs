@@ -83,11 +83,9 @@ data TopDecl
 -- needed for future calling conventions, and also making a pattern match in
 -- hoistFunClosure safer.
 data FunDecl
-  -- TODO: Include or compute number of required local slots
   = FunDecl DeclName EnvDecl PlaceName PlaceName TermH
 
 data ContDecl
-  -- TODO: Include or compute number of required local slots
   = ContDecl DeclName EnvDecl PlaceName TermH
 
 newtype EnvDecl = EnvDecl [FieldName]

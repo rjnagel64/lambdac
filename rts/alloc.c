@@ -223,7 +223,7 @@ void sweep_all_allocations(void) {
 
 struct cont *allocate_cont(
         void *env,
-        void (*code)(void *env, struct value *arg),
+        void (*code)(void *env, struct alloc_header *arg),
         void (*trace_env)(void *env)) {
     struct cont *k = malloc(sizeof(struct cont));
     k->header.type = ALLOC_CONT;
@@ -243,7 +243,7 @@ struct cont *allocate_cont(
 
 struct fun *allocate_fun(
         void *env,
-        void (*code)(void *env, struct value *arg, struct cont *kont),
+        void (*code)(void *env, struct alloc_header *arg, struct cont *kont),
         void (*trace_env)(void *env)) {
     struct fun *f = malloc(sizeof(struct fun));
     f->header.type = ALLOC_FUN;
