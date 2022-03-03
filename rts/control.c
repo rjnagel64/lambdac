@@ -14,10 +14,11 @@ void mark_root(void) {
         trace_cont(next_step.kont);
         trace_alloc(next_step.arg);
         break;
-    case HALT_NEXT:
-        trace_alloc(next_step.arg);
-        break;
     }
+}
+
+void halt_with(struct alloc_header *x) {
+    result_value = x;
 }
 
 void control_jump(struct cont *k, struct alloc_header *x) {
@@ -32,13 +33,6 @@ void control_call(struct fun *f, struct alloc_header *x, struct cont *k) {
     next_step.fun = f;
     next_step.arg = x;
     next_step.kont = k;
-}
-
-void control_halt(struct alloc_header *x) {
-    next_step.type = HALT_NEXT;
-    next_step.fun = NULL;
-    next_step.arg = x;
-    next_step.kont = NULL;
 }
 
 void control_case(struct value *x, struct cont *k1, struct cont *k2) {

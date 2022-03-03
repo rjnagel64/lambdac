@@ -10,9 +10,6 @@
 // Provided by user.
 void program_entry(void);
 
-// TODO: Figure out how to properly allocate static closures.
-// It's definitely possible, but I'm not sure why my previous attempt didn't work.
-
 int main(void) {
     // Initialize the locals vector.
     init_locals();
@@ -24,8 +21,9 @@ int main(void) {
     program_entry();
 
     // Main driver loop.
-    int keep_running = 1;
-    while (keep_running) {
+    // Repeatedly force/enter the current thunk until a final value is reached.
+    result_value = NULL;
+    while (result_value == NULL) {
         reset_locals();
         switch (next_step.type) {
         case JUMP_NEXT:
@@ -34,17 +32,15 @@ int main(void) {
         case TAILCALL_NEXT:
             next_step.fun->code(next_step.fun->env, next_step.arg, next_step.kont);
             break;
-        case HALT_NEXT:
-            printf("done.\n");
-            if (next_step.arg->type == ALLOC_CONST) {
-                int32_t result = int32_value(AS_VALUE(next_step.arg));
-                printf("result = %d\n", result);
-            } else {
-                printf("FIXME: display values other than integers\n");
-            }
-            keep_running = 0;
-            break;
         }
+    }
+    // Display the result value.
+    // Once I have a functioning IO system, this can go away.
+    if (result_value->type == ALLOC_CONST) {
+        int32_t result = int32_value(AS_VALUE(next_step.arg));
+        printf("result = %d\n", result);
+    } else {
+        printf("FIXME: display values other than integers\n");
     }
 
     // Cleanup.
