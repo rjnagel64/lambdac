@@ -4,47 +4,65 @@
 #include "alloc.h"
 
 void mark_root(void) {
-    switch (next_step->type) {
-    case TAILCALL_NEXT:
-        trace_fun(next_step->fun);
-        trace_cont(next_step->kont);
-        trace_alloc(next_step->arg);
-        break;
-    case JUMP_NEXT:
-        trace_cont(next_step->kont);
-        trace_alloc(next_step->arg);
-        break;
-    }
+    next_step->trace();
 }
 
 void halt_with(struct alloc_header *x) {
     result_value = x;
 }
 
-void control_jump(struct cont *k, struct alloc_header *x) {
-    next_step->type = JUMP_NEXT;
-    next_step->fun = NULL;
-    next_step->arg = x;
-    next_step->kont = k;
+void enter_call(void) {
+    struct fun_thunk *next = (struct fun_thunk *)next_step;
+    next->fun->code(next->fun->env, next->arg, next->kont);
 }
 
-void control_call(struct fun *f, struct alloc_header *x, struct cont *k) {
-    next_step->type = TAILCALL_NEXT;
-    next_step->fun = f;
-    next_step->arg = x;
-    next_step->kont = k;
+void trace_call(void) {
+    struct fun_thunk *next = (struct fun_thunk *)next_step;
+    trace_fun(next->fun);
+    trace_cont(next->kont);
+    trace_alloc(next->arg);
 }
 
-void control_case(struct value *x, struct cont *k1, struct cont *k2) {
-    next_step->type = JUMP_NEXT;
-    next_step->fun = NULL;
-    next_step->arg = (struct alloc_header *)x->words[1];
+void suspend_call(struct fun *f, struct alloc_header *x, struct cont *k) {
+    struct fun_thunk *next = realloc(next_step, sizeof(struct fun_thunk));
+    next->header.enter = enter_call;
+    next->header.trace = trace_call;
+    next->fun = f;
+    next->arg = x;
+    next->kont = k;
+    next_step = (struct thunk *)next;
+}
+
+void enter_jump(void) {
+    struct cont_thunk *next = (struct cont_thunk *)next_step;
+    next->kont->code(next->kont->env, next->arg);
+}
+
+void trace_jump(void) {
+    struct cont_thunk *next = (struct cont_thunk *)next_step;
+    trace_cont(next->kont);
+    trace_alloc(next->arg);
+}
+
+void suspend_jump(struct cont *k, struct alloc_header *x) {
+    struct cont_thunk *next = realloc(next_step, sizeof(struct cont_thunk));
+    next->header.enter = enter_jump;
+    next->header.trace = trace_jump;
+    next->arg = x;
+    next->kont = k;
+    next_step = (struct thunk *)next;
+}
+
+// In the future, with many-branched switches and/or other calling conventions,
+// it probably will be necessary to inline this as part of function code
+// generation.
+void suspend_case(struct value *x, struct cont *k1, struct cont *k2) {
     switch (x->words[0]) {
     case 0:
-        next_step->kont = k1;
+        suspend_jump(k1, AS_ALLOC(x->words[1]));
         break;
     case 1:
-        next_step->kont = k2;
+        suspend_jump(k2, AS_ALLOC(x->words[1]));
         break;
     default:
         panic("invalid discriminant");

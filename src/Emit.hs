@@ -136,7 +136,7 @@ emitClosureBody (LetPrimH x p e) =
 emitClosureBody (AllocFun fs e) = emitFunAlloc fs ++ emitClosureBody e
 emitClosureBody (AllocCont ks e) = emitContAlloc ks ++ emitClosureBody e
 emitClosureBody (HaltH x) =
-  ["    HALT(" ++ emitName x ++ ");"]
+  ["    HALT(" ++ asAlloc (emitName x) ++ ");"]
 emitClosureBody (JumpH k x) =
   ["    JUMP(" ++ emitName k ++ ", " ++ asAlloc (emitName x) ++ ");"]
 emitClosureBody (CallH f x k) =

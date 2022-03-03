@@ -3,33 +3,41 @@
 
 #include "alloc.h"
 
-enum next_type {
-    JUMP_NEXT,
-    TAILCALL_NEXT,
+struct thunk {
+    void (*enter)(void);
+    void (*trace)(void);
 };
 
-struct next_action {
-    enum next_type type;
+struct fun_thunk {
+    struct thunk header;
     struct fun *fun;
     struct alloc_header *arg;
     struct cont *kont;
 };
 
-// Next action to take. A GC root. Basically a thunk: a delayed
-// function/continuation application.
-struct next_action *next_step;
+struct cont_thunk {
+    struct thunk header;
+    struct cont *kont;
+    struct alloc_header *arg;
+};
+
+// Next action to take. A GC root. A delayed function/continuation application.
+struct thunk *next_step;
 void mark_root(void);
 
 struct alloc_header *result_value;
 void halt_with(struct alloc_header *x);
 
-void control_jump(struct cont *k, struct alloc_header *x);
-void control_call(struct fun *f, struct alloc_header *x, struct cont *k);
-void control_case(struct value *x, struct cont *k1, struct cont *k2);
+// There currently are built-in thunk types for `(alloc) -> Ans` (struct cont)
+// and for `(alloc, (alloc) -> Ans) -> Ans` (struct fun).
+// Eventually, the compiler should emit all necessary thunk types.
+void suspend_jump(struct cont *k, struct alloc_header *x);
+void suspend_call(struct fun *f, struct alloc_header *x, struct cont *k);
+void suspend_case(struct value *x, struct cont *k1, struct cont *k2);
 
 #define HALT(x) { halt_with(x); return; }
-#define JUMP(k, x) { control_jump(k, x); return; }
-#define TAILCALL(f, x, k) { control_call(f, x, k); return; }
-#define CASE(x, k1, k2) { control_case(x, k1, k2); return; }
+#define JUMP(k, x) { suspend_jump(k, x); return; }
+#define TAILCALL(f, x, k) { suspend_call(f, x, k); return; }
+#define CASE(x, k1, k2) { suspend_case(x, k1, k2); return; }
 
 #endif
