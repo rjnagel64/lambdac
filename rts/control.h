@@ -17,7 +17,7 @@ struct next_action {
 
 // Next action to take. A GC root. Basically a thunk: a delayed
 // function/continuation application.
-struct next_action next_step;
+struct next_action *next_step;
 void mark_root(void);
 
 struct alloc_header *result_value;
