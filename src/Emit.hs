@@ -47,12 +47,12 @@ emitTopDecl (TopCont ks) = concatMap emitContDecl ks
 -- fields.)
 emitFunDecl :: H.FunDecl -> [String]
 emitFunDecl (H.FunDecl d envd x k e) =
-  emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitFunCode ns x k e
+  emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitClosureCode ns [x, k] e
   where ns = namesForDecl d
 
 emitContDecl :: H.ContDecl -> [String]
 emitContDecl (H.ContDecl d envd x e) =
-  emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitContCode ns x e
+  emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitClosureCode ns [x] e
   where ns = namesForDecl d
 
 emitEnvDecl :: DeclNames -> EnvDecl -> [String]
@@ -104,21 +104,19 @@ emitEnvTrace ns (EnvDecl fs) =
 
 -- TODO: What if 'env' is the name that gets shadowed? (I.e., the function
 -- parameter is named 'env')
-emitFunCode :: DeclNames -> PlaceName -> PlaceName -> TermH -> [String]
-emitFunCode ns x k e =
-  ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitPlace x ++ ", " ++ emitPlace k ++ ") {"
+-- Find the set of names used by this closure, and rename 'env' and 'envp'
+-- until they are not in that set. (Actually, if I use a generic function
+-- pointer in the generic closure value, I can have `struct $(declEnvName ns)
+-- *env` directly, instead of needing `env` and `envp`.)
+emitClosureCode :: DeclNames -> [PlaceName] -> TermH -> [String]
+emitClosureCode ns xs e =
+  ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitParameterList xs ++ ") {"
   ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
-  -- TODO: Allocate locals.
   emitClosureBody e ++
   ["}"]
 
-emitContCode :: DeclNames -> PlaceName -> TermH -> [String]
-emitContCode ns x e =
-  ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitPlace x ++ ") {"
-  ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
-  -- TODO: Allocate locals.
-  emitClosureBody e ++
-  ["}"]
+emitParameterList :: [PlaceName] -> String
+emitParameterList ps = intercalate ", " (map emitPlace ps)
 
 emitClosureBody :: TermH -> [String]
 emitClosureBody (LetValH x v e) =
@@ -133,8 +131,12 @@ emitClosureBody (LetSndH x y e) =
 emitClosureBody (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp p ++ ";"] ++
   emitClosureBody e
-emitClosureBody (AllocFun fs e) = emitFunAlloc fs ++ emitClosureBody e
-emitClosureBody (AllocCont ks e) = emitContAlloc ks ++ emitClosureBody e
+emitClosureBody (AllocFun fs e) =
+  emitAllocGroup (map (\ (FunAlloc p d env) -> (p, d, env)) fs) ++
+  emitClosureBody e
+emitClosureBody (AllocCont ks e) =
+  emitAllocGroup (map (\ (ContAlloc p d env) -> (p, d, env)) ks) ++
+  emitClosureBody e
 emitClosureBody (HaltH x) =
   ["    HALT(" ++ asAlloc (emitName x) ++ ");"]
 emitClosureBody (JumpH k x) =
@@ -157,29 +159,27 @@ emitPrimOp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName x ++ ", " ++ emitNa
 emitPrimOp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 emitPrimOp (PrimIsZero32 x) = "prim_iszero32(" ++ emitName x ++ ")"
 
+-- | Cast a value to an arbitrary allocation.
+-- Ultimately, I expect not to need this, because arbitrary allocations are the
+-- representation of polymorphic values, and the typechecker will rule out
+-- cases like 'expected a, got int' and 'expected int, got a'.
+-- The other factor obviating the need for this function is that smarter
+-- calling conventions will use more precise types, rather than always
+-- accepting `struct alloc_header *`.
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
-emitFunAlloc :: [FunAlloc] -> [String]
-emitFunAlloc fs =
-  map (\ (FunAlloc p d env) -> emitAlloc bindGroup p d env) fs ++
-  concatMap (\ (FunAlloc p d env) -> emitPatch (namesForDecl d) bindGroup p env) fs
+emitAllocGroup :: [(PlaceName, DeclName, EnvAlloc)] -> [String]
+emitAllocGroup closures =
+  map (\ (p, d, env) -> emitAlloc bindGroup p d env) closures ++
+  concatMap (\ (p, d, env) -> emitPatch (namesForDecl d) bindGroup p env) closures
   where
-    bindGroup :: Set String
-    bindGroup = Set.fromList $ map (\ (FunAlloc _ (DeclName f) _) -> f) fs
-
-emitContAlloc :: [ContAlloc] -> [String]
-emitContAlloc fs =
-  map (\ (ContAlloc p d env) -> emitAlloc bindGroup p d env) fs ++
-  concatMap (\ (ContAlloc p d env) -> emitPatch (namesForDecl d) bindGroup p env) fs
-  where
-    bindGroup :: Set String
-    bindGroup = Set.fromList $ map (\ (ContAlloc _ (DeclName f) _) -> f) fs
+    bindGroup = Set.fromList $ map (\ (_, DeclName d, _) -> d) closures
 
 -- Names in bindGroup -> NULL
 emitAlloc :: Set String -> PlaceName -> DeclName -> EnvAlloc -> String
-emitAlloc bindGroup (PlaceName Fun p) d (EnvAlloc xs) =
-  "    struct fun *" ++ p ++ " = " ++ "allocate_fun(" ++ intercalate ", " args ++ ");"
+emitAlloc bindGroup p d (EnvAlloc xs) =
+  "    " ++ emitPlace p ++ " = " ++ closureAllocName p ++ "(" ++ intercalate ", " args ++ ");"
   where
     ns = namesForDecl d
     args = [envArg, codeArg, traceArg]
@@ -189,18 +189,11 @@ emitAlloc bindGroup (PlaceName Fun p) d (EnvAlloc xs) =
     allocArg (EnvName x) = "env->" ++ x -- TODO: What if environment has different name?
     codeArg = declCodeName ns
     traceArg = declTraceName ns
-emitAlloc bindGroup (PlaceName Cont p) d (EnvAlloc xs) =
-  "    struct cont *" ++ p ++ " = " ++ "allocate_cont(" ++ intercalate ", " args ++ ");"
-  where
-    ns = namesForDecl d
-    args = [envArg, codeArg, traceArg]
-    -- Allocate closure environment here, with NULL for cyclic captures.
-    envArg = declAllocName ns ++ "(" ++ intercalate ", " (map (allocArg . snd) xs) ++ ")"
-    allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
-    allocArg (EnvName x) = "env->" ++ x -- TODO: What if environment has different name?
-    codeArg = declCodeName ns
-    traceArg = declTraceName ns
-emitAlloc _ (PlaceName Value _) _ _ = error "Values are not allocated through this function."
+
+closureAllocName :: PlaceName -> String
+closureAllocName (PlaceName Fun _) = "allocate_fun"
+closureAllocName (PlaceName Cont _) = "allocate_cont"
+closureAllocName (PlaceName Value _) = error "generic values are not allocated as closures"
 
 emitPatch :: DeclNames -> Set String -> PlaceName -> EnvAlloc -> [String]
 emitPatch ns bindGroup (PlaceName _ p) (EnvAlloc xs) =
