@@ -39,20 +39,11 @@ emitEntryPoint e =
   ["}"]
 
 emitTopDecl :: TopDecl -> [String]
-emitTopDecl (TopFun fs) = concatMap emitFunDecl fs
-emitTopDecl (TopCont ks) = concatMap emitContDecl ks
+emitTopDecl (TopClosure cs) = concatMap emitClosureDecl cs
 
--- TODO: Bind groups have to be emitted all at once so that proper ordering can
--- be achieved. (Or not? All recursive occurrences happen through closure
--- fields.)
-emitFunDecl :: H.FunDecl -> [String]
-emitFunDecl (H.FunDecl d envd x k e) =
-  emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitClosureCode ns [x, k] e
-  where ns = namesForDecl d
-
-emitContDecl :: H.ContDecl -> [String]
-emitContDecl (H.ContDecl d envd x e) =
-  emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitClosureCode ns [x] e
+emitClosureDecl :: H.ClosureDecl -> [String]
+emitClosureDecl (H.ClosureDecl d envd params e) =
+  emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitClosureCode ns params e
   where ns = namesForDecl d
 
 emitEnvDecl :: DeclNames -> EnvDecl -> [String]
@@ -131,11 +122,8 @@ emitClosureBody (LetSndH x y e) =
 emitClosureBody (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp p ++ ";"] ++
   emitClosureBody e
-emitClosureBody (AllocFun fs e) =
-  emitAllocGroup (map (\ (FunAlloc p d env) -> (p, d, env)) fs) ++
-  emitClosureBody e
-emitClosureBody (AllocCont ks e) =
-  emitAllocGroup (map (\ (ContAlloc p d env) -> (p, d, env)) ks) ++
+emitClosureBody (AllocClosure cs e) =
+  emitAllocGroup cs ++
   emitClosureBody e
 emitClosureBody (HaltH x) =
   ["    HALT(" ++ asAlloc (emitName x) ++ ");"]
@@ -169,12 +157,12 @@ emitPrimOp (PrimIsZero32 x) = "prim_iszero32(" ++ emitName x ++ ")"
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
-emitAllocGroup :: [(PlaceName, DeclName, EnvAlloc)] -> [String]
+emitAllocGroup :: [ClosureAlloc] -> [String]
 emitAllocGroup closures =
-  map (\ (p, d, env) -> emitAlloc bindGroup p d env) closures ++
-  concatMap (\ (p, d, env) -> emitPatch (namesForDecl d) bindGroup p env) closures
+  map (\ (ClosureAlloc p d env) -> emitAlloc bindGroup p d env) closures ++
+  concatMap (\ (ClosureAlloc p d env) -> emitPatch (namesForDecl d) bindGroup p env) closures
   where
-    bindGroup = Set.fromList $ map (\ (_, DeclName d, _) -> d) closures
+    bindGroup = Set.fromList $ [d | ClosureAlloc _ (DeclName d) _ <- closures]
 
 -- Names in bindGroup -> NULL
 emitAlloc :: Set String -> PlaceName -> DeclName -> EnvAlloc -> String

@@ -15,11 +15,9 @@ module Hoist
     , PlaceName(..)
     , FieldName(..)
     , DeclName(..)
-    , FunDecl(..)
-    , ContDecl(..)
+    , ClosureDecl(..)
     , EnvDecl(..)
-    , FunAlloc(..)
-    , ContAlloc(..)
+    , ClosureAlloc(..)
     , EnvAlloc(..)
     , TopDecl(..)
 
@@ -76,17 +74,13 @@ instance Show DeclName where
 
 
 data TopDecl
-  = TopFun [FunDecl]
-  | TopCont [ContDecl]
+  -- TODO: Because recursive closures refer to each other only through the
+  -- environments, there is not actually a need for top-level declarations to
+  -- be gathered into bind groups. This wrapper can therefore be eliminated.
+  = TopClosure [ClosureDecl]
 
--- TODO: Generalize arguments from 1 value + 1 cont to list of places. This is
--- needed for future calling conventions, and also making a pattern match in
--- hoistFunClosure safer.
-data FunDecl
-  = FunDecl DeclName EnvDecl PlaceName PlaceName TermH
-
-data ContDecl
-  = ContDecl DeclName EnvDecl PlaceName TermH
+data ClosureDecl
+  = ClosureDecl DeclName EnvDecl [PlaceName] TermH
 
 newtype EnvDecl = EnvDecl [FieldName]
 
@@ -101,17 +95,11 @@ data TermH
   | CallH Name Name Name
   | HaltH Name
   | CaseH Name Name Name
-  -- Function and continuation closures may be mutually recursive.
-  | AllocFun [FunAlloc] TermH
-  | AllocCont [ContAlloc] TermH
+  -- Closures may be mutually recursive, so are allocated as a group.
+  | AllocClosure [ClosureAlloc] TermH
 
-data FunAlloc
-  -- @struct fun *foo_17 = allocate_fun(foo_env(...), foo_code, foo_trace);@
-  = FunAlloc { funAllocPlace :: PlaceName, funAllocDecl :: DeclName, funAllocEnv :: EnvAlloc }
-
-data ContAlloc
-  -- @struct cont *k_32 = allocate_cont(k_env(...), k_code, k_trace);@
-  = ContAlloc { contAllocPlace :: PlaceName, contAllocDecl :: DeclName, contAllocEnv :: EnvAlloc }
+data ClosureAlloc
+  = ClosureAlloc { closurePlace :: PlaceName, closureDecl :: DeclName, closureEnv :: EnvAlloc }
 
 newtype EnvAlloc = EnvAlloc [(FieldName, Name)]
 
@@ -186,26 +174,26 @@ hoist (LetFunC fs e) = do
   fdecls <- declareClosureNames fs
   ds' <- traverse hoistFunClosure fdecls
 
-  tell [TopFun ds']
+  tell [TopClosure ds']
 
   placesForFunAllocs fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f free rec _x _k _e) -> do
       env <- traverse envAllocField (free ++ rec)
-      pure (FunAlloc p d (EnvAlloc env))
+      pure (ClosureAlloc p d (EnvAlloc env))
     e' <- hoist e
-    pure (AllocFun fs' e')
+    pure (AllocClosure fs' e')
 hoist (LetContC ks e) = do
   kdecls <- declareContClosureNames ks
   ds' <- traverse hoistContClosure kdecls
 
-  tell [TopCont ds']
+  tell [TopClosure ds']
 
   placesForContAllocs kdecls $ \kplaces -> do
     ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k free rec _x _e) -> do
       env <- traverse envAllocField (free ++ rec)
-      pure (ContAlloc p d (EnvAlloc env))
+      pure (ClosureAlloc p d (EnvAlloc env))
     e' <- hoist e
-    pure (AllocCont ks' e')
+    pure (AllocClosure ks' e')
 
 envAllocField :: (C.Name, Sort) -> HoistM (FieldName, Name)
 envAllocField (C.Name x, s) = do
@@ -272,22 +260,24 @@ hoistValue NilC = pure NilH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 
 
-hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM FunDecl
+hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f free rec x k body) = do
   let fields = free ++ rec
+  -- TODO: The sorts of the parameters are incorrect here. I need type
+  -- information from earlier in the pipeline.
   (fields', places', body') <- inClosure fields [(x, Value), (k, Cont)] $ hoist body
   let envd = EnvDecl fields'
-  let [x', k'] = places' -- Safe: inClosure preserves length; inClosure called with 2 places.
-  let fd = FunDecl fdecl envd x' k' body'
+  let fd = ClosureDecl fdecl envd places' body'
   pure fd
 
-hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ContDecl
+hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ClosureDecl
 hoistContClosure (kdecl, C.ContClosureDef _k free rec x body) = do
   let fields = free ++ rec
+  -- TODO: The sorts of the parameters are incorrect here. I need type
+  -- information from earlier in the pipeline.
   (fields', places', body') <- inClosure fields [(x, Value)] $ hoist body
   let envd = EnvDecl fields'
-  let [x'] = places' -- Safe: inClosure preserves length; inClosure called with 1 place.
-  let kd = ContDecl kdecl envd x' body'
+  let kd = ClosureDecl kdecl envd places' body'
   pure kd
 
 -- | Replace the set of fields and places in the environment, while leaving the
@@ -358,10 +348,12 @@ pprintTerm n (LetSndH x y e) =
   indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetPrimH x p e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintPrim p ++ ";\n") ++ pprintTerm n e
-pprintTerm n (AllocFun fs e) =
-  indent n "let\n" ++ concatMap (pprintFunAlloc (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
-pprintTerm n (AllocCont ks e) =
-  indent n "let\n" ++ concatMap (pprintContAlloc (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
+pprintTerm n (AllocClosure cs e) =
+  indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
+-- pprintTerm n (AllocFun fs e) =
+--   indent n "let\n" ++ concatMap (pprintFunAlloc (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
+-- pprintTerm n (AllocCont ks e) =
+--   indent n "let\n" ++ concatMap (pprintContAlloc (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
 
 pprintValue :: ValueH -> String
 pprintValue NilH = "()"
@@ -383,27 +375,16 @@ pprintField :: FieldName -> String
 pprintField (FieldName s x) = show s ++ " " ++ x
 
 pprintTop :: TopDecl -> String
-pprintTop (TopFun fs) = "fun {\n" ++ concatMap (pprintFunDecl 2) fs ++ "}\n"
-pprintTop (TopCont ks) = "cont {\n" ++ concatMap (pprintContDecl 2) ks ++ "}\n"
+pprintTop (TopClosure cs) = "rec {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
 
-pprintFunDecl :: Int -> FunDecl -> String
-pprintFunDecl n (FunDecl f (EnvDecl fs) x k e) =
-  indent n (show f ++ " " ++ env ++ " " ++ pprintPlace x ++ " " ++ pprintPlace k ++ " =\n") ++
+pprintClosureDecl :: Int -> ClosureDecl -> String
+pprintClosureDecl n (ClosureDecl f (EnvDecl fs) params e) =
+  indent n (show f ++ " " ++ env ++ " (" ++ intercalate ", " (map pprintPlace params) ++ ") =\n") ++
   pprintTerm (n+2) e
   where env = "{" ++ intercalate ", " (map pprintField fs) ++ "}"
 
-pprintContDecl :: Int -> ContDecl -> String
-pprintContDecl n (ContDecl k (EnvDecl fs) x e) =
-  indent n (show k ++ " " ++ env ++ " " ++ pprintPlace x ++ " =\n") ++ pprintTerm (n+2) e
-  where env = "{" ++ intercalate ", " (map pprintField fs) ++ "}"
-
-pprintFunAlloc :: Int -> FunAlloc -> String
-pprintFunAlloc n (FunAlloc p d (EnvAlloc env)) =
-  indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ env'
-  where env' = "{" ++ intercalate ", " (map pprintAllocArg env) ++ "}\n"
-
-pprintContAlloc :: Int -> ContAlloc -> String
-pprintContAlloc n (ContAlloc p d (EnvAlloc env)) =
+pprintClosureAlloc :: Int -> ClosureAlloc -> String
+pprintClosureAlloc n (ClosureAlloc p d (EnvAlloc env)) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ env'
   where env' = "{" ++ intercalate ", " (map pprintAllocArg env) ++ "}\n"
 
