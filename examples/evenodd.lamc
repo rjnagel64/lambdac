@@ -1,0 +1,11 @@
+let
+  fun even x = case iszero x of {
+    inl y -> inr ();
+    inr z -> odd (x - 1)
+  };
+  fun odd x = case iszero x of {
+    inl y -> inl ();
+    inr z -> even (x - 1)
+  };
+in
+even 5

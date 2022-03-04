@@ -61,6 +61,23 @@ data Term
 -- Mutually recursive functions are the fixpoint of a tuple.
 -- @let f1 x1 = e1; f2 x2 = e2; in e'@ is equivalent to
 -- @let rec fs = (\x1 -> e1, x2 -> e2); in let f1 = fst fs; f2 = snd fs; in e'@
+-- I think that this encoding is inefficient, though. (environment contains
+-- tuple instead of pointers to recursive occurrences directly?)
+--
+-- I think I should add a @let rec@ construct, such as
+-- @let rec x1 = e1; x2 = e2; ...; in e'@.
+-- This is desirable, because I can make mutually recursive, many-argument,
+-- polymorphic functions easily?
+-- This level of generality is not desirable, because I have strict evaluation
+-- and cyclic values require laziness to not diverge.
+-- ... Can I do patching like for closures?
+-- value *x1 = alloc_pair(1, NULL);
+-- value *x2 = alloc_pair(2, NULL);
+-- x1->snd = x2;
+-- x2->snd = x1;
+--
+-- Is there a difference between partially-applied occurrences within
+-- definition versus partially-applied occurrences within body?
 data TmFun = TmFun TmVar TmVar Term
 
 data Type
