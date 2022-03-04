@@ -52,6 +52,15 @@ data Term
 
 
 -- @f x := e@, used for recursion.
+-- I'm not really satisfied with this. How does a 'TmFun' interact with polymorphism?
+-- How does it deal with multiple parameters? (i.e., if I allow 'TmFun' to have
+-- multiple parameters, are unsaturated applications permitted?)
+-- What do multiple-argument functions look like after CPS?
+--
+-- @let fun f x = e; in e'@ is basically @let rec f = \x -> e; in e'@.
+-- Mutually recursive functions are the fixpoint of a tuple.
+-- @let f1 x1 = e1; f2 x2 = e2; in e'@ is equivalent to
+-- @let rec fs = (\x1 -> e1, x2 -> e2); in let f1 = fst fs; f2 = snd fs; in e'@
 data TmFun = TmFun TmVar TmVar Term
 
 data Type
