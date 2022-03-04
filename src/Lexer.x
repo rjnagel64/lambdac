@@ -35,6 +35,7 @@ tokens :-
   ";" { tok TokSemi }
   ":" { tok TokColon }
   "." { tok TokDot }
+  "," { tok TokComma }
   "=" { tok TokEquals }
   "*" { tok TokStar }
   "+" { tok TokPlus }
@@ -90,6 +91,7 @@ data Token
   | TokSemi Loc
   | TokColon Loc
   | TokDot Loc
+  | TokComma Loc
   | TokEquals Loc
   | TokStar Loc
   | TokPlus Loc
@@ -131,6 +133,7 @@ instance Located Token where
   loc (TokSemi l) = l
   loc (TokColon l) = l
   loc (TokDot l) = l
+  loc (TokComma l) = l
   loc (TokEquals l) = l
   loc (TokStar l) = l
   loc (TokLParen l) = l

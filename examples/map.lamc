@@ -1,0 +1,14 @@
+-- List a =~= 1 + (a * List a)
+-- untyped, so I can write this as a recursive type
+-- I should really add a roll/unroll construct for recursive types, I guess.
+-- Or real ADTs. That would probably be more effective in the long run.
+let
+  fun map f =
+    \xs -> case xs of {
+      inl z -> inl z;
+      inr yys -> inr (f (fst yys), map f (snd yys))
+    };
+in
+let fun inc x = x + 1;
+in
+map inc (inr (0, (inr (1, inr (2, inl ())))))

@@ -25,6 +25,7 @@ import Source
   ';' { TokSemi _ }
   ':' { TokColon _ }
   '.' { TokDot _ }
+  ',' { TokComma _ }
   '(' { TokLParen _ }
   ')' { TokRParen _ }
   '{' { TokLBrace _ }
@@ -80,6 +81,7 @@ AppTerm :: { Term }
 ATerm :: { Term }
      : '(' Term ')' { $2 }
      | '(' ')' { TmNil }
+     | '(' Term ',' Term ')' { TmPair $2 $4 }
      | ID { TmVarOcc (var $1) }
      | INT { TmInt (int $1) }
 

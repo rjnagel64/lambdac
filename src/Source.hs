@@ -49,17 +49,8 @@ data Term
   -- iszero e
   | TmIsZero Term
 
--- TODO: More primops.
--- let y = primop(x+) in e
--- LetPrimK :: TmVar -> PrimOp -> TermK -> TermK
--- data PrimOp = PrimAddInt32 TmVar TmVar
---
--- Are there primops that take CoVar:s? Probably.
---
--- Just do it. The code duplication is unavoidable.
 
-
--- f x := e
+-- @f x := e@, used for recursion.
 data TmFun = TmFun TmVar TmVar Term
 
 data Type
@@ -67,4 +58,7 @@ data Type
   | TyProd Type Type
   | TyArr Type Type
   | TyUnit
+  | TyInt
+  -- | TyVar String
+  -- | TyAll String Type
 
