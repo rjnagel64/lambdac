@@ -4,6 +4,7 @@ module Source
   , TmVar(..)
   , TmFun(..)
   , Type(..)
+  , TyVar(..)
   ) where
 
 -- | Term variables stand for values
@@ -59,6 +60,9 @@ data Type
   | TyArr Type Type
   | TyUnit
   | TyInt
-  -- | TyVar String
-  -- | TyAll String Type
+  | TyVarOcc TyVar
+  | TyAll TyVar Type
+
+data TyVar
+  = TyVar String
 

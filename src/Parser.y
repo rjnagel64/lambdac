@@ -47,6 +47,8 @@ import Source
   'if' { TokIf _ }
   'then' { TokThen _ }
   'else' { TokElse _ }
+  'unit' { TokUnit _ }
+  'forall' { TokForall _ }
 
   ID { TokID _ _ }
   INT { TokINT _ _ }
@@ -92,6 +94,16 @@ FunBinds :: { [TmFun] }
 FunBind :: { TmFun }
         : 'fun' ID ID '=' Term ';' { TmFun (var $2) (var $3) $5 }
 
+Type :: { Type }
+     : AType { $1 }
+     | AType '->' Type { TyArr $1 $3 }
+     | 'forall' ID '.' Type { TyAll (tvar $2) $4 }
+
+AType :: { Type }
+      : '(' Type ')' { $2 }
+      | 'unit' { TyUnit }
+      | ID { TyVarOcc (tvar $1) }
+
 {
 data ParseError = EOF | ErrorAt String
 
@@ -106,6 +118,9 @@ parseError ts@(token:_) = Left $
 
 var :: Token -> TmVar
 var (TokID _ s) = TmVar s
+
+tvar :: Token -> TyVar
+tvar (TokID _ s) = TyVar s
 
 int :: Token -> Int
 int (TokINT _ s) = read s
