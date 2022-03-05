@@ -95,32 +95,24 @@ void trace_value(struct value *v) {
     }
 }
 
-void trace_fun(struct fun *f) {
-    f->header.mark = current_mark;
-    f->trace_env(f->env);
-}
-
-void trace_cont(struct cont *k) {
-    k->header.mark = current_mark;
-    k->trace_env(k->env);
+void trace_closure(struct closure *cl) {
+    cl->header.mark = current_mark;
+    cl->trace(cl->env);
 }
 
 void trace_alloc(struct alloc_header *alloc) {
     switch (alloc->type) {
-    case ALLOC_FUN:
-        trace_fun((struct fun *)alloc);
-        break;
-    case ALLOC_CONT:
-        trace_cont((struct cont *)alloc);
+    case ALLOC_CLOSURE:
+        trace_closure(AS_CLOSURE(alloc));
         break;
     case ALLOC_CONST:
         // No fields to trace
         break;
     case ALLOC_PROD:
-        trace_prod((struct value *)alloc);
+        trace_prod(AS_VALUE(alloc));
         break;
     case ALLOC_SUM:
-        trace_sum((struct value *)alloc);
+        trace_sum(AS_VALUE(alloc));
         break;
     }
 }
@@ -146,21 +138,9 @@ void sweep(void) {
         struct alloc_header *next = alloc->next;
 
         switch (alloc->type) {
-        case ALLOC_FUN:
-            // We use != instead of < because of overflow.
+        case ALLOC_CLOSURE:
             if (alloc->mark != current_mark) {
-                free(((struct fun *)alloc)->env);
-                free(alloc);
-                if (prev != NULL) {
-                    prev->next = next;
-                } else {
-                    first_allocation = next;
-                }
-            }
-            break;
-        case ALLOC_CONT:
-            if (alloc->mark != current_mark) {
-                free(((struct cont *)alloc)->env);
+                free(AS_CLOSURE(alloc)->env);
                 free(alloc);
                 if (prev != NULL) {
                     prev->next = next;
@@ -200,14 +180,8 @@ void sweep_all_allocations(void) {
     for (struct alloc_header *alloc = first_allocation; alloc != NULL;) {
         struct alloc_header *next = alloc->next;
         switch (alloc->type) {
-        case ALLOC_FUN:
-            // Fields in env are managed by GC.
-            free(((struct fun *)alloc)->env);
-            free(alloc);
-            break;
-        case ALLOC_CONT:
-            // Fields in env are managed by GC.
-            free(((struct cont *)alloc)->env);
+        case ALLOC_CLOSURE:
+            free(AS_CLOSURE(alloc)->env);
             free(alloc);
             break;
         case ALLOC_CONST:
@@ -221,44 +195,24 @@ void sweep_all_allocations(void) {
     }
 }
 
-struct cont *allocate_cont(
+struct closure *allocate_closure(
         void *env,
-        void (*code)(void *env, struct alloc_header *arg),
-        void (*trace_env)(void *env)) {
-    struct cont *k = malloc(sizeof(struct cont));
-    k->header.type = ALLOC_CONT;
-    k->header.next = first_allocation;
-    k->env = env;
-    k->code = code;
-    k->trace_env = trace_env;
-
-    first_allocation = (struct alloc_header *)k;
-    num_allocs++;
-    push_local(first_allocation);
+        void (*trace)(void *env),
+        void (*code)(void)) {
     if (num_allocs > gc_threshold) {
         collect();
     }
-    return k;
-}
+    struct closure *cl = malloc(sizeof(struct closure));
+    cl->header.type = ALLOC_CLOSURE;
+    cl->env = env;
+    cl->trace = trace;
+    cl->code = code;
 
-struct fun *allocate_fun(
-        void *env,
-        void (*code)(void *env, struct alloc_header *arg, struct cont *kont),
-        void (*trace_env)(void *env)) {
-    struct fun *f = malloc(sizeof(struct fun));
-    f->header.type = ALLOC_FUN;
-    f->header.next = first_allocation;
-    f->env = env;
-    f->code = code;
-    f->trace_env = trace_env;
-
-    first_allocation = (struct alloc_header *)f;
+    cl->header.next = first_allocation;
+    first_allocation = (struct alloc_header *)cl;
     num_allocs++;
     push_local(first_allocation);
-    if (num_allocs > gc_threshold) {
-        collect();
-    }
-    return f;
+    return cl;
 }
 
 struct value *allocate_int32(int32_t x) {

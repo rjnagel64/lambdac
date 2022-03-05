@@ -5,8 +5,7 @@
 #include <stdlib.h>
 
 enum allocation_type {
-    ALLOC_FUN,
-    ALLOC_CONT,
+    ALLOC_CLOSURE,
     ALLOC_CONST,
     ALLOC_PROD,
     ALLOC_SUM,
@@ -52,45 +51,24 @@ struct value {
 
 #define AS_VALUE(v) ((struct value *)(v))
 
-struct cont {
+struct closure {
     struct alloc_header header;
     void *env;
-    void (*code)(void *env, struct alloc_header *arg);
-    void (*trace_env)(void *env);
+    void (*trace)(void *env);
+    void (*code)(void);
 };
 
-#define AS_CONT(v) ((struct cont *)(v))
-
-// TODO: Functions need to be a type of value, so I can have 'let f y h = ...; in k f'.
-// I think I generally need to make closures take a `struct alloc_header *` as
-// their argument, not `struct value *`.
-struct fun {
-    struct alloc_header header;
-    void *env;
-    void (*code)(void *env, struct alloc_header *arg, struct cont *kont);
-    void (*trace_env)(void *env);
-};
-
-#define AS_FUN(v) ((struct fun *)(v))
+#define AS_CLOSURE(v) ((struct closure *)(v))
 
 void trace_value(struct value *v);
-void trace_fun(struct fun *f);
-void trace_cont(struct cont *k);
+void trace_closure(struct closure *cl);
 void trace_alloc(struct alloc_header *v);
 
 void (*trace_roots)(void);
 void collect(void);
 void sweep_all_allocations(void);
 
-struct cont *allocate_cont(
-        void *env,
-        void (*code)(void *env, struct alloc_header *arg),
-        void (*trace_env)(void *env));
-struct fun *allocate_fun(
-        void *env,
-        void (*code)(void *env, struct alloc_header *arg, struct cont *kont),
-        void (*trace_env)(void *env));
-
+struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*code)(void));
 // TODO: Make these take struct alloc_header * instead
 // (This way, function and continuation closures can be stored in pairs and sums)
 struct value *allocate_pair(struct value *x, struct value *y);

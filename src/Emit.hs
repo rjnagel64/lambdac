@@ -16,8 +16,8 @@ data DeclNames
   = DeclNames {
     declEnvName :: String
   , declAllocName :: String
-  , declCodeName :: String
   , declTraceName :: String
+  , declCodeName :: String
   }
 
 namesForDecl :: DeclName -> DeclNames
@@ -25,8 +25,8 @@ namesForDecl (DeclName f) =
   DeclNames {
     declEnvName = f ++ "_env"
   , declAllocName = "allocate_" ++ f ++ "_env"
-  , declCodeName = f ++ "_code"
   , declTraceName = "trace_" ++ f ++ "_env"
+  , declCodeName = f ++ "_code"
   }
 
 prologue :: [String]
@@ -49,8 +49,8 @@ emitEnvDecl ns (EnvDecl fs) =
   map mkField fs ++
   ["};"]
   where
-    mkField (FieldName Fun f) = "    struct fun *" ++ f ++ ";";
-    mkField (FieldName Cont k) = "    struct cont *" ++ k ++ ";";
+    mkField (FieldName Fun f) = "    struct closure *" ++ f ++ ";";
+    mkField (FieldName Cont k) = "    struct closure *" ++ k ++ ";";
     mkField (FieldName Value x) = "    struct value *" ++ x ++ ";"
 
 emitEnvAlloc :: DeclNames -> EnvDecl -> [String]
@@ -68,8 +68,8 @@ emitEnvAlloc ns (EnvDecl fs) =
   where
     params = intercalate ", " (map mkParam fs)
 
-    mkParam (FieldName Fun f) = "struct fun *" ++ f
-    mkParam (FieldName Cont f) = "struct cont *" ++ f
+    mkParam (FieldName Fun f) = "struct closure *" ++ f
+    mkParam (FieldName Cont f) = "struct closure *" ++ f
     mkParam (FieldName Value f) = "struct value *" ++ f
 
     assignField :: FieldName -> String
@@ -86,8 +86,8 @@ emitEnvTrace ns (EnvDecl fs) =
   ["}"]
   where
     traceField :: FieldName -> String
-    traceField (FieldName Fun f) = "    trace_fun(env->" ++ f ++ ");"
-    traceField (FieldName Cont k) = "    trace_cont(env->" ++ k ++ ");"
+    traceField (FieldName Fun f) = "    trace_closure(env->" ++ f ++ ");"
+    traceField (FieldName Cont k) = "    trace_closure(env->" ++ k ++ ");"
     traceField (FieldName Value x) = "    trace_value(env->" ++ x ++ ");"
 
 -- TODO: What if 'env' is the name that gets shadowed? (I.e., the function
@@ -164,10 +164,10 @@ emitAllocGroup closures =
 -- Names in bindGroup -> NULL
 emitAlloc :: Set String -> PlaceName -> DeclName -> EnvAlloc -> String
 emitAlloc bindGroup p d (EnvAlloc xs) =
-  "    " ++ emitPlace p ++ " = " ++ closureAllocName p ++ "(" ++ intercalate ", " args ++ ");"
+  "    " ++ emitPlace p ++ " = " ++ "allocate_closure" ++ "(" ++ intercalate ", " args ++ ");"
   where
     ns = namesForDecl d
-    args = [envArg, codeArg, traceArg]
+    args = [envArg, traceArg, "(void (*)(void))" ++ codeArg]
     -- Allocate closure environment here, with NULL for cyclic captures.
     envArg = declAllocName ns ++ "(" ++ intercalate ", " (map (allocArg . snd) xs) ++ ")"
     allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
@@ -186,8 +186,8 @@ emitPatch ns bindGroup (PlaceName _ p) (EnvAlloc xs) =
   where env = "((struct " ++ declEnvName ns ++ " *)" ++ p ++ "->env)"
 
 emitPlace :: PlaceName -> String
-emitPlace (PlaceName Fun f) = "struct fun *" ++ f
-emitPlace (PlaceName Cont k) = "struct cont *" ++ k
+emitPlace (PlaceName Fun f) = "struct closure *" ++ f
+emitPlace (PlaceName Cont k) = "struct closure *" ++ k
 emitPlace (PlaceName Value x) = "struct value *" ++ x
 
 -- TODO: Parametrize this by what the name of the environment pointer is.

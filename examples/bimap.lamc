@@ -1,0 +1,6 @@
+-- TODO: f and g are sorted as 'Value', but they should be 'Closure'.
+-- This leads to invalid pointer casts and all that.
+let fun bimap f = \g -> \p -> (f (fst p), g (snd p)); in
+let fun inc x = x + 1; in
+let fun dbl x = x + x; in
+snd (bimap dbl inc (17, 131))
