@@ -1,5 +1,6 @@
 
-RTSFLAGS = -O2
+# UB involving function pointer casts means I can't permit optimizations. For now.
+RTSFLAGS = -O0
 
 demo: out.o rts/librts.a
 	clang out.o -L./rts/ -lrts -o demo
@@ -23,7 +24,7 @@ rts/prim.o: rts/prim.c rts/prim.h rts/alloc.h
 	clang $(RTSFLAGS) -c rts/prim.c -o rts/prim.o
 
 rts/control.o: rts/control.c rts/control.h rts/alloc.h
-	clang $(RTSFLAGS) -c rts/control.c -o rts/control.
+	clang $(RTSFLAGS) -c rts/control.c -o rts/control.o
 
 rts/panic.o: rts/panic.c rts/panic.h
 	clang $(RTSFLAGS) -c rts/panic.c -o rts/panic.o
