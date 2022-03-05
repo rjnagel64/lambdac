@@ -42,8 +42,4 @@ void halt_with(struct alloc_header *x);
 void suspend_jump(struct closure *k, struct alloc_header *x);
 void suspend_call(struct closure *f, struct alloc_header *x, struct closure *k);
 
-#define HALT(x) { halt_with(x); return; }
-#define JUMP(k, x) { suspend_jump(k, x); return; }
-#define TAILCALL(f, x, k) { suspend_call(f, x, k); return; }
-
 #endif

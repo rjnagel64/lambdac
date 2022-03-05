@@ -126,7 +126,7 @@ emitClosureBody (AllocClosure cs e) =
   emitAllocGroup cs ++
   emitClosureBody e
 emitClosureBody (HaltH x) =
-  ["    HALT(" ++ asAlloc (emitName x) ++ ");"]
+  ["    halt_with(" ++ asAlloc (emitName x) ++ ");"]
 emitClosureBody (JumpH k x) =
   [emitSuspend "suspend_jump" [emitName k, asAlloc (emitName x)]]
 emitClosureBody (CallH f x k) =
