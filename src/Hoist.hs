@@ -153,7 +153,7 @@ hoist (LetFstC x y e) = do
 hoist (LetSndC x y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x Value $ hoist e
-  pure (LetFstH x' y' e')
+  pure (LetSndH x' y' e')
 hoist (LetIsZeroC x y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x Value $ hoist e
