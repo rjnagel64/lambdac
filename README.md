@@ -45,7 +45,10 @@ Code is compiled to C and linked with a rather small runtime.
 # References
 
 * *Compiling with Continuations, Continued* by Andrew Kennedy
-* That paper about PHOAS 
-* jozefg gist about closure conversion
+* After implementing closure conversion, I found that my implementation has
+  much in common with [The Simple Essence of Closure Conversion](https://siek.blogspot.com/2012/07/essence-of-closure-conversion.html)
+  by Jeremy Siek. I had actually read it before, but the notation (`δ` and `γ`
+  functions) prevented me from understanding the connection.
+* [This gist](https://gist.github.com/jozefg/652f1d7407b7f0266ae9) about closure conversion
 * It turns out, my compilation scheme is quite similar to a simplified version
   of [CHICKEN Scheme](https://www.more-magic.net/posts/internals-gc.html)
