@@ -1,4 +1,6 @@
 
+RTSFLAGS = -O2
+
 demo: out.o rts/librts.a
 	clang out.o -L./rts/ -lrts -o demo
 
@@ -11,24 +13,23 @@ fact: fact.o rts/librts.a
 fact.o: fact.c rts/rts.h
 	clang -I./rts/ -c fact.c -o fact.o
 
-# TODO: Compile RTS with optimizations
 rts/librts.a: rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/main.o
 	ar -crs rts/librts.a rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/main.o
 
 rts/alloc.o: rts/alloc.c rts/alloc.h rts/panic.h
-	clang -c rts/alloc.c -o rts/alloc.o
+	clang $(RTSFLAGS) -c rts/alloc.c -o rts/alloc.o
 
 rts/prim.o: rts/prim.c rts/prim.h rts/alloc.h
-	clang -c rts/prim.c -o rts/prim.o
+	clang $(RTSFLAGS) -c rts/prim.c -o rts/prim.o
 
 rts/control.o: rts/control.c rts/control.h rts/alloc.h
-	clang -c rts/control.c -o rts/control.o
+	clang $(RTSFLAGS) -c rts/control.c -o rts/control.
 
 rts/panic.o: rts/panic.c rts/panic.h
-	clang -c rts/panic.c -o rts/panic.o
+	clang $(RTSFLAGS) -c rts/panic.c -o rts/panic.o
 
 rts/main.o: rts/main.c rts/alloc.h rts/control.h rts/panic.h
-	clang -c rts/main.c -o rts/main.o
+	clang $(RTSFLAGS) -c rts/main.c -o rts/main.o
 
 .PHONY: clean
 clean:
