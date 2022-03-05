@@ -70,7 +70,7 @@ main = do
   let (srcH, decls) = H.runHoist $ H.hoist srcC
   when (driverDumpHoist args) $ do
     putStrLn $ "--- Hoisting ---"
-    putStrLn $ concatMap H.pprintTop decls ++ H.pprintTerm 0 srcH
+    putStrLn $ H.pprintClosures decls ++ H.pprintTerm 0 srcH
 
   let obj = unlines $ E.emitProgram (decls, srcH)
   when (driverDumpEmit args) $ do

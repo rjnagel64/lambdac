@@ -19,11 +19,10 @@ module Hoist
     , EnvDecl(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
-    , TopDecl(..)
 
     , runHoist
     , hoist
-    , pprintTop
+    , pprintClosures
     , pprintTerm
     ) where
 
@@ -73,12 +72,6 @@ instance Show DeclName where
   show (DeclName d) = d
 
 
-data TopDecl
-  -- TODO: Because recursive closures refer to each other only through the
-  -- environments, there is not actually a need for top-level declarations to
-  -- be gathered into bind groups. This wrapper can therefore be eliminated.
-  = TopClosure [ClosureDecl]
-
 data ClosureDecl
   = ClosureDecl DeclName EnvDecl [PlaceName] TermH
 
@@ -122,16 +115,16 @@ data PrimOp
 data HoistEnv = HoistEnv (Map C.Name PlaceName) (Map C.Name FieldName)
 
 
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer [TopDecl])) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer [ClosureDecl])) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
-deriving newtype instance MonadWriter [TopDecl] HoistM
+deriving newtype instance MonadWriter [ClosureDecl] HoistM
 deriving newtype instance MonadState (Set DeclName) HoistM
 
-runHoist :: HoistM a -> (a, [TopDecl])
+runHoist :: HoistM a -> (a, [ClosureDecl])
 runHoist = runWriter . flip evalStateT Set.empty . flip runReaderT emptyEnv . runHoistM
   where emptyEnv = HoistEnv mempty mempty
 
@@ -174,7 +167,7 @@ hoist (LetFunC fs e) = do
   fdecls <- declareClosureNames fs
   ds' <- traverse hoistFunClosure fdecls
 
-  tell [TopClosure ds']
+  tell ds'
 
   placesForFunAllocs fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f free rec _x _k _e) -> do
@@ -186,7 +179,7 @@ hoist (LetContC ks e) = do
   kdecls <- declareContClosureNames ks
   ds' <- traverse hoistContClosure kdecls
 
-  tell [TopClosure ds']
+  tell ds'
 
   placesForContAllocs kdecls $ \kplaces -> do
     ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k free rec _x _e) -> do
@@ -252,6 +245,7 @@ declareContClosureNames fs = for fs $ \def -> do
   pure (d, def)
 
 
+-- TODO: Infer sort here?
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (PairC x y) = PairH <$> hoistVarOcc x <*> hoistVarOcc y
 hoistValue (InlC x) = InlH <$> hoistVarOcc x
@@ -374,8 +368,8 @@ pprintPlace (PlaceName s x) = show s ++ " " ++ x
 pprintField :: FieldName -> String
 pprintField (FieldName s x) = show s ++ " " ++ x
 
-pprintTop :: TopDecl -> String
-pprintTop (TopClosure cs) = "rec {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
+pprintClosures :: [ClosureDecl] -> String
+pprintClosures cs = "let {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
 
 pprintClosureDecl :: Int -> ClosureDecl -> String
 pprintClosureDecl n (ClosureDecl f (EnvDecl fs) params e) =

@@ -9,8 +9,8 @@ import Data.List (intercalate)
 import qualified Hoist as H
 import Hoist
 
-emitProgram :: ([H.TopDecl], TermH) -> [String]
-emitProgram (ds, e) = prologue ++ concatMap emitTopDecl ds ++ emitEntryPoint e
+emitProgram :: ([H.ClosureDecl], TermH) -> [String]
+emitProgram (cs, e) = prologue ++ concatMap emitClosureDecl cs ++ emitEntryPoint e
 
 data DeclNames
   = DeclNames {
@@ -37,9 +37,6 @@ emitEntryPoint e =
   ["void program_entry(void) {"] ++
   emitClosureBody e ++
   ["}"]
-
-emitTopDecl :: TopDecl -> [String]
-emitTopDecl (TopClosure cs) = concatMap emitClosureDecl cs
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d envd params e) =
