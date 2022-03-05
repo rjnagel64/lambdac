@@ -41,11 +41,9 @@ void halt_with(struct alloc_header *x);
 // Eventually, the compiler should emit all necessary thunk types.
 void suspend_jump(struct closure *k, struct alloc_header *x);
 void suspend_call(struct closure *f, struct alloc_header *x, struct closure *k);
-void suspend_case(struct value *x, struct closure *k1, struct closure *k2);
 
 #define HALT(x) { halt_with(x); return; }
 #define JUMP(k, x) { suspend_jump(k, x); return; }
 #define TAILCALL(f, x, k) { suspend_call(f, x, k); return; }
-#define CASE(x, k1, k2) { suspend_case(x, k1, k2); return; }
 
 #endif

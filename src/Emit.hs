@@ -129,7 +129,24 @@ emitClosureBody (JumpH k x) =
 emitClosureBody (CallH f x k) =
   ["    TAILCALL(" ++ emitName f ++ ", " ++ asAlloc (emitName x) ++ ", " ++ emitName k ++ ");"]
 emitClosureBody (CaseH x k1 k2) =
-  ["    CASE(" ++ emitName x ++ ", " ++ emitName k1 ++ ", " ++ emitName k2 ++ ");"]
+  emitCase x [k1, k2]
+
+emitCase :: Name -> [Name] -> [String]
+emitCase x ks =
+  ["    switch (" ++ emitName x ++ "->words[0]) {"] ++
+  concatMap emitCaseBranch (zip [0..] ks) ++
+  ["    default:"
+  ,"        panic(\"invalid discriminant\");"
+  ,"    }"]
+  where
+    emitCaseBranch :: (Int, Name) -> [String]
+    emitCaseBranch (i, k) =
+      ["    case " ++ show i ++ ":"
+      -- TODO: Use the correct thunk suspension method here.
+      -- (Use type info (x :: A + B) in order to cast the payload to the
+      -- correct sort (A if 0, B if 1), as well.)
+      ,"        suspend_jump(" ++ emitName k ++ ", " ++ asAlloc (emitName x ++ "->words[1]") ++ ");"
+      ,"        break;"]
 
 emitValueAlloc :: ValueH -> String
 emitValueAlloc (IntH i) = "allocate_int32(" ++ show i ++ ")"
@@ -174,11 +191,6 @@ emitAlloc bindGroup p d (EnvAlloc xs) =
     allocArg (EnvName x) = "env->" ++ x -- TODO: What if environment has different name?
     codeArg = declCodeName ns
     traceArg = declTraceName ns
-
-closureAllocName :: PlaceName -> String
-closureAllocName (PlaceName Fun _) = "allocate_fun"
-closureAllocName (PlaceName Cont _) = "allocate_cont"
-closureAllocName (PlaceName Value _) = error "generic values are not allocated as closures"
 
 emitPatch :: DeclNames -> Set String -> PlaceName -> EnvAlloc -> [String]
 emitPatch ns bindGroup (PlaceName _ p) (EnvAlloc xs) =

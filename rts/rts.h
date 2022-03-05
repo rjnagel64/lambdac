@@ -4,5 +4,6 @@
 #include "alloc.h"
 #include "prim.h"
 #include "control.h"
+#include "panic.h"
 
 #endif

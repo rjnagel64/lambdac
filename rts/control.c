@@ -57,19 +57,3 @@ void suspend_jump(struct closure *k, struct alloc_header *x) {
     next_step = (struct thunk *)next;
 }
 
-// In the future, with many-branched switches and/or other calling conventions,
-// it probably will be necessary to inline this as part of function code
-// generation.
-void suspend_case(struct value *x, struct closure *k1, struct closure *k2) {
-    switch (x->words[0]) {
-    case 0:
-        suspend_jump(k1, AS_ALLOC(x->words[1]));
-        break;
-    case 1:
-        suspend_jump(k2, AS_ALLOC(x->words[1]));
-        break;
-    default:
-        panic("invalid discriminant");
-    }
-}
-
