@@ -52,9 +52,9 @@ emitEnvDecl ns (EnvDecl fs) =
   map mkField fs ++
   ["};"]
   where
-    mkField (FieldName Fun f) = "    struct closure *" ++ f ++ ";";
-    mkField (FieldName Cont k) = "    struct closure *" ++ k ++ ";";
+    mkField (FieldName Closure c) = "    struct closure *" ++ c ++ ";";
     mkField (FieldName Value x) = "    struct value *" ++ x ++ ";"
+    mkField (FieldName Alloc a) = "    struct alloc_header *" ++ a ++ ";"
 
 emitEnvAlloc :: DeclNames -> EnvDecl -> [String]
 emitEnvAlloc ns (EnvDecl []) =
@@ -71,9 +71,9 @@ emitEnvAlloc ns (EnvDecl fs) =
   where
     params = intercalate ", " (map mkParam fs)
 
-    mkParam (FieldName Fun f) = "struct closure *" ++ f
-    mkParam (FieldName Cont f) = "struct closure *" ++ f
+    mkParam (FieldName Closure c) = "struct closure *" ++ c
     mkParam (FieldName Value f) = "struct value *" ++ f
+    mkParam (FieldName Alloc a) = "struct alloc_header *" ++ a
 
     assignField :: FieldName -> String
     assignField (FieldName _ x) = "    env->" ++ x ++ " = " ++ x ++ ";"
@@ -89,9 +89,9 @@ emitEnvTrace ns (EnvDecl fs) =
   ["}"]
   where
     traceField :: FieldName -> String
-    traceField (FieldName Fun f) = "    trace_closure(env->" ++ f ++ ");"
-    traceField (FieldName Cont k) = "    trace_closure(env->" ++ k ++ ");"
+    traceField (FieldName Closure c) = "    trace_closure(env->" ++ c ++ ");"
     traceField (FieldName Value x) = "    trace_value(env->" ++ x ++ ");"
+    traceField (FieldName Alloc a) = "    trace_alloc(env->" ++ a ++ ");"
 
 -- TODO: What if 'env' is the name that gets shadowed? (I.e., the function
 -- parameter is named 'env')
@@ -210,9 +210,9 @@ emitPatch ns bindGroup (PlaceName _ p) (EnvAlloc xs) =
   where env = "((struct " ++ declEnvName ns ++ " *)" ++ p ++ "->env)"
 
 emitPlace :: PlaceName -> String
-emitPlace (PlaceName Fun f) = "struct closure *" ++ f
-emitPlace (PlaceName Cont k) = "struct closure *" ++ k
+emitPlace (PlaceName Closure k) = "struct closure *" ++ k
 emitPlace (PlaceName Value x) = "struct value *" ++ x
+emitPlace (PlaceName Alloc a) = "struct alloc_header *" ++ a
 
 -- TODO: Parametrize this by what the name of the environment pointer is.
 -- There may be situations where 'env' or 'envp' is the name of a parameter.

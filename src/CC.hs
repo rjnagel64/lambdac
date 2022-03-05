@@ -77,23 +77,17 @@ coVar (K.CoVar k) = Name k
 fnName :: K.FnName -> Name
 fnName (K.FnName f) = Name f
 
--- This is really a simplified of type information.
+-- | 'Sort' is really a simplified form of type information.
 -- Value = int | bool | t1 * t2 | t1 + t2 | ()
--- Fun = (t1 * (t2 -> 0)) -> 0
--- Cont = t1 -> 0
---
--- Perhaps I should add
--- Alloc = Value | Fun | Cont
--- (Or maybe call it Uniform? Currently necessary to e.g. pass functions to continuations)
--- (More generally, for uniform representation of polymorphism.)
--- (Yes. Add this.)
-data Sort = Fun | Cont | Value
+-- Closure = (t1, t2, ...) -> 0
+-- Alloc = a : *
+data Sort = Closure | Value | Alloc
   deriving (Eq, Ord)
 
 instance Show Sort where
-  show Fun = "fun"
-  show Cont = "cont"
+  show Closure = "closure"
   show Value = "value"
+  show Alloc = "alloc_header"
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -187,7 +181,7 @@ fieldsForValue (InlK x) = unitField (tmVar x)
 fieldsForValue (InrK y) = unitField (tmVar y)
 
 fieldsForFunDef :: FunDef -> FieldsFor
-fieldsForFunDef (FunDef _f x k e) = bindFields [(tmVar x, Value), (coVar k, Cont)] (fieldsFor e)
+fieldsForFunDef (FunDef _f x k e) = bindFields [(tmVar x, Value), (coVar k, Closure)] (fieldsFor e)
 
 fieldsForContDef :: ContDef -> FieldsFor
 fieldsForContDef (ContDef _k x e) = bindFields [(tmVar x, Value)] (fieldsFor e)
@@ -198,10 +192,10 @@ markRec :: Set Name -> [(Name, Sort)] -> ([(Name, Sort)], [(Name, Sort)])
 markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) xs
 
 funDefNames :: [FunDef] -> [(Name, Sort)]
-funDefNames fs = [(fnName f, Fun) | FunDef f _ _ _ <- fs]
+funDefNames fs = [(fnName f, Closure) | FunDef f _ _ _ <- fs]
 
 contDefNames :: [ContDef] -> [(Name, Sort)]
-contDefNames ks = [(coVar k, Cont) | ContDef k _ _ <- ks]
+contDefNames ks = [(coVar k, Closure) | ContDef k _ _ <- ks]
 
 newtype ConvM a = ConvM { runConvM :: Reader (Map Name Sort) a }
 
@@ -220,7 +214,7 @@ cconv (LetFunK fs e) = LetFunC <$> local extendGroup (traverse ann fs) <*> local
     extendGroup ctx = foldr (uncurry Map.insert) ctx (funDefNames fs)
     ann fun@(FunDef f x k e') = do
       ctx <- ask
-      let extend ctx' = Map.insert (tmVar x) Value $ Map.insert (coVar k) Cont $ ctx'
+      let extend ctx' = Map.insert (tmVar x) Value $ Map.insert (coVar k) Closure $ ctx'
       let fields = Set.toList $ runFieldsFor (fieldsForFunDef fun) (extend ctx)
       let (free, rec) = markRec fs' fields
       FunClosureDef (fnName f) free rec (tmVar x) (coVar k) <$> local extend (cconv e')

@@ -202,7 +202,7 @@ placesForFunAllocs fdecls k = do
     pickPlace sc (d, def@(C.FunClosureDef (C.Name f) _ _ _ _ _)) =
       let p = go sc f (0 :: Int) in (Map.insert (C.Name f) p sc, (p, d, def))
     go sc f i = case Map.lookup (C.Name (f ++ show i)) sc of
-      Nothing -> PlaceName Fun (f ++ show i)
+      Nothing -> PlaceName Closure (f ++ show i)
       Just _ -> go sc f (i+1)
   let (scope', fplaces) = mapAccumL pickPlace scope fdecls
   let extend (HoistEnv _ fields) = HoistEnv scope' fields
@@ -215,7 +215,7 @@ placesForContAllocs kdecls k = do
     pickPlace sc (d, def@(C.ContClosureDef (C.Name defk) _ _ _ _)) =
       let p = go sc defk (0 :: Int) in (Map.insert (C.Name defk) p sc, (p, d, def))
     go sc j i = case Map.lookup (C.Name (j ++ show i)) sc of
-      Nothing -> PlaceName Cont (j ++ show i)
+      Nothing -> PlaceName Closure (j ++ show i)
       Just _ -> go sc j (i+1)
   let (scope', kplaces) = mapAccumL pickPlace scope kdecls
   let extend (HoistEnv _ fields) = HoistEnv scope' fields
@@ -259,7 +259,7 @@ hoistFunClosure (fdecl, C.FunClosureDef _f free rec x k body) = do
   let fields = free ++ rec
   -- TODO: The sorts of the parameters are incorrect here. I need type
   -- information from earlier in the pipeline.
-  (fields', places', body') <- inClosure fields [(x, Value), (k, Cont)] $ hoist body
+  (fields', places', body') <- inClosure fields [(x, Value), (k, Closure)] $ hoist body
   let envd = EnvDecl fields'
   let fd = ClosureDecl fdecl envd places' body'
   pure fd
