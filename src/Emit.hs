@@ -9,6 +9,9 @@ import Data.List (intercalate)
 import qualified Hoist as H
 import Hoist
 
+-- TODO: Something smarter than string and list concatenation.
+-- builders? text? environment?
+
 emitProgram :: ([H.ClosureDecl], TermH) -> [String]
 emitProgram (cs, e) = prologue ++ concatMap emitClosureDecl cs ++ emitEntryPoint e
 
@@ -125,11 +128,19 @@ emitClosureBody (AllocClosure cs e) =
 emitClosureBody (HaltH x) =
   ["    HALT(" ++ asAlloc (emitName x) ++ ");"]
 emitClosureBody (JumpH k x) =
-  ["    JUMP(" ++ emitName k ++ ", " ++ asAlloc (emitName x) ++ ");"]
+  [emitSuspend "suspend_jump" [emitName k, asAlloc (emitName x)]]
 emitClosureBody (CallH f x k) =
-  ["    TAILCALL(" ++ emitName f ++ ", " ++ asAlloc (emitName x) ++ ", " ++ emitName k ++ ");"]
+  [emitSuspend "suspend_call" [emitName f, asAlloc (emitName x), emitName k]]
 emitClosureBody (CaseH x k1 k2) =
   emitCase x [k1, k2]
+
+-- TODO: I would prefer to take a list of names here, but I sometimes need to
+-- call 'asAlloc' for stupid reasons.
+-- TODO: The thunk type is determined by the closure type of the first argument.
+--
+-- emitSuspend :: (Name, ClosureType) -> [Name] -> String
+emitSuspend :: String -> [String] -> String
+emitSuspend suspend args = "    " ++ suspend ++ "(" ++ intercalate ", " args ++ ");"
 
 emitCase :: Name -> [Name] -> [String]
 emitCase x ks =
@@ -142,10 +153,11 @@ emitCase x ks =
     emitCaseBranch :: (Int, Name) -> [String]
     emitCaseBranch (i, k) =
       ["    case " ++ show i ++ ":"
-      -- TODO: Use the correct thunk suspension method here.
-      -- (Use type info (x :: A + B) in order to cast the payload to the
+      -- TODO: Use the correct thunk suspension method here. (the closure type
+      -- of k determines what suspension to use.)
+      -- (Use type info (x :: A + B) in order to cast the words[1] to the
       -- correct sort (A if 0, B if 1), as well.)
-      ,"        suspend_jump(" ++ emitName k ++ ", " ++ asAlloc (emitName x ++ "->words[1]") ++ ");"
+      ,"    " ++ emitSuspend "suspend_jump" [emitName k, asAlloc (emitName x ++ "->words[1]")]
       ,"        break;"]
 
 emitValueAlloc :: ValueH -> String

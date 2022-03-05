@@ -23,25 +23,8 @@ void init_locals(void);
 void destroy_locals(void);
 void reset_locals(void);
 
-// New value layout:
-// inl x is [hdr|0|&x],
-// inr y in [hdr|1|&y],
-// (x, y) is [hdr|&x|&y],
-// () is [hdr|0],
-// n is [hdr|n]
-// Other sums and products proceed in analogous manner.
-// No unboxed sums, though?
-//
-// TODO: Figure out how to trace these. (number & location of GC fields)
-// (CHICKEN has different allocation types for 'GC all fields' 'GC all but
-// first', 'GC none', etc.)
-// (GHC has info tables, value carries pointer to info table?)
-//
-// TODO: Currently, pairs cannot contain functions. To fix this, I need to
-// merge 'struct fun' and 'struct cont' into 'struct value', having envp, code,
-// trace being words[0], [1], and [2], I guess. Alternately, break each class
-// of value out into its own struct, and use 'struct alloc_header *' as the
-// type of generic values instead.
+// TODO: This representation with variable number of fields is getting somewhat inconvenient.
+// Replace it with 'struct pair_value', 'struct sum_value', 'struct int_value', etc.
 struct value {
     struct alloc_header header;
     // Count of words is not necessary? In-bounds access of fields is
