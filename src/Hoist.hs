@@ -164,7 +164,7 @@ hoist (LetAddC z x y e) = do
   (z', e') <- withPlace z Value $ hoist e
   pure (LetPrimH z' (PrimAddInt32 x' y') e')
 hoist (LetFunC fs e) = do
-  fdecls <- declareClosureNames fs
+  fdecls <- declareClosureNames C.funClosureName fs
   ds' <- traverse hoistFunClosure fdecls
 
   tell ds'
@@ -176,7 +176,7 @@ hoist (LetFunC fs e) = do
     e' <- hoist e
     pure (AllocClosure fs' e')
 hoist (LetContC ks e) = do
-  kdecls <- declareContClosureNames ks
+  kdecls <- declareClosureNames C.contClosureName ks
   ds' <- traverse hoistContClosure kdecls
 
   tell ds'
@@ -222,27 +222,17 @@ placesForContAllocs kdecls k = do
   local extend (k kplaces)
 
 
-declareClosureNames :: [C.FunClosureDef] -> HoistM [(DeclName, C.FunClosureDef)]
-declareClosureNames fs = for fs $ \def -> do
-  let
-    (C.Name f) = C.funClosureName def
-    pickName i ds =
-      let d = DeclName (f ++ show i) in
-      if Set.member d ds then pickName (i+1) ds else (d, Set.insert d ds)
-  (d, decls') <- pickName (0 :: Int) <$> get
-  put decls'
-  pure (d, def)
-
-declareContClosureNames :: [C.ContClosureDef] -> HoistM [(DeclName, C.ContClosureDef)]
-declareContClosureNames fs = for fs $ \def -> do
-  let
-    (C.Name f) = C.contClosureName def
-    pickName i ds =
-      let d = DeclName (f ++ show i) in
-      if Set.member d ds then pickName (i+1) ds else (d, Set.insert d ds)
-  (d, decls') <- pickName (0 :: Int) <$> get
-  put decls'
-  pure (d, def)
+declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(DeclName, a)]
+declareClosureNames closureName cs =
+  for cs $ \def -> do
+    let C.Name f = closureName def
+    let
+      pickName i ds =
+        let d = DeclName (f ++ show i) in
+        if Set.member d ds then pickName (i+1) ds else (d, Set.insert d ds)
+    (d, decls') <- pickName (0 :: Int) <$> get
+    put decls'
+    pure (d, def)
 
 
 -- TODO: Infer sort here?
