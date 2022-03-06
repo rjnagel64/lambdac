@@ -98,7 +98,7 @@ FunBinds :: { [TmFun] }
          | FunBinds FunBind { $1 ++ [$2] } -- TODO: DList
 
 FunBind :: { TmFun }
-        : 'fun' ID '(' ID ':' Type ')' '=' Term ';' { TmFun (var $2) (var $4) $6 $9 }
+        : 'fun' ID '(' ID ':' Type ')' ':' Type '=' Term ';' { TmFun (var $2) (var $4) $6 $9 $11 }
 
 Type :: { Type }
      : AType { $1 }

@@ -56,7 +56,7 @@ data Term
   | TmIsZero Term
 
 
--- @f (x : t) := e@, used for recursion.
+-- @f (x : t) : t' = e@, used for recursion.
 -- I'm not really satisfied with this. How does a 'TmFun' interact with polymorphism?
 -- How does it deal with multiple parameters? (i.e., if I allow 'TmFun' to have
 -- multiple parameters, are unsaturated applications permitted?)
@@ -83,7 +83,7 @@ data Term
 --
 -- Is there a difference between partially-applied occurrences within
 -- definition versus partially-applied occurrences within body?
-data TmFun = TmFun TmVar TmVar Type Term
+data TmFun = TmFun TmVar TmVar Type Type Term
 
 data Type
   = TySum Type Type

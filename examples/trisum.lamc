@@ -1,5 +1,5 @@
 let
-  fun tri (n : int) =
+  fun tri (n : int) : int =
     case iszero n of {
       inl (y : unit) -> 0;
       inr (z : unit) -> n + tri (n - 1)

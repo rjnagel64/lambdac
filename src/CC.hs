@@ -185,7 +185,7 @@ fieldsForArith (SubK x y) = unitField (tmVar x) <> unitField (tmVar y)
 fieldsForArith (MulK x y) = unitField (tmVar x) <> unitField (tmVar y)
 
 fieldsForValue :: ValueK -> FieldsFor
-fieldsForValue (IntK _) = mempty
+fieldsForValue (IntValK _) = mempty
 fieldsForValue NilK = mempty
 fieldsForValue (PairK x y) = unitField (tmVar x) <> unitField (tmVar y)
 fieldsForValue (InlK x) = unitField (tmVar x)
@@ -252,7 +252,7 @@ cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
 cconvValue :: ValueK -> ValueC
 cconvValue NilK = NilC
 cconvValue (PairK x y) = PairC (tmVar x) (tmVar y)
-cconvValue (IntK i) = IntC i
+cconvValue (IntValK i) = IntC i
 cconvValue (InlK x) = InlC (tmVar x)
 cconvValue (InrK y) = InrC (tmVar y)
 

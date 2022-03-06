@@ -44,6 +44,8 @@ import Source (Term(..), TmFun(..))
 -- All sorts of variables exist in the same namespace.
 -- TODO: TmVar and FnName should be merged. Functions are values, so they
 -- should use the same variable sort.
+-- Continuation variables, meanwhile, truly are second-class (even if I forget
+-- about that fact later on.)
 newtype TmVar = TmVar String
   deriving (Eq, Ord)
 newtype CoVar = CoVar String
@@ -108,7 +110,7 @@ data ValueK
   | PairK TmVar TmVar
   | InlK TmVar
   | InrK TmVar
-  | IntK Int
+  | IntValK Int
 
 data ArithK
   = AddK TmVar TmVar
@@ -118,12 +120,20 @@ data ArithK
 data TypeK
   -- unit
   = UnitK
+  -- int
+  | IntK
   -- σ × τ
   | ProdK TypeK TypeK
   -- σ + τ
   | SumK TypeK TypeK
   -- σ -> 0
   | ContK TypeK
+
+cpsType :: S.Type -> TypeK
+cpsType S.TyUnit = UnitK
+cpsType S.TyInt = IntK
+cpsType (S.TySum a b) = SumK (cpsType a) (cpsType b)
+cpsType (S.TyArr a b) = ContK (ProdK (cpsType a) (ContK (cpsType b)))
 
 
 var :: S.TmVar -> TmVar
@@ -191,7 +201,7 @@ cps (TmSnd e) k =
 cps TmNil k =
   freshTm "x" $ \x -> LetValK x NilK <$> k x
 cps (TmInt i) k =
-  freshTm "x" $ \x -> LetValK x (IntK i) <$> k x
+  freshTm "x" $ \x -> LetValK x (IntValK i) <$> k x
 cps (TmLet x t e1 e2) k = do
   e2' <- cps e2 k
   freshCo "j" $ \j ->
@@ -217,7 +227,7 @@ cps (TmIsZero e) k =
       LetIsZeroK x v <$> k x
 
 cpsFun :: TmFun -> FreshM FunDef
-cpsFun (TmFun f x t e) = freshCo "k" $ \k -> FunDef (fnName f) (var x) k <$> cpsTail e k
+cpsFun (TmFun f x t t' e) = freshCo "k" $ \k -> FunDef (fnName f) (var x) k <$> cpsTail e k
   where fnName (S.TmVar y) = FnName y
 
 -- | CPS-convert a term in tail position.
@@ -265,7 +275,7 @@ cpsTail TmNil k =
     pure (LetValK x NilK (JumpK k x))
 cpsTail (TmInt i) k =
   freshTm "x" $ \x ->
-    pure (LetValK x (IntK i) (JumpK k x))
+    pure (LetValK x (IntValK i) (JumpK k x))
 cpsTail (TmAdd e1 e2) k =
   cps e1 $ \x ->
     cps e2 $ \y ->
@@ -358,7 +368,7 @@ pprintTerm n (LetArithK x op e) =
 pprintValue :: ValueK -> String
 pprintValue NilK = "()"
 pprintValue (PairK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
-pprintValue (IntK i) = show i
+pprintValue (IntValK i) = show i
 pprintValue (InlK x) = "inl " ++ show x
 pprintValue (InrK y) = "inr " ++ show y
 
