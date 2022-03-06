@@ -1,8 +1,8 @@
 let
-  fun tri n =
+  fun tri (n : int) =
     case iszero n of {
-      inl y -> 0;
-      inr z -> n + tri (n + -1)
+      inl (y : unit) -> 0;
+      inr (z : unit) -> n + tri (n - 1)
     };
 in
 tri 10

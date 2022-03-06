@@ -138,7 +138,7 @@ var (S.TmVar x) = TmVar x
 -- The real question is, does it behave properly.
 cps :: Term -> (TmVar -> FreshM TermK) -> FreshM TermK
 cps (TmVarOcc x) k = k (var x)
-cps (TmLam x e) k =
+cps (TmLam x t e) k =
   freshTm "f" $ \ (TmVar f) ->
     freshCo "k" $ \k' ->
       let mkFun e' = [FunDef (FnName f) (var x) k' e'] in
@@ -160,7 +160,7 @@ cps (TmInr e) k =
   cps e $ \z ->
     freshTm "x" $ \x ->
       LetValK x (InrK z) <$> k x
-cps (TmCase e xl el xr er) k =
+cps (TmCase e (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z ->
     freshCo "j" $ \j ->
       freshTm "x" $ \x ->
@@ -193,7 +193,7 @@ cps TmNil k =
   freshTm "x" $ \x -> LetValK x NilK <$> k x
 cps (TmInt i) k =
   freshTm "x" $ \x -> LetValK x (IntK i) <$> k x
-cps (TmLet x e1 e2) k = do
+cps (TmLet x t e1 e2) k = do
   e2' <- cps e2 k
   freshCo "j" $ \j ->
     LetContK [ContDef j (var x) e2'] <$> cpsTail e1 j
@@ -218,7 +218,7 @@ cps (TmIsZero e) k =
       LetIsZeroK x v <$> k x
 
 cpsFun :: TmFun -> FreshM FunDef
-cpsFun (TmFun f x e) = freshCo "k" $ \k -> FunDef (fnName f) (var x) k <$> cpsTail e k
+cpsFun (TmFun f x t e) = freshCo "k" $ \k -> FunDef (fnName f) (var x) k <$> cpsTail e k
   where fnName (S.TmVar y) = FnName y
 
 -- | CPS-convert a term in tail position.
@@ -226,12 +226,12 @@ cpsFun (TmFun f x e) = freshCo "k" $ \k -> FunDef (fnName f) (var x) k <$> cpsTa
 -- allows for simpler translations.
 cpsTail :: Term -> CoVar -> FreshM TermK
 cpsTail (TmVarOcc x) k = pure (JumpK k (var x))
-cpsTail (TmLam x e) k =
+cpsTail (TmLam x t e) k =
   freshTm "f" $ \ (TmVar f) ->
     freshCo "k" $ \k' ->
       let mkFun e' = [FunDef (FnName f) (var x) k' e'] in
       LetFunK <$> (mkFun <$> cpsTail e k') <*> pure (JumpK k (TmVar f))
-cpsTail (TmLet x e1 e2) k =
+cpsTail (TmLet x t e1 e2) k =
   -- let x = e1 in e2
   -- -->
   -- let j x = [[e2]] k in [[e1]] j
@@ -290,7 +290,7 @@ cpsTail (TmApp e1 e2) k =
   cps e1 $ \ (TmVar f) ->
     cps e2 $ \x ->
       pure (CallK (FnName f) x k)
-cpsTail (TmCase e xl el xr er) k =
+cpsTail (TmCase e (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z ->
     freshCo "k1" $ \k1 ->
       freshCo "k2" $ \k2 -> do

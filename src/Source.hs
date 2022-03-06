@@ -21,14 +21,15 @@ newtype CoVar = CoVar String
 data Term
   -- x
   = TmVarOcc TmVar
-  -- case e of inl x -> e1; inr y -> e2
-  | TmCase Term TmVar Term TmVar Term
+  -- case e of inl (x : t1) -> e1; inr (y : t2) -> e2
+  -- TODO: Add return-type annotation on case-expressions?
+  | TmCase Term (TmVar, Type, Term) (TmVar, Type, Term)
   -- inl e
   | TmInl Term
   -- inr e
   | TmInr Term
-  -- \x.e
-  | TmLam TmVar Term
+  -- \ (x:t) -> e
+  | TmLam TmVar Type Term
   -- e1 e2
   | TmApp Term Term
   -- (e1, e2)
@@ -37,8 +38,8 @@ data Term
   | TmFst Term
   -- snd e
   | TmSnd Term
-  -- let x = e1 in e2
-  | TmLet TmVar Term Term
+  -- let x:t = e1 in e2
+  | TmLet TmVar Type Term Term
   -- let rec fs+ in e
   | TmRecFun [TmFun] Term
   -- ()
@@ -55,7 +56,7 @@ data Term
   | TmIsZero Term
 
 
--- @f x := e@, used for recursion.
+-- @f (x : t) := e@, used for recursion.
 -- I'm not really satisfied with this. How does a 'TmFun' interact with polymorphism?
 -- How does it deal with multiple parameters? (i.e., if I allow 'TmFun' to have
 -- multiple parameters, are unsaturated applications permitted?)
@@ -82,7 +83,7 @@ data Term
 --
 -- Is there a difference between partially-applied occurrences within
 -- definition versus partially-applied occurrences within body?
-data TmFun = TmFun TmVar TmVar Term
+data TmFun = TmFun TmVar TmVar Type Term
 
 data Type
   = TySum Type Type

@@ -49,6 +49,7 @@ import Source
   'then' { TokThen _ }
   'else' { TokElse _ }
   'unit' { TokUnit _ }
+  'int' { TokInt _ }
   'forall' { TokForall _ }
 
   ID { TokID _ _ }
@@ -64,11 +65,11 @@ import Source
 
 Term :: { Term }
      : AppTerm { $1 }
-     | '\\' ID '->' Term { TmLam (var $2) $4 }
-     | 'let' ID '=' Term 'in' Term { TmLet (var $2) $4 $6 }
+     | '\\' '(' ID ':' Type ')' '->' Term { TmLam (var $3) $5 $8 }
+     | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
      | 'let' FunBinds 'in' Term { TmRecFun $2 $4 }
-     | 'case' Term 'of' '{' 'inl' ID '->' Term ';' 'inr' ID '->' Term '}'
-       { TmCase $2 (var $6) $8 (var $11) $13 }
+     | 'case' Term 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
+       { TmCase $2 (var $7, $9, $12) (var $16, $18, $21) }
 
      | Term '+' Term { TmAdd $1 $3 }
      | Term '-' Term { TmSub $1 $3 }
@@ -96,7 +97,7 @@ FunBinds :: { [TmFun] }
          | FunBinds FunBind { $1 ++ [$2] } -- TODO: DList
 
 FunBind :: { TmFun }
-        : 'fun' ID ID '=' Term ';' { TmFun (var $2) (var $3) $5 }
+        : 'fun' ID '(' ID ':' Type ')' '=' Term ';' { TmFun (var $2) (var $4) $6 $9 }
 
 Type :: { Type }
      : AType { $1 }
@@ -106,6 +107,7 @@ Type :: { Type }
 AType :: { Type }
       : '(' Type ')' { $2 }
       | 'unit' { TyUnit }
+      | 'int' { TyInt }
       | ID { TyVarOcc (tvar $1) }
 
 {

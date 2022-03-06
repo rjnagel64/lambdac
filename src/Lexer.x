@@ -64,6 +64,7 @@ tokens :-
   "then" { tok TokThen }
   "else" { tok TokElse }
   "unit" { tok TokUnit }
+  "int" { tok TokInt }
   "forall" { tok TokForall }
 
   [\- \+]? $digit+ { toks TokINT }
@@ -131,6 +132,7 @@ data Token
   | TokElse Loc
 
   | TokUnit Loc
+  | TokInt Loc
   | TokForall Loc
   deriving (Show)
 
@@ -169,6 +171,7 @@ instance Located Token where
   loc (TokThen l) = l
   loc (TokElse l) = l
   loc (TokUnit l) = l
+  loc (TokInt l) = l
   loc (TokForall l) = l
 
 -- | Lex a string.
