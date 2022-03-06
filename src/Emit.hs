@@ -12,8 +12,12 @@ import Hoist
 -- TODO: Something smarter than string and list concatenation.
 -- builders? text? environment?
 
-emitProgram :: ([H.ClosureDecl], TermH) -> [String]
-emitProgram (cs, e) = prologue ++ concatMap emitClosureDecl cs ++ emitEntryPoint e
+emitProgram :: (HoistDecls, TermH) -> [String]
+emitProgram (HoistDecls (ts, cs), e) =
+  prologue ++
+  concatMap emitThunkDecl ts ++
+  concatMap emitClosureDecl cs ++
+  emitEntryPoint e
 
 data DeclNames
   = DeclNames {
@@ -41,9 +45,95 @@ emitEntryPoint e =
   emitClosureBody e ++
   ["}"]
 
+data ThunkNames
+  = ThunkNames {
+    thunkTypeName :: String
+  , thunkEnterName :: String
+  , thunkTraceName :: String
+  , thunkSuspendName :: String
+  }
+
+namesForThunk :: ThunkType -> ThunkNames
+namesForThunk (ThunkType ss) =
+  ThunkNames {
+    thunkTypeName = "thunk_" ++ tycode
+  , thunkEnterName = "enter_" ++ tycode
+  , thunkTraceName = "trace_" ++ tycode
+  , thunkSuspendName = "suspend_" ++ tycode
+  }
+  where
+    -- This scheme will almost certainly break down as types get fancier.
+    tycode = map code ss
+    code Closure = 'C'
+    code Value = 'V'
+    code Alloc = 'A'
+
+emitThunkDecl :: ThunkType -> [String]
+emitThunkDecl t =
+  emitThunkType t ++
+  emitThunkEnter t ++
+  emitThunkTrace t ++
+  emitThunkSuspend t
+
+emitThunkType :: ThunkType -> [String]
+emitThunkType (ThunkType ss) =
+  ["struct " ++ thunkTypeName ns ++ " {"
+  ,"    struct closure *closure;"] ++
+  map mkField ss' ++
+  ["};"]
+  where
+    ns = namesForThunk (ThunkType ss)
+    ss' = zip [0..] ss :: [(Int, Sort)]
+    mkField (i, s) = "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
+
+emitThunkTrace :: ThunkType -> [String]
+emitThunkTrace (ThunkType ss) =
+  ["void " ++ thunkTraceName ns ++ "(void) {"
+  ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
+  ,"    trace_closure(next->closure);"] ++
+  map traceField ss' ++
+  ["}"]
+  where
+    ns = namesForThunk (ThunkType ss)
+    ss' = zip [0..] ss :: [(Int, Sort)]
+    traceField (i, s) = "    trace_" ++ show s ++ "(next->arg" ++ show i ++ ");"
+
+emitThunkEnter :: ThunkType -> [String]
+emitThunkEnter (ThunkType ss) =
+  ["void " ++ thunkEnterName ns ++ "(void) {"
+  ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
+  ,"    void (*code)(" ++ paramList ++ ") = (void (*)(" ++ paramList ++ "))next->closure->code;"
+  ,"    code(" ++ argList ++ ");"
+  ,"}"]
+  where
+    ns = namesForThunk (ThunkType ss)
+    ss' = zip [0..] ss :: [(Int, Sort)]
+    paramList = intercalate ", " ("void *env" : map makeParam ss')
+    makeParam (i, s) = emitPlace (PlaceName s ("arg" ++ show i))
+    argList = intercalate ", " ("next->closure->env" : map makeArgument ss')
+    makeArgument (i, _) = "next->arg" ++ show i
+
+emitThunkSuspend :: ThunkType -> [String]
+emitThunkSuspend (ThunkType ss) =
+  ["void " ++ thunkSuspendName ns ++ "(" ++ paramList ++ ") {"
+  ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
+  ,"    next->closure = closure;"] ++
+  map assignField ss' ++
+  ["    next_step = (struct thunk *)next;"
+  ,"}"]
+  where
+    ns = namesForThunk (ThunkType ss)
+    ss' = zip [0..] ss :: [(Int, Sort)]
+    paramList = intercalate ", " ("struct closure *closure" : map makeParam ss')
+    makeParam (i, s) = emitPlace (PlaceName s ("arg" ++ show i))
+    assignField (i, _) = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
+
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d envd params e) =
-  emitEnvDecl ns envd ++ emitEnvAlloc ns envd ++ emitEnvTrace ns envd ++ emitClosureCode ns params e
+  emitEnvDecl ns envd ++
+  emitEnvAlloc ns envd ++
+  emitEnvTrace ns envd ++
+  emitClosureCode ns params e
   where ns = namesForDecl d
 
 emitEnvDecl :: DeclNames -> EnvDecl -> [String]
@@ -52,9 +142,7 @@ emitEnvDecl ns (EnvDecl fs) =
   map mkField fs ++
   ["};"]
   where
-    mkField (FieldName Closure c) = "    struct closure *" ++ c ++ ";";
-    mkField (FieldName Value x) = "    struct value *" ++ x ++ ";"
-    mkField (FieldName Alloc a) = "    struct alloc_header *" ++ a ++ ";"
+    mkField f = "    " ++ emitFieldDecl f ++ ";"
 
 emitEnvAlloc :: DeclNames -> EnvDecl -> [String]
 emitEnvAlloc ns (EnvDecl []) =
@@ -69,11 +157,7 @@ emitEnvAlloc ns (EnvDecl fs) =
   ["    return env;"
   ,"}"]
   where
-    params = intercalate ", " (map mkParam fs)
-
-    mkParam (FieldName Closure c) = "struct closure *" ++ c
-    mkParam (FieldName Value f) = "struct value *" ++ f
-    mkParam (FieldName Alloc a) = "struct alloc_header *" ++ a
+    params = intercalate ", " (map emitFieldDecl fs)
 
     assignField :: FieldName -> String
     assignField (FieldName _ x) = "    env->" ++ x ++ " = " ++ x ++ ";"
@@ -208,6 +292,11 @@ emitPatch :: DeclNames -> Set String -> PlaceName -> EnvAlloc -> [String]
 emitPatch ns bindGroup (PlaceName _ p) (EnvAlloc xs) =
   ["    " ++ env ++ "->" ++ f ++ " = " ++ x ++ ";" | (FieldName _ f, LocalName x) <- xs, Set.member x bindGroup]
   where env = "((struct " ++ declEnvName ns ++ " *)" ++ p ++ "->env)"
+
+emitFieldDecl :: FieldName -> String
+emitFieldDecl (FieldName Closure c) = "struct closure *" ++ c
+emitFieldDecl (FieldName Value x) = "struct value *" ++ x
+emitFieldDecl (FieldName Alloc a) = "struct alloc_header *" ++ a
 
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName Closure k) = "struct closure *" ++ k
