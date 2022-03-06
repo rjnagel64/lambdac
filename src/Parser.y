@@ -20,6 +20,7 @@ import Source
   '\\' { TokLambda _ }
   '->' { TokArrow _ }
   '=' { TokEquals _ }
+  '@' { TokAt _ }
   '*' { TokStar _ }
   '+' { TokPlus _ }
   '-' { TokMinus _ }
@@ -75,8 +76,8 @@ Term :: { Term }
      | Term '-' Term { TmSub $1 $3 }
      | Term '*' Term { TmMul $1 $3 }
 
-     | 'inl' ATerm { TmInl $2 }
-     | 'inr' ATerm { TmInr $2 }
+     | 'inl' '@' AType '@' AType ATerm { TmInl $3 $5 $6 }
+     | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
      | 'iszero' ATerm { TmIsZero $2 }

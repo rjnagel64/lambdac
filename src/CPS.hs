@@ -42,6 +42,8 @@ import Source (Term(..), TmFun(..))
 
 
 -- All sorts of variables exist in the same namespace.
+-- TODO: TmVar and FnName should be merged. Functions are values, so they
+-- should use the same variable sort.
 newtype TmVar = TmVar String
   deriving (Eq, Ord)
 newtype CoVar = CoVar String
@@ -120,10 +122,8 @@ data TypeK
   | ProdK TypeK TypeK
   -- σ + τ
   | SumK TypeK TypeK
-  -- σ -> τ
-  -- Application requires argument variable of type σ, continuation variable of
-  -- type τ.
-  | ArrK TypeK TypeK
+  -- σ -> 0
+  | ContK TypeK
 
 
 var :: S.TmVar -> TmVar
@@ -131,11 +131,11 @@ var (S.TmVar x) = TmVar x
 
 -- | CPS-convert a term.
 --
--- TODO: Complete these
 -- TODO: Find a way to reduce the nesting.
 -- ContT r m a = (a -> m r) -> m r
 -- Term -> ContT TermK FreshM TmVar
 -- The real question is, does it behave properly.
+-- cps :: Map S.TmVar TypeK -> Term -> (TmVar -> TypeK -> FreshM TermK) -> FreshM TermK
 cps :: Term -> (TmVar -> FreshM TermK) -> FreshM TermK
 cps (TmVarOcc x) k = k (var x)
 cps (TmLam x t e) k =
@@ -152,11 +152,11 @@ cps (TmApp e1 e2) k =
         freshTm "x" $ \xv -> do
           e <- k xv
           pure $ LetContK [ContDef kv xv e] (CallK (FnName v1) v2 kv)
-cps (TmInl e) k =
+cps (TmInl a b e) k =
   cps e $ \z ->
     freshTm "x" $ \x ->
       LetValK x (InlK z) <$> k x
-cps (TmInr e) k =
+cps (TmInr a b e) k =
   cps e $ \z ->
     freshTm "x" $ \x ->
       LetValK x (InrK z) <$> k x
@@ -176,7 +176,6 @@ cps (TmCase e (xl, tl, el) (xr, tr, er)) k =
                   LetContK [ContDef k2 (var xr) er'] $
                     CaseK z k1 k2
 cps (TmPair e1 e2) k =
-  -- Problem: ((), ()) picks x0 as the temporary for both ()s
   cps e1 $ \v1 ->
     cps e2 $ \v2 ->
       freshTm "x" $ \x ->
@@ -240,11 +239,11 @@ cpsTail (TmLet x t e1 e2) k =
     LetContK <$> (mkCont <$> cpsTail e2 k) <*> cpsTail e1 j
 cpsTail (TmRecFun fs e) k = do
   LetFunK <$> traverse cpsFun fs <*> cpsTail e k
-cpsTail (TmInl e) k =
+cpsTail (TmInl a b e) k =
   cps e $ \z ->
     freshTm "x" $ \x ->
       pure (LetValK x (InlK z) (JumpK k x))
-cpsTail (TmInr e) k =
+cpsTail (TmInr a b e) k =
   cps e $ \z ->
     freshTm "x" $ \x ->
       pure (LetValK x (InrK z) (JumpK k x))

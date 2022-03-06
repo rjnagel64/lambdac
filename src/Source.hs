@@ -24,10 +24,10 @@ data Term
   -- case e of inl (x : t1) -> e1; inr (y : t2) -> e2
   -- TODO: Add return-type annotation on case-expressions?
   | TmCase Term (TmVar, Type, Term) (TmVar, Type, Term)
-  -- inl e
-  | TmInl Term
-  -- inr e
-  | TmInr Term
+  -- inl @a @b e
+  | TmInl Type Type Term
+  -- inr @a @b e
+  | TmInr Type Type Term
   -- \ (x:t) -> e
   | TmLam TmVar Type Term
   -- e1 e2
