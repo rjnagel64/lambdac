@@ -39,6 +39,7 @@ tokens :-
   "=" { tok TokEquals }
   "*" { tok TokStar }
   "+" { tok TokPlus }
+  "-" { tok TokMinus }
 
   "(" { tok TokLParen }
   ")" { tok TokRParen }
@@ -97,6 +98,7 @@ data Token
   | TokEquals Loc
   | TokStar Loc
   | TokPlus Loc
+  | TokMinus Loc
 
   | TokLParen Loc
   | TokRParen Loc
@@ -148,6 +150,7 @@ instance Located Token where
   loc (TokLAngle l) = l
   loc (TokRAngle l) = l
   loc (TokPlus l) = l
+  loc (TokMinus l) = l
   loc (TokID l _) = l
   loc (TokINT l _) = l
   loc (TokCase l) = l

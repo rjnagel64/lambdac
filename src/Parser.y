@@ -22,6 +22,7 @@ import Source
   '=' { TokEquals _ }
   '*' { TokStar _ }
   '+' { TokPlus _ }
+  '-' { TokMinus _ }
   ';' { TokSemi _ }
   ':' { TokColon _ }
   '.' { TokDot _ }
@@ -56,7 +57,8 @@ import Source
 -- Precedence goes here, low to high
 
 %right '->' 'in'
-%left '+'
+%left '+' '-'
+%left '*'
 
 %%
 
@@ -69,6 +71,8 @@ Term :: { Term }
        { TmCase $2 (var $6) $8 (var $11) $13 }
 
      | Term '+' Term { TmAdd $1 $3 }
+     | Term '-' Term { TmSub $1 $3 }
+     | Term '*' Term { TmMul $1 $3 }
 
      | 'inl' ATerm { TmInl $2 }
      | 'inr' ATerm { TmInr $2 }

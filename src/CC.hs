@@ -12,6 +12,7 @@ module CC
   , ContClosureDef(..)
   , Name(..)
   , ValueC(..)
+  , ArithC(..)
   , Sort(..)
 
   , cconv
@@ -28,7 +29,7 @@ import Control.Monad.Reader
 import Data.List (intercalate, partition)
 
 import qualified CPS as K
-import CPS (TermK(..), FunDef(..), ContDef(..), ValueK(..))
+import CPS (TermK(..), FunDef(..), ContDef(..), ValueK(..), ArithK(..))
 
 -- Closure conversion:
 -- https://gist.github.com/jozefg/652f1d7407b7f0266ae9
@@ -95,7 +96,7 @@ data TermC
   = LetValC Name ValueC TermC -- let x = v in e, allocation
   | LetFstC Name Name TermC -- let x = fst y in e, projection
   | LetSndC Name Name TermC
-  | LetAddC Name Name Name TermC
+  | LetArithC Name ArithC TermC
   | LetIsZeroC Name Name TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
@@ -104,6 +105,11 @@ data TermC
   | CallC Name Name Name -- f x k
   | HaltC Name
   | CaseC Name Name Name -- case x of k1 | k2
+
+data ArithC
+  = AddC Name Name
+  | SubC Name Name
+  | MulC Name Name
 
 -- | @f {x+} y k = e@
 -- Closures capture two sets of names: those from outer scopes, and those from
@@ -170,8 +176,13 @@ fieldsFor (CaseK x k1 k2) = unitField (tmVar x) <> unitField (coVar k1) <> unitF
 fieldsFor (LetFstK x y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetSndK x y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetValK x v e) = fieldsForValue v <> bindFields [(tmVar x, Value)] (fieldsFor e)
-fieldsFor (LetAddK z x y e) = unitField (tmVar x) <> unitField (tmVar y) <> bindFields [(tmVar z, Value)] (fieldsFor e)
+fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetIsZeroK x y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
+
+fieldsForArith :: ArithK -> FieldsFor
+fieldsForArith (AddK x y) = unitField (tmVar x) <> unitField (tmVar y)
+fieldsForArith (SubK x y) = unitField (tmVar x) <> unitField (tmVar y)
+fieldsForArith (MulK x y) = unitField (tmVar x) <> unitField (tmVar y)
 
 fieldsForValue :: ValueK -> FieldsFor
 fieldsForValue (IntK _) = mempty
@@ -236,7 +247,7 @@ cconv (LetFstK x y e) = LetFstC (tmVar x) (tmVar y) <$> cconv e
 cconv (LetSndK x y e) = LetSndC (tmVar x) (tmVar y) <$> cconv e
 cconv (LetIsZeroK x y e) = LetIsZeroC (tmVar x) (tmVar y) <$> cconv e
 cconv (LetValK x v e) = LetValC (tmVar x) (cconvValue v) <$> cconv e
-cconv (LetAddK z x y e) = LetAddC (tmVar z) (tmVar x) (tmVar y) <$> cconv e
+cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
 
 cconvValue :: ValueK -> ValueC
 cconvValue NilK = NilC
@@ -244,6 +255,11 @@ cconvValue (PairK x y) = PairC (tmVar x) (tmVar y)
 cconvValue (IntK i) = IntC i
 cconvValue (InlK x) = InlC (tmVar x)
 cconvValue (InrK y) = InrC (tmVar y)
+
+cconvArith :: ArithK -> ArithC
+cconvArith (AddK x y) = AddC (tmVar x) (tmVar y)
+cconvArith (SubK x y) = SubC (tmVar x) (tmVar y)
+cconvArith (MulK x y) = MulC (tmVar x) (tmVar y)
 
 -- What does well-typed closure conversion look like?
 -- How are the values in a closure bound?
@@ -276,8 +292,8 @@ pprintTerm n (LetIsZeroC x y e) =
   indent n ("let " ++ show x ++ " = iszero " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (CaseC x k1 k2) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
-pprintTerm n (LetAddC z x y e) =
-  indent n ("let " ++ show z ++ " = " ++ show x ++ " + " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetArithC x op e) =
+  indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 
 pprintValue :: ValueC -> String
 pprintValue NilC = "()"
@@ -285,6 +301,11 @@ pprintValue (PairC x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntC i) = show i
 pprintValue (InlC x) = "inl " ++ show x
 pprintValue (InrC y) = "inr " ++ show y
+
+pprintArith :: ArithC -> String
+pprintArith (AddC x y) = show x ++ " + " ++ show y
+pprintArith (SubC x y) = show x ++ " - " ++ show y
+pprintArith (MulC x y) = show x ++ " * " ++ show y
 
 pprintClosureDef :: Int -> FunClosureDef -> String
 pprintClosureDef n (FunClosureDef f free rec x k e) =

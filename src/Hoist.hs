@@ -42,7 +42,7 @@ import Data.Traversable (for, mapAccumL)
 import Data.List (intercalate)
 
 import qualified CC as C
-import CC (TermC(..), ValueC(..), Sort(..))
+import CC (TermC(..), ValueC(..), ArithC(..), Sort(..))
 
 -- This is only for free occurrences? Binders use a different type for names? Yeah.
 -- LocalName is for 'x'
@@ -174,11 +174,10 @@ hoist (LetIsZeroC x y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x Value $ hoist e
   pure (LetPrimH x' (PrimIsZero32 y') e')
-hoist (LetAddC z x y e) = do
-  x' <- hoistVarOcc x
-  y' <- hoistVarOcc y
-  (z', e') <- withPlace z Value $ hoist e
-  pure (LetPrimH z' (PrimAddInt32 x' y') e')
+hoist (LetArithC x op e) = do
+  op' <- hoistArith op
+  (x', e') <- withPlace x Value $ hoist e
+  pure (LetPrimH x' op' e')
 hoist (LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
   ds' <- traverse hoistFunClosure fdecls
@@ -247,6 +246,11 @@ hoistValue (InlC x) = InlH <$> hoistVarOcc x
 hoistValue (InrC x) = InrH <$> hoistVarOcc x
 hoistValue NilC = pure NilH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
+
+hoistArith :: ArithC -> HoistM PrimOp
+hoistArith (AddC x y) = PrimAddInt32 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith (SubC x y) = PrimSubInt32 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith (MulC x y) = PrimMulInt32 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl

@@ -7,6 +7,7 @@ module CPS
     , FnName(..)
     , FunDef(..)
     , ContDef(..)
+    , ArithK(..)
     , ValueK(..)
 
     , TypeK(..)
@@ -74,8 +75,7 @@ data TermK
   -- let x = iszero y in e
   | LetIsZeroK TmVar TmVar TermK
   -- let z = x + y in e
-  -- TODO: Extend LetAddK to LetArithK for sub, mul, div, compare, etc.
-  | LetAddK TmVar TmVar TmVar TermK
+  | LetArithK TmVar ArithK TermK
 
   -- let rec ks in e
   | LetContK [ContDef] TermK
@@ -107,6 +107,11 @@ data ValueK
   | InlK TmVar
   | InrK TmVar
   | IntK Int
+
+data ArithK
+  = AddK TmVar TmVar
+  | SubK TmVar TmVar
+  | MulK TmVar TmVar
 
 data TypeK
   -- unit
@@ -196,7 +201,17 @@ cps (TmAdd e1 e2) k =
   cps e1 $ \x ->
     cps e2 $ \y ->
       freshTm "z" $ \z ->
-        LetAddK z x y <$> k z
+        LetArithK z (AddK x y) <$> k z
+cps (TmSub e1 e2) k =
+  cps e1 $ \x ->
+    cps e2 $ \y ->
+      freshTm "z" $ \z ->
+        LetArithK z (SubK x y) <$> k z
+cps (TmMul e1 e2) k =
+  cps e1 $ \x ->
+    cps e2 $ \y ->
+      freshTm "z" $ \z ->
+        LetArithK z (MulK x y) <$> k z
 cps (TmIsZero e) k =
   cps e $ \v ->
     freshTm "x" $ \x ->
@@ -256,7 +271,17 @@ cpsTail (TmAdd e1 e2) k =
   cps e1 $ \x ->
     cps e2 $ \y ->
       freshTm "z" $ \z ->
-        pure (LetAddK z x y (JumpK k z))
+        pure (LetArithK z (AddK x y) (JumpK k z))
+cpsTail (TmSub e1 e2) k =
+  cps e1 $ \x ->
+    cps e2 $ \y ->
+      freshTm "z" $ \z ->
+        pure (LetArithK z (SubK x y) (JumpK k z))
+cpsTail (TmMul e1 e2) k =
+  cps e1 $ \x ->
+    cps e2 $ \y ->
+      freshTm "z" $ \z ->
+        pure (LetArithK z (MulK x y) (JumpK k z))
 cpsTail (TmIsZero e) k =
   cps e $ \z ->
     freshTm "x" $ \x ->
@@ -328,8 +353,8 @@ pprintTerm n (LetSndK x y e) =
   indent n ("let " ++ show x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetIsZeroK x y e) =
   indent n ("let " ++ show x ++ " = iszero " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetAddK z x y e) =
-  indent n ("let " ++ show z ++ " = " ++ show x ++ " + " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetArithK x op e) =
+  indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 
 pprintValue :: ValueK -> String
 pprintValue NilK = "()"
@@ -337,6 +362,11 @@ pprintValue (PairK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntK i) = show i
 pprintValue (InlK x) = "inl " ++ show x
 pprintValue (InrK y) = "inr " ++ show y
+
+pprintArith :: ArithK -> String
+pprintArith (AddK x y) = show x ++ " + " ++ show y
+pprintArith (SubK x y) = show x ++ " - " ++ show y
+pprintArith (MulK x y) = show x ++ " * " ++ show y
 
 pprintFunDef :: Int -> FunDef -> String
 pprintFunDef n (FunDef f x k e) =

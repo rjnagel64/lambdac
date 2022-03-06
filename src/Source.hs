@@ -47,6 +47,10 @@ data Term
   | TmInt Int
   -- e1 + e2
   | TmAdd Term Term
+  -- e1 - e2
+  | TmSub Term Term
+  -- e1 * e2
+  | TmMul Term Term
   -- iszero e
   | TmIsZero Term
 
