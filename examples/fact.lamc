@@ -1,0 +1,8 @@
+let
+  fun fact n =
+    case iszero n of {
+      inl y -> 1;
+      inr z -> n * fact (n - 1)
+    };
+in
+fact 5
