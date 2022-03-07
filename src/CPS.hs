@@ -157,7 +157,7 @@ cps env (TmLam x t e) k =
     freshCo "k" $ \k' -> do
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef (FnName f) (var x) t' k' s' e']
+      let fs = [FunDef (FnName f) (var x) t' k' (ContK s') e']
       (e'', _t'') <- k (TmVar f) (ContK (ProdK t' (ContK s')))
       let res = LetFunK fs e''
       pure (res, ContK (ProdK t' (ContK s')))
@@ -308,7 +308,7 @@ cpsTail env (TmLam x t e) k =
     freshCo "k" $ \k' -> do
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef (FnName f) (var x) t' k' s' e']
+      let fs = [FunDef (FnName f) (var x) t' k' (ContK s') e']
       let res = LetFunK fs (JumpK k (TmVar f))
       pure (res, ContK (ProdK t' (ContK s')))
 cpsTail env (TmLet x t e1 e2) k =
