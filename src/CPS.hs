@@ -133,7 +133,10 @@ cpsType :: S.Type -> TypeK
 cpsType S.TyUnit = UnitK
 cpsType S.TyInt = IntK
 cpsType (S.TySum a b) = SumK (cpsType a) (cpsType b)
+cpsType (S.TyProd a b) = ProdK (cpsType a) (cpsType b)
 cpsType (S.TyArr a b) = ContK (ProdK (cpsType a) (ContK (cpsType b)))
+cpsType (S.TyVarOcc _) = error "not implemented: polymorphic cpsType"
+cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
 
 
 var :: S.TmVar -> TmVar
@@ -155,45 +158,45 @@ cps env (TmLam x t e) k =
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
       let fs = [FunDef (FnName f) (var x) t' k' s' e']
-      (e'', t'') <- k (TmVar f) (ContK (ProdK t' (ContK s')))
-      let e = LetFunK fs e''
-      pure (e, ContK (ProdK t' (ContK s')))
+      (e'', _t'') <- k (TmVar f) (ContK (ProdK t' (ContK s')))
+      let res = LetFunK fs e''
+      pure (res, ContK (ProdK t' (ContK s')))
 cps env (TmRecFun fs e) k = do
   let binds = [(f, ContK (ProdK (cpsType t) (ContK (cpsType s)))) | TmFun f _ t s _ <- fs]
   let env' = foldr (uncurry Map.insert) env binds
   fs' <- traverse (cpsFun env') fs
   (e', t') <- cps env' e k
-  let e'' = LetFunK fs' e'
-  pure (e'', t')
+  let res = LetFunK fs' e'
+  pure (res, t')
 cps env (TmApp e1 e2) k =
   cps env e1 $ \ (TmVar v1) t1 -> do
-    (t2', s') <- case t1 of
-      ContK (ProdK t2' (ContK s')) -> pure (t2', s')
-      _ -> error "bad function type"
-    cps env e2 $ \v2 t2 -> do
+    cps env e2 $ \v2 _t2 -> do
+      s' <- case t1 of
+        ContK (ProdK _t2' (ContK s')) -> pure s'
+        _ -> error "bad function type"
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
-          (e', t') <- k xv s'
-          let e = LetContK [ContDef kv xv s' e'] (CallK (FnName v1) v2 kv)
-          pure (e, s')
+          (e', _t') <- k xv s'
+          let res = LetContK [ContDef kv xv s' e'] (CallK (FnName v1) v2 kv)
+          pure (res, s')
 cps env (TmInl a b e) k =
-  cps env e $ \z t ->
+  cps env e $ \z _t ->
     freshTm "x" $ \x -> do
       let ta = cpsType a
       let tb = cpsType b
-      (e', t') <- k x (SumK ta tb)
-      let e = LetValK x (InlK z) e'
-      pure (e, SumK ta tb)
+      (e', _t') <- k x (SumK ta tb)
+      let res = LetValK x (InlK z) e'
+      pure (res, SumK ta tb)
 cps env (TmInr a b e) k =
-  cps env e $ \z t ->
+  cps env e $ \z _t ->
     freshTm "x" $ \x -> do
       let ta = cpsType a
       let tb = cpsType b
-      (e', t') <- k x (SumK ta tb)
-      let e = LetValK x (InrK z) e'
-      pure (e, SumK ta tb)
+      (e', _t') <- k x (SumK ta tb)
+      let res = LetValK x (InrK z) e'
+      pure (res, SumK ta tb)
 cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
-  cps env e $ \z t ->
+  cps env e $ \z _t ->
     freshCo "j" $ \j ->
       freshTm "x" $ \x ->
         freshCo "k1" $ \k1 ->
@@ -202,85 +205,85 @@ cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
             (el', sl') <- cpsTail (Map.insert xl tl' env) el j
             let tr' = cpsType tr
             (er', sr') <- cpsTail (Map.insert xr tr' env) er j
-            let s' = sl'
-            (e', t') <- k x s'
+            let s' = fst (sl', sr')
+            (e', _t') <- k x s'
             -- TODO: Case branches that accept multiple arguments at once
             let
-              e = 
+              res = 
                 LetContK [ContDef j x s' e'] $
                   LetContK [ContDef k1 (var xl) tl' el'] $
                     LetContK [ContDef k2 (var xr) tr' er'] $
                       CaseK z k1 k2
-            pure (e, s')
+            pure (res, s')
 cps env (TmPair e1 e2) k =
   cps env e1 $ \v1 t1 ->
     cps env e2 $ \v2 t2 ->
       freshTm "x" $ \x -> do
-        (e', t') <- k x (ProdK t1 t2)
-        let e = LetValK x (PairK v1 v2) e'
-        pure (e', ProdK t1 t2)
+        (e', _t') <- k x (ProdK t1 t2)
+        let res = LetValK x (PairK v1 v2) e'
+        pure (res, ProdK t1 t2)
 cps env (TmFst e) k =
   cps env e $ \v t ->  do
-    (ta, tb) <- case t of
+    (ta, _tb) <- case t of
       ProdK ta tb -> pure (ta, tb)
       _ -> error "bad projection"
     freshTm "x" $ \x -> do
-      (e', t') <- k x ta
-      let e = LetFstK x v e'
-      pure (e, ta)
+      (e', _t') <- k x ta
+      let res = LetFstK x v e'
+      pure (res, ta)
 cps env (TmSnd e) k =
   cps env e $ \v t -> do
-    (ta, tb) <- case t of
+    (_ta, tb) <- case t of
       ProdK ta tb -> pure (ta, tb)
       _ -> error "bad projection"
     freshTm "x" $ \x -> do
-      (e', t') <- k x tb
-      let e = LetSndK x v e'
-      pure (e, tb)
-cps env TmNil k =
+      (e', _t') <- k x tb
+      let res = LetSndK x v e'
+      pure (res, tb)
+cps _env TmNil k =
   freshTm "x" $ \x -> do
     (e', t') <- k x UnitK
-    let e = LetValK x NilK e'
-    pure (e, t')
-cps env (TmInt i) k =
+    let res = LetValK x NilK e'
+    pure (res, t')
+cps _env (TmInt i) k =
   freshTm "x" $ \x -> do
     (e', t') <- k x IntK
-    let e = LetValK x (IntValK i) e'
-    pure (e, t')
+    let res = LetValK x (IntValK i) e'
+    pure (res, t')
 cps env (TmLet x t e1 e2) k = do
   let t' = cpsType t
   (e2', t2') <- cps (Map.insert x t' env) e2 k
   freshCo "j" $ \j -> do
-    (e1', t1') <- cpsTail env e1 j
-    let e = LetContK [ContDef j (var x) t' e2'] e1'
-    pure (e, t2')
+    (e1', _t1') <- cpsTail env e1 j
+    let res = LetContK [ContDef j (var x) t' e2'] e1'
+    pure (res, t2')
 cps env (TmAdd e1 e2) k =
-  cps env e1 $ \x t1 ->
-    cps env e2 $ \y t2 ->
+  cps env e1 $ \x _t1 ->
+    cps env e2 $ \y _t2 ->
       freshTm "z" $ \z -> do
         (e', t') <- k z IntK
-        let e = LetArithK z (AddK x y) e'
-        pure (e, t')
+        let res = LetArithK z (AddK x y) e'
+        pure (res, t')
 cps env (TmSub e1 e2) k =
-  cps env e1 $ \x t1 ->
-    cps env e2 $ \y t2 ->
+  cps env e1 $ \x _t1 ->
+    cps env e2 $ \y _t2 ->
       freshTm "z" $ \z -> do
         (e', t') <- k z IntK
-        let e = LetArithK z (SubK x y) e'
-        pure (e, t')
+        let res = LetArithK z (SubK x y) e'
+        pure (res, t')
 cps env (TmMul e1 e2) k =
-  cps env e1 $ \x t1 ->
-    cps env e2 $ \y t2 ->
+  cps env e1 $ \x _t1 ->
+    cps env e2 $ \y _t2 ->
       freshTm "z" $ \z -> do
         (e', t') <- k z IntK
-        let e = LetArithK z (MulK x y) e'
-        pure (e, t')
+        let res = LetArithK z (MulK x y) e'
+        pure (res, t')
 cps env (TmIsZero e) k =
-  cps env e $ \v t -> -- t =~= IntK
+  cps env e $ \v _t -> -- t =~= IntK
     freshTm "x" $ \x -> do
       (e', t') <- k x (SumK UnitK UnitK)
-      let e = LetIsZeroK x v e'
-      pure (e, t)
+      let res = LetIsZeroK x v e'
+      pure (res, t')
 
 cpsFun :: Map S.TmVar TypeK -> TmFun -> FreshM FunDef
 cpsFun env (TmFun f x t s e) =
