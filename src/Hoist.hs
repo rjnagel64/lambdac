@@ -158,17 +158,17 @@ hoist (HaltC x) = HaltH <$> hoistVarOcc x
 hoist (JumpC k x) = JumpH <$> hoistVarOcc k <*> hoistVarOcc x
 hoist (CallC f x k) = CallH <$> hoistVarOcc f <*> hoistVarOcc x <*> hoistVarOcc k
 hoist (CaseC x k1 k2) = CaseH <$> hoistVarOcc x <*> hoistVarOcc k1 <*> hoistVarOcc k2
-hoist (LetValC x v e) = do
+hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
-  (x', e') <- withPlace x Value $ hoist e
+  (x', e') <- withPlace x s $ hoist e
   pure $ LetValH x' v' e'
-hoist (LetFstC x y e) = do
+hoist (LetFstC (x, s) y e) = do
   y' <- hoistVarOcc y
-  (x', e') <- withPlace x Value $ hoist e
+  (x', e') <- withPlace x s $ hoist e
   pure (LetFstH x' y' e')
-hoist (LetSndC x y e) = do
+hoist (LetSndC (x, s) y e) = do
   y' <- hoistVarOcc y
-  (x', e') <- withPlace x Value $ hoist e
+  (x', e') <- withPlace x s $ hoist e
   pure (LetSndH x' y' e')
 hoist (LetIsZeroC x y e) = do
   y' <- hoistVarOcc y
@@ -254,21 +254,21 @@ hoistArith (MulC x y) = PrimMulInt32 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
-hoistFunClosure (fdecl, C.FunClosureDef _f free rec x k body) = do
+hoistFunClosure (fdecl, C.FunClosureDef _f free rec (x, t) (k, s) body) = do
   let fields = free ++ rec
   -- TODO: The sorts of the parameters are incorrect here. I need type
   -- information from earlier in the pipeline.
-  (fields', places', body') <- inClosure fields [(x, Value), (k, Closure)] $ hoist body
+  (fields', places', body') <- inClosure fields [(x, t), (k, s)] $ hoist body
   let envd = EnvDecl fields'
   let fd = ClosureDecl fdecl envd places' body'
   pure fd
 
 hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ClosureDecl
-hoistContClosure (kdecl, C.ContClosureDef _k free rec x body) = do
+hoistContClosure (kdecl, C.ContClosureDef _k free rec (x, s) body) = do
   let fields = free ++ rec
   -- TODO: The sorts of the parameters are incorrect here. I need type
   -- information from earlier in the pipeline.
-  (fields', places', body') <- inClosure fields [(x, Value)] $ hoist body
+  (fields', places', body') <- inClosure fields [(x, s)] $ hoist body
   let envd = EnvDecl fields'
   let kd = ClosureDecl kdecl envd places' body'
   pure kd

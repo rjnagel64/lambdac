@@ -97,9 +97,9 @@ sortOf _ = Value
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
 data TermC
-  = LetValC Name ValueC TermC -- let x = v in e, allocation
-  | LetFstC Name Name TermC -- let x = fst y in e, projection
-  | LetSndC Name Name TermC
+  = LetValC (Name, Sort) ValueC TermC -- let x = v in e, allocation
+  | LetFstC (Name, Sort) Name TermC -- let x = fst y in e, projection
+  | LetSndC (Name, Sort) Name TermC
   | LetArithC Name ArithC TermC
   | LetIsZeroC Name Name TermC
   | LetFunC [FunClosureDef] TermC
@@ -123,8 +123,8 @@ data FunClosureDef
     funClosureName :: Name
   , funClosureFreeNames :: [(Name, Sort)]
   , funClosureRecNames :: [(Name, Sort)]
-  , funClosureParam :: Name
-  , funClosureCont :: Name
+  , funClosureParam :: (Name, Sort)
+  , funClosureCont :: (Name, Sort)
   , funClosureBody :: TermC
   }
 
@@ -136,7 +136,7 @@ data ContClosureDef
     contClosureName :: Name
   , contClosureFreeNames :: [(Name, Sort)]
   , contClosureRecNames :: [(Name, Sort)]
-  , contClosureParam :: Name
+  , contClosureParam :: (Name, Sort)
   , contClosureBody :: TermC
   }
 
@@ -228,30 +228,30 @@ cconv (LetFunK fs e) = LetFunC <$> local extendGroup (traverse ann fs) <*> local
   where
     fs' = Set.fromList (fst <$> funDefNames fs)
     extendGroup ctx = foldr (uncurry Map.insert) ctx (funDefNames fs)
-    ann fun@(FunDef f x _t k _s e') = do
+    ann fun@(FunDef f x t k s e') = do
       ctx <- ask
       let extend ctx' = Map.insert (tmVar x) Value $ Map.insert (coVar k) Closure $ ctx'
       let fields = Set.toList $ runFieldsFor (fieldsForFunDef fun) (extend ctx)
       let (free, rec) = markRec fs' fields
-      FunClosureDef (fnName f) free rec (tmVar x) (coVar k) <$> local extend (cconv e')
+      FunClosureDef (fnName f) free rec (tmVar x, sortOf t) (coVar k, sortOf s) <$> local extend (cconv e')
 cconv (LetContK ks e) = LetContC <$> local extendGroup (traverse ann ks) <*> local extendGroup (cconv e)
   where
     ks' = Set.fromList (fst <$> contDefNames ks)
     extendGroup ctx = foldr (uncurry Map.insert) ctx (contDefNames ks)
-    ann kont@(ContDef k x _t e') = do
+    ann kont@(ContDef k x t e') = do
       ctx <- ask
       let extend ctx' = Map.insert (tmVar x) Value ctx'
       let fields = runFieldsFor (fieldsForContDef kont) (extend ctx)
       let (free, rec) = markRec ks' (Set.toList fields)
-      ContClosureDef (coVar k) free rec (tmVar x) <$> local extend (cconv e')
+      ContClosureDef (coVar k) free rec (tmVar x, sortOf t) <$> local extend (cconv e')
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k x) = pure $ JumpC (coVar k) (tmVar x)
 cconv (CallK f x k) = pure $ CallC (fnName f) (tmVar x) (coVar k)
 cconv (CaseK x k1 k2) = pure $ CaseC (tmVar x) (coVar k1) (coVar k2)
-cconv (LetFstK x t y e) = LetFstC (tmVar x) (tmVar y) <$> cconv e
-cconv (LetSndK x t y e) = LetSndC (tmVar x) (tmVar y) <$> cconv e
+cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
+cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetIsZeroK x y e) = LetIsZeroC (tmVar x) (tmVar y) <$> cconv e
-cconv (LetValK x t v e) = LetValC (tmVar x) (cconvValue v) <$> cconv e
+cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> cconv e
 cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
 
 cconvValue :: ValueK -> ValueC
@@ -288,17 +288,20 @@ pprintTerm n (LetFunC fs e) =
 pprintTerm n (LetContC fs e) =
   indent n "letcont\n" ++ concatMap (pprintContClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetValC x v e) =
-  indent n ("let " ++ show x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFstC x y e) =
-  indent n ("let " ++ show x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndC x y e) =
-  indent n ("let " ++ show x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetIsZeroC x y e) =
   indent n ("let " ++ show x ++ " = iszero " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (CaseC x k1 k2) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetArithC x op e) =
   indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
+
+pprintPlace :: (Name, Sort) -> String
+pprintPlace (x, s) = show s ++ " " ++ show x
 
 pprintValue :: ValueC -> String
 pprintValue NilC = "()"
@@ -314,14 +317,14 @@ pprintArith (MulC x y) = show x ++ " * " ++ show y
 
 pprintClosureDef :: Int -> FunClosureDef -> String
 pprintClosureDef n (FunClosureDef f free rec x k e) =
-  indent n env ++ indent n (show f ++ " " ++ show x ++ " " ++ show k ++ " =\n") ++ pprintTerm (n+2) e
+  indent n env ++ indent n (show f ++ " " ++ pprintPlace x ++ " " ++ pprintPlace k ++ " =\n") ++ pprintTerm (n+2) e
   where
     env = "{" ++ intercalate ", " vars ++ "}\n"
     vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
 
 pprintContClosureDef :: Int -> ContClosureDef -> String
 pprintContClosureDef n (ContClosureDef k free rec x e) =
-  indent n env ++ indent n (show k ++ " " ++ show x ++ " =\n") ++ pprintTerm (n+2) e
+  indent n env ++ indent n (show k ++ " " ++ pprintPlace x ++ " =\n") ++ pprintTerm (n+2) e
   where
     env = "{" ++ intercalate ", " vars ++ "}\n"
     vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
