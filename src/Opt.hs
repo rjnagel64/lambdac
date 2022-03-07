@@ -130,26 +130,26 @@ inlineK (CaseK x k1 k2) = do
     Just (InrK y) -> inlineK (JumpK k2 y)
     Just _ -> error "case on non-inj value"
     Nothing -> pure (CaseK x' k1 k2)
-inlineK (LetFstK x y e) = do
+inlineK (LetFstK x t y e) = do
   y' <- appTmSub y
   env <- ask
   -- We need to rebuild the LetFstK here because there still might be some
   -- variable that refers to it.
   -- TODO: Use usage information to discard dead bindings.
   case Map.lookup y' (inlineValDefs env) of
-    Just (PairK p _) -> LetFstK x y' <$> withTmSub (x, p) (inlineK e)
+    Just (PairK p _) -> LetFstK x t y' <$> withTmSub (x, p) (inlineK e)
     Just _ -> error "fst on non-pair value"
-    Nothing -> LetFstK x y' <$> inlineK e
-inlineK (LetSndK x y e) = do
+    Nothing -> LetFstK x t y' <$> inlineK e
+inlineK (LetSndK x t y e) = do
   y' <- appTmSub y
   env <- ask
   -- We need to rebuild the LetFstK here because there still might be some
   -- variable that refers to it.
   -- A DCE pass can remove it later.
   case Map.lookup y' (inlineValDefs env) of
-    Just (PairK _ q) -> LetSndK x y' <$> withTmSub (x, q) (inlineK e)
+    Just (PairK _ q) -> LetSndK x t y' <$> withTmSub (x, q) (inlineK e)
     Just _ -> error "snd on non-pair value"
-    Nothing -> LetFstK x y' <$> inlineK e
+    Nothing -> LetFstK x t y' <$> inlineK e
 -- Functions and continuations are the things that need to be inlined.
 -- These two cases decide whether or not a binding should be added to the environment.
 -- When extending the environment:
@@ -170,7 +170,7 @@ inlineK (LetFunK fs e) = case fs of
   [f] -> LetFunK fs <$> withFn f (inlineK e)
   _ -> LetFunK fs <$> inlineK e
 -- Value bindings are added to 'inlineValDefs', so they can be reduced.
-inlineK (LetValK x v e) = LetValK x v <$> withVal x v (inlineK e)
+inlineK (LetValK x t v e) = LetValK x t v <$> withVal x v (inlineK e)
 
 -- Secrets of GHC Inliner:
 -- data Usage = LoopBreaker | Dead | OnceSafe | MultiSafe | OnceUnsafe | MultiUnsafe
@@ -199,7 +199,7 @@ data Usage
 -- Count number of 'let' bindings, recursively.
 sizeK :: TermK -> Int
 sizeK (LetFunK fs e) = sum (map (\ (FunDef f x _ k _ e') -> sizeK e') fs) + sizeK e
-sizeK (LetValK x v e) = 1 + sizeK e
+sizeK (LetValK x _ v e) = 1 + sizeK e
 
 
 -- Higher-order functions can be eliminated using monomorphization

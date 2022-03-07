@@ -173,9 +173,9 @@ fieldsFor (JumpK k x) = unitField (coVar k) <> unitField (tmVar x)
 fieldsFor (CallK f x k) = unitField (fnName f) <> unitField (tmVar x) <> unitField (coVar k)
 fieldsFor (CaseK x k1 k2) = unitField (tmVar x) <> unitField (coVar k1) <> unitField (coVar k2)
 -- TODO: The sort of x is not necessarily 'Value'. We could be projecting (id, true).
-fieldsFor (LetFstK x y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
-fieldsFor (LetSndK x y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
-fieldsFor (LetValK x v e) = fieldsForValue v <> bindFields [(tmVar x, Value)] (fieldsFor e)
+fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
+fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
+fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetIsZeroK x y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
 
@@ -243,10 +243,10 @@ cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k x) = pure $ JumpC (coVar k) (tmVar x)
 cconv (CallK f x k) = pure $ CallC (fnName f) (tmVar x) (coVar k)
 cconv (CaseK x k1 k2) = pure $ CaseC (tmVar x) (coVar k1) (coVar k2)
-cconv (LetFstK x y e) = LetFstC (tmVar x) (tmVar y) <$> cconv e
-cconv (LetSndK x y e) = LetSndC (tmVar x) (tmVar y) <$> cconv e
+cconv (LetFstK x t y e) = LetFstC (tmVar x) (tmVar y) <$> cconv e
+cconv (LetSndK x t y e) = LetSndC (tmVar x) (tmVar y) <$> cconv e
 cconv (LetIsZeroK x y e) = LetIsZeroC (tmVar x) (tmVar y) <$> cconv e
-cconv (LetValK x v e) = LetValC (tmVar x) (cconvValue v) <$> cconv e
+cconv (LetValK x t v e) = LetValC (tmVar x) (cconvValue v) <$> cconv e
 cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
 
 cconvValue :: ValueK -> ValueC

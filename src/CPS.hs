@@ -70,12 +70,12 @@ instance Show FnName where
 -- of each binder, for inlining and DCE.)
 data TermK
   -- Assignments
-  -- let val x = v in e
-  = LetValK TmVar ValueK TermK
-  -- let x = fst y in e
-  | LetFstK TmVar TmVar TermK
-  -- let x = snd y in e
-  | LetSndK TmVar TmVar TermK
+  -- let val x:t = v in e
+  = LetValK TmVar TypeK ValueK TermK
+  -- let x:t = fst y in e
+  | LetFstK TmVar TypeK TmVar TermK
+  -- let x:t = snd y in e
+  | LetSndK TmVar TypeK TmVar TermK
   -- let x = iszero y in e
   | LetIsZeroK TmVar TmVar TermK
   -- let z = x + y in e
@@ -185,7 +185,7 @@ cps env (TmInl a b e) k =
       let ta = cpsType a
       let tb = cpsType b
       (e', _t') <- k x (SumK ta tb)
-      let res = LetValK x (InlK z) e'
+      let res = LetValK x (SumK ta tb) (InlK z) e'
       pure (res, SumK ta tb)
 cps env (TmInr a b e) k =
   cps env e $ \z _t ->
@@ -193,7 +193,7 @@ cps env (TmInr a b e) k =
       let ta = cpsType a
       let tb = cpsType b
       (e', _t') <- k x (SumK ta tb)
-      let res = LetValK x (InrK z) e'
+      let res = LetValK x (SumK ta tb) (InrK z) e'
       pure (res, SumK ta tb)
 cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
   cps env e $ \z _t ->
@@ -220,7 +220,7 @@ cps env (TmPair e1 e2) k =
     cps env e2 $ \v2 t2 ->
       freshTm "x" $ \x -> do
         (e', _t') <- k x (ProdK t1 t2)
-        let res = LetValK x (PairK v1 v2) e'
+        let res = LetValK x (ProdK t1 t2) (PairK v1 v2) e'
         pure (res, ProdK t1 t2)
 cps env (TmFst e) k =
   cps env e $ \v t ->  do
@@ -229,7 +229,7 @@ cps env (TmFst e) k =
       _ -> error "bad projection"
     freshTm "x" $ \x -> do
       (e', _t') <- k x ta
-      let res = LetFstK x v e'
+      let res = LetFstK x ta v e'
       pure (res, ta)
 cps env (TmSnd e) k =
   cps env e $ \v t -> do
@@ -238,17 +238,17 @@ cps env (TmSnd e) k =
       _ -> error "bad projection"
     freshTm "x" $ \x -> do
       (e', _t') <- k x tb
-      let res = LetSndK x v e'
+      let res = LetSndK x tb v e'
       pure (res, tb)
 cps _env TmNil k =
   freshTm "x" $ \x -> do
     (e', t') <- k x UnitK
-    let res = LetValK x NilK e'
+    let res = LetValK x UnitK NilK e'
     pure (res, t')
 cps _env (TmInt i) k =
   freshTm "x" $ \x -> do
     (e', t') <- k x IntK
-    let res = LetValK x (IntValK i) e'
+    let res = LetValK x IntK (IntValK i) e'
     pure (res, t')
 cps env (TmLet x t e1 e2) k = do
   let t' = cpsType t
@@ -331,18 +331,22 @@ cpsTail env (TmRecFun fs e) k = do
 cpsTail env (TmInl a b e) k =
   cps env e $ \z _t ->
     freshTm "x" $ \x -> do
-      let res = LetValK x (InlK z) (JumpK k x)
-      pure (res, SumK (cpsType a) (cpsType b))
+      let ta = cpsType a
+      let tb = cpsType b
+      let res = LetValK x (SumK ta tb) (InlK z) (JumpK k x)
+      pure (res, SumK ta tb)
 cpsTail env (TmInr a b e) k =
   cps env e $ \z _t ->
     freshTm "x" $ \x -> do
-      let res = LetValK x (InrK z) (JumpK k x)
-      pure (res, SumK (cpsType a) (cpsType b))
+      let ta = cpsType a
+      let tb = cpsType b
+      let res = LetValK x (SumK ta tb) (InrK z) (JumpK k x)
+      pure (res, SumK ta tb)
 cpsTail env (TmPair e1 e2) k =
   cps env e1 $ \v1 t1 ->
     cps env e2 $ \v2 t2 ->
       freshTm "x" $ \x -> do
-        let res = LetValK x (PairK v1 v2) (JumpK k x)
+        let res = LetValK x (ProdK t1 t2) (PairK v1 v2) (JumpK k x)
         pure (res, ProdK t1 t2)
 cpsTail env (TmFst e) k =
   cps env e $ \z t -> do
@@ -350,7 +354,7 @@ cpsTail env (TmFst e) k =
       ProdK ta tb -> pure (ta, tb)
       _ -> error "bad projection"
     freshTm "x" $ \x -> do
-      let res = LetFstK x z (JumpK k x)
+      let res = LetFstK x ta z (JumpK k x)
       pure (res, ta)
 cpsTail env (TmSnd e) k =
   cps env e $ \z t -> do
@@ -358,15 +362,15 @@ cpsTail env (TmSnd e) k =
       ProdK ta tb -> pure (ta, tb)
       _ -> error "bad projection"
     freshTm "x" $ \x -> do
-      let res = LetSndK x z (JumpK k x)
+      let res = LetSndK x tb z (JumpK k x)
       pure (res, tb)
 cpsTail _env TmNil k =
   freshTm "x" $ \x -> do
-    let res = LetValK x NilK (JumpK k x)
+    let res = LetValK x UnitK NilK (JumpK k x)
     pure (res, UnitK)
 cpsTail _env (TmInt i) k =
   freshTm "x" $ \x -> do
-    let res = LetValK x (IntValK i) (JumpK k x)
+    let res = LetValK x IntK (IntValK i) (JumpK k x)
     pure (res, IntK)
 cpsTail env (TmAdd e1 e2) k =
   cps env e1 $ \x _t1 -> -- t1 =~= IntK
@@ -458,16 +462,16 @@ pprintTerm n (JumpK k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
 pprintTerm n (CallK f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
 pprintTerm n (CaseK x k1 k2) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
-pprintTerm n (LetValK x v e) =
-  indent n ("let " ++ show x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetValK x t v e) =
+  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFunK fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContK ks e) =
   indent n "letcont\n" ++ concatMap (pprintContDef (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
-pprintTerm n (LetFstK x y e) =
-  indent n ("let " ++ show x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetSndK x y e) =
-  indent n ("let " ++ show x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetFstK x t y e) =
+  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetSndK x t y e) =
+  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetIsZeroK x y e) =
   indent n ("let " ++ show x ++ " = iszero " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetArithK x op e) =
