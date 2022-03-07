@@ -94,10 +94,8 @@ data TermH
   | LetFstH PlaceName Name TermH
   | LetSndH PlaceName Name TermH
   | HaltH Name
-  -- TODO: Unify JumpH and CallH by providing closure name, thunk type, and list of arguments.
-  | JumpH Name Name
-  | CallH Name Name Name
-  | CaseH Name Name Name -- TODO: Need thunk types for each branch?
+  | OpenH Name [(Name, Sort)] -- Open a closure, by providing a list of arguments and their sorts.
+  | CaseH Name (Name, Sort) (Name, Sort)
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
@@ -155,9 +153,13 @@ tellThunk t = tell (HoistDecls (Set.singleton t, mempty))
 -- function names to C names.
 hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = HaltH <$> hoistVarOcc x
-hoist (JumpC k x) = JumpH <$> hoistVarOcc k <*> hoistVarOcc x
-hoist (CallC f x k) = CallH <$> hoistVarOcc f <*> hoistVarOcc x <*> hoistVarOcc k
-hoist (CaseC x k1 k2) = CaseH <$> hoistVarOcc x <*> hoistVarOcc k1 <*> hoistVarOcc k2
+hoist (JumpC k x) = OpenH <$> hoistVarOcc k <*> traverse hoistJumpArg [x]
+hoist (CallC f x k) = OpenH <$> hoistVarOcc f <*> traverse hoistJumpArg [x, k]
+hoist (CaseC x (k1, s1) (k2, s2)) = do
+  x' <- hoistVarOcc x
+  k1' <- hoistVarOcc k1
+  k2' <- hoistVarOcc k2
+  pure $ CaseH x' (k1', s1) (k2', s2)
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -239,7 +241,6 @@ declareClosureNames closureName cs =
     pure (d, def)
 
 
--- TODO: Infer sort here?
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (PairC x y) = PairH <$> hoistVarOcc x <*> hoistVarOcc y
 hoistValue (InlC x) = InlH <$> hoistVarOcc x
@@ -256,8 +257,6 @@ hoistArith (MulC x y) = PrimMulInt32 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f free rec (x, t) (k, s) body) = do
   let fields = free ++ rec
-  -- TODO: The sorts of the parameters are incorrect here. I need type
-  -- information from earlier in the pipeline.
   (fields', places', body') <- inClosure fields [(x, t), (k, s)] $ hoist body
   let envd = EnvDecl fields'
   let fd = ClosureDecl fdecl envd places' body'
@@ -266,8 +265,6 @@ hoistFunClosure (fdecl, C.FunClosureDef _f free rec (x, t) (k, s) body) = do
 hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ClosureDecl
 hoistContClosure (kdecl, C.ContClosureDef _k free rec (x, s) body) = do
   let fields = free ++ rec
-  -- TODO: The sorts of the parameters are incorrect here. I need type
-  -- information from earlier in the pipeline.
   (fields', places', body') <- inClosure fields [(x, s)] $ hoist body
   let envd = EnvDecl fields'
   let kd = ClosureDecl kdecl envd places' body'
@@ -299,6 +296,15 @@ hoistVarOcc x = do
       Just (FieldName _ x') -> pure (EnvName x')
       Nothing -> error ("not in scope: " ++ show x)
 
+hoistJumpArg :: C.Name -> HoistM (Name, Sort)
+hoistJumpArg x = do
+  HoistEnv ps fs <- ask
+  case Map.lookup x ps of
+    Just (PlaceName s x') -> pure (LocalName x', s)
+    Nothing -> case Map.lookup x fs of
+      Just (FieldName s x') -> pure (EnvName x', s)
+      Nothing -> error ("not in scope: " ++ show x)
+
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.
 withPlace :: C.Name -> Sort -> HoistM a -> HoistM (PlaceName, a)
@@ -328,8 +334,7 @@ indent n s = replicate n ' ' ++ s
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH x) = indent n $ "HALT " ++ show x ++ ";\n"
-pprintTerm n (JumpH k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
-pprintTerm n (CallH f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
+pprintTerm n (OpenH c xs) = indent n $ show c ++ " " ++ intercalate " " (map (show . fst) xs) ++ ";\n"
 pprintTerm n (CaseH x k1 k2) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetValH x v e) =

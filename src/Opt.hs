@@ -122,14 +122,14 @@ inlineK (CallK f x k) = do
     Just (FunDef _ y _ k' _ e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
 -- Eliminators use 'inlineValDefs' to beta-reduce, if possible.
 -- (A function parameter will not reduce, e.g.)
-inlineK (CaseK x k1 k2) = do
+inlineK (CaseK x k1 s1 k2 s2) = do
   x' <- appTmSub x
   env <- ask
   case Map.lookup x' (inlineValDefs env) of
     Just (InlK y) -> inlineK (JumpK k1 y)
     Just (InrK y) -> inlineK (JumpK k2 y)
     Just _ -> error "case on non-inj value"
-    Nothing -> pure (CaseK x' k1 k2)
+    Nothing -> pure (CaseK x' k1 s1 k2 s2)
 inlineK (LetFstK x t y e) = do
   y' <- appTmSub y
   env <- ask

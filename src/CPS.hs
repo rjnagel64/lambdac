@@ -91,8 +91,8 @@ data TermK
   | JumpK CoVar TmVar
   -- f x k, call f(x, k)
   | CallK FnName TmVar CoVar
-  -- case x of k1 | k2, branch
-  | CaseK TmVar CoVar CoVar
+  -- case x of k1 : s1 -> 0 | k2 : s2 -> 0, branch
+  | CaseK TmVar CoVar TypeK CoVar TypeK
   -- halt x
   | HaltK TmVar
 
@@ -213,7 +213,7 @@ cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
                 LetContK [ContDef j x s' e'] $
                   LetContK [ContDef k1 (var xl) tl' el'] $
                     LetContK [ContDef k2 (var xr) tr' er'] $
-                      CaseK z k1 k2
+                      CaseK z k1 tl' k2 tr'
             pure (res, s')
 cps env (TmPair e1 e2) k =
   cps env e1 $ \v1 t1 ->
@@ -417,7 +417,7 @@ cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
           res =
             LetContK [ContDef k1 (var xl) tl' el'] $
               LetContK [ContDef k2 (var xr) tr' er'] $
-                CaseK z k1 k2
+                CaseK z k1 tl' k2 tr'
         -- both branches have same type, so this is valid.
         -- (Alternatively, put `returns s` on Source.TmCase)
         let s' = fst (sl', sr')
@@ -460,7 +460,7 @@ pprintTerm :: Int -> TermK -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
 pprintTerm n (CallK f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
-pprintTerm n (CaseK x k1 k2) =
+pprintTerm n (CaseK x k1 s1 k2 s2) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetValK x t v e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e

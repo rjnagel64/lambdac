@@ -78,6 +78,7 @@ emitThunkDecl t =
 emitThunkType :: ThunkType -> [String]
 emitThunkType (ThunkType ss) =
   ["struct " ++ thunkTypeName ns ++ " {"
+  ,"    struct thunk header;"
   ,"    struct closure *closure;"] ++
   map mkField ss' ++
   ["};"]
@@ -116,7 +117,9 @@ emitThunkEnter (ThunkType ss) =
 emitThunkSuspend :: ThunkType -> [String]
 emitThunkSuspend (ThunkType ss) =
   ["void " ++ thunkSuspendName ns ++ "(" ++ paramList ++ ") {"
-  ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
+  ,"    struct " ++ thunkTypeName ns ++ " *next = realloc(next_step, sizeof(struct " ++ thunkTypeName ns ++ "));"
+  ,"    next->header.enter = " ++ thunkEnterName ns ++ ";"
+  ,"    next->header.trace = " ++ thunkTraceName ns ++ ";"
   ,"    next->closure = closure;"] ++
   map assignField ss' ++
   ["    next_step = (struct thunk *)next;"
@@ -210,23 +213,19 @@ emitClosureBody (AllocClosure cs e) =
   emitAllocGroup cs ++
   emitClosureBody e
 emitClosureBody (HaltH x) =
-  ["    halt_with(" ++ asAlloc (emitName x) ++ ");"]
-emitClosureBody (JumpH k x) =
-  [emitSuspend "suspend_jump" [emitName k, asAlloc (emitName x)]]
-emitClosureBody (CallH f x k) =
-  [emitSuspend "suspend_call" [emitName f, asAlloc (emitName x), emitName k]]
-emitClosureBody (CaseH x k1 k2) =
-  emitCase x [k1, k2]
+  ["    halt_with(" ++ asSort Alloc (emitName x) ++ ");"]
+emitClosureBody (OpenH c xs) =
+  [emitSuspend c xs]
+emitClosureBody (CaseH x (k1, t) (k2, s)) =
+  emitCase x [(k1, t), (k2, s)]
 
--- TODO: I would prefer to take a list of names here, but I sometimes need to
--- call 'asAlloc' for stupid reasons.
--- TODO: The thunk type is determined by the closure type of the first argument.
---
--- emitSuspend :: (Name, ClosureType) -> [Name] -> String
-emitSuspend :: String -> [String] -> String
-emitSuspend suspend args = "    " ++ suspend ++ "(" ++ intercalate ", " args ++ ");"
+emitSuspend :: Name -> [(Name, Sort)] -> String
+emitSuspend cl xs = "    " ++ method ++ "(" ++ intercalate ", " args ++ ");"
+  where
+    method = thunkSuspendName (namesForThunk (ThunkType (map snd xs)))
+    args = emitName cl : map (emitName . fst) xs
 
-emitCase :: Name -> [Name] -> [String]
+emitCase :: Name -> [(Name, Sort)] -> [String]
 emitCase x ks =
   ["    switch (" ++ emitName x ++ "->words[0]) {"] ++
   concatMap emitCaseBranch (zip [0..] ks) ++
@@ -234,14 +233,12 @@ emitCase x ks =
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    emitCaseBranch :: (Int, Name) -> [String]
-    emitCaseBranch (i, k) =
+    emitCaseBranch :: (Int, (Name, Sort)) -> [String]
+    emitCaseBranch (i, (k, s)) =
+      let method = thunkSuspendName (namesForThunk (ThunkType [s])) in
+      let args = [emitName k, asSort s (emitName x ++ "->words[1]")] in
       ["    case " ++ show i ++ ":"
-      -- TODO: Use the correct thunk suspension method here. (the closure type
-      -- of k determines what suspension to use.)
-      -- (Use type info (x :: A + B) in order to cast the words[1] to the
-      -- correct sort (A if 0, B if 1), as well.)
-      ,"    " ++ emitSuspend "suspend_jump" [emitName k, asAlloc (emitName x ++ "->words[1]")]
+      ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
       ,"        break;"]
 
 emitValueAlloc :: ValueH -> String
@@ -257,15 +254,10 @@ emitPrimOp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName x ++ ", " ++ emitNa
 emitPrimOp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 emitPrimOp (PrimIsZero32 x) = "prim_iszero32(" ++ emitName x ++ ")"
 
--- | Cast a value to an arbitrary allocation.
--- Ultimately, I expect not to need this, because arbitrary allocations are the
--- representation of polymorphic values, and the typechecker will rule out
--- cases like 'expected a, got int' and 'expected int, got a'.
--- The other factor obviating the need for this function is that smarter
--- calling conventions will use more precise types, rather than always
--- accepting `struct alloc_header *`.
-asAlloc :: String -> String
-asAlloc x = "AS_ALLOC(" ++ x ++ ")"
+asSort :: Sort -> String -> String
+asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
+asSort Value x = "AS_VALUE(" ++ x ++ ")"
+asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
 
 emitAllocGroup :: [ClosureAlloc] -> [String]
 emitAllocGroup closures =

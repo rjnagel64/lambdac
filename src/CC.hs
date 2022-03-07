@@ -108,7 +108,7 @@ data TermC
   | JumpC Name Name -- k x
   | CallC Name Name Name -- f x k
   | HaltC Name
-  | CaseC Name Name Name -- case x of k1 | k2
+  | CaseC Name (Name, Sort) (Name, Sort) -- case x of k1 | k2
 
 data ArithC
   = AddC Name Name
@@ -175,7 +175,7 @@ fieldsFor (LetContK ks e) = foldMap fieldsForContDef ks <> bindFields ks' (field
 fieldsFor (HaltK x) = unitField (tmVar x)
 fieldsFor (JumpK k x) = unitField (coVar k) <> unitField (tmVar x)
 fieldsFor (CallK f x k) = unitField (fnName f) <> unitField (tmVar x) <> unitField (coVar k)
-fieldsFor (CaseK x k1 k2) = unitField (tmVar x) <> unitField (coVar k1) <> unitField (coVar k2)
+fieldsFor (CaseK x k1 _s1 k2 _s2) = unitField (tmVar x) <> unitField (coVar k1) <> unitField (coVar k2)
 fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
@@ -247,7 +247,7 @@ cconv (LetContK ks e) = LetContC <$> local extendGroup (traverse ann ks) <*> loc
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k x) = pure $ JumpC (coVar k) (tmVar x)
 cconv (CallK f x k) = pure $ CallC (fnName f) (tmVar x) (coVar k)
-cconv (CaseK x k1 k2) = pure $ CaseC (tmVar x) (coVar k1) (coVar k2)
+cconv (CaseK x k1 t k2 s) = pure $ CaseC (tmVar x) (coVar k1, sortOf t) (coVar k2, sortOf s)
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetIsZeroK x y e) = LetIsZeroC (tmVar x) (tmVar y) <$> cconv e
