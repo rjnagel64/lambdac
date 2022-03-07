@@ -90,6 +90,10 @@ instance Show Sort where
   show Value = "value"
   show Alloc = "alloc_header"
 
+sortOf :: K.TypeK -> Sort
+sortOf (K.ContK _) = Closure
+sortOf _ = Value
+
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
 data TermC
@@ -172,10 +176,9 @@ fieldsFor (HaltK x) = unitField (tmVar x)
 fieldsFor (JumpK k x) = unitField (coVar k) <> unitField (tmVar x)
 fieldsFor (CallK f x k) = unitField (fnName f) <> unitField (tmVar x) <> unitField (coVar k)
 fieldsFor (CaseK x k1 k2) = unitField (tmVar x) <> unitField (coVar k1) <> unitField (coVar k2)
--- TODO: The sort of x is not necessarily 'Value'. We could be projecting (id, true).
-fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
-fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
-fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, Value)] (fieldsFor e)
+fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
+fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
+fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetIsZeroK x y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
 
@@ -192,10 +195,12 @@ fieldsForValue (InlK x) = unitField (tmVar x)
 fieldsForValue (InrK y) = unitField (tmVar y)
 
 fieldsForFunDef :: FunDef -> FieldsFor
-fieldsForFunDef (FunDef _f x _t k _s e) = bindFields [(tmVar x, Value), (coVar k, Closure)] (fieldsFor e)
+fieldsForFunDef (FunDef _f x t k s e) =
+  bindFields [(tmVar x, sortOf t), (coVar k, sortOf s)] (fieldsFor e)
 
 fieldsForContDef :: ContDef -> FieldsFor
-fieldsForContDef (ContDef _k x _t e) = bindFields [(tmVar x, Value)] (fieldsFor e)
+fieldsForContDef (ContDef _k x t e) =
+  bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 
 -- | Split occurrences into free variables and recursive calls.
 -- Return @(free, rec)@.
