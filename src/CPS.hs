@@ -139,6 +139,9 @@ cpsType (S.TyArr a b) = ContK (ProdK (cpsType a) (ContK (cpsType b)))
 var :: S.TmVar -> TmVar
 var (S.TmVar x) = TmVar x
 
+-- TODO: This actually has most elements of a type checker.
+-- Maybe I should add Except and error-reporting?
+
 -- | CPS-convert a term.
 --
 -- TODO: Find a way to reduce the nesting. ContT, maybe?
@@ -284,7 +287,8 @@ cpsFun env (TmFun f x t s e) =
   freshCo "k" $ \k -> do
     -- Recursive bindings already handled, outside of this.
     let t' = cpsType t
-    (e', s') <- cpsTail (Map.insert x t' env) e k
+    let s' = cpsType s
+    (e', _s') <- cpsTail (Map.insert x t' env) e k
     let def = FunDef (fnName f) (var x) t' k (ContK s') e'
     pure def
   where fnName (S.TmVar y) = FnName y
@@ -302,96 +306,96 @@ cpsTail env (TmLam x t e) k =
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
       let fs = [FunDef (FnName f) (var x) t' k' s' e']
-      let e = LetFunK fs (JumpK k (TmVar f))
-      pure (e, ContK (ProdK t' (ContK s')))
+      let res = LetFunK fs (JumpK k (TmVar f))
+      pure (res, ContK (ProdK t' (ContK s')))
 cpsTail env (TmLet x t e1 e2) k =
   -- [[let x:t = e1 in e2]] k
   -- -->
   -- let j (x:t) = [[e2]] k; in [[e1]] j
   freshCo "j" $ \j -> do
     let t' = cpsType t
-    (e2', t2') <- cpsTail (Map.insert x t' env) e2 k
+    (e2', _t2') <- cpsTail (Map.insert x t' env) e2 k
     (e1', t1') <- cpsTail env e1 j
-    let e = LetContK [ContDef j (var x) t' e2'] e1'
-    pure (e, t1')
+    let res = LetContK [ContDef j (var x) t' e2'] e1'
+    pure (res, t1')
 cpsTail env (TmRecFun fs e) k = do
   let binds = [(f, cpsType (S.TyArr t s)) | TmFun f _x t s _e <- fs]
   let env' = foldr (uncurry Map.insert) env binds
   fs' <- traverse (cpsFun env') fs
   (e', t') <- cpsTail env' e k
-  let e = LetFunK fs' e'
-  pure (e, t')
+  let res = LetFunK fs' e'
+  pure (res, t')
 cpsTail env (TmInl a b e) k =
-  cps env e $ \z t ->
+  cps env e $ \z _t ->
     freshTm "x" $ \x -> do
-      let e = LetValK x (InlK z) (JumpK k x)
-      pure (e, SumK (cpsType a) (cpsType b))
+      let res = LetValK x (InlK z) (JumpK k x)
+      pure (res, SumK (cpsType a) (cpsType b))
 cpsTail env (TmInr a b e) k =
-  cps env e $ \z t ->
+  cps env e $ \z _t ->
     freshTm "x" $ \x -> do
-      let e = LetValK x (InrK z) (JumpK k x)
-      pure (e, SumK (cpsType a) (cpsType b))
+      let res = LetValK x (InrK z) (JumpK k x)
+      pure (res, SumK (cpsType a) (cpsType b))
 cpsTail env (TmPair e1 e2) k =
   cps env e1 $ \v1 t1 ->
     cps env e2 $ \v2 t2 ->
       freshTm "x" $ \x -> do
-        let e = LetValK x (PairK v1 v2) (JumpK k x)
-        pure (e, ProdK t1 t2)
+        let res = LetValK x (PairK v1 v2) (JumpK k x)
+        pure (res, ProdK t1 t2)
 cpsTail env (TmFst e) k =
   cps env e $ \z t -> do
-    (ta, tb) <- case t of
+    (ta, _tb) <- case t of
       ProdK ta tb -> pure (ta, tb)
       _ -> error "bad projection"
     freshTm "x" $ \x -> do
-      let e = LetFstK x z (JumpK k x)
-      pure (e, ta)
+      let res = LetFstK x z (JumpK k x)
+      pure (res, ta)
 cpsTail env (TmSnd e) k =
   cps env e $ \z t -> do
-    (ta, tb) <- case t of
+    (_ta, tb) <- case t of
       ProdK ta tb -> pure (ta, tb)
       _ -> error "bad projection"
     freshTm "x" $ \x -> do
-      let e = LetSndK x z (JumpK k x)
-      pure (e, tb)
-cpsTail env TmNil k =
+      let res = LetSndK x z (JumpK k x)
+      pure (res, tb)
+cpsTail _env TmNil k =
   freshTm "x" $ \x -> do
-    let e = LetValK x NilK (JumpK k x)
-    pure (e, UnitK)
-cpsTail env (TmInt i) k =
+    let res = LetValK x NilK (JumpK k x)
+    pure (res, UnitK)
+cpsTail _env (TmInt i) k =
   freshTm "x" $ \x -> do
-    let e = LetValK x (IntValK i) (JumpK k x)
-    pure (e, IntK)
+    let res = LetValK x (IntValK i) (JumpK k x)
+    pure (res, IntK)
 cpsTail env (TmAdd e1 e2) k =
-  cps env e1 $ \x t1 -> -- t1 =~= IntK
-    cps env e2 $ \y t2 -> -- t2 =~= IntK
+  cps env e1 $ \x _t1 -> -- t1 =~= IntK
+    cps env e2 $ \y _t2 -> -- t2 =~= IntK
       freshTm "z" $ \z -> do
-        let e = LetArithK z (AddK x y) (JumpK k z)
-        pure (e, IntK)
+        let res = LetArithK z (AddK x y) (JumpK k z)
+        pure (res, IntK)
 cpsTail env (TmSub e1 e2) k =
-  cps env e1 $ \x t1 -> -- t1 =~= IntK
-    cps env e2 $ \y t2 -> -- t2 =~= IntK
+  cps env e1 $ \x _t1 -> -- t1 =~= IntK
+    cps env e2 $ \y _t2 -> -- t2 =~= IntK
       freshTm "z" $ \z -> do
-        let e = LetArithK z (SubK x y) (JumpK k z)
-        pure (e, IntK)
+        let res = LetArithK z (SubK x y) (JumpK k z)
+        pure (res, IntK)
 cpsTail env (TmMul e1 e2) k =
-  cps env e1 $ \x t1 -> -- t1 =~= IntK
-    cps env e2 $ \y t2 -> -- t2 =~= IntK
+  cps env e1 $ \x _t1 -> -- t1 =~= IntK
+    cps env e2 $ \y _t2 -> -- t2 =~= IntK
       freshTm "z" $ \z -> do
-        let e = LetArithK z (MulK x y) (JumpK k z)
-        pure (e, IntK)
+        let res = LetArithK z (MulK x y) (JumpK k z)
+        pure (res, IntK)
 cpsTail env (TmIsZero e) k =
-  cps env e $ \z t -> -- t =~= IntK
+  cps env e $ \z _t -> -- t =~= IntK
     freshTm "x" $ \x -> do
-      let e = LetIsZeroK x z (JumpK k x)
-      pure (e, SumK UnitK UnitK)
+      let res = LetIsZeroK x z (JumpK k x)
+      pure (res, SumK UnitK UnitK)
 cpsTail env (TmApp e1 e2) k =
   cps env e1 $ \ (TmVar f) t1 -> -- t1 =~= t2 -> s
-    cps env e2 $ \x t2 -> do
+    cps env e2 $ \x _t2 -> do
       s <- case t1 of
-        ContK (ProdK t1' (ContK s)) -> pure s -- assert t1' === t1
+        ContK (ProdK _t2' (ContK s)) -> pure s -- assert t2' === t2
         _ -> error "bad function type"
-      let e = CallK (FnName f) x k
-      pure (e, s)
+      let res = CallK (FnName f) x k
+      pure (res, s)
 cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
   cps env e $ \z _t -> do
     -- _t === SumK (cpsType tl) (cpsType tr), because input is well-typed.
@@ -403,14 +407,14 @@ cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
         (er', sr') <- cpsTail (Map.insert xr tr' env) er k
         -- TODO: Case branches that accept multiple arguments at once
         let
-          e =
+          res =
             LetContK [ContDef k1 (var xl) tl' el'] $
               LetContK [ContDef k2 (var xr) tr' er'] $
                 CaseK z k1 k2
         -- both branches have same type, so this is valid.
         -- (Alternatively, put `returns s` on Source.TmCase)
-        let s' = sl'
-        pure (e, s')
+        let s' = fst (sl', sr')
+        pure (res, s')
 
 
 cpsMain :: Term -> (TermK, TypeK)
@@ -480,8 +484,23 @@ pprintArith (MulK x y) = show x ++ " * " ++ show y
 
 pprintFunDef :: Int -> FunDef -> String
 pprintFunDef n (FunDef f x t k s e) =
-  indent n (show f ++ " " ++ show x ++ " " ++ show k ++ " =\n") ++ pprintTerm (n+2) e
+  indent n (show f ++ " " ++ pprintParam (show x) t ++ " " ++ pprintParam (show k) s ++ " =\n") ++ pprintTerm (n+2) e
 
 pprintContDef :: Int -> ContDef -> String
 pprintContDef n (ContDef k x t e) =
-  indent n (show k ++ " " ++ show x ++ " =\n") ++ pprintTerm (n+2) e
+  indent n (show k ++ " " ++ pprintParam (show x) t ++ " =\n") ++ pprintTerm (n+2) e
+
+pprintParam :: String -> TypeK -> String
+pprintParam x t = "(" ++ x ++ " : " ++ pprintType t ++ ")"
+
+pprintType :: TypeK -> String
+pprintType (ContK t) = pprintAType t ++ " -> 0"
+pprintType (ProdK t s) = pprintType t ++ " * " ++ pprintAType s
+pprintType (SumK t s) = pprintType t ++ " + " ++ pprintAType s
+pprintType IntK = "int"
+pprintType UnitK = "unit"
+
+pprintAType :: TypeK -> String
+pprintAType IntK = "int"
+pprintAType UnitK = "unit"
+pprintAType t = "(" ++ pprintType t ++ ")"
