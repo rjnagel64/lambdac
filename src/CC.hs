@@ -192,10 +192,10 @@ fieldsForValue (InlK x) = unitField (tmVar x)
 fieldsForValue (InrK y) = unitField (tmVar y)
 
 fieldsForFunDef :: FunDef -> FieldsFor
-fieldsForFunDef (FunDef _f x k e) = bindFields [(tmVar x, Value), (coVar k, Closure)] (fieldsFor e)
+fieldsForFunDef (FunDef _f x _t k _s e) = bindFields [(tmVar x, Value), (coVar k, Closure)] (fieldsFor e)
 
 fieldsForContDef :: ContDef -> FieldsFor
-fieldsForContDef (ContDef _k x e) = bindFields [(tmVar x, Value)] (fieldsFor e)
+fieldsForContDef (ContDef _k x _t e) = bindFields [(tmVar x, Value)] (fieldsFor e)
 
 -- | Split occurrences into free variables and recursive calls.
 -- Return @(free, rec)@.
@@ -203,10 +203,10 @@ markRec :: Set Name -> [(Name, Sort)] -> ([(Name, Sort)], [(Name, Sort)])
 markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) xs
 
 funDefNames :: [FunDef] -> [(Name, Sort)]
-funDefNames fs = [(fnName f, Closure) | FunDef f _ _ _ <- fs]
+funDefNames fs = [(fnName f, Closure) | FunDef f _ _ _ _ _ <- fs]
 
 contDefNames :: [ContDef] -> [(Name, Sort)]
-contDefNames ks = [(coVar k, Closure) | ContDef k _ _ <- ks]
+contDefNames ks = [(coVar k, Closure) | ContDef k _ _ _ <- ks]
 
 newtype ConvM a = ConvM { runConvM :: Reader (Map Name Sort) a }
 
@@ -223,7 +223,7 @@ cconv (LetFunK fs e) = LetFunC <$> local extendGroup (traverse ann fs) <*> local
   where
     fs' = Set.fromList (fst <$> funDefNames fs)
     extendGroup ctx = foldr (uncurry Map.insert) ctx (funDefNames fs)
-    ann fun@(FunDef f x k e') = do
+    ann fun@(FunDef f x _t k _s e') = do
       ctx <- ask
       let extend ctx' = Map.insert (tmVar x) Value $ Map.insert (coVar k) Closure $ ctx'
       let fields = Set.toList $ runFieldsFor (fieldsForFunDef fun) (extend ctx)
@@ -233,7 +233,7 @@ cconv (LetContK ks e) = LetContC <$> local extendGroup (traverse ann ks) <*> loc
   where
     ks' = Set.fromList (fst <$> contDefNames ks)
     extendGroup ctx = foldr (uncurry Map.insert) ctx (contDefNames ks)
-    ann kont@(ContDef k x e') = do
+    ann kont@(ContDef k x _t e') = do
       ctx <- ask
       let extend ctx' = Map.insert (tmVar x) Value ctx'
       let fields = runFieldsFor (fieldsForContDef kont) (extend ctx)

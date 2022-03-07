@@ -119,7 +119,7 @@ instance Show ParseError where
   show (ErrorAt s) = s
 
 parseError :: [Token] -> Either ParseError a
-parseError ts = Left EOF
+parseError [] = Left EOF
 parseError ts@(token:_) = Left $
   ErrorAt $ show (loc token) <> ": Parse Error:\n  " <> (intercalate "\n  " (show <$> take 5 ts))
 

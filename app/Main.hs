@@ -57,7 +57,7 @@ main = do
 
   srcS <- parseFile (driverFile args)
 
-  let srcK = K.cpsMain srcS
+  let (srcK, _) = K.cpsMain srcS
   when (driverDumpCPS args) $ do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK
