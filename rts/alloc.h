@@ -43,12 +43,9 @@ struct closure {
 
 #define AS_CLOSURE(v) ((struct closure *)(v))
 
-void trace_value(struct value *v);
-void trace_closure(struct closure *cl);
-void trace_alloc(struct alloc_header *v);
 
 extern void (*trace_roots)(void);
-void collect(void);
+void mark_gray(struct alloc_header *alloc);
 void sweep_all_allocations(void);
 
 struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*code)(void));

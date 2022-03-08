@@ -91,13 +91,13 @@ emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    trace_closure(next->closure);"] ++
+  ,"    mark_gray(" ++ asSort Alloc "next->closure" ++ ");"] ++
   map traceField ss' ++
   ["}"]
   where
     ns = namesForThunk (ThunkType ss)
     ss' = zip [0..] ss :: [(Int, Sort)]
-    traceField (i, s) = "    trace_" ++ show s ++ "(next->arg" ++ show i ++ ");"
+    traceField (i, _s) = "    mark_gray(" ++ asSort Alloc ("next->arg" ++ show i) ++ ");"
 
 emitThunkEnter :: ThunkType -> [String]
 emitThunkEnter (ThunkType ss) =
@@ -176,9 +176,7 @@ emitEnvTrace ns (EnvDecl fs) =
   ["}"]
   where
     traceField :: FieldName -> String
-    traceField (FieldName Closure c) = "    trace_closure(env->" ++ c ++ ");"
-    traceField (FieldName Value x) = "    trace_value(env->" ++ x ++ ");"
-    traceField (FieldName Alloc a) = "    trace_alloc(env->" ++ a ++ ");"
+    traceField (FieldName _ x) = "    mark_gray(" ++ asSort Alloc ("env->" ++ x) ++ ");"
 
 -- TODO: What if 'env' is the name that gets shadowed? (I.e., the function
 -- parameter is named 'env')

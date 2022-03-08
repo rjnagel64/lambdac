@@ -13,4 +13,4 @@ in
 -- for a recursive function.
 --
 -- To fix this, I need to do tricolor mark-sweep, ref. Crafting Interpreters
-fib 6
+fib 10

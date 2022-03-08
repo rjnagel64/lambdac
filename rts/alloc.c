@@ -39,45 +39,33 @@ void push_local(struct alloc_header *local) {
     num_locals++;
 }
 
-// TODO: Replace this with a tricolor mark-sweep scheme, as in Crafting Interpreters.
-static uint32_t current_mark = 0;
+// The gray list contains allocations in process of being traced. This avoids
+// overflow when exploring deeply, and also can avoid cycles. 
+static struct alloc_header **gray_list = NULL;
+static uint64_t num_gray = 0;
+static uint64_t gray_capacity = 0;
+void mark_gray(struct alloc_header *alloc) {
+    if (num_gray == gray_capacity) {
+        gray_capacity *= 2;
+        gray_list = realloc(gray_list, gray_capacity * sizeof(struct alloc_header *));
+    }
+    gray_list[num_gray++] = alloc;
+}
 
 void trace_const(struct value *v) {
-    // No fields, but mark as reachable.
-    v->header.mark = current_mark;
 }
 
 void trace_prod(struct value *v) {
-    v->header.mark = current_mark;
-    trace_value((struct value *)v->words[0]);
-    trace_value((struct value *)v->words[1]);
+    mark_gray(AS_ALLOC(v->words[0]));
+    mark_gray(AS_ALLOC(v->words[1]));
 }
 
 void trace_sum(struct value *v) {
-    v->header.mark = current_mark;
     // Skip the discriminant.
-    trace_alloc((struct alloc_header *)v->words[1]);
-}
-
-// TODO: Eventually, this will become redundant once value is divided into
-// separate sorts.
-void trace_value(struct value *v) {
-    switch (v->header.type) {
-    case ALLOC_CONST:
-        break;
-    case ALLOC_PROD:
-        trace_prod(v);
-        break;
-    case ALLOC_SUM:
-        trace_sum(v);
-        break;
-    default:
-        panic("unreachable allocation type");
-    }
+    mark_gray(AS_ALLOC(v->words[1]));
 }
 
 void trace_closure(struct closure *cl) {
-    cl->header.mark = current_mark;
     cl->trace(cl->env);
 }
 
@@ -99,57 +87,55 @@ void trace_alloc(struct alloc_header *alloc) {
 }
 
 
-void trace_locals(void) {
-    for (size_t i = 0; i < num_locals; i++) {
-        // Mark based on allocation type.
-        struct alloc_header *local = locals[i];
-        trace_alloc(local);
-    }
-}
+void collect(void) {
+    // Alternatively, malloc at startup, realloc/resize here.
+    gray_capacity = 8;
+    num_gray = 0;
+    gray_list = malloc(gray_capacity * sizeof(struct alloc_header *));
 
-void sweep(void) {
-    // Delete unmarked items from the allocation list.
-    // Release memory associated with closure environments.
+    // Push each local onto gray_list
+    for (size_t i = 0; i < num_locals; i++) {
+        mark_gray(locals[i]);
+    }
+    // Push each field of next_step onto gray_list
+    trace_roots();
+
+    while (num_gray > 0) {
+        // Pick an item
+        struct alloc_header *alloc = gray_list[--num_gray];
+        if (alloc->mark != 0) {
+            // if marked already, continue (avoid cycles.)
+            continue;
+        }
+        // mark as reachable
+        alloc->mark = 1;
+        // push all subfields as gray (trace)
+        trace_alloc(alloc);
+    }
+
+    free(gray_list);
+    gray_list = NULL;
+    gray_capacity = 0;
+
+    // Sweep alloc list for mark = 0, and also reset mark to 0 for other allocations.
     struct alloc_header *prev = NULL;
     for (struct alloc_header *alloc = first_allocation; alloc != NULL; ) {
         struct alloc_header *next = alloc->next;
-
-        switch (alloc->type) {
-        case ALLOC_CLOSURE:
-            if (alloc->mark != current_mark) {
-                free(AS_CLOSURE(alloc)->env);
-                free(alloc);
-                if (prev != NULL) {
-                    prev->next = next;
-                } else {
-                    first_allocation = next;
-                }
+        if (alloc->mark == 0) {
+            if (prev == NULL) {
+                first_allocation = next;
+            } else {
+                prev->next = next;
             }
-            break;
-        case ALLOC_CONST:
-        case ALLOC_PROD:
-        case ALLOC_SUM:
-            if (alloc->mark != current_mark) {
-                // All fields are managed by GC.
-                free(alloc);
-                if (prev != NULL) {
-                    prev->next = next;
-                } else {
-                    first_allocation = next;
-                }
-            }
-            break;
+            free(alloc);
+        } else {
+            alloc->mark = 0;
+            prev = alloc;
         }
-
         alloc = next;
     }
-}
 
-void collect(void) {
-    current_mark++;
-    trace_roots();
-    trace_locals();
-    sweep();
+    // Increase threshold.
     gc_threshold *= 2;
 }
 
@@ -176,9 +162,6 @@ struct closure *allocate_closure(
         void *env,
         void (*trace)(void *env),
         void (*code)(void)) {
-    if (num_allocs > gc_threshold) {
-        collect();
-    }
     struct closure *cl = malloc(sizeof(struct closure));
     cl->header.type = ALLOC_CLOSURE;
     cl->env = env;
@@ -189,6 +172,9 @@ struct closure *allocate_closure(
     first_allocation = (struct alloc_header *)cl;
     num_allocs++;
     push_local(first_allocation);
+    if (num_allocs > gc_threshold) {
+        collect();
+    }
     return cl;
 }
 
@@ -243,6 +229,8 @@ struct value *allocate_nil(void) {
 }
 
 // TODO: Make booleans like 0/1, instead of inl ()/inr ()
+// TODO: This is backwards. true is 0 and false is 1.
+// Should be 'data Bool = False | True'.
 struct value *allocate_true(void) {
     struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_CONST;
