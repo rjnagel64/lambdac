@@ -75,9 +75,6 @@ tmVar (K.TmVar x) = Name x
 coVar :: K.CoVar -> Name
 coVar (K.CoVar k) = Name k
 
-fnName :: K.FnName -> Name
-fnName (K.FnName f) = Name f
-
 -- | 'Sort' is really a simplified form of type information.
 -- Value = int | bool | t1 * t2 | t1 + t2 | ()
 -- Closure = (t1, t2, ...) -> 0
@@ -174,7 +171,7 @@ fieldsFor (LetContK ks e) = foldMap fieldsForContDef ks <> bindFields ks' (field
   where ks' = contDefNames ks
 fieldsFor (HaltK x) = unitField (tmVar x)
 fieldsFor (JumpK k x) = unitField (coVar k) <> unitField (tmVar x)
-fieldsFor (CallK f x k) = unitField (fnName f) <> unitField (tmVar x) <> unitField (coVar k)
+fieldsFor (CallK f x k) = unitField (tmVar f) <> unitField (tmVar x) <> unitField (coVar k)
 fieldsFor (CaseK x k1 _s1 k2 _s2) = unitField (tmVar x) <> unitField (coVar k1) <> unitField (coVar k2)
 fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
@@ -208,7 +205,7 @@ markRec :: Set Name -> [(Name, Sort)] -> ([(Name, Sort)], [(Name, Sort)])
 markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) xs
 
 funDefNames :: [FunDef] -> [(Name, Sort)]
-funDefNames fs = [(fnName f, Closure) | FunDef f _ _ _ _ _ <- fs]
+funDefNames fs = [(tmVar f, Closure) | FunDef f _ _ _ _ _ <- fs]
 
 contDefNames :: [ContDef] -> [(Name, Sort)]
 contDefNames ks = [(coVar k, Closure) | ContDef k _ _ _ <- ks]
@@ -233,7 +230,7 @@ cconv (LetFunK fs e) = LetFunC <$> local extendGroup (traverse ann fs) <*> local
       let extend ctx' = Map.insert (tmVar x) Value $ Map.insert (coVar k) Closure $ ctx'
       let fields = Set.toList $ runFieldsFor (fieldsForFunDef fun) (extend ctx)
       let (free, rec) = markRec fs' fields
-      FunClosureDef (fnName f) free rec (tmVar x, sortOf t) (coVar k, sortOf s) <$> local extend (cconv e')
+      FunClosureDef (tmVar f) free rec (tmVar x, sortOf t) (coVar k, sortOf s) <$> local extend (cconv e')
 cconv (LetContK ks e) = LetContC <$> local extendGroup (traverse ann ks) <*> local extendGroup (cconv e)
   where
     ks' = Set.fromList (fst <$> contDefNames ks)
@@ -246,7 +243,7 @@ cconv (LetContK ks e) = LetContC <$> local extendGroup (traverse ann ks) <*> loc
       ContClosureDef (coVar k) free rec (tmVar x, sortOf t) <$> local extend (cconv e')
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k x) = pure $ JumpC (coVar k) (tmVar x)
-cconv (CallK f x k) = pure $ CallC (fnName f) (tmVar x) (coVar k)
+cconv (CallK f x k) = pure $ CallC (tmVar f) (tmVar x) (coVar k)
 cconv (CaseK x k1 t k2 s) = pure $ CaseC (tmVar x) (coVar k1, sortOf t) (coVar k2, sortOf s)
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e

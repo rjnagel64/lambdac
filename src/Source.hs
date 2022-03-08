@@ -21,6 +21,9 @@ newtype CoVar = CoVar String
 
 -- TODO: Add booleans and if-expressions. They can be compiled more efficiently
 -- than case analysis on Either () ().
+-- I might even inline the branches, rather than doing 0-argument closures?
+-- That would special-case things, though. Currently, all TermK and later are
+-- basic blocks, with control flow only when exiting a block.
 data Term
   -- x
   = TmVarOcc TmVar

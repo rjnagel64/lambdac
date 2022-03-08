@@ -14,7 +14,7 @@ import Data.Traversable (for)
 import Control.Monad.Reader
 import Control.Monad.Writer
 
-import CPS (TermK(..), TmVar(..), CoVar(..), FnName(..), FunDef(..), ContDef(..), ValueK(..))
+import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..))
 
 -- [Compiling with Continuations, Continued] mostly.
 -- CPS transformation, Closure Conversion, hopefully C code generation.
@@ -55,7 +55,7 @@ data InlineEnv
   -- | If a continuation variable has an unfolding, it is stored here.
   , inlineCoDefs :: Map CoVar ContDef
   -- | If a function has an unfolding, it is stored here.
-  , inlineFnDefs :: Map FnName FunDef
+  , inlineFnDefs :: Map TmVar FunDef
 
   -- | Values are bound here, so that beta-redexes can reduce.
   , inlineValDefs :: Map TmVar ValueK

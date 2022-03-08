@@ -4,7 +4,6 @@ module CPS
     ( TermK(..)
     , TmVar(..)
     , CoVar(..)
-    , FnName(..)
     , FunDef(..)
     , ContDef(..)
     , ArithK(..)
@@ -42,23 +41,18 @@ import Source (Term(..), TmFun(..))
 
 
 -- All sorts of variables exist in the same namespace.
--- TODO: TmVar and FnName should be merged. Functions are values, so they
--- should use the same variable sort.
--- Continuation variables, meanwhile, truly are second-class (even if I forget
--- about that fact later on.)
+-- Continuations are second-class, so they get a different type. (I collapse
+-- the distinction between them later on, but maybe there's a more efficient
+-- way to do jumps...)
 newtype TmVar = TmVar String
   deriving (Eq, Ord)
 newtype CoVar = CoVar String
-  deriving (Eq, Ord)
-newtype FnName = FnName String
   deriving (Eq, Ord)
 
 instance Show TmVar where
   show (TmVar x) = x
 instance Show CoVar where
   show (CoVar k) = k
-instance Show FnName where
-  show (FnName f) = f
 
 -- | Terms in continuation-passing style.
 --
@@ -90,7 +84,7 @@ data TermK
   -- k x, goto k(x)
   | JumpK CoVar TmVar
   -- f x k, call f(x, k)
-  | CallK FnName TmVar CoVar
+  | CallK TmVar TmVar CoVar
   -- case x of k1 : s1 -> 0 | k2 : s2 -> 0, branch
   | CaseK TmVar CoVar TypeK CoVar TypeK
   -- halt x
@@ -102,7 +96,7 @@ data ContDef = ContDef CoVar TmVar TypeK TermK
 
 -- | Function definitions
 -- @f (x:τ) (k:σ) := e@
-data FunDef = FunDef FnName TmVar TypeK CoVar TypeK TermK
+data FunDef = FunDef TmVar TmVar TypeK CoVar TypeK TermK
 
 -- | Values require no evaluation.
 data ValueK
@@ -153,12 +147,12 @@ cps env (TmVarOcc x) k = case Map.lookup x env of
   Nothing -> error ("cps: variable not in scope: " ++ show x)
   Just t -> k (var x) t
 cps env (TmLam x t e) k =
-  freshTm "f" $ \ (TmVar f) ->
+  freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef (FnName f) (var x) t' k' (ContK s') e']
-      (e'', _t'') <- k (TmVar f) (ContK (ProdK t' (ContK s')))
+      let fs = [FunDef f (var x) t' k' (ContK s') e']
+      (e'', _t'') <- k f (ContK (ProdK t' (ContK s')))
       let res = LetFunK fs e''
       pure (res, ContK (ProdK t' (ContK s')))
 cps env (TmRecFun fs e) k = do
@@ -169,7 +163,7 @@ cps env (TmRecFun fs e) k = do
   let res = LetFunK fs' e'
   pure (res, t')
 cps env (TmApp e1 e2) k =
-  cps env e1 $ \ (TmVar v1) t1 -> do
+  cps env e1 $ \ v1 t1 -> do
     cps env e2 $ \v2 _t2 -> do
       s' <- case t1 of
         ContK (ProdK _t2' (ContK s')) -> pure s'
@@ -177,7 +171,7 @@ cps env (TmApp e1 e2) k =
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
           (e', _t') <- k xv s'
-          let res = LetContK [ContDef kv xv s' e'] (CallK (FnName v1) v2 kv)
+          let res = LetContK [ContDef kv xv s' e'] (CallK v1 v2 kv)
           pure (res, s')
 cps env (TmInl a b e) k =
   cps env e $ \z _t ->
@@ -292,9 +286,8 @@ cpsFun env (TmFun f x t s e) =
     let t' = cpsType t
     let s' = cpsType s
     (e', _s') <- cpsTail (Map.insert x t' env) e k
-    let def = FunDef (fnName f) (var x) t' k (ContK s') e'
+    let def = FunDef (var f) (var x) t' k (ContK s') e'
     pure def
-  where fnName (S.TmVar y) = FnName y
 
 -- | CPS-convert a term in tail position.
 -- In tail position, the continuation is always a continuation variable, which
@@ -304,12 +297,12 @@ cpsTail env (TmVarOcc x) k = case Map.lookup x env of
   Nothing -> error ("cpsTail: variable not in scope: " ++ show x)
   Just t' -> pure (JumpK k (var x), t')
 cpsTail env (TmLam x t e) k =
-  freshTm "f" $ \ (TmVar f) ->
+  freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef (FnName f) (var x) t' k' (ContK s') e']
-      let res = LetFunK fs (JumpK k (TmVar f))
+      let fs = [FunDef f (var x) t' k' (ContK s') e']
+      let res = LetFunK fs (JumpK k f)
       pure (res, ContK (ProdK t' (ContK s')))
 cpsTail env (TmLet x t e1 e2) k =
   -- [[let x:t = e1 in e2]] k
@@ -396,12 +389,12 @@ cpsTail env (TmIsZero e) k =
       let res = LetIsZeroK x z (JumpK k x)
       pure (res, SumK UnitK UnitK)
 cpsTail env (TmApp e1 e2) k =
-  cps env e1 $ \ (TmVar f) t1 -> -- t1 =~= t2 -> s
+  cps env e1 $ \f t1 -> -- t1 =~= t2 -> s
     cps env e2 $ \x _t2 -> do
       s <- case t1 of
         ContK (ProdK _t2' (ContK s)) -> pure s -- assert t2' === t2
         _ -> error "bad function type"
-      let res = CallK (FnName f) x k
+      let res = CallK f x k
       pure (res, s)
 cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
   cps env e $ \z _t -> do
