@@ -295,7 +295,7 @@ pprintTerm n (LetSndC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetIsZeroC x y e) =
   indent n ("let " ++ show x ++ " = iszero " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (CaseC x k1 k2) =
+pprintTerm n (CaseC x (k1, _) (k2, _)) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetArithC x op e) =
   indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
@@ -317,14 +317,18 @@ pprintArith (MulC x y) = show x ++ " * " ++ show y
 
 pprintClosureDef :: Int -> FunClosureDef -> String
 pprintClosureDef n (FunClosureDef f free rec x k e) =
-  indent n env ++ indent n (show f ++ " " ++ pprintPlace x ++ " " ++ pprintPlace k ++ " =\n") ++ pprintTerm (n+2) e
+  indent n env ++ indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     env = "{" ++ intercalate ", " vars ++ "}\n"
     vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
+    params = "(" ++ intercalate ", " args ++ ")"
+    args = map pprintPlace [x, k]
 
 pprintContClosureDef :: Int -> ContClosureDef -> String
 pprintContClosureDef n (ContClosureDef k free rec x e) =
-  indent n env ++ indent n (show k ++ " " ++ pprintPlace x ++ " =\n") ++ pprintTerm (n+2) e
+  indent n env ++ indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     env = "{" ++ intercalate ", " vars ++ "}\n"
     vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
+    params = "(" ++ intercalate ", " args ++ ")"
+    args = map pprintPlace [x]
