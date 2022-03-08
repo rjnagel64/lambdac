@@ -47,7 +47,7 @@ void trace_value(struct value *v);
 void trace_closure(struct closure *cl);
 void trace_alloc(struct alloc_header *v);
 
-void (*trace_roots)(void);
+extern void (*trace_roots)(void);
 void collect(void);
 void sweep_all_allocations(void);
 

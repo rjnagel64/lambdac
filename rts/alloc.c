@@ -39,47 +39,28 @@ void push_local(struct alloc_header *local) {
     num_locals++;
 }
 
-// Some sort of tracing GC.
-// Linked list of all allocations.
-// alloc pushes on front of list.
-// the activation record stack contains the roots. (Are there others?) (No, I
-// don't think so. I don't remove the record until it returns, and I invoke the
-// function+arguments only from the record.) (... Hang on, allocations local to
-// a function are a thing. AAGH.)
-// AAGH. I need to trace through environments as well. But environments are
-// void*, so I can't really. I could generate trace_k0_env, etc., but how would
-// I know to invoke it? Maybe 'struct fun' and 'struct cont' can store pointers
-// to a tracing method? That's weird, but it would probably work.
-// Or instead of void *env, struct env { bitmap tracing_fields; ... }, with a
-// bitmap to specify what/how to trace each field of the environment. (00: no
-// trace. 01: cont trace. 10: fun trace, 11: val trace) That involves less
-// indirection, but the bitmap may be large (if you have like 32 values or
-// whatever.) (This requires that all fields in the environment have the same
-// size, which is mostly reasonable. Everything is word-sized except int32, and
-// I don't have unboxed values yet.)
-//
-// Or I could store the bitmap in the activation record. (I think.)
-// Well, a bitmap for the continuation and a bitmap for the function, but yes.
-// (No, I can't. Because I need to allocate/construct continuations and other
-// closures in the compiled code, those things aren't on the stack yet. Thus,
-// every 'struct fun' and 'struct cont' needs a tracing map.)
-
+// TODO: Replace this with a tricolor mark-sweep scheme, as in Crafting Interpreters.
 static uint32_t current_mark = 0;
 
-// TODO: Remember to mark values after tracing subterms
-// TODO: What if there is a cycle? I think I will stack overflow, then.
-// (=> tricolor mark-sweep?)
+void trace_const(struct value *v) {
+    // No fields, but mark as reachable.
+    v->header.mark = current_mark;
+}
+
 void trace_prod(struct value *v) {
+    v->header.mark = current_mark;
     trace_value((struct value *)v->words[0]);
     trace_value((struct value *)v->words[1]);
 }
 
 void trace_sum(struct value *v) {
+    v->header.mark = current_mark;
     // Skip the discriminant.
-    trace_value((struct value *)v->words[1]);
+    trace_alloc((struct alloc_header *)v->words[1]);
 }
 
-// TODO: Eventually, this will become redundant with trace_alloc.
+// TODO: Eventually, this will become redundant once value is divided into
+// separate sorts.
 void trace_value(struct value *v) {
     switch (v->header.type) {
     case ALLOC_CONST:
@@ -106,7 +87,7 @@ void trace_alloc(struct alloc_header *alloc) {
         trace_closure(AS_CLOSURE(alloc));
         break;
     case ALLOC_CONST:
-        // No fields to trace
+        trace_const(AS_VALUE(alloc));
         break;
     case ALLOC_PROD:
         trace_prod(AS_VALUE(alloc));
@@ -117,10 +98,6 @@ void trace_alloc(struct alloc_header *alloc) {
     }
 }
 
-
-// Hook to trace any roots known to the driver program.
-// Provided at runtime startup, by the main driver.
-void (*trace_roots)(void);
 
 void trace_locals(void) {
     for (size_t i = 0; i < num_locals; i++) {

@@ -52,3 +52,5 @@ Code is compiled to C and linked with a rather small runtime.
 * [This gist](https://gist.github.com/jozefg/652f1d7407b7f0266ae9) about closure conversion
 * It turns out, my compilation scheme is quite similar to a simplified version
   of [CHICKEN Scheme](https://www.more-magic.net/posts/internals-gc.html)
+* [Crafting Interpreters](https://www.craftinginterpreters.com), for details of
+  the garbage collection algorithm

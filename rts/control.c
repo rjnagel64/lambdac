@@ -2,6 +2,8 @@
 #include "control.h"
 #include "alloc.h"
 
+void (*trace_roots)(void) = mark_root;
+
 void mark_root(void) {
     next_step->trace();
 }

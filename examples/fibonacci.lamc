@@ -8,5 +8,9 @@ let
       }
     };
 in
--- fib 5 works, fib 6 segfaults.
+-- fib 5 works, fib 6 segfaults. GC issues.
+-- Specifically, stack overflow when tracing cyclic closure. I.E., the closure
+-- for a recursive function.
+--
+-- To fix this, I need to do tricolor mark-sweep, ref. Crafting Interpreters
 fib 6

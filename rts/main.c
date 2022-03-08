@@ -14,9 +14,6 @@ int main(void) {
     // Initialize the locals vector.
     init_locals();
 
-    // Connect GC with control flow.
-    trace_roots = &mark_root;
-
     // Prepare the main driver loop
     result_value = NULL;
     next_step = malloc(sizeof(struct thunk));
