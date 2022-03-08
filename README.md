@@ -12,6 +12,8 @@ collection, and assembled them into this prototype.
 Strictly-evaluated lambda calculus with primitive integers but not much else.
 Code is compiled to C and linked with a rather small runtime.
 
+`lambdac` is now fibonacci-complete. See `examples/fibonacci.lamc`.
+
 # Hard parts
 
 * Closure conversion for recursive bind groups: recursive bind groups have
