@@ -199,10 +199,10 @@ emitClosureBody (LetValH x v e) =
   ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc v ++ ";"] ++
   emitClosureBody e
 emitClosureBody (LetFstH x y e) =
-  ["    " ++ emitPlace x ++ " = AS_VALUE(project_fst(" ++ emitName y ++ "));"] ++
+  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_fst(" ++ emitName y ++ ")") ++ ";"] ++
   emitClosureBody e
 emitClosureBody (LetSndH x y e) =
-  ["    " ++ emitPlace x ++ " = AS_VALUE(project_snd(" ++ emitName y ++ "));"] ++
+  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_snd(" ++ emitName y ++ ")") ++ ";"] ++
   emitClosureBody e
 emitClosureBody (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp p ++ ";"] ++
