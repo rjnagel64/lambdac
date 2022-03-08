@@ -1,5 +1,4 @@
 
-# UB involving function pointer casts means I can't permit optimizations. For now.
 RTSFLAGS = -O0
 
 demo: out.o rts/librts.a

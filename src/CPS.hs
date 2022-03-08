@@ -150,7 +150,7 @@ var (S.TmVar x) = TmVar x
 -- TODO: Find a way to reduce the nesting. ContT, maybe?
 cps :: Map S.TmVar TypeK -> Term -> (TmVar -> TypeK -> FreshM (TermK, TypeK)) -> FreshM (TermK, TypeK)
 cps env (TmVarOcc x) k = case Map.lookup x env of
-  Nothing -> error "variable not in scope"
+  Nothing -> error ("cps: variable not in scope: " ++ show x)
   Just t -> k (var x) t
 cps env (TmLam x t e) k =
   freshTm "f" $ \ (TmVar f) ->
@@ -301,7 +301,7 @@ cpsFun env (TmFun f x t s e) =
 -- allows for simpler translations.
 cpsTail :: Map S.TmVar TypeK -> Term -> CoVar -> FreshM (TermK, TypeK)
 cpsTail env (TmVarOcc x) k = case Map.lookup x env of
-  Nothing -> error "variable not in scope"
+  Nothing -> error ("cpsTail: variable not in scope: " ++ show x)
   Just t' -> pure (JumpK k (var x), t')
 cpsTail env (TmLam x t e) k =
   freshTm "f" $ \ (TmVar f) ->

@@ -15,12 +15,15 @@ import qualified Hoist as H
 import qualified Emit as E
 
 -- TODO: Implement ==
--- TODO: Test factorial.
 
 -- Note: Returning multiple values from a function is passing multiple values
 -- to the continuation.
 -- Note: Returning a choice of values from a function is selecting which
 -- continuation to invoke.
+--
+-- Note: Performing arity analyses on CPS code is more challenging/obfuscated
+-- than I previously comprehended. It may be worthwhile to do that sort of
+-- analysis on Source instead.
 
 parseString :: String -> IO S.Term
 parseString s = case P.parseTerm (L.lex s) of

@@ -1,8 +1,8 @@
 let
-  fun fact n =
+  fun fact (n : int) : int =
     case iszero n of {
-      inl y -> 1;
-      inr z -> n * fact (n - 1)
+      inl (y : unit) -> 1;
+      inr (z : unit) -> n * fact (n - 1)
     };
 in
-fact 5
+fact 16

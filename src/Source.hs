@@ -11,6 +11,9 @@ module Source
 newtype TmVar = TmVar String
   deriving (Eq, Ord)
 
+instance Show TmVar where
+  show (TmVar x) = x
+
 -- | Continuation variables name basic blocks and jump targets.
 newtype CoVar = CoVar String
   deriving (Eq, Ord)
