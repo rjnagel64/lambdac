@@ -229,13 +229,11 @@ struct value *allocate_nil(void) {
 }
 
 // TODO: Make booleans like 0/1, instead of inl ()/inr ()
-// TODO: This is backwards. true is 0 and false is 1.
-// Should be 'data Bool = False | True'.
 struct value *allocate_true(void) {
     struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_CONST;
     v->header.next = first_allocation;
-    v->words[0] = 0;
+    v->words[0] = 1;
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
@@ -250,7 +248,7 @@ struct value *allocate_false(void) {
     struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_CONST;
     v->header.next = first_allocation;
-    v->words[0] = 1;
+    v->words[0] = 0;
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
