@@ -70,7 +70,6 @@ instance Show Name where
 
 tmVar :: K.TmVar -> Name
 tmVar (K.TmVar x) = Name x
--- tmVar (K.TmVar x) = (Name x, Value)
 
 coVar :: K.CoVar -> Name
 coVar (K.CoVar k) = Name k
@@ -228,7 +227,7 @@ cconv (LetFunK fs e) = LetFunC <$> local extendGroup (traverse ann fs) <*> local
     extendGroup ctx = foldr (uncurry Map.insert) ctx (funDefNames fs)
     ann fun@(FunDef f x t k s e') = do
       ctx <- ask
-      let extend ctx' = Map.insert (tmVar x) Value $ Map.insert (coVar k) Closure $ ctx'
+      let extend ctx' = Map.insert (tmVar x) (sortOf t) $ Map.insert (coVar k) (sortOf s) $ ctx'
       let fields = Set.toList $ runFieldsFor (fieldsForFunDef fun) (extend ctx)
       let (free, rec) = markRec fs' fields
       FunClosureDef (tmVar f) free rec (tmVar x, sortOf t) (coVar k, sortOf s) <$> local extend (cconv e')
@@ -238,7 +237,7 @@ cconv (LetContK ks e) = LetContC <$> local extendGroup (traverse ann ks) <*> loc
     extendGroup ctx = foldr (uncurry Map.insert) ctx (contDefNames ks)
     ann kont@(ContDef k x t e') = do
       ctx <- ask
-      let extend ctx' = Map.insert (tmVar x) Value ctx'
+      let extend ctx' = Map.insert (tmVar x) (sortOf t) ctx'
       let fields = runFieldsFor (fieldsForContDef kont) (extend ctx)
       let (free, rec) = markRec ks' (Set.toList fields)
       ContClosureDef (coVar k) free rec (tmVar x, sortOf t) <$> local extend (cconv e')
