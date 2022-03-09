@@ -92,7 +92,7 @@ data TermK
 
 -- | Named basic blocks
 -- @k (x:τ) := e@
-data ContDef = ContDef CoVar TmVar TypeK TermK
+data ContDef = ContDef CoVar (TmVar, TypeK) TermK
 
 -- | Function definitions
 -- @f (x:τ) (k:σ) := e@
@@ -175,7 +175,7 @@ cps env (TmApp e1 e2) k =
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
           (e', _t') <- k xv s'
-          let res = LetContK [ContDef kv xv s' e'] (CallK v1 v2 kv)
+          let res = LetContK [ContDef kv (xv, s') e'] (CallK v1 v2 kv)
           pure (res, s')
 cps env (TmInl a b e) k =
   cps env e $ \z _t ->
@@ -208,9 +208,9 @@ cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
             -- TODO: Case branches that accept multiple arguments at once
             let
               res = 
-                LetContK [ContDef j x s' e'] $
-                  LetContK [ContDef k1 (var xl) tl' el'] $
-                    LetContK [ContDef k2 (var xr) tr' er'] $
+                LetContK [ContDef j (x, s') e'] $
+                  LetContK [ContDef k1 (var xl, tl') el'] $
+                    LetContK [ContDef k2 (var xr, tr') er'] $
                       CaseK z k1 tl' k2 tr'
             pure (res, s')
 cps env (TmPair e1 e2) k =
@@ -253,7 +253,7 @@ cps env (TmLet x t e1 e2) k = do
   (e2', t2') <- cps (Map.insert x t' env) e2 k
   freshCo "j" $ \j -> do
     (e1', _t1') <- cpsTail env e1 j
-    let res = LetContK [ContDef j (var x) t' e2'] e1'
+    let res = LetContK [ContDef j (var x, t') e2'] e1'
     pure (res, t2')
 cps env (TmAdd e1 e2) k =
   cps env e1 $ \x _t1 ->
@@ -316,7 +316,7 @@ cpsTail env (TmLet x t e1 e2) k =
     let t' = cpsType t
     (e2', _t2') <- cpsTail (Map.insert x t' env) e2 k
     (e1', t1') <- cpsTail env e1 j
-    let res = LetContK [ContDef j (var x) t' e2'] e1'
+    let res = LetContK [ContDef j (var x, t') e2'] e1'
     pure (res, t1')
 cpsTail env (TmRecFun fs e) k = do
   let binds = [(f, cpsType (S.TyArr t s)) | TmFun f _x t s _e <- fs]
@@ -412,8 +412,8 @@ cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
         -- TODO: Case branches that accept multiple arguments at once
         let
           res =
-            LetContK [ContDef k1 (var xl) tl' el'] $
-              LetContK [ContDef k2 (var xr) tr' er'] $
+            LetContK [ContDef k1 (var xl, tl') el'] $
+              LetContK [ContDef k2 (var xr, tr') er'] $
                 CaseK z k1 tl' k2 tr'
         -- both branches have same type, so this is valid.
         -- (Alternatively, put `returns s` on Source.TmCase)
@@ -491,7 +491,7 @@ pprintFunDef n (FunDef f x t k s e) =
   indent n (show f ++ " " ++ pprintParam (show x) t ++ " " ++ pprintParam (show k) s ++ " =\n") ++ pprintTerm (n+2) e
 
 pprintContDef :: Int -> ContDef -> String
-pprintContDef n (ContDef k x t e) =
+pprintContDef n (ContDef k (x, t) e) =
   indent n (show k ++ " " ++ pprintParam (show x) t ++ " =\n") ++ pprintTerm (n+2) e
 
 pprintParam :: String -> TypeK -> String

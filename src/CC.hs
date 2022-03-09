@@ -196,7 +196,7 @@ fieldsForFunDef (FunDef _f x t k s e) =
   bindFields [(tmVar x, sortOf t), (coVar k, sortOf s)] (fieldsFor e)
 
 fieldsForContDef :: ContDef -> FieldsFor
-fieldsForContDef (ContDef _k x t e) =
+fieldsForContDef (ContDef _k (x, t) e) =
   bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 
 -- | Split occurrences into free variables and recursive calls.
@@ -208,7 +208,7 @@ funDefNames :: [FunDef] -> [(Name, Sort)]
 funDefNames fs = [(tmVar f, Closure) | FunDef f _ _ _ _ _ <- fs]
 
 contDefNames :: [ContDef] -> [(Name, Sort)]
-contDefNames ks = [(coVar k, Closure) | ContDef k _ _ _ <- ks]
+contDefNames ks = [(coVar k, Closure) | ContDef k _ _ <- ks]
 
 newtype ConvM a = ConvM { runConvM :: Reader (Map Name Sort) a }
 
@@ -235,7 +235,7 @@ cconv (LetContK ks e) = LetContC <$> local extendGroup (traverse ann ks) <*> loc
   where
     ks' = Set.fromList (fst <$> contDefNames ks)
     extendGroup ctx = foldr (uncurry Map.insert) ctx (contDefNames ks)
-    ann kont@(ContDef k x t e') = do
+    ann kont@(ContDef k (x, t) e') = do
       ctx <- ask
       let extend ctx' = Map.insert (tmVar x) (sortOf t) ctx'
       let fields = runFieldsFor (fieldsForContDef kont) (extend ctx)
