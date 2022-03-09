@@ -102,7 +102,7 @@ data TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
   -- Invoke a closure by providing a value for the only remaining argument.
-  | JumpC Name Name -- k x
+  | JumpC Name [Name] -- k x...
   | CallC Name Name Name -- f x k
   | HaltC Name
   | CaseC Name (Name, Sort) (Name, Sort) -- case x of k1 | k2
@@ -133,7 +133,7 @@ data ContClosureDef
     contClosureName :: Name
   , contClosureFreeNames :: [(Name, Sort)]
   , contClosureRecNames :: [(Name, Sort)]
-  , contClosureParam :: (Name, Sort)
+  , contClosureParam :: [(Name, Sort)]
   , contClosureBody :: TermC
   }
 
@@ -170,7 +170,7 @@ fieldsFor (LetFunK fs e) = foldMap fieldsForFunDef fs <> bindFields fs' (fieldsF
 fieldsFor (LetContK ks e) = foldMap fieldsForContDef ks <> bindFields ks' (fieldsFor e)
   where ks' = contDefNames ks
 fieldsFor (HaltK x) = unitField (tmVar x)
-fieldsFor (JumpK k x) = unitField (coVar k) <> unitField (tmVar x)
+fieldsFor (JumpK k xs) = unitField (coVar k) <> foldMap (unitField . tmVar) xs
 fieldsFor (CallK f x k) = unitField (tmVar f) <> unitField (tmVar x) <> unitField (coVar k)
 fieldsFor (CaseK x k1 _s1 k2 _s2) = unitField (tmVar x) <> unitField (coVar k1) <> unitField (coVar k2)
 fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
@@ -196,8 +196,9 @@ fieldsForFunDef (FunDef _f x t k s e) =
   bindFields [(tmVar x, sortOf t), (coVar k, sortOf s)] (fieldsFor e)
 
 fieldsForContDef :: ContDef -> FieldsFor
-fieldsForContDef (ContDef _k (x, t) e) =
-  bindFields [(tmVar x, sortOf t)] (fieldsFor e)
+fieldsForContDef (ContDef _k xs e) =
+  bindFields (map bindParam xs) (fieldsFor e)
+  where bindParam (x, t) = (tmVar x, sortOf t)
 
 -- | Split occurrences into free variables and recursive calls.
 -- Return @(free, rec)@.
@@ -235,14 +236,15 @@ cconv (LetContK ks e) = LetContC <$> local extendGroup (traverse ann ks) <*> loc
   where
     ks' = Set.fromList (fst <$> contDefNames ks)
     extendGroup ctx = foldr (uncurry Map.insert) ctx (contDefNames ks)
-    ann kont@(ContDef k (x, t) e') = do
+    ann kont@(ContDef k xs e') = do
       ctx <- ask
-      let extend ctx' = Map.insert (tmVar x) (sortOf t) ctx'
+      let binds = map (\ (x, t) -> (tmVar x, sortOf t)) xs
+      let extend ctx' = foldr (uncurry Map.insert) ctx' binds
       let fields = runFieldsFor (fieldsForContDef kont) (extend ctx)
       let (free, rec) = markRec ks' (Set.toList fields)
-      ContClosureDef (coVar k) free rec (tmVar x, sortOf t) <$> local extend (cconv e')
+      ContClosureDef (coVar k) free rec binds <$> local extend (cconv e')
 cconv (HaltK x) = pure $ HaltC (tmVar x)
-cconv (JumpK k x) = pure $ JumpC (coVar k) (tmVar x)
+cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f x k) = pure $ CallC (tmVar f) (tmVar x) (coVar k)
 cconv (CaseK x k1 t k2 s) = pure $ CaseC (tmVar x) (coVar k1, sortOf t) (coVar k2, sortOf s)
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
@@ -322,10 +324,10 @@ pprintClosureDef n (FunClosureDef f free rec x k e) =
     args = map pprintPlace [x, k]
 
 pprintContClosureDef :: Int -> ContClosureDef -> String
-pprintContClosureDef n (ContClosureDef k free rec x e) =
+pprintContClosureDef n (ContClosureDef k free rec xs e) =
   indent n env ++ indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     env = "{" ++ intercalate ", " vars ++ "}\n"
     vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
     params = "(" ++ intercalate ", " args ++ ")"
-    args = map pprintPlace [x]
+    args = map pprintPlace xs

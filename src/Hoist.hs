@@ -153,7 +153,7 @@ tellThunk t = tell (HoistDecls (Set.singleton t, mempty))
 -- function names to C names.
 hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = HaltH <$> hoistVarOcc x
-hoist (JumpC k x) = OpenH <$> hoistVarOcc k <*> traverse hoistJumpArg [x]
+hoist (JumpC k xs) = OpenH <$> hoistVarOcc k <*> traverse hoistJumpArg xs
 hoist (CallC f x k) = OpenH <$> hoistVarOcc f <*> traverse hoistJumpArg [x, k]
 hoist (CaseC x (k1, s1) (k2, s2)) = do
   x' <- hoistVarOcc x
@@ -263,9 +263,9 @@ hoistFunClosure (fdecl, C.FunClosureDef _f free rec (x, t) (k, s) body) = do
   pure fd
 
 hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ClosureDecl
-hoistContClosure (kdecl, C.ContClosureDef _k free rec (x, s) body) = do
+hoistContClosure (kdecl, C.ContClosureDef _k free rec xs body) = do
   let fields = free ++ rec
-  (fields', places', body') <- inClosure fields [(x, s)] $ hoist body
+  (fields', places', body') <- inClosure fields xs $ hoist body
   let envd = EnvDecl fields'
   let kd = ClosureDecl kdecl envd places' body'
   pure kd
