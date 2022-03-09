@@ -1,0 +1,9 @@
+let
+  fun fact1 (n : int) : int -> int =
+    \ (acc:int) -> case iszero n of {
+      inl (y : unit) -> acc;
+      inr (z : unit) -> fact1 (n - 1) (n * acc)
+    };
+  in
+let fun fact (n : int) : int = fact1 n 1; in
+fact 5
