@@ -89,6 +89,7 @@ instance Show Sort where
 
 sortOf :: K.TypeK -> Sort
 sortOf (K.ContK _) = Closure
+sortOf (K.FunK _ _) = Closure
 sortOf _ = Value
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that

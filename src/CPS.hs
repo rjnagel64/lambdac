@@ -121,14 +121,18 @@ data TypeK
   -- σ + τ
   | SumK TypeK TypeK
   -- σ -> 0
+  -- The type of a continuation
   | ContK TypeK
+  -- (τ * σ) -> 0
+  -- The type of a function. σ should always be σ' -> 0, I think.
+  | FunK TypeK TypeK
 
 cpsType :: S.Type -> TypeK
 cpsType S.TyUnit = UnitK
 cpsType S.TyInt = IntK
 cpsType (S.TySum a b) = SumK (cpsType a) (cpsType b)
 cpsType (S.TyProd a b) = ProdK (cpsType a) (cpsType b)
-cpsType (S.TyArr a b) = ContK (ProdK (cpsType a) (ContK (cpsType b)))
+cpsType (S.TyArr a b) = FunK (cpsType a) (cpsType b)
 cpsType (S.TyVarOcc _) = error "not implemented: polymorphic cpsType"
 cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
 
@@ -152,11 +156,11 @@ cps env (TmLam x t e) k =
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
       let fs = [FunDef f (var x) t' k' (ContK s') e']
-      (e'', _t'') <- k f (ContK (ProdK t' (ContK s')))
+      (e'', _t'') <- k f (FunK t' s')
       let res = LetFunK fs e''
-      pure (res, ContK (ProdK t' (ContK s')))
+      pure (res, FunK t' s')
 cps env (TmRecFun fs e) k = do
-  let binds = [(f, ContK (ProdK (cpsType t) (ContK (cpsType s)))) | TmFun f _ t s _ <- fs]
+  let binds = [(f, FunK (cpsType t) (cpsType s)) | TmFun f _ t s _ <- fs]
   let env' = foldr (uncurry Map.insert) env binds
   fs' <- traverse (cpsFun env') fs
   (e', t') <- cps env' e k
@@ -166,7 +170,7 @@ cps env (TmApp e1 e2) k =
   cps env e1 $ \ v1 t1 -> do
     cps env e2 $ \v2 _t2 -> do
       s' <- case t1 of
-        ContK (ProdK _t2' (ContK s')) -> pure s'
+        FunK _t2' s' -> pure s'
         _ -> error "bad function type"
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
@@ -303,7 +307,7 @@ cpsTail env (TmLam x t e) k =
       (e', s') <- cpsTail (Map.insert x t' env) e k'
       let fs = [FunDef f (var x) t' k' (ContK s') e']
       let res = LetFunK fs (JumpK k f)
-      pure (res, ContK (ProdK t' (ContK s')))
+      pure (res, FunK t' s')
 cpsTail env (TmLet x t e1 e2) k =
   -- [[let x:t = e1 in e2]] k
   -- -->
@@ -391,11 +395,11 @@ cpsTail env (TmIsZero e) k =
 cpsTail env (TmApp e1 e2) k =
   cps env e1 $ \f t1 -> -- t1 =~= t2 -> s
     cps env e2 $ \x _t2 -> do
-      s <- case t1 of
-        ContK (ProdK _t2' (ContK s)) -> pure s -- assert t2' === t2
+      s' <- case t1 of
+        FunK _t2' s' -> pure s'
         _ -> error "bad function type"
       let res = CallK f x k
-      pure (res, s)
+      pure (res, s')
 cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
   cps env e $ \z _t -> do
     -- _t === SumK (cpsType tl) (cpsType tr), because input is well-typed.
@@ -495,6 +499,7 @@ pprintParam x t = "(" ++ x ++ " : " ++ pprintType t ++ ")"
 
 pprintType :: TypeK -> String
 pprintType (ContK t) = pprintAType t ++ " -> 0"
+pprintType (FunK t s) = pprintType (ContK (ProdK t (ContK s)))
 pprintType (ProdK t s) = pprintType t ++ " * " ++ pprintAType s
 pprintType (SumK t s) = pprintType t ++ " + " ++ pprintAType s
 pprintType IntK = "int"
