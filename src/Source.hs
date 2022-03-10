@@ -19,11 +19,6 @@ newtype CoVar = CoVar String
   deriving (Eq, Ord)
 
 
--- TODO: Add booleans and if-expressions. They can be compiled more efficiently
--- than case analysis on Either () ().
--- I might even inline the branches, rather than doing 0-argument closures?
--- That would special-case things, though. Currently, all TermK and later are
--- basic blocks, with control flow only when exiting a block.
 data Term
   -- x
   = TmVarOcc TmVar
@@ -60,6 +55,10 @@ data Term
   | TmMul Term Term
   -- iszero e
   | TmIsZero Term
+  -- true, false
+  | TmBool Bool
+  -- if c then t else f
+  | TmIf Term Term Term
 
 
 -- @f (x : t) : t' = e@, used for recursion.
@@ -97,6 +96,7 @@ data Type
   | TyArr Type Type
   | TyUnit
   | TyInt
+  | TyBool
   | TyVarOcc TyVar
   | TyAll TyVar Type
 

@@ -1,0 +1,3 @@
+let fun not (x : bool) : bool = if x then false else true;
+in
+if not (iszero 17) then 31 else 781

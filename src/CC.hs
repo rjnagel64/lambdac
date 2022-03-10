@@ -14,6 +14,7 @@ module CC
   , ValueC(..)
   , ArithC(..)
   , Sort(..)
+  , ThunkType(..)
 
   , cconv
   , runConv
@@ -91,6 +92,18 @@ sortOf (K.ContK _) = Closure
 sortOf (K.FunK _ _) = Closure
 sortOf _ = Value
 
+-- | Each type of closure (e.g., one boxed argument, one unboxed argument and
+-- one continuation, etc.) requires a different type of thunk when that closure
+-- is opened. A thunk type specifies what arguments have been provided to the
+-- closure.
+newtype ThunkType = ThunkType [Sort]
+  deriving (Eq, Ord)
+
+thunkTypeOf :: K.TypeK -> ThunkType
+thunkTypeOf (K.ContK ss) = ThunkType (map sortOf ss)
+thunkTypeOf (K.FunK t s) = ThunkType [sortOf t, sortOf (K.ContK [s])]
+thunkTypeOf _ = error "this type is not a closure"
+
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
 data TermC
@@ -105,7 +118,7 @@ data TermC
   | JumpC Name [Name] -- k x...
   | CallC Name Name Name -- f x k
   | HaltC Name
-  | CaseC Name (Name, Sort) (Name, Sort) -- case x of k1 | k2
+  | CaseC Name (Name, ThunkType) (Name, ThunkType) -- case x of k1 | k2
 
 data ArithC
   = AddC Name Name
@@ -143,6 +156,7 @@ data ValueC
   | InrC Name
   | NilC
   | IntC Int
+  | BoolC Bool
 
 
 newtype FieldsFor = FieldsFor { runFieldsFor :: Map Name Sort -> Set (Name, Sort) }
@@ -186,6 +200,7 @@ fieldsForArith (MulK x y) = unitField (tmVar x) <> unitField (tmVar y)
 
 fieldsForValue :: ValueK -> FieldsFor
 fieldsForValue (IntValK _) = mempty
+fieldsForValue (BoolValK _) = mempty
 fieldsForValue NilK = mempty
 fieldsForValue (PairK x y) = unitField (tmVar x) <> unitField (tmVar y)
 fieldsForValue (InlK x) = unitField (tmVar x)
@@ -246,7 +261,8 @@ cconv (LetContK ks e) = LetContC <$> local extendGroup (traverse ann ks) <*> loc
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f x k) = pure $ CallC (tmVar f) (tmVar x) (coVar k)
-cconv (CaseK x k1 t k2 s) = pure $ CaseC (tmVar x) (coVar k1, sortOf t) (coVar k2, sortOf s)
+cconv (CaseK x k1 s1 k2 s2) =
+  pure $ CaseC (tmVar x) (coVar k1, thunkTypeOf s1) (coVar k2, thunkTypeOf s2)
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetIsZeroK x y e) = LetIsZeroC (tmVar x) (tmVar y) <$> cconv e
@@ -257,6 +273,7 @@ cconvValue :: ValueK -> ValueC
 cconvValue NilK = NilC
 cconvValue (PairK x y) = PairC (tmVar x) (tmVar y)
 cconvValue (IntValK i) = IntC i
+cconvValue (BoolValK b) = BoolC b
 cconvValue (InlK x) = InlC (tmVar x)
 cconvValue (InrK y) = InrC (tmVar y)
 
@@ -306,6 +323,7 @@ pprintValue :: ValueC -> String
 pprintValue NilC = "()"
 pprintValue (PairC x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntC i) = show i
+pprintValue (BoolC b) = if b then "true" else "false"
 pprintValue (InlC x) = "inl " ++ show x
 pprintValue (InrC y) = "inr " ++ show y
 

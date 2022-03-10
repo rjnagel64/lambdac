@@ -185,6 +185,11 @@ emitEnvTrace ns (EnvDecl fs) =
 -- pointer in the generic closure value, I can have `struct $(declEnvName ns)
 -- *env` directly, instead of needing `env` and `envp`.)
 emitClosureCode :: DeclNames -> [PlaceName] -> TermH -> [String]
+emitClosureCode ns [] e =
+  ["void " ++ declCodeName ns ++ "(void *envp) {"
+  ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
+  emitClosureBody e ++
+  ["}"]
 emitClosureCode ns xs e =
   ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitParameterList xs ++ ") {"
   ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
@@ -223,7 +228,7 @@ emitSuspend cl xs = "    " ++ method ++ "(" ++ intercalate ", " args ++ ");"
     method = thunkSuspendName (namesForThunk (ThunkType (map snd xs)))
     args = emitName cl : map (emitName . fst) xs
 
-emitCase :: Name -> [(Name, Sort)] -> [String]
+emitCase :: Name -> [(Name, ThunkType)] -> [String]
 emitCase x ks =
   ["    switch (" ++ emitName x ++ "->words[0]) {"] ++
   concatMap emitCaseBranch (zip [0..] ks) ++
@@ -231,16 +236,26 @@ emitCase x ks =
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    emitCaseBranch :: (Int, (Name, Sort)) -> [String]
-    emitCaseBranch (i, (k, s)) =
-      let method = thunkSuspendName (namesForThunk (ThunkType [s])) in
-      let args = [emitName k, asSort s (emitName x ++ "->words[1]")] in
-      ["    case " ++ show i ++ ":"
-      ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
-      ,"        break;"]
+    emitCaseBranch :: (Int, (Name, ThunkType)) -> [String]
+    emitCaseBranch (i, (k, t)) = case t of 
+      ThunkType [] ->
+        let method = thunkSuspendName (namesForThunk t) in
+        let args = [emitName k] in
+        ["    case " ++ show i ++ ":"
+        ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
+        ,"        break;"]
+      ThunkType [s] -> 
+        let method = thunkSuspendName (namesForThunk t) in
+        let args = [emitName k, asSort s (emitName x ++ "->words[1]")] in
+        ["    case " ++ show i ++ ":"
+        ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
+        ,"        break;"]
+      ThunkType _ -> error "multi-argument case branches not yet supported."
 
 emitValueAlloc :: ValueH -> String
 emitValueAlloc (IntH i) = "allocate_int32(" ++ show i ++ ")"
+emitValueAlloc (BoolH True) = "allocate_true()"
+emitValueAlloc (BoolH False) = "allocate_false()"
 emitValueAlloc NilH = "allocate_nil()"
 emitValueAlloc (PairH y z) = "allocate_pair(" ++ emitName y ++ ", " ++ emitName z ++ ")"
 emitValueAlloc (InlH y) = "allocate_inl(" ++ emitName y ++ ")"

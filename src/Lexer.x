@@ -65,6 +65,7 @@ tokens :-
   "then" { tok TokThen }
   "else" { tok TokElse }
   "unit" { tok TokUnit }
+  "bool" { tok TokBool }
   "int" { tok TokInt }
   "forall" { tok TokForall }
 
@@ -135,6 +136,7 @@ data Token
 
   | TokUnit Loc
   | TokInt Loc
+  | TokBool Loc
   | TokForall Loc
   deriving (Show)
 
@@ -175,6 +177,7 @@ instance Located Token where
   loc (TokElse l) = l
   loc (TokUnit l) = l
   loc (TokInt l) = l
+  loc (TokBool l) = l
   loc (TokForall l) = l
 
 -- | Lex a string.

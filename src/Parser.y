@@ -51,6 +51,7 @@ import Source
   'else' { TokElse _ }
   'unit' { TokUnit _ }
   'int' { TokInt _ }
+  'bool' { TokBool _ }
   'forall' { TokForall _ }
 
   ID { TokID _ _ }
@@ -58,7 +59,7 @@ import Source
 
 -- Precedence goes here, low to high
 
-%right '->' 'in'
+%right '->' 'in' 'else'
 %left '+' '-'
 %left '*'
 
@@ -71,6 +72,7 @@ Term :: { Term }
      | 'let' FunBinds 'in' Term { TmRecFun $2 $4 }
      | 'case' Term 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
        { TmCase $2 (var $7, $9, $12) (var $16, $18, $21) }
+     | 'if' Term 'then' Term 'else' Term { TmIf $2 $4 $6 }
 
      | Term '+' Term { TmAdd $1 $3 }
      | Term '-' Term { TmSub $1 $3 }
@@ -92,6 +94,8 @@ ATerm :: { Term }
      | '(' Term ',' Term ')' { TmPair $2 $4 }
      | ID { TmVarOcc (var $1) }
      | INT { TmInt (int $1) }
+     | 'true' { TmBool True }
+     | 'false' { TmBool False }
 
 FunBinds :: { [TmFun] }
          : FunBind { [$1] }
@@ -109,6 +113,7 @@ AType :: { Type }
       : '(' Type ')' { $2 }
       | 'unit' { TyUnit }
       | 'int' { TyInt }
+      | 'bool' { TyBool }
       | ID { TyVarOcc (tvar $1) }
 
 {

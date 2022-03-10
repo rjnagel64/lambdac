@@ -42,7 +42,7 @@ import Data.Traversable (for, mapAccumL)
 import Data.List (intercalate)
 
 import qualified CC as C
-import CC (TermC(..), ValueC(..), ArithC(..), Sort(..))
+import CC (TermC(..), ValueC(..), ArithC(..), Sort(..), ThunkType(..))
 
 -- This is only for free occurrences? Binders use a different type for names? Yeah.
 -- LocalName is for 'x'
@@ -79,13 +79,6 @@ data ClosureDecl
 
 newtype EnvDecl = EnvDecl [FieldName]
 
--- | Each type of closure (e.g., one boxed argument, one unboxed argument and
--- one continuation, etc.) requires a different type of thunk when that closure
--- is opened. A thunk type specifies what arguments have been provided to the
--- closure.
-newtype ThunkType = ThunkType [Sort]
-  deriving (Eq, Ord)
-
 data TermH
   = LetValH PlaceName ValueH TermH
   | LetPrimH PlaceName PrimOp TermH
@@ -95,7 +88,7 @@ data TermH
   | LetSndH PlaceName Name TermH
   | HaltH Name
   | OpenH Name [(Name, Sort)] -- Open a closure, by providing a list of arguments and their sorts.
-  | CaseH Name (Name, Sort) (Name, Sort)
+  | CaseH Name (Name, ThunkType) (Name, ThunkType)
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
@@ -106,6 +99,7 @@ newtype EnvAlloc = EnvAlloc [(FieldName, Name)]
 
 data ValueH
   = IntH Int32
+  | BoolH Bool
   | PairH Name Name
   | InlH Name
   | InrH Name
@@ -247,6 +241,7 @@ hoistValue (InlC x) = InlH <$> hoistVarOcc x
 hoistValue (InrC x) = InrH <$> hoistVarOcc x
 hoistValue NilC = pure NilH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
+hoistValue (BoolC b) = pure (BoolH b)
 
 hoistArith :: ArithC -> HoistM PrimOp
 hoistArith (AddC x y) = PrimAddInt32 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -335,7 +330,7 @@ indent n s = replicate n ' ' ++ s
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH x) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (OpenH c xs) = indent n $ show c ++ " " ++ intercalate " " (map (show . fst) xs) ++ ";\n"
-pprintTerm n (CaseH x k1 k2) =
+pprintTerm n (CaseH x (k1, _) (k2, _)) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
@@ -352,6 +347,7 @@ pprintValue :: ValueH -> String
 pprintValue NilH = "()"
 pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntH i) = show i
+pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (InlH x) = "inl " ++ show x
 pprintValue (InrH y) = "inr " ++ show y
 

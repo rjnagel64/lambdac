@@ -60,6 +60,8 @@ instance Show CoVar where
 -- CPS terms are basically (named, parametrized) basic blocks: a list of
 -- assignments terminated by a control flow transfer.
 --
+-- (Actually, I think this IR is technically or nearly in ANF)
+--
 -- TODO: Add type annotations to binders. (And maybe more general annotations?)
 -- (Or more general annotations. I want to know how many occurrences there are
 -- of each binder, for inlining and DCE.)
@@ -86,7 +88,7 @@ data TermK
   | JumpK CoVar [TmVar]
   -- f x k, call f(x, k)
   | CallK TmVar TmVar CoVar
-  -- case x of k1 : s1 -> 0 | k2 : s2 -> 0, branch
+  -- case x of k1 : s1 | k2 : s2, branch
   | CaseK TmVar CoVar TypeK CoVar TypeK
   -- halt x
   | HaltK TmVar
@@ -106,6 +108,7 @@ data ValueK
   | InlK TmVar
   | InrK TmVar
   | IntValK Int
+  | BoolValK Bool
 
 data ArithK
   = AddK TmVar TmVar
@@ -117,6 +120,8 @@ data TypeK
   = UnitK
   -- int
   | IntK
+  -- bool
+  | BoolK
   -- σ × τ
   | ProdK TypeK TypeK
   -- σ + τ
@@ -131,6 +136,7 @@ data TypeK
 cpsType :: S.Type -> TypeK
 cpsType S.TyUnit = UnitK
 cpsType S.TyInt = IntK
+cpsType S.TyBool = BoolK
 cpsType (S.TySum a b) = SumK (cpsType a) (cpsType b)
 cpsType (S.TyProd a b) = ProdK (cpsType a) (cpsType b)
 cpsType (S.TyArr a b) = FunK (cpsType a) (cpsType b)
@@ -212,8 +218,30 @@ cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
                 LetContK [ContDef j [(x, s')] e'] $
                   LetContK [ContDef k1 [(var xl, tl')] el'] $
                     LetContK [ContDef k2 [(var xr, tr')] er'] $
-                      CaseK z k1 tl' k2 tr'
+                      CaseK z k1 (ContK [tl']) k2 (ContK [tr'])
             pure (res, s')
+cps env (TmIf e et ef) k =
+  cps env e $ \z _t -> -- t =~= BoolK
+    freshCo "j" $ \j ->
+      freshTm "x" $ \x ->
+        freshCo "k1" $ \k1 ->
+          freshCo "k2" $ \k2 -> do
+            (et', st') <- cpsTail env et j
+            (ef', sf') <- cpsTail env ef j
+            let s' = fst (st', sf')
+            (e', _t') <- k x s'
+            let
+              res =
+                LetContK [ContDef j [(x, s')] e'] $
+                  LetContK [ContDef k1 [] et'] $
+                    LetContK [ContDef k2 [] ef'] $
+                      CaseK z k1 (ContK []) k2 (ContK [])
+            pure (res, s')
+cps _env (TmBool b) k =
+  freshTm "x" $ \x -> do
+    (e', t') <- k x BoolK
+    let res = LetValK x BoolK (BoolValK b) e'
+    pure (res, t')
 cps env (TmPair e1 e2) k =
   cps env e1 $ \v1 t1 ->
     cps env e2 $ \v2 t2 ->
@@ -415,11 +443,27 @@ cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
           res =
             LetContK [ContDef k1 [(var xl, tl')] el'] $
               LetContK [ContDef k2 [(var xr, tr')] er'] $
-                CaseK z k1 tl' k2 tr'
+                CaseK z k1 (ContK [tl']) k2 (ContK [tr'])
         -- both branches have same type, so this is valid.
         -- (Alternatively, put `returns s` on Source.TmCase)
         let s' = fst (sl', sr')
         pure (res, s')
+cpsTail env (TmIf e et ef) k =
+  cps env e $ \z _t -> do
+    freshCo "k1" $ \k1 ->
+      freshCo "k2" $ \k2 -> do
+        (et', st') <- cpsTail env et k
+        (ef', sf') <- cpsTail env ef k
+        let s' = fst (st', sf')
+        let
+          res =
+            LetContK [ContDef k1 [] et'] $
+              LetContK [ContDef k2 [] ef'] $
+                CaseK z k1 (ContK []) k2 (ContK [])
+        pure (res, s')
+cpsTail _env (TmBool b) k =
+  freshTm "x" $ \x ->
+    pure (LetValK x BoolK (BoolValK b) (JumpK k [x]), BoolK)
 
 
 cpsMain :: Term -> (TermK, TypeK)
@@ -479,6 +523,7 @@ pprintValue :: ValueK -> String
 pprintValue NilK = "()"
 pprintValue (PairK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntValK i) = show i
+pprintValue (BoolValK b) = if b then "true" else "false"
 pprintValue (InlK x) = "inl " ++ show x
 pprintValue (InrK y) = "inr " ++ show y
 
@@ -493,10 +538,11 @@ pprintFunDef n (FunDef f x t k s e) =
 
 pprintContDef :: Int -> ContDef -> String
 pprintContDef n (ContDef k xs e) =
-  indent n (show k ++ " " ++ intercalate " " (map pprintTmParam xs) ++ " =\n") ++ pprintTerm (n+2) e
+  indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
+    params = "(" ++ intercalate ", " (map pprintTmParam xs) ++ ")"
     pprintTmParam :: (TmVar, TypeK) -> String
-    pprintTmParam (x, t) = pprintParam (show x) t
+    pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
 
 pprintParam :: String -> TypeK -> String
 pprintParam x t = "(" ++ x ++ " : " ++ pprintType t ++ ")"
@@ -509,6 +555,7 @@ pprintType (ProdK t s) = pprintType t ++ " * " ++ pprintAType s
 pprintType (SumK t s) = pprintType t ++ " + " ++ pprintAType s
 pprintType IntK = "int"
 pprintType UnitK = "unit"
+pprintType BoolK = "bool"
 
 pprintAType :: TypeK -> String
 pprintAType IntK = "int"
