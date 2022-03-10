@@ -8,4 +8,4 @@ let
       }
     };
 in
-fib 10
+fib 12

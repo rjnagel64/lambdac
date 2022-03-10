@@ -5,6 +5,7 @@ module Main where
 import Control.Monad (when)
 import System.Exit
 import Options.Applicative
+import System.Process.Typed
 
 import qualified Lexer as L
 import qualified Parser as P
@@ -81,5 +82,13 @@ main = do
     putStrLn obj
 
   -- TODO: Name output file based on input file
-  -- TODO: Generate Makefile fragment? Yes. Gen-C each module, Gen-makefile, make -f $exe.make $exe
   writeFile "out.c" obj
+
+  -- TODO: Name executable based on input file
+  -- TODO: Flag to skip invoking clang, merely output the C code
+  -- (e.g., to debug code-gen errors/warnings)
+  let compileProcess = proc "clang" ["-I./rts/", "-L./rts/", "-lrts", "out.c", "-o", "demo"]
+  exitCode <- runProcess compileProcess
+  case exitCode of
+    ExitSuccess -> pure ()
+    ExitFailure i -> putStrLn ("error: Compilation failed with exit code " ++ show i) >> exitFailure
