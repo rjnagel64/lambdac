@@ -42,7 +42,7 @@ import Data.Traversable (for, mapAccumL)
 import Data.List (intercalate)
 
 import qualified CC as C
-import CC (TermC(..), ValueC(..), ArithC(..), Sort(..), ThunkType(..))
+import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..), ThunkType(..))
 
 -- This is only for free occurrences? Binders use a different type for names? Yeah.
 -- LocalName is for 'x'
@@ -110,6 +110,12 @@ data PrimOp
   | PrimSubInt32 Name Name
   | PrimMulInt32 Name Name
   | PrimIsZero32 Name
+  | PrimEqInt32 Name Name
+  | PrimNeInt32 Name Name
+  | PrimLtInt32 Name Name
+  | PrimLeInt32 Name Name
+  | PrimGtInt32 Name Name
+  | PrimGeInt32 Name Name
 
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
@@ -174,6 +180,10 @@ hoist (LetArithC x op e) = do
   op' <- hoistArith op
   (x', e') <- withPlace x Value $ hoist e
   pure (LetPrimH x' op' e')
+hoist (LetCompareC x cmp e) = do
+  cmp' <- hoistCmp cmp
+  (x', e') <- withPlace x Value $ hoist e
+  pure (LetPrimH x' cmp' e')
 hoist (LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
   ds' <- traverse hoistFunClosure fdecls
@@ -247,6 +257,14 @@ hoistArith :: ArithC -> HoistM PrimOp
 hoistArith (AddC x y) = PrimAddInt32 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistArith (SubC x y) = PrimSubInt32 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistArith (MulC x y) = PrimMulInt32 <$> hoistVarOcc x <*> hoistVarOcc y
+
+hoistCmp :: CmpC -> HoistM PrimOp
+hoistCmp (EqC x y) = PrimEqInt32 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (NeC x y) = PrimNeInt32 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (LtC x y) = PrimLtInt32 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (LeC x y) = PrimLeInt32 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (GtC x y) = PrimGtInt32 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (GeC x y) = PrimGeInt32 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
@@ -356,6 +374,12 @@ pprintPrim (PrimAddInt32 x y) = "prim_addint32(" ++ show x ++ ", " ++ show y ++ 
 pprintPrim (PrimSubInt32 x y) = "prim_subint32(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimMulInt32 x y) = "prim_mulint32(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimIsZero32 x) = "prim_iszero32(" ++ show x ++ ")"
+pprintPrim (PrimEqInt32 x y) = "prim_eqint32(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimNeInt32 x y) = "prim_neint32(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimLtInt32 x y) = "prim_ltint32(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimLeInt32 x y) = "prim_leint32(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimGtInt32 x y) = "prim_gtint32(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimGeInt32 x y) = "prim_geint32(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintPlace :: PlaceName -> String
 pprintPlace (PlaceName s x) = show s ++ " " ++ x

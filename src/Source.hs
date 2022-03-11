@@ -1,6 +1,7 @@
 
 module Source
   ( Term(..)
+  , TmCmp(..)
   , TmVar(..)
   , TmFun(..)
   , Type(..)
@@ -59,6 +60,16 @@ data Term
   | TmBool Bool
   -- if c then t else f
   | TmIf Term Term Term
+  -- e1 `cmp` e2
+  | TmCmp Term TmCmp Term
+
+data TmCmp
+  = TmCmpEq
+  | TmCmpNe
+  | TmCmpLt
+  | TmCmpLe
+  | TmCmpGt
+  | TmCmpGe
 
 
 -- @f (x : t) : t' = e@, used for recursion.

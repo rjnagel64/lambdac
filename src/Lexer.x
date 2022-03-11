@@ -36,7 +36,13 @@ tokens :-
   ":" { tok TokColon }
   "." { tok TokDot }
   "," { tok TokComma }
+  "==" { tok TokDEquals }
+  "!=" { tok TokNEquals }
   "=" { tok TokEquals }
+  "<=" { tok TokLe }
+  "<" { tok TokLAngle }
+  ">=" { tok TokGe }
+  ">" { tok TokRAngle }
   "@" { tok TokAt }
   "*" { tok TokStar }
   "+" { tok TokPlus }
@@ -46,8 +52,6 @@ tokens :-
   ")" { tok TokRParen }
   "{" { tok TokLBrace }
   "}" { tok TokRBrace }
-  "<" { tok TokLAngle }
-  ">" { tok TokRAngle }
 
   "fun" { tok TokFun }
   "let" { tok TokLet }
@@ -98,7 +102,13 @@ data Token
   | TokColon Loc
   | TokDot Loc
   | TokComma Loc
+  | TokDEquals Loc
+  | TokNEquals Loc
   | TokEquals Loc
+  | TokLe Loc
+  | TokLAngle Loc
+  | TokGe Loc
+  | TokRAngle Loc
   | TokAt Loc
   | TokStar Loc
   | TokPlus Loc
@@ -108,8 +118,6 @@ data Token
   | TokRParen Loc
   | TokLBrace Loc
   | TokRBrace Loc
-  | TokLAngle Loc
-  | TokRAngle Loc
 
   | TokID Loc String
   | TokINT Loc String
@@ -147,15 +155,19 @@ instance Located Token where
   loc (TokColon l) = l
   loc (TokDot l) = l
   loc (TokComma l) = l
+  loc (TokDEquals l) = l
+  loc (TokNEquals l) = l
   loc (TokEquals l) = l
+  loc (TokLe l) = l
+  loc (TokGe l) = l
+  loc (TokLAngle l) = l
+  loc (TokRAngle l) = l
   loc (TokAt l) = l
   loc (TokStar l) = l
   loc (TokLParen l) = l
   loc (TokRParen l) = l
   loc (TokLBrace l) = l
   loc (TokRBrace l) = l
-  loc (TokLAngle l) = l
-  loc (TokRAngle l) = l
   loc (TokPlus l) = l
   loc (TokMinus l) = l
   loc (TokID l _) = l

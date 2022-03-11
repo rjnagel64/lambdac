@@ -13,6 +13,7 @@ module CC
   , Name(..)
   , ValueC(..)
   , ArithC(..)
+  , CmpC(..)
   , Sort(..)
   , ThunkType(..)
 
@@ -30,7 +31,7 @@ import Control.Monad.Reader
 import Data.List (intercalate, partition)
 
 import qualified CPS as K
-import CPS (TermK(..), FunDef(..), ContDef(..), ValueK(..), ArithK(..))
+import CPS (TermK(..), FunDef(..), ContDef(..), ValueK(..), ArithK(..), CmpK(..))
 
 -- Closure conversion:
 -- https://gist.github.com/jozefg/652f1d7407b7f0266ae9
@@ -111,6 +112,7 @@ data TermC
   | LetFstC (Name, Sort) Name TermC -- let x = fst y in e, projection
   | LetSndC (Name, Sort) Name TermC
   | LetArithC Name ArithC TermC
+  | LetCompareC Name CmpC TermC
   | LetIsZeroC Name Name TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
@@ -124,6 +126,14 @@ data ArithC
   = AddC Name Name
   | SubC Name Name
   | MulC Name Name
+
+data CmpC
+  = EqC Name Name
+  | NeC Name Name
+  | LtC Name Name
+  | LeC Name Name
+  | GtC Name Name
+  | GeC Name Name
 
 -- | @f {x+} y k = e@
 -- Closures capture two sets of names: those from outer scopes, and those from
@@ -191,12 +201,21 @@ fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortO
 fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
+fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetIsZeroK x y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
 
 fieldsForArith :: ArithK -> FieldsFor
 fieldsForArith (AddK x y) = unitField (tmVar x) <> unitField (tmVar y)
 fieldsForArith (SubK x y) = unitField (tmVar x) <> unitField (tmVar y)
 fieldsForArith (MulK x y) = unitField (tmVar x) <> unitField (tmVar y)
+
+fieldsForCmp :: CmpK -> FieldsFor
+fieldsForCmp (CmpEqK x y) = unitField (tmVar x) <> unitField (tmVar y)
+fieldsForCmp (CmpNeK x y) = unitField (tmVar x) <> unitField (tmVar y)
+fieldsForCmp (CmpLtK x y) = unitField (tmVar x) <> unitField (tmVar y)
+fieldsForCmp (CmpLeK x y) = unitField (tmVar x) <> unitField (tmVar y)
+fieldsForCmp (CmpGtK x y) = unitField (tmVar x) <> unitField (tmVar y)
+fieldsForCmp (CmpGeK x y) = unitField (tmVar x) <> unitField (tmVar y)
 
 fieldsForValue :: ValueK -> FieldsFor
 fieldsForValue (IntValK _) = mempty
@@ -268,6 +287,7 @@ cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetIsZeroK x y e) = LetIsZeroC (tmVar x) (tmVar y) <$> cconv e
 cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> cconv e
 cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
+cconv (LetCompareK x cmp e) = LetCompareC (tmVar x) (cconvCmp cmp) <$> cconv e
 
 cconvValue :: ValueK -> ValueC
 cconvValue NilK = NilC
@@ -281,6 +301,14 @@ cconvArith :: ArithK -> ArithC
 cconvArith (AddK x y) = AddC (tmVar x) (tmVar y)
 cconvArith (SubK x y) = SubC (tmVar x) (tmVar y)
 cconvArith (MulK x y) = MulC (tmVar x) (tmVar y)
+
+cconvCmp :: CmpK -> CmpC
+cconvCmp (CmpEqK x y) = EqC (tmVar x) (tmVar y)
+cconvCmp (CmpNeK x y) = NeC (tmVar x) (tmVar y)
+cconvCmp (CmpLtK x y) = LtC (tmVar x) (tmVar y)
+cconvCmp (CmpLeK x y) = LeC (tmVar x) (tmVar y)
+cconvCmp (CmpGtK x y) = GtC (tmVar x) (tmVar y)
+cconvCmp (CmpGeK x y) = GeC (tmVar x) (tmVar y)
 
 -- What does well-typed closure conversion look like?
 -- How are the values in a closure bound?
@@ -315,6 +343,8 @@ pprintTerm n (CaseC x (k1, _) (k2, _)) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetArithC x op e) =
   indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetCompareC x cmp e) =
+  indent n ("let " ++ show x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 
 pprintPlace :: (Name, Sort) -> String
 pprintPlace (x, s) = show s ++ " " ++ show x
@@ -331,6 +361,14 @@ pprintArith :: ArithC -> String
 pprintArith (AddC x y) = show x ++ " + " ++ show y
 pprintArith (SubC x y) = show x ++ " - " ++ show y
 pprintArith (MulC x y) = show x ++ " * " ++ show y
+
+pprintCompare :: CmpC -> String
+pprintCompare (EqC x y) = show x ++ " == " ++ show y
+pprintCompare (NeC x y) = show x ++ " != " ++ show y
+pprintCompare (LtC x y) = show x ++ " < " ++ show y
+pprintCompare (LeC x y) = show x ++ " <= " ++ show y
+pprintCompare (GtC x y) = show x ++ " > " ++ show y
+pprintCompare (GeC x y) = show x ++ " >= " ++ show y
 
 pprintClosureDef :: Int -> FunClosureDef -> String
 pprintClosureDef n (FunClosureDef f free rec x k e) =

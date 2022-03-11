@@ -266,6 +266,12 @@ emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName x ++ ", " ++ emitNa
 emitPrimOp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 emitPrimOp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 emitPrimOp (PrimIsZero32 x) = "prim_iszero32(" ++ emitName x ++ ")"
+emitPrimOp (PrimEqInt32 x y) = "prim_eqint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
+emitPrimOp (PrimNeInt32 x y) = "prim_neint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
+emitPrimOp (PrimLtInt32 x y) = "prim_ltint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
+emitPrimOp (PrimLeInt32 x y) = "prim_leint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
+emitPrimOp (PrimGtInt32 x y) = "prim_gtint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
+emitPrimOp (PrimGeInt32 x y) = "prim_geint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 
 asSort :: Sort -> String -> String
 asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"

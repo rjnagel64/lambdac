@@ -19,7 +19,13 @@ import Source
 %token
   '\\' { TokLambda _ }
   '->' { TokArrow _ }
+  '==' { TokDEquals _ }
+  '!=' { TokNEquals _ }
   '=' { TokEquals _ }
+  '<=' { TokLe _ }
+  '<' { TokLAngle _ }
+  '>=' { TokGe _ }
+  '>' { TokRAngle _ }
   '@' { TokAt _ }
   '*' { TokStar _ }
   '+' { TokPlus _ }
@@ -32,8 +38,6 @@ import Source
   ')' { TokRParen _ }
   '{' { TokLBrace _ }
   '}' { TokRBrace _ }
-  '<' { TokLAngle _ }
-  '>' { TokRAngle _ }
   'fun' { TokFun _ }
   'case' { TokCase _ }
   'of' { TokOf _ }
@@ -60,6 +64,7 @@ import Source
 -- Precedence goes here, low to high
 
 %right '->' 'in' 'else'
+%nonassoc '==' '!=' '<' '<=' '>' '>='
 %left '+' '-'
 %left '*'
 
@@ -77,6 +82,12 @@ Term :: { Term }
      | Term '+' Term { TmAdd $1 $3 }
      | Term '-' Term { TmSub $1 $3 }
      | Term '*' Term { TmMul $1 $3 }
+     | Term '==' Term { TmCmp $1 TmCmpEq $3 }
+     | Term '!=' Term { TmCmp $1 TmCmpNe $3 }
+     | Term '<' Term { TmCmp $1 TmCmpLt $3 }
+     | Term '<=' Term { TmCmp $1 TmCmpLe $3 }
+     | Term '>' Term { TmCmp $1 TmCmpGt $3 }
+     | Term '>=' Term { TmCmp $1 TmCmpGe $3 }
 
      | 'inl' '@' AType '@' AType ATerm { TmInl $3 $5 $6 }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }

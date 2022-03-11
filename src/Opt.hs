@@ -206,3 +206,15 @@ sizeK (LetValK x _ v e) = 1 + sizeK e
 -- (I don't think I need this, because I can do closures+function pointers)
 
 
+-- -- | Perform obvious beta-reductions, and then discard unused bindings
+-- -- afterward.
+-- simplify :: TermK -> TermK
+-- -- If there is a binding y := (z, w), substitute x := z in e
+-- simplify (LetFstK x t y e) = _
+-- -- Hmm. If case on bool, how do I rewrite?
+-- -- (I erased the distinction between if and case, but I think I still need it
+-- -- for the simplification here, in order to give the right number of
+-- -- arguments.)
+-- -- (Alternatively, I could make booleans properly a sum type, with n = 0 fields
+-- -- in each branch)
+-- simplify (CaseK x k1 s1 k2 s2) = _

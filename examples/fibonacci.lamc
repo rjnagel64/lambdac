@@ -1,11 +1,5 @@
 let
   fun fib (n : int) : int =
-    case iszero n of {
-      inl (y : unit) -> 0;
-      inr (z : unit) -> case iszero (n - 1) of {
-        inl (y : unit) -> 1;
-        inr (w : unit) -> fib (n - 1) + fib (n - 2)
-      }
-    };
+    if n < 2 then n else fib (n - 1) + fib (n - 2);
 in
 fib 12

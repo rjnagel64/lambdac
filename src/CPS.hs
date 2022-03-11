@@ -7,6 +7,7 @@ module CPS
     , FunDef(..)
     , ContDef(..)
     , ArithK(..)
+    , CmpK(..)
     , ValueK(..)
 
     , TypeK(..)
@@ -22,7 +23,7 @@ import Data.List (intercalate)
 import Control.Monad.Reader
 
 import qualified Source as S
-import Source (Term(..), TmFun(..))
+import Source (Term(..), TmFun(..), TmCmp(..))
 
 -- call/cc: pass function return continuation to argument?
 -- what if call/cc in contdef? in let-binding?
@@ -77,6 +78,8 @@ data TermK
   | LetIsZeroK TmVar TmVar TermK
   -- let z = x + y in e
   | LetArithK TmVar ArithK TermK
+  -- let z = x `cmp` y in e 
+  | LetCompareK TmVar CmpK TermK
 
   -- let rec ks in e
   | LetContK [ContDef] TermK
@@ -114,6 +117,22 @@ data ArithK
   = AddK TmVar TmVar
   | SubK TmVar TmVar
   | MulK TmVar TmVar
+
+data CmpK
+  = CmpEqK TmVar TmVar
+  | CmpNeK TmVar TmVar
+  | CmpLtK TmVar TmVar
+  | CmpLeK TmVar TmVar
+  | CmpGtK TmVar TmVar
+  | CmpGeK TmVar TmVar
+
+makeCompare :: TmCmp -> TmVar -> TmVar -> CmpK
+makeCompare TmCmpEq x y = CmpEqK x y
+makeCompare TmCmpNe x y = CmpNeK x y
+makeCompare TmCmpLt x y = CmpLtK x y
+makeCompare TmCmpLe x y = CmpLeK x y
+makeCompare TmCmpGt x y = CmpGtK x y
+makeCompare TmCmpGe x y = CmpGeK x y
 
 data TypeK
   -- unit
@@ -305,6 +324,13 @@ cps env (TmMul e1 e2) k =
         (e', t') <- k z IntK
         let res = LetArithK z (MulK x y) e'
         pure (res, t')
+cps env (TmCmp e1 cmp e2) k =
+  cps env e1 $ \x _t1 ->
+    cps env e2 $ \y _t2 ->
+      freshTm "z" $ \z -> do
+        (e', t') <- k z BoolK
+        let res = LetCompareK z (makeCompare cmp x y) e'
+        pure (res, t')
 cps env (TmIsZero e) k =
   cps env e $ \v _t -> -- t =~= IntK
     freshTm "x" $ \x -> do
@@ -416,6 +442,12 @@ cpsTail env (TmMul e1 e2) k =
       freshTm "z" $ \z -> do
         let res = LetArithK z (MulK x y) (JumpK k [z])
         pure (res, IntK)
+cpsTail env (TmCmp e1 cmp e2) k =
+  cps env e1 $ \x _t1 -> -- t1 =~= IntK
+    cps env e2 $ \y _t2 -> -- t2 =~= IntK
+      freshTm "z" $ \z -> do
+        let res = LetCompareK z (makeCompare cmp x y) (JumpK k [z])
+        pure (res, BoolK)
 cpsTail env (TmIsZero e) k =
   cps env e $ \z _t -> -- t =~= IntK
     freshTm "x" $ \x -> do
@@ -518,6 +550,8 @@ pprintTerm n (LetIsZeroK x y e) =
   indent n ("let " ++ show x ++ " = iszero " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetArithK x op e) =
   indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetCompareK x cmp e) =
+  indent n ("let " ++ show x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 
 pprintValue :: ValueK -> String
 pprintValue NilK = "()"
@@ -531,6 +565,14 @@ pprintArith :: ArithK -> String
 pprintArith (AddK x y) = show x ++ " + " ++ show y
 pprintArith (SubK x y) = show x ++ " - " ++ show y
 pprintArith (MulK x y) = show x ++ " * " ++ show y
+
+pprintCompare :: CmpK -> String
+pprintCompare (CmpEqK x y) = show x ++ " == " ++ show y
+pprintCompare (CmpNeK x y) = show x ++ " != " ++ show y
+pprintCompare (CmpLtK x y) = show x ++ " < " ++ show y
+pprintCompare (CmpLeK x y) = show x ++ " <= " ++ show y
+pprintCompare (CmpGtK x y) = show x ++ " > " ++ show y
+pprintCompare (CmpGeK x y) = show x ++ " >= " ++ show y
 
 pprintFunDef :: Int -> FunDef -> String
 pprintFunDef n (FunDef f x t k s e) =
