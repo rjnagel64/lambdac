@@ -23,7 +23,7 @@ import Data.List (intercalate)
 import Control.Monad.Reader
 
 import qualified Source as S
-import Source (Term(..), TmFun(..), TmCmp(..))
+import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
 
 -- call/cc: pass function return continuation to argument?
 -- what if call/cc in contdef? in let-binding?
@@ -115,6 +115,11 @@ data ArithK
   = AddK TmVar TmVar
   | SubK TmVar TmVar
   | MulK TmVar TmVar
+
+makeArith :: TmArith -> TmVar -> TmVar -> ArithK
+makeArith TmArithAdd x y = AddK x y
+makeArith TmArithSub x y = SubK x y
+makeArith TmArithMul x y = MulK x y
 
 data CmpK
   = CmpEqK TmVar TmVar
@@ -306,26 +311,12 @@ cps env (TmLet x t e1 e2) k = do
     (e1', _t1') <- cpsTail env e1 j
     let res = LetContK [ContDef j [(var x, t')] e2'] e1'
     pure (res, t2')
-cps env (TmAdd e1 e2) k =
+cps env (TmArith e1 op e2) k =
   cps env e1 $ \x _t1 ->
     cps env e2 $ \y _t2 ->
       freshTm "z" $ \z -> do
         (e', t') <- k z IntK
-        let res = LetArithK z (AddK x y) e'
-        pure (res, t')
-cps env (TmSub e1 e2) k =
-  cps env e1 $ \x _t1 ->
-    cps env e2 $ \y _t2 ->
-      freshTm "z" $ \z -> do
-        (e', t') <- k z IntK
-        let res = LetArithK z (SubK x y) e'
-        pure (res, t')
-cps env (TmMul e1 e2) k =
-  cps env e1 $ \x _t1 ->
-    cps env e2 $ \y _t2 ->
-      freshTm "z" $ \z -> do
-        (e', t') <- k z IntK
-        let res = LetArithK z (MulK x y) e'
+        let res = LetArithK z (makeArith op x y) e'
         pure (res, t')
 cps env (TmCmp e1 cmp e2) k =
   cps env e1 $ \x _t1 ->
@@ -421,23 +412,11 @@ cpsTail _env (TmInt i) k =
   freshTm "x" $ \x -> do
     let res = LetValK x IntK (IntValK i) (JumpK k [x])
     pure (res, IntK)
-cpsTail env (TmAdd e1 e2) k =
+cpsTail env (TmArith e1 op e2) k =
   cps env e1 $ \x _t1 -> -- t1 =~= IntK
     cps env e2 $ \y _t2 -> -- t2 =~= IntK
       freshTm "z" $ \z -> do
-        let res = LetArithK z (AddK x y) (JumpK k [z])
-        pure (res, IntK)
-cpsTail env (TmSub e1 e2) k =
-  cps env e1 $ \x _t1 -> -- t1 =~= IntK
-    cps env e2 $ \y _t2 -> -- t2 =~= IntK
-      freshTm "z" $ \z -> do
-        let res = LetArithK z (SubK x y) (JumpK k [z])
-        pure (res, IntK)
-cpsTail env (TmMul e1 e2) k =
-  cps env e1 $ \x _t1 -> -- t1 =~= IntK
-    cps env e2 $ \y _t2 -> -- t2 =~= IntK
-      freshTm "z" $ \z -> do
-        let res = LetArithK z (MulK x y) (JumpK k [z])
+        let res = LetArithK z (makeArith op x y) (JumpK k [z])
         pure (res, IntK)
 cpsTail env (TmCmp e1 cmp e2) k =
   cps env e1 $ \x _t1 -> -- t1 =~= IntK

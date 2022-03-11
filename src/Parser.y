@@ -78,9 +78,9 @@ Term :: { Term }
        { TmCase $2 (var $7, $9, $12) (var $16, $18, $21) }
      | 'if' Term 'then' Term 'else' Term { TmIf $2 $4 $6 }
 
-     | Term '+' Term { TmAdd $1 $3 }
-     | Term '-' Term { TmSub $1 $3 }
-     | Term '*' Term { TmMul $1 $3 }
+     | Term '+' Term { TmArith $1 TmArithAdd $3 }
+     | Term '-' Term { TmArith $1 TmArithSub $3 }
+     | Term '*' Term { TmArith $1 TmArithMul $3 }
      | Term '==' Term { TmCmp $1 TmCmpEq $3 }
      | Term '!=' Term { TmCmp $1 TmCmpNe $3 }
      | Term '<' Term { TmCmp $1 TmCmpLt $3 }

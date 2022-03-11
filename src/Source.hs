@@ -1,6 +1,7 @@
 
 module Source
   ( Term(..)
+  , TmArith(..)
   , TmCmp(..)
   , TmVar(..)
   , TmFun(..)
@@ -48,18 +49,19 @@ data Term
   | TmNil
   -- 17
   | TmInt Int
-  -- e1 + e2
-  | TmAdd Term Term
-  -- e1 - e2
-  | TmSub Term Term
-  -- e1 * e2
-  | TmMul Term Term
   -- true, false
   | TmBool Bool
   -- if c then t else f
   | TmIf Term Term Term
+  -- e1 `op` e2
+  | TmArith Term TmArith Term
   -- e1 `cmp` e2
   | TmCmp Term TmCmp Term
+
+data TmArith
+  = TmArithAdd
+  | TmArithSub
+  | TmArithMul
 
 data TmCmp
   = TmCmpEq
