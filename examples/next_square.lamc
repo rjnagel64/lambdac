@@ -1,0 +1,8 @@
+let fun next_square (x : int) : int =
+  let fun go (y : int) : int =
+    let z : int = y * y in
+    if z >= x then z else go (y + 1);
+  in
+  go 0;
+in
+next_square 17
