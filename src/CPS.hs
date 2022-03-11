@@ -196,11 +196,11 @@ cps env (TmRecFun fs e) k = do
   let res = LetFunK fs' e'
   pure (res, t')
 cps env (TmApp e1 e2) k =
-  cps env e1 $ \ v1 t1 -> do
+  cps env e1 $ \v1 t1 -> do
     cps env e2 $ \v2 _t2 -> do
       s' <- case t1 of
         FunK _t2' s' -> pure s'
-        _ -> error "bad function type"
+        _ -> error ("bad function type: " ++ pprintType t1)
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
           (e', _t') <- k xv s'
@@ -429,7 +429,7 @@ cpsTail env (TmApp e1 e2) k =
     cps env e2 $ \x _t2 -> do
       s' <- case t1 of
         FunK _t2' s' -> pure s'
-        _ -> error "bad function type"
+        _ -> error ("bad function type: " ++ pprintType t1)
       let res = CallK f x k
       pure (res, s')
 cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =

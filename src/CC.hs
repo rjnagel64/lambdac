@@ -188,9 +188,11 @@ bindFields xs fs = FieldsFor $ \ctx ->
 
 
 fieldsFor :: TermK -> FieldsFor
-fieldsFor (LetFunK fs e) = foldMap fieldsForFunDef fs <> bindFields fs' (fieldsFor e)
+fieldsFor (LetFunK fs e) =
+  foldMap (bindFields fs' . fieldsForFunDef) fs <> bindFields fs' (fieldsFor e)
   where fs' = funDefNames fs
-fieldsFor (LetContK ks e) = foldMap fieldsForContDef ks <> bindFields ks' (fieldsFor e)
+fieldsFor (LetContK ks e) =
+  foldMap (bindFields ks' . fieldsForContDef) ks <> bindFields ks' (fieldsFor e)
   where ks' = contDefNames ks
 fieldsFor (HaltK x) = unitField (tmVar x)
 fieldsFor (JumpK k xs) = unitField (coVar k) <> foldMap (unitField . tmVar) xs
@@ -254,27 +256,16 @@ runConv :: ConvM a -> a
 runConv = flip runReader Map.empty . runConvM
 
 cconv :: TermK -> ConvM TermC
-cconv (LetFunK fs e) = LetFunC <$> local extendGroup (traverse ann fs) <*> local extendGroup (cconv e)
+cconv (LetFunK fs e) =
+  LetFunC <$> local extendGroup (traverse (cconvFunDef fs') fs) <*> local extendGroup (cconv e)
   where
     fs' = Set.fromList (fst <$> funDefNames fs)
     extendGroup ctx = foldr (uncurry Map.insert) ctx (funDefNames fs)
-    ann fun@(FunDef f x t k s e') = do
-      ctx <- ask
-      let extend ctx' = Map.insert (tmVar x) (sortOf t) $ Map.insert (coVar k) (sortOf s) $ ctx'
-      let fields = Set.toList $ runFieldsFor (fieldsForFunDef fun) (extend ctx)
-      let (free, rec) = markRec fs' fields
-      FunClosureDef (tmVar f) free rec (tmVar x, sortOf t) (coVar k, sortOf s) <$> local extend (cconv e')
-cconv (LetContK ks e) = LetContC <$> local extendGroup (traverse ann ks) <*> local extendGroup (cconv e)
+cconv (LetContK ks e) =
+  LetContC <$> local extendGroup (traverse (cconvContDef ks') ks) <*> local extendGroup (cconv e)
   where
     ks' = Set.fromList (fst <$> contDefNames ks)
     extendGroup ctx = foldr (uncurry Map.insert) ctx (contDefNames ks)
-    ann kont@(ContDef k xs e') = do
-      ctx <- ask
-      let binds = map (\ (x, t) -> (tmVar x, sortOf t)) xs
-      let extend ctx' = foldr (uncurry Map.insert) ctx' binds
-      let fields = runFieldsFor (fieldsForContDef kont) (extend ctx)
-      let (free, rec) = markRec ks' (Set.toList fields)
-      ContClosureDef (coVar k) free rec binds <$> local extend (cconv e')
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f x k) = pure $ CallC (tmVar f) (tmVar x) (coVar k)
@@ -285,6 +276,23 @@ cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> cconv e
 cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
 cconv (LetCompareK x cmp e) = LetCompareC (tmVar x) (cconvCmp cmp) <$> cconv e
+
+cconvFunDef :: Set Name -> FunDef -> ConvM FunClosureDef
+cconvFunDef fs fun@(FunDef f x t k s e) = do
+  let extend c = Map.insert (tmVar x) (sortOf t) $ Map.insert (coVar k) (sortOf s) $ c
+  fields <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
+  let (free, rec) = markRec fs (Set.toList fields)
+  e' <- local extend (cconv e)
+  pure (FunClosureDef (tmVar f) free rec (tmVar x, sortOf t) (coVar k, sortOf s) e')
+
+cconvContDef :: Set Name -> ContDef -> ConvM ContClosureDef
+cconvContDef ks kont@(ContDef k xs e) = do
+  let binds = map (\ (x, t) -> (tmVar x, sortOf t)) xs
+  let extend ctx' = foldr (uncurry Map.insert) ctx' binds
+  fields <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
+  let (free, rec) = markRec ks (Set.toList fields)
+  e' <- local extend (cconv e)
+  pure (ContClosureDef (coVar k) free rec binds e')
 
 cconvValue :: ValueK -> ValueC
 cconvValue NilK = NilC
