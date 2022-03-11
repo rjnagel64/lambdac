@@ -74,8 +74,6 @@ data TermK
   | LetFstK TmVar TypeK TmVar TermK
   -- let x:t = snd y in e
   | LetSndK TmVar TypeK TmVar TermK
-  -- let x = iszero y in e
-  | LetIsZeroK TmVar TmVar TermK
   -- let z = x + y in e
   | LetArithK TmVar ArithK TermK
   -- let z = x `cmp` y in e 
@@ -336,12 +334,6 @@ cps env (TmCmp e1 cmp e2) k =
         (e', t') <- k z BoolK
         let res = LetCompareK z (makeCompare cmp x y) e'
         pure (res, t')
-cps env (TmIsZero e) k =
-  cps env e $ \v _t -> -- t =~= IntK
-    freshTm "x" $ \x -> do
-      (e', t') <- k x (SumK UnitK UnitK)
-      let res = LetIsZeroK x v e'
-      pure (res, t')
 
 cpsFun :: Map S.TmVar TypeK -> TmFun -> FreshM FunDef
 cpsFun env (TmFun f x t s e) =
@@ -453,11 +445,6 @@ cpsTail env (TmCmp e1 cmp e2) k =
       freshTm "z" $ \z -> do
         let res = LetCompareK z (makeCompare cmp x y) (JumpK k [z])
         pure (res, BoolK)
-cpsTail env (TmIsZero e) k =
-  cps env e $ \z _t -> -- t =~= IntK
-    freshTm "x" $ \x -> do
-      let res = LetIsZeroK x z (JumpK k [x])
-      pure (res, SumK UnitK UnitK)
 cpsTail env (TmApp e1 e2) k =
   cps env e1 $ \f t1 -> -- t1 =~= t2 -> s
     cps env e2 $ \x _t2 -> do
@@ -556,8 +543,6 @@ pprintTerm n (LetFstK x t y e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndK x t y e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetIsZeroK x y e) =
-  indent n ("let " ++ show x ++ " = iszero " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetArithK x op e) =
   indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareK x cmp e) =

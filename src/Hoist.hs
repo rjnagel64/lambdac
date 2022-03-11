@@ -109,7 +109,6 @@ data PrimOp
   = PrimAddInt32 Name Name
   | PrimSubInt32 Name Name
   | PrimMulInt32 Name Name
-  | PrimIsZero32 Name
   | PrimEqInt32 Name Name
   | PrimNeInt32 Name Name
   | PrimLtInt32 Name Name
@@ -172,10 +171,6 @@ hoist (LetSndC (x, s) y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x s $ hoist e
   pure (LetSndH x' y' e')
-hoist (LetIsZeroC x y e) = do
-  y' <- hoistVarOcc y
-  (x', e') <- withPlace x Value $ hoist e
-  pure (LetPrimH x' (PrimIsZero32 y') e')
 hoist (LetArithC x op e) = do
   op' <- hoistArith op
   (x', e') <- withPlace x Value $ hoist e
@@ -373,7 +368,6 @@ pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt32 x y) = "prim_addint32(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimSubInt32 x y) = "prim_subint32(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimMulInt32 x y) = "prim_mulint32(" ++ show x ++ ", " ++ show y ++ ")"
-pprintPrim (PrimIsZero32 x) = "prim_iszero32(" ++ show x ++ ")"
 pprintPrim (PrimEqInt32 x y) = "prim_eqint32(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimNeInt32 x y) = "prim_neint32(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimLtInt32 x y) = "prim_ltint32(" ++ show x ++ ", " ++ show y ++ ")"

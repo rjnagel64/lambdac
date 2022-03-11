@@ -113,7 +113,6 @@ data TermC
   | LetSndC (Name, Sort) Name TermC
   | LetArithC Name ArithC TermC
   | LetCompareC Name CmpC TermC
-  | LetIsZeroC Name Name TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
   -- Invoke a closure by providing a value for the only remaining argument.
@@ -202,7 +201,6 @@ fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortO
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Value)] (fieldsFor e)
-fieldsFor (LetIsZeroK x y e) = unitField (tmVar y) <> bindFields [(tmVar x, Value)] (fieldsFor e)
 
 fieldsForArith :: ArithK -> FieldsFor
 fieldsForArith (AddK x y) = unitField (tmVar x) <> unitField (tmVar y)
@@ -284,7 +282,6 @@ cconv (CaseK x k1 s1 k2 s2) =
   pure $ CaseC (tmVar x) (coVar k1, thunkTypeOf s1) (coVar k2, thunkTypeOf s2)
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e
-cconv (LetIsZeroK x y e) = LetIsZeroC (tmVar x) (tmVar y) <$> cconv e
 cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> cconv e
 cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
 cconv (LetCompareK x cmp e) = LetCompareC (tmVar x) (cconvCmp cmp) <$> cconv e
@@ -337,8 +334,6 @@ pprintTerm n (LetFstC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetIsZeroC x y e) =
-  indent n ("let " ++ show x ++ " = iszero " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (CaseC x (k1, _) (k2, _)) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetArithC x op e) =

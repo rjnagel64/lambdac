@@ -62,7 +62,6 @@ tokens :-
   "inr" { tok TokInr }
   "fst" { tok TokFst }
   "snd" { tok TokSnd }
-  "iszero" { tok TokIsZero }
   "true" { tok TokTrue }
   "false" { tok TokFalse }
   "if" { tok TokIf }
@@ -134,7 +133,6 @@ data Token
   | TokInr Loc
   | TokFst Loc
   | TokSnd Loc
-  | TokIsZero Loc
 
   | TokTrue Loc
   | TokFalse Loc
@@ -181,7 +179,6 @@ instance Located Token where
   loc (TokInr l) = l
   loc (TokFst l) = l
   loc (TokSnd l) = l
-  loc (TokIsZero l) = l
   loc (TokTrue l) = l
   loc (TokFalse l) = l
   loc (TokIf l) = l

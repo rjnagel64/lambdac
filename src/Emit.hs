@@ -265,7 +265,6 @@ emitPrimOp :: PrimOp -> String
 emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 emitPrimOp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 emitPrimOp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
-emitPrimOp (PrimIsZero32 x) = "prim_iszero32(" ++ emitName x ++ ")"
 emitPrimOp (PrimEqInt32 x y) = "prim_eqint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 emitPrimOp (PrimNeInt32 x y) = "prim_neint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
 emitPrimOp (PrimLtInt32 x y) = "prim_ltint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"

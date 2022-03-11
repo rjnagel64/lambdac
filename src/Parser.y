@@ -47,7 +47,6 @@ import Source
   'inr' { TokInr _ }
   'fst' { TokFst _ }
   'snd' { TokSnd _ }
-  'iszero' { TokIsZero _ } -- TODO: Replace with `\x -> x == 0`
   'true' { TokTrue _ }
   'false' { TokFalse _ }
   'if' { TokIf _ }
@@ -93,7 +92,6 @@ Term :: { Term }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
-     | 'iszero' ATerm { TmIsZero $2 }
 
 AppTerm :: { Term }
         : ATerm { $1 }

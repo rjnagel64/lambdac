@@ -54,8 +54,6 @@ data Term
   | TmSub Term Term
   -- e1 * e2
   | TmMul Term Term
-  -- iszero e
-  | TmIsZero Term
   -- true, false
   | TmBool Bool
   -- if c then t else f
