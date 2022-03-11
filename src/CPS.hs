@@ -254,7 +254,12 @@ cps env (TmIf e et ef) k =
                 LetContK [ContDef j [(x, s')] e'] $
                   LetContK [ContDef k1 [] et'] $
                     LetContK [ContDef k2 [] ef'] $
-                      CaseK z k1 (ContK []) k2 (ContK [])
+                      -- NOTE: It really should be k2, k1 here.
+                      -- This is because case branches are laid out in order of discriminant.
+                      -- false = 0, true = 1, so the branches should be laid
+                      -- out as false, true as oppose to the source order true,
+                      -- false.
+                      CaseK z k2 (ContK []) k1 (ContK [])
             pure (res, s')
 cps _env (TmBool b) k =
   freshTm "x" $ \x -> do
@@ -488,10 +493,15 @@ cpsTail env (TmIf e et ef) k =
         (ef', sf') <- cpsTail env ef k
         let s' = fst (st', sf')
         let
+          -- NOTE: It really should be k2, k1 here.
+          -- This is because case branches are laid out in order of discriminant.
+          -- false = 0, true = 1, so the branches should be laid
+          -- out as false, true as oppose to the source order true,
+          -- false.
           res =
             LetContK [ContDef k1 [] et'] $
               LetContK [ContDef k2 [] ef'] $
-                CaseK z k1 (ContK []) k2 (ContK [])
+                CaseK z k2 (ContK []) k1 (ContK [])
         pure (res, s')
 cpsTail _env (TmBool b) k =
   freshTm "x" $ \x ->
