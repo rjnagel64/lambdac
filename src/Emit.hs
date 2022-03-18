@@ -42,7 +42,7 @@ prologue = ["#include \"rts.h\""]
 emitEntryPoint :: TermH -> [String]
 emitEntryPoint e =
   ["void program_entry(void) {"] ++
-  emitClosureBody e ++
+  emitClosureBody "NULL" e ++ -- There is no top-level environment. All names are local.
   ["}"]
 
 data ThunkNames
@@ -178,59 +178,66 @@ emitEnvTrace ns (EnvDecl fs) =
     traceField :: FieldName -> String
     traceField (FieldName _ x) = "    mark_gray(" ++ asSort Alloc ("env->" ++ x) ++ ");"
 
--- TODO: What if 'env' is the name that gets shadowed? (I.e., the function
--- parameter is named 'env')
--- Find the set of names used by this closure, and rename 'env' and 'envp'
--- until they are not in that set. (Actually, if I use a generic function
--- pointer in the generic closure value, I can have `struct $(declEnvName ns)
--- *env` directly, instead of needing `env` and `envp`.)
 emitClosureCode :: DeclNames -> [PlaceName] -> TermH -> [String]
-emitClosureCode ns [] e =
-  ["void " ++ declCodeName ns ++ "(void *envp) {"
-  ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
-  emitClosureBody e ++
-  ["}"]
 emitClosureCode ns xs e =
-  ["void " ++ declCodeName ns ++ "(void *envp, " ++ emitParameterList xs ++ ") {"
-  ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
-  emitClosureBody e ++
+  ["void " ++ declCodeName ns ++ "(" ++ paramList ++ ") {"
+  ,"    struct " ++ declEnvName ns ++ " *" ++ envPointer ++ " = " ++ envParam ++ ";"] ++
+  emitClosureBody envPointer e ++
   ["}"]
+  where
+    paramList = if null xs then "void *envp" else "void *envp, " ++ emitParameterList xs
+    -- TODO: Wire up choice of names.
+    xs' = Set.fromList (map placeName (xs)) `Set.union` go2 e
+    envParam = go "envp" xs'
+    envPointer = go "env" (Set.insert envParam xs')
+
+    go x vs = if Set.notMember x vs then x else go ('_':x) vs
+
+    -- Find the set of temporaries used by this function.
+    go2 (LetValH p _ e') = Set.insert (placeName p) (go2 e')
+    go2 (LetPrimH p _ e') = Set.insert (placeName p) (go2 e')
+    go2 (LetFstH p _ e') = Set.insert (placeName p) (go2 e')
+    go2 (LetSndH p _ e') = Set.insert (placeName p) (go2 e')
+    go2 (AllocClosure cs e') = foldr (Set.insert . placeName) (go2 e') (map closurePlace cs)
+    go2 (HaltH _) = Set.empty
+    go2 (OpenH _ _) = Set.empty
+    go2 (CaseH _ _ _) = Set.empty
 
 emitParameterList :: [PlaceName] -> String
 emitParameterList ps = intercalate ", " (map emitPlace ps)
 
-emitClosureBody :: TermH -> [String]
-emitClosureBody (LetValH x v e) =
-  ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc v ++ ";"] ++
-  emitClosureBody e
-emitClosureBody (LetFstH x y e) =
-  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_fst(" ++ emitName y ++ ")") ++ ";"] ++
-  emitClosureBody e
-emitClosureBody (LetSndH x y e) =
-  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_snd(" ++ emitName y ++ ")") ++ ";"] ++
-  emitClosureBody e
-emitClosureBody (LetPrimH x p e) =
-  ["    " ++ emitPlace x ++ " = " ++ emitPrimOp p ++ ";"] ++
-  emitClosureBody e
-emitClosureBody (AllocClosure cs e) =
-  emitAllocGroup cs ++
-  emitClosureBody e
-emitClosureBody (HaltH x) =
-  ["    halt_with(" ++ asSort Alloc (emitName x) ++ ");"]
-emitClosureBody (OpenH c xs) =
-  [emitSuspend c xs]
-emitClosureBody (CaseH x (k1, t) (k2, s)) =
-  emitCase x [(k1, t), (k2, s)]
+emitClosureBody :: String -> TermH -> [String]
+emitClosureBody envp (LetValH x v e) =
+  ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc envp v ++ ";"] ++
+  emitClosureBody envp e
+emitClosureBody envp (LetFstH x y e) =
+  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_fst(" ++ emitName envp y ++ ")") ++ ";"] ++
+  emitClosureBody envp e
+emitClosureBody envp (LetSndH x y e) =
+  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_snd(" ++ emitName envp y ++ ")") ++ ";"] ++
+  emitClosureBody envp e
+emitClosureBody envp (LetPrimH x p e) =
+  ["    " ++ emitPlace x ++ " = " ++ emitPrimOp envp p ++ ";"] ++
+  emitClosureBody envp e
+emitClosureBody envp (AllocClosure cs e) =
+  emitAllocGroup envp cs ++
+  emitClosureBody envp e
+emitClosureBody envp (HaltH x) =
+  ["    halt_with(" ++ asSort Alloc (emitName envp x) ++ ");"]
+emitClosureBody envp (OpenH c xs) =
+  [emitSuspend envp c xs]
+emitClosureBody envp (CaseH x (k1, t) (k2, s)) =
+  emitCase envp x [(k1, t), (k2, s)]
 
-emitSuspend :: Name -> [(Name, Sort)] -> String
-emitSuspend cl xs = "    " ++ method ++ "(" ++ intercalate ", " args ++ ");"
+emitSuspend :: String -> Name -> [(Name, Sort)] -> String
+emitSuspend envp cl xs = "    " ++ method ++ "(" ++ intercalate ", " args ++ ");"
   where
     method = thunkSuspendName (namesForThunk (ThunkType (map snd xs)))
-    args = emitName cl : map (emitName . fst) xs
+    args = emitName envp cl : map (emitName envp . fst) xs
 
-emitCase :: Name -> [(Name, ThunkType)] -> [String]
-emitCase x ks =
-  ["    switch (" ++ emitName x ++ "->words[0]) {"] ++
+emitCase :: String -> Name -> [(Name, ThunkType)] -> [String]
+emitCase envp x ks =
+  ["    switch (" ++ emitName envp x ++ "->words[0]) {"] ++
   concatMap emitCaseBranch (zip [0..] ks) ++
   ["    default:"
   ,"        panic(\"invalid discriminant\");"
@@ -240,63 +247,64 @@ emitCase x ks =
     emitCaseBranch (i, (k, t)) = case t of 
       ThunkType [] ->
         let method = thunkSuspendName (namesForThunk t) in
-        let args = [emitName k] in
+        let args = [emitName envp k] in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
         ,"        break;"]
       ThunkType [s] -> 
         let method = thunkSuspendName (namesForThunk t) in
-        let args = [emitName k, asSort s (emitName x ++ "->words[1]")] in
+        let args = [emitName envp k, asSort s (emitName envp x ++ "->words[1]")] in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
         ,"        break;"]
       ThunkType _ -> error "multi-argument case branches not yet supported."
 
-emitValueAlloc :: ValueH -> String
-emitValueAlloc (IntH i) = "allocate_int32(" ++ show i ++ ")"
-emitValueAlloc (BoolH True) = "allocate_true()"
-emitValueAlloc (BoolH False) = "allocate_false()"
-emitValueAlloc NilH = "allocate_nil()"
-emitValueAlloc (PairH y z) = "allocate_pair(" ++ emitName y ++ ", " ++ emitName z ++ ")"
-emitValueAlloc (InlH y) = "allocate_inl(" ++ emitName y ++ ")"
-emitValueAlloc (InrH y) = "allocate_inr(" ++ emitName y ++ ")"
+emitValueAlloc :: String -> ValueH -> String
+emitValueAlloc _ (IntH i) = "allocate_int32(" ++ show i ++ ")"
+emitValueAlloc _ (BoolH True) = "allocate_true()"
+emitValueAlloc _ (BoolH False) = "allocate_false()"
+emitValueAlloc _ NilH = "allocate_nil()"
+emitValueAlloc envp (PairH y z) = "allocate_pair(" ++ emitName envp y ++ ", " ++ emitName envp z ++ ")"
+emitValueAlloc envp (InlH y) = "allocate_inl(" ++ emitName envp y ++ ")"
+emitValueAlloc envp (InrH y) = "allocate_inr(" ++ emitName envp y ++ ")"
 
-emitPrimOp :: PrimOp -> String
-emitPrimOp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
-emitPrimOp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
-emitPrimOp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
-emitPrimOp (PrimEqInt32 x y) = "prim_eqint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
-emitPrimOp (PrimNeInt32 x y) = "prim_neint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
-emitPrimOp (PrimLtInt32 x y) = "prim_ltint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
-emitPrimOp (PrimLeInt32 x y) = "prim_leint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
-emitPrimOp (PrimGtInt32 x y) = "prim_gtint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
-emitPrimOp (PrimGeInt32 x y) = "prim_geint32(" ++ emitName x ++ ", " ++ emitName y ++ ")"
+emitPrimOp :: String -> PrimOp -> String
+emitPrimOp envp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
+emitPrimOp envp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
+emitPrimOp envp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
+emitPrimOp envp (PrimEqInt32 x y) = "prim_eqint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
+emitPrimOp envp (PrimNeInt32 x y) = "prim_neint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
+emitPrimOp envp (PrimLtInt32 x y) = "prim_ltint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
+emitPrimOp envp (PrimLeInt32 x y) = "prim_leint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
+emitPrimOp envp (PrimGtInt32 x y) = "prim_gtint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
+emitPrimOp envp (PrimGeInt32 x y) = "prim_geint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
 
 asSort :: Sort -> String -> String
 asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
 asSort Value x = "AS_VALUE(" ++ x ++ ")"
 asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
 
-emitAllocGroup :: [ClosureAlloc] -> [String]
-emitAllocGroup closures =
-  map (\ (ClosureAlloc p d env) -> emitAlloc bindGroup p d env) closures ++
+emitAllocGroup :: String -> [ClosureAlloc] -> [String]
+emitAllocGroup envp closures =
+  map (\ (ClosureAlloc p d env) -> emitAlloc envp bindGroup p d env) closures ++
   concatMap (\ (ClosureAlloc p d env) -> emitPatch (namesForDecl d) bindGroup p env) closures
   where
     bindGroup = Set.fromList $ [d | ClosureAlloc _ (DeclName d) _ <- closures]
 
 -- Names in bindGroup -> NULL
-emitAlloc :: Set String -> PlaceName -> DeclName -> EnvAlloc -> String
-emitAlloc bindGroup p d (EnvAlloc xs) =
+emitAlloc :: String -> Set String -> PlaceName -> DeclName -> EnvAlloc -> String
+emitAlloc envp bindGroup p d (EnvAlloc xs) =
   "    " ++ emitPlace p ++ " = " ++ "allocate_closure" ++ "(" ++ intercalate ", " args ++ ");"
   where
     ns = namesForDecl d
     args = [envArg, traceArg, "(void (*)(void))" ++ codeArg]
     -- Allocate closure environment here, with NULL for cyclic captures.
     envArg = declAllocName ns ++ "(" ++ intercalate ", " (map (allocArg . snd) xs) ++ ")"
-    allocArg (LocalName x) = if Set.member x bindGroup then "NULL" else x
-    allocArg (EnvName x) = "env->" ++ x -- TODO: What if environment has different name?
-    codeArg = declCodeName ns
     traceArg = declTraceName ns
+    codeArg = declCodeName ns
+
+    allocArg (LocalName x) | Set.member x bindGroup = "NULL"
+    allocArg x = emitName envp x
 
 emitPatch :: DeclNames -> Set String -> PlaceName -> EnvAlloc -> [String]
 emitPatch ns bindGroup (PlaceName _ p) (EnvAlloc xs) =
@@ -313,9 +321,7 @@ emitPlace (PlaceName Closure k) = "struct closure *" ++ k
 emitPlace (PlaceName Value x) = "struct value *" ++ x
 emitPlace (PlaceName Alloc a) = "struct alloc_header *" ++ a
 
--- TODO: Parametrize this by what the name of the environment pointer is.
--- There may be situations where 'env' or 'envp' is the name of a parameter.
-emitName :: Name -> String
-emitName (LocalName x) = x
-emitName (EnvName x) = "env->" ++ x
+emitName :: String -> Name -> String
+emitName _ (LocalName x) = x
+emitName envp (EnvName x) = envp ++ "->" ++ x
 

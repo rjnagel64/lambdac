@@ -95,6 +95,7 @@ data TermH
 data ClosureAlloc
   = ClosureAlloc { closurePlace :: PlaceName, closureDecl :: DeclName, closureEnv :: EnvAlloc }
 
+-- TODO: Mark allocation arguments as recursive/non-recursive, to simplify Emit?
 newtype EnvAlloc = EnvAlloc [(FieldName, Name)]
 
 data ValueH

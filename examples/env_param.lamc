@@ -1,0 +1,3 @@
+let fun id (env : int) : int = env;
+in
+id 17
