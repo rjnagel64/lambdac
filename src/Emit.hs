@@ -11,6 +11,19 @@ import Hoist
 
 -- TODO: Something smarter than string and list concatenation.
 -- builders? text? environment?
+-- Reader EmitEnv T.Builder -- no monoid instance
+-- EmitEnv -> T.Builder -- monoid instance
+
+-- newtype Emit = Emit { runEmit :: EmitEnv -> T.Builder }
+-- deriving newtype instance Semigroup Emit
+-- deriving newtype instance Monoid Emit
+-- Include map from name to thunk types, so OpenH and CaseH don't duplicate
+-- their sort information
+-- data EmitEnv = EmitEnv { envPointerName :: String, indentLevel :: Int }
+-- line :: Emit -> Emit
+-- line s = Emit $ \env -> B.fromText (T.replicate (indentLevel env) ' ') <> s <> B.singleton '\n'
+-- text :: String -> Emit
+-- text s = Emit $ \_ -> B.fromText (T.pack s)
 
 emitProgram :: (HoistDecls, TermH) -> [String]
 emitProgram (HoistDecls (ts, cs), e) =
@@ -186,7 +199,6 @@ emitClosureCode ns xs e =
   ["}"]
   where
     paramList = if null xs then "void *envp" else "void *envp, " ++ emitParameterList xs
-    -- TODO: Wire up choice of names.
     xs' = Set.fromList (map placeName (xs)) `Set.union` go2 e
     envParam = go "envp" xs'
     envPointer = go "env" (Set.insert envParam xs')
@@ -297,11 +309,11 @@ emitAlloc envp bindGroup p d (EnvAlloc xs) =
   "    " ++ emitPlace p ++ " = " ++ "allocate_closure" ++ "(" ++ intercalate ", " args ++ ");"
   where
     ns = namesForDecl d
-    args = [envArg, traceArg, "(void (*)(void))" ++ codeArg]
+    args = [envArg, traceArg, codeArg]
     -- Allocate closure environment here, with NULL for cyclic captures.
     envArg = declAllocName ns ++ "(" ++ intercalate ", " (map (allocArg . snd) xs) ++ ")"
     traceArg = declTraceName ns
-    codeArg = declCodeName ns
+    codeArg = "(void (*)(void))" ++ declCodeName ns
 
     allocArg (LocalName x) | Set.member x bindGroup = "NULL"
     allocArg x = emitName envp x
