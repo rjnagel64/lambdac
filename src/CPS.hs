@@ -66,23 +66,23 @@ instance Show CoVar where
 -- TODO: Add type annotations to binders. (And maybe more general annotations?)
 -- (Or more general annotations. I want to know how many occurrences there are
 -- of each binder, for inlining and DCE.)
-data TermK
+data TermK a
   -- Assignments
   -- let val x:t = v in e
-  = LetValK TmVar TypeK ValueK TermK
+  = LetValK TmVar TypeK ValueK (TermK a)
   -- let x:t = fst y in e
-  | LetFstK TmVar TypeK TmVar TermK
+  | LetFstK TmVar TypeK TmVar (TermK a)
   -- let x:t = snd y in e
-  | LetSndK TmVar TypeK TmVar TermK
+  | LetSndK TmVar TypeK TmVar (TermK a)
   -- let z = x + y in e
-  | LetArithK TmVar ArithK TermK
+  | LetArithK TmVar ArithK (TermK a)
   -- let z = x `cmp` y in e 
-  | LetCompareK TmVar CmpK TermK
+  | LetCompareK TmVar CmpK (TermK a)
 
   -- let rec ks in e
-  | LetContK [ContDef] TermK
+  | LetContK [ContDef a] (TermK a)
   -- let rec fs in e
-  | LetFunK [FunDef] TermK
+  | LetFunK [FunDef a] (TermK a)
 
   -- Block terminators
   -- k x..., goto k(x...)
@@ -95,12 +95,12 @@ data TermK
   | HaltK TmVar
 
 -- | Named basic blocks
--- @k (x:τ) := e@
-data ContDef = ContDef CoVar [(TmVar, TypeK)] TermK
+-- @k (x:τ)+ := e@
+data ContDef a = ContDef a CoVar [(TmVar, TypeK)] (TermK a)
 
 -- | Function definitions
 -- @f (x:τ) (k:σ) := e@
-data FunDef = FunDef TmVar (TmVar, TypeK) (CoVar, TypeK) TermK
+data FunDef a = FunDef  a TmVar (TmVar, TypeK) (CoVar, TypeK) (TermK a)
 
 -- | Values require no evaluation.
 data ValueK
@@ -175,7 +175,7 @@ var (S.TmVar x) = TmVar x 0
 -- | CPS-convert a term.
 --
 -- TODO: Find a way to reduce the nesting. ContT, maybe?
-cps :: Map S.TmVar TypeK -> Term -> (TmVar -> TypeK -> FreshM (TermK, TypeK)) -> FreshM (TermK, TypeK)
+cps :: Map S.TmVar TypeK -> Term -> (TmVar -> TypeK -> FreshM (TermK (), TypeK)) -> FreshM (TermK (), TypeK)
 cps env (TmVarOcc x) k = case Map.lookup x env of
   Nothing -> error ("cps: variable not in scope: " ++ show x)
   Just t -> k (var x) t
@@ -184,7 +184,7 @@ cps env (TmLam x t e) k =
     freshCo "k" $ \k' -> do
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef f (var x, t') (k', ContK [s']) e']
+      let fs = [FunDef () f (var x, t') (k', ContK [s']) e']
       (e'', _t'') <- k f (FunK t' s')
       let res = LetFunK fs e''
       pure (res, FunK t' s')
@@ -204,7 +204,7 @@ cps env (TmApp e1 e2) k =
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
           (e', _t') <- k xv s'
-          let res = LetContK [ContDef kv [(xv, s')] e'] (CallK v1 v2 kv)
+          let res = LetContK [ContDef () kv [(xv, s')] e'] (CallK v1 v2 kv)
           pure (res, s')
 cps env (TmInl a b e) k =
   cps env e $ \z _t ->
@@ -237,9 +237,9 @@ cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
             -- TODO: Case branches that accept multiple arguments at once
             let
               res = 
-                LetContK [ContDef j [(x, s')] e'] $
-                  LetContK [ContDef k1 [(var xl, tl')] el'] $
-                    LetContK [ContDef k2 [(var xr, tr')] er'] $
+                LetContK [ContDef () j [(x, s')] e'] $
+                  LetContK [ContDef () k1 [(var xl, tl')] el'] $
+                    LetContK [ContDef () k2 [(var xr, tr')] er'] $
                       CaseK z k1 (ContK [tl']) k2 (ContK [tr'])
             pure (res, s')
 cps env (TmIf e et ef) k =
@@ -254,9 +254,9 @@ cps env (TmIf e et ef) k =
             (e', _t') <- k x s'
             let
               res =
-                LetContK [ContDef j [(x, s')] e'] $
-                  LetContK [ContDef k1 [] et'] $
-                    LetContK [ContDef k2 [] ef'] $
+                LetContK [ContDef () j [(x, s')] e'] $
+                  LetContK [ContDef () k1 [] et'] $
+                    LetContK [ContDef () k2 [] ef'] $
                       -- NOTE: It really should be k2, k1 here.
                       -- This is because case branches are laid out in order of discriminant.
                       -- false = 0, true = 1, so the branches should be laid
@@ -309,7 +309,7 @@ cps env (TmLet x t e1 e2) k = do
   (e2', t2') <- cps (Map.insert x t' env) e2 k
   freshCo "j" $ \j -> do
     (e1', _t1') <- cpsTail env e1 j
-    let res = LetContK [ContDef j [(var x, t')] e2'] e1'
+    let res = LetContK [ContDef () j [(var x, t')] e2'] e1'
     pure (res, t2')
 cps env (TmArith e1 op e2) k =
   cps env e1 $ \x _t1 ->
@@ -326,20 +326,20 @@ cps env (TmCmp e1 cmp e2) k =
         let res = LetCompareK z (makeCompare cmp x y) e'
         pure (res, t')
 
-cpsFun :: Map S.TmVar TypeK -> TmFun -> FreshM FunDef
+cpsFun :: Map S.TmVar TypeK -> TmFun -> FreshM (FunDef ())
 cpsFun env (TmFun f x t s e) =
   freshCo "k" $ \k -> do
     -- Recursive bindings already handled, outside of this.
     let t' = cpsType t
     let s' = cpsType s
     (e', _s') <- cpsTail (Map.insert x t' env) e k
-    let def = FunDef (var f) (var x, t') (k, ContK [s']) e'
+    let def = FunDef () (var f) (var x, t') (k, ContK [s']) e'
     pure def
 
 -- | CPS-convert a term in tail position.
 -- In tail position, the continuation is always a continuation variable, which
 -- allows for simpler translations.
-cpsTail :: Map S.TmVar TypeK -> Term -> CoVar -> FreshM (TermK, TypeK)
+cpsTail :: Map S.TmVar TypeK -> Term -> CoVar -> FreshM (TermK (), TypeK)
 cpsTail env (TmVarOcc x) k = case Map.lookup x env of
   Nothing -> error ("cpsTail: variable not in scope: " ++ show x)
   Just t' -> pure (JumpK k [var x], t')
@@ -348,7 +348,7 @@ cpsTail env (TmLam x t e) k =
     freshCo "k" $ \k' -> do
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef f (var x, t') (k', ContK [s']) e']
+      let fs = [FunDef () f (var x, t') (k', ContK [s']) e']
       let res = LetFunK fs (JumpK k [f])
       pure (res, FunK t' s')
 cpsTail env (TmLet x t e1 e2) k =
@@ -359,7 +359,7 @@ cpsTail env (TmLet x t e1 e2) k =
     let t' = cpsType t
     (e2', _t2') <- cpsTail (Map.insert x t' env) e2 k
     (e1', t1') <- cpsTail env e1 j
-    let res = LetContK [ContDef j [(var x, t')] e2'] e1'
+    let res = LetContK [ContDef () j [(var x, t')] e2'] e1'
     pure (res, t1')
 cpsTail env (TmRecFun fs e) k = do
   let binds = [(f, cpsType (S.TyArr t s)) | TmFun f _x t s _e <- fs]
@@ -444,8 +444,8 @@ cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
         -- TODO: Case branches that accept multiple arguments at once
         let
           res =
-            LetContK [ContDef k1 [(var xl, tl')] el'] $
-              LetContK [ContDef k2 [(var xr, tr')] er'] $
+            LetContK [ContDef () k1 [(var xl, tl')] el'] $
+              LetContK [ContDef () k2 [(var xr, tr')] er'] $
                 CaseK z k1 (ContK [tl']) k2 (ContK [tr'])
         -- both branches have same type, so this is valid.
         -- (Alternatively, put `returns s` on Source.TmCase)
@@ -465,8 +465,8 @@ cpsTail env (TmIf e et ef) k =
           -- out as false, true as oppose to the source order true,
           -- false.
           res =
-            LetContK [ContDef k1 [] et'] $
-              LetContK [ContDef k2 [] ef'] $
+            LetContK [ContDef () k1 [] et'] $
+              LetContK [ContDef () k2 [] ef'] $
                 CaseK z k2 (ContK []) k1 (ContK [])
         pure (res, s')
 cpsTail _env (TmBool b) k =
@@ -474,7 +474,7 @@ cpsTail _env (TmBool b) k =
     pure (LetValK x BoolK (BoolValK b) (JumpK k [x]), BoolK)
 
 
-cpsMain :: Term -> (TermK, TypeK)
+cpsMain :: Term -> (TermK (), TypeK)
 cpsMain e = runFresh $ cps Map.empty e (\z t -> pure (HaltK z, t))
 
 
@@ -506,7 +506,7 @@ runFresh = flip runReader Map.empty . runFreshM
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
-pprintTerm :: Int -> TermK -> String
+pprintTerm :: Int -> TermK a -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
 pprintTerm n (CallK f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
@@ -548,12 +548,12 @@ pprintCompare (CmpLeK x y) = show x ++ " <= " ++ show y
 pprintCompare (CmpGtK x y) = show x ++ " > " ++ show y
 pprintCompare (CmpGeK x y) = show x ++ " >= " ++ show y
 
-pprintFunDef :: Int -> FunDef -> String
-pprintFunDef n (FunDef f (x, t) (k, s) e) =
+pprintFunDef :: Int -> FunDef a -> String
+pprintFunDef n (FunDef _ f (x, t) (k, s) e) =
   indent n (show f ++ " " ++ pprintParam (show x) t ++ " " ++ pprintParam (show k) s ++ " =\n") ++ pprintTerm (n+2) e
 
-pprintContDef :: Int -> ContDef -> String
-pprintContDef n (ContDef k xs e) =
+pprintContDef :: Int -> ContDef a -> String
+pprintContDef n (ContDef _ k xs e) =
   indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     params = "(" ++ intercalate ", " (map pprintTmParam xs) ++ ")"

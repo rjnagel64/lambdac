@@ -19,17 +19,9 @@ import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..)
 -- [Compiling with Continuations, Continued] mostly.
 -- CPS transformation, Closure Conversion, hopefully C code generation.
 
--- TODO: Reread "Compiling with Continuations and LLVM" for ideas about C code
--- generation
-
--- TODO: Break this into separate files, one per phase.
--- Honestly, the other files in src/ might deserve a separate repository.
-
--- TODO: Too many/Not enough sorts of variables. Be more consistent.
-
--- TODO: Attach a parser and driver
 -- TODO: A simple type-checker.
 
+-- TODO: Annotate function and continuation definitions with useful information.
 
 
 -- TODO: Figure out call-pattern specialization
@@ -53,9 +45,9 @@ data InlineEnv
     inlineSizeThreshold :: Int
 
   -- | If a continuation variable has an unfolding, it is stored here.
-  , inlineCoDefs :: Map CoVar ContDef
+  , inlineCoDefs :: Map CoVar (ContDef ())
   -- | If a function has an unfolding, it is stored here.
-  , inlineFnDefs :: Map TmVar FunDef
+  , inlineFnDefs :: Map TmVar (FunDef ())
 
   -- | Values are bound here, so that beta-redexes can reduce.
   , inlineValDefs :: Map TmVar ValueK
@@ -81,13 +73,13 @@ withVal x v m = local f m
   where
     f env = env { inlineValDefs = Map.insert x v (inlineValDefs env) }
 
-withFn :: FunDef -> InlineM a -> InlineM a
-withFn fn@(FunDef f _ _ _) m = local g m
+withFn :: FunDef () -> InlineM a -> InlineM a
+withFn fn@(FunDef () f _ _ _) m = local g m
   where
     g env = env { inlineFnDefs = Map.insert f fn (inlineFnDefs env) }
 
-withCont :: ContDef -> InlineM a -> InlineM a
-withCont kont@(ContDef k _ _) m = local g m
+withCont :: ContDef () -> InlineM a -> InlineM a
+withCont kont@(ContDef () k _ _) m = local g m
   where
     g env = env { inlineCoDefs = Map.insert k kont (inlineCoDefs env) }
 
@@ -106,7 +98,7 @@ appCoSub k = do
     Just k' -> pure k'
 
 -- | Inline definitions and simplify redexes.
-inlineK :: TermK -> InlineM TermK
+inlineK :: TermK () -> InlineM (TermK ())
 -- Occurrences get inlined if their definition is in the environment.
 -- (TODO: Inline decision based on context of occurrence, not just context of
 -- definition?)
@@ -114,12 +106,12 @@ inlineK (JumpK k xs) = do
   env <- ask
   case Map.lookup k (inlineCoDefs env) of
     Nothing -> pure (JumpK k xs)
-    Just (ContDef _ [(y, _)] e) -> withTmSub (y, xs !! 0) $ inlineK e
+    Just (ContDef () _ [(y, _)] e) -> withTmSub (y, xs !! 0) $ inlineK e
 inlineK (CallK f x k) = do
   env <- ask
   case Map.lookup f (inlineFnDefs env) of
     Nothing -> pure (CallK f x k)
-    Just (FunDef _ (y, _) (k', _) e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
+    Just (FunDef () _ (y, _) (k', _) e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
 -- Eliminators use 'inlineValDefs' to beta-reduce, if possible.
 -- (A function parameter will not reduce, e.g.)
 inlineK (CaseK x k1 s1 k2 s2) = do
@@ -197,8 +189,8 @@ data Usage
 -- countOccurrences vs (LetFstK x y e) = _
 
 -- Count number of 'let' bindings, recursively.
-sizeK :: TermK -> Int
-sizeK (LetFunK fs e) = sum (map (\ (FunDef f (x, _) (k, _) e') -> sizeK e') fs) + sizeK e
+sizeK :: TermK () -> Int
+sizeK (LetFunK fs e) = sum (map (\ (FunDef () f (x, _) (k, _) e') -> sizeK e') fs) + sizeK e
 sizeK (LetValK x _ v e) = 1 + sizeK e
 
 
@@ -217,4 +209,5 @@ sizeK (LetValK x _ v e) = 1 + sizeK e
 -- -- arguments.)
 -- -- (Alternatively, I could make booleans properly a sum type, with n = 0 fields
 -- -- in each branch)
+-- -- (if x := true, rewrite to k1 []. if x := inr z, rewrite to k2 [z])
 -- simplify (CaseK x k1 s1 k2 s2) = _

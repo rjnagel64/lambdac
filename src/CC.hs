@@ -187,7 +187,7 @@ bindFields xs fs = FieldsFor $ \ctx ->
   fields Set.\\ Set.fromList xs
 
 
-fieldsFor :: TermK -> FieldsFor
+fieldsFor :: TermK a -> FieldsFor
 fieldsFor (LetFunK fs e) =
   foldMap (bindFields fs' . fieldsForFunDef) fs <> bindFields fs' (fieldsFor e)
   where fs' = funDefNames fs
@@ -225,12 +225,12 @@ fieldsForValue (PairK x y) = unitField (tmVar x) <> unitField (tmVar y)
 fieldsForValue (InlK x) = unitField (tmVar x)
 fieldsForValue (InrK y) = unitField (tmVar y)
 
-fieldsForFunDef :: FunDef -> FieldsFor
-fieldsForFunDef (FunDef _f (x, t) (k, s) e) =
+fieldsForFunDef :: FunDef a -> FieldsFor
+fieldsForFunDef (FunDef _ _f (x, t) (k, s) e) =
   bindFields [(tmVar x, sortOf t), (coVar k, sortOf s)] (fieldsFor e)
 
-fieldsForContDef :: ContDef -> FieldsFor
-fieldsForContDef (ContDef _k xs e) =
+fieldsForContDef :: ContDef a -> FieldsFor
+fieldsForContDef (ContDef _ _k xs e) =
   bindFields (map bindParam xs) (fieldsFor e)
   where bindParam (x, t) = (tmVar x, sortOf t)
 
@@ -239,11 +239,11 @@ fieldsForContDef (ContDef _k xs e) =
 markRec :: Set Name -> [(Name, Sort)] -> ([(Name, Sort)], [(Name, Sort)])
 markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) xs
 
-funDefNames :: [FunDef] -> [(Name, Sort)]
-funDefNames fs = [(tmVar f, Closure) | FunDef f _ _ _ <- fs]
+funDefNames :: [FunDef a] -> [(Name, Sort)]
+funDefNames fs = [(tmVar f, Closure) | FunDef _ f _ _ _ <- fs]
 
-contDefNames :: [ContDef] -> [(Name, Sort)]
-contDefNames ks = [(coVar k, Closure) | ContDef k _ _ <- ks]
+contDefNames :: [ContDef a] -> [(Name, Sort)]
+contDefNames ks = [(coVar k, Closure) | ContDef _ k _ _ <- ks]
 
 newtype ConvM a = ConvM { runConvM :: Reader (Map Name Sort) a }
 
@@ -255,7 +255,7 @@ deriving newtype instance MonadReader (Map Name Sort) ConvM
 runConv :: ConvM a -> a
 runConv = flip runReader Map.empty . runConvM
 
-cconv :: TermK -> ConvM TermC
+cconv :: TermK a -> ConvM TermC
 cconv (LetFunK fs e) =
   LetFunC <$> local extendGroup (traverse (cconvFunDef fs') fs) <*> local extendGroup (cconv e)
   where
@@ -277,16 +277,16 @@ cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> cconv e
 cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
 cconv (LetCompareK x cmp e) = LetCompareC (tmVar x) (cconvCmp cmp) <$> cconv e
 
-cconvFunDef :: Set Name -> FunDef -> ConvM FunClosureDef
-cconvFunDef fs fun@(FunDef f (x, t) (k, s) e) = do
+cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
+cconvFunDef fs fun@(FunDef _ f (x, t) (k, s) e) = do
   let extend c = Map.insert (tmVar x) (sortOf t) $ Map.insert (coVar k) (sortOf s) $ c
   fields <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
   let (free, rec) = markRec fs (Set.toList fields)
   e' <- local extend (cconv e)
   pure (FunClosureDef (tmVar f) free rec (tmVar x, sortOf t) (coVar k, sortOf s) e')
 
-cconvContDef :: Set Name -> ContDef -> ConvM ContClosureDef
-cconvContDef ks kont@(ContDef k xs e) = do
+cconvContDef :: Set Name -> ContDef a -> ConvM ContClosureDef
+cconvContDef ks kont@(ContDef _ k xs e) = do
   let binds = map (\ (x, t) -> (tmVar x, sortOf t)) xs
   let extend ctx' = foldr (uncurry Map.insert) ctx' binds
   fields <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
