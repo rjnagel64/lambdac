@@ -118,7 +118,7 @@ data TermC
   | LetContC [ContClosureDef] TermC
   -- Invoke a closure by providing a value for the only remaining argument.
   | JumpC Name [Name] -- k x...
-  | CallC Name Name Name -- f x k
+  | CallC Name [Name] [Name] -- f x+ k+
   | HaltC Name
   | CaseC Name (Name, ThunkType) (Name, ThunkType) -- case x of k1 | k2
 
@@ -197,7 +197,10 @@ fieldsFor (LetContK ks e) =
   where ks' = contDefNames ks
 fieldsFor (HaltK x) = unitField (tmVar x)
 fieldsFor (JumpK k xs) = unitField (coVar k) <> foldMap (unitField . tmVar) xs
-fieldsFor (CallK f x k) = unitField (tmVar f) <> unitField (tmVar x) <> unitField (coVar k)
+fieldsFor (CallK f xs ks) =
+  unitField (tmVar f) <>
+  foldMap (unitField . tmVar) xs <>
+  foldMap (unitField . coVar) ks
 fieldsFor (CaseK x k1 _s1 k2 _s2) = unitField (tmVar x) <> unitField (coVar k1) <> unitField (coVar k2)
 fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
@@ -227,13 +230,12 @@ fieldsForValue (InlK x) = unitField (tmVar x)
 fieldsForValue (InrK y) = unitField (tmVar y)
 
 fieldsForFunDef :: FunDef a -> FieldsFor
-fieldsForFunDef (FunDef _ _f (x, t) (k, s) e) =
-  bindFields [(tmVar x, sortOf t), (coVar k, sortOf s)] (fieldsFor e)
+fieldsForFunDef (FunDef _ _f xs ks e) =
+  bindFields (map (bimap tmVar sortOf) xs ++ map (bimap coVar sortOf) ks) (fieldsFor e)
 
 fieldsForContDef :: ContDef a -> FieldsFor
 fieldsForContDef (ContDef _ _k xs e) =
-  bindFields (map bindParam xs) (fieldsFor e)
-  where bindParam (x, t) = (tmVar x, sortOf t)
+  bindFields (map (bimap tmVar sortOf) xs) (fieldsFor e)
 
 -- | Split occurrences into free variables and recursive calls.
 -- Return @(free, rec)@.
@@ -269,7 +271,7 @@ cconv (LetContK ks e) =
     extendGroup ctx = foldr (uncurry Map.insert) ctx (contDefNames ks)
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
-cconv (CallK f x k) = pure $ CallC (tmVar f) (tmVar x) (coVar k)
+cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
 cconv (CaseK x k1 s1 k2 s2) =
   pure $ CaseC (tmVar x) (coVar k1, thunkTypeOf s1) (coVar k2, thunkTypeOf s2)
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
@@ -279,9 +281,9 @@ cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
 cconv (LetCompareK x cmp e) = LetCompareC (tmVar x) (cconvCmp cmp) <$> cconv e
 
 cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
-cconvFunDef fs fun@(FunDef _ f x k e) = do
-  let tmbinds = map (bimap tmVar sortOf) [x]
-  let cobinds = map (bimap coVar sortOf) [k]
+cconvFunDef fs fun@(FunDef _ f xs ks e) = do
+  let tmbinds = map (bimap tmVar sortOf) xs
+  let cobinds = map (bimap coVar sortOf) ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
   fields <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
   let (free, rec) = markRec fs (Set.toList fields)

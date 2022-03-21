@@ -88,7 +88,7 @@ data TermK a
   -- k x..., goto k(x...)
   | JumpK CoVar [TmVar]
   -- f x k, call f(x, k)
-  | CallK TmVar TmVar CoVar
+  | CallK TmVar [TmVar] [CoVar]
   -- case x of k1 : s1 | k2 : s2, branch
   | CaseK TmVar CoVar TypeK CoVar TypeK
   -- halt x
@@ -100,7 +100,7 @@ data ContDef a = ContDef a CoVar [(TmVar, TypeK)] (TermK a)
 
 -- | Function definitions
 -- @f (x:τ) (k:σ) := e@
-data FunDef a = FunDef  a TmVar (TmVar, TypeK) (CoVar, TypeK) (TermK a)
+data FunDef a = FunDef  a TmVar [(TmVar, TypeK)] [(CoVar, TypeK)] (TermK a)
 
 -- | Values require no evaluation.
 data ValueK
@@ -184,7 +184,7 @@ cps env (TmLam x t e) k =
     freshCo "k" $ \k' -> do
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef () f (var x, t') (k', ContK [s']) e']
+      let fs = [FunDef () f [(var x, t')] [(k', ContK [s'])] e']
       (e'', _t'') <- k f (FunK t' s')
       let res = LetFunK fs e''
       pure (res, FunK t' s')
@@ -204,7 +204,7 @@ cps env (TmApp e1 e2) k =
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
           (e', _t') <- k xv s'
-          let res = LetContK [ContDef () kv [(xv, s')] e'] (CallK v1 v2 kv)
+          let res = LetContK [ContDef () kv [(xv, s')] e'] (CallK v1 [v2] [kv])
           pure (res, s')
 cps env (TmInl a b e) k =
   cps env e $ \z _t ->
@@ -333,7 +333,7 @@ cpsFun env (TmFun f x t s e) =
     let t' = cpsType t
     let s' = cpsType s
     (e', _s') <- cpsTail (Map.insert x t' env) e k
-    let def = FunDef () (var f) (var x, t') (k, ContK [s']) e'
+    let def = FunDef () (var f) [(var x, t')] [(k, ContK [s'])] e'
     pure def
 
 -- | CPS-convert a term in tail position.
@@ -348,7 +348,7 @@ cpsTail env (TmLam x t e) k =
     freshCo "k" $ \k' -> do
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef () f (var x, t') (k', ContK [s']) e']
+      let fs = [FunDef () f [(var x, t')] [(k', ContK [s'])] e']
       let res = LetFunK fs (JumpK k [f])
       pure (res, FunK t' s')
 cpsTail env (TmLet x t e1 e2) k =
@@ -430,7 +430,7 @@ cpsTail env (TmApp e1 e2) k =
       s' <- case t1 of
         FunK _t2' s' -> pure s'
         _ -> error ("bad function type: " ++ pprintType t1)
-      let res = CallK f x k
+      let res = CallK f [x] [k]
       pure (res, s')
 cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
   cps env e $ \z _t -> do
@@ -549,8 +549,13 @@ pprintCompare (CmpGtK x y) = show x ++ " > " ++ show y
 pprintCompare (CmpGeK x y) = show x ++ " >= " ++ show y
 
 pprintFunDef :: Int -> FunDef a -> String
-pprintFunDef n (FunDef _ f (x, t) (k, s) e) =
-  indent n (show f ++ " " ++ pprintParam (show x) t ++ " " ++ pprintParam (show k) s ++ " =\n") ++ pprintTerm (n+2) e
+pprintFunDef n (FunDef _ f xs ks e) =
+  indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
+  where
+    -- One parameter list or two?
+    params = "(" ++ intercalate ", " (map pprintTmParam xs ++ map pprintCoParam ks) ++ ")"
+    pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
+    pprintCoParam (k, s) = show k ++ " : " ++ pprintType s
 
 pprintContDef :: Int -> ContDef a -> String
 pprintContDef n (ContDef _ k xs e) =
@@ -559,9 +564,6 @@ pprintContDef n (ContDef _ k xs e) =
     params = "(" ++ intercalate ", " (map pprintTmParam xs) ++ ")"
     pprintTmParam :: (TmVar, TypeK) -> String
     pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
-
-pprintParam :: String -> TypeK -> String
-pprintParam x t = "(" ++ x ++ " : " ++ pprintType t ++ ")"
 
 pprintType :: TypeK -> String
 pprintType (ContK ts) = "(" ++ intercalate ", " params ++ ") -> 0"

@@ -111,11 +111,11 @@ inlineK (JumpK k xs) = do
   case Map.lookup k (inlineCoDefs env) of
     Nothing -> pure (JumpK k xs)
     Just (ContDef () _ [(y, _)] e) -> withTmSub (y, xs !! 0) $ inlineK e
-inlineK (CallK f x k) = do
+inlineK (CallK f [x] [k]) = do
   env <- ask
   case Map.lookup f (inlineFnDefs env) of
-    Nothing -> pure (CallK f x k)
-    Just (FunDef () _ (y, _) (k', _) e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
+    Nothing -> pure (CallK f [x] [k])
+    Just (FunDef () _ [(y, _)] [(k', _)] e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
 -- Eliminators use 'inlineValDefs' to beta-reduce, if possible.
 -- (A function parameter will not reduce, e.g.)
 inlineK (CaseK x k1 s1 k2 s2) = do
@@ -194,7 +194,7 @@ data Usage
 
 -- Count number of 'let' bindings, recursively.
 sizeK :: TermK () -> Int
-sizeK (LetFunK fs e) = sum (map (\ (FunDef () f (x, _) (k, _) e') -> sizeK e') fs) + sizeK e
+sizeK (LetFunK fs e) = sum (map (\ (FunDef () f _ _ e') -> sizeK e') fs) + sizeK e
 sizeK (LetValK x _ v e) = 1 + sizeK e
 
 
