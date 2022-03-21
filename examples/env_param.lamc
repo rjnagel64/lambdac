@@ -1,3 +1,7 @@
+-- TODO: CPS.hs now always adds a unique to each variable.
+-- Thus, the parameter becomes `struct value *env0`, which does not conflict
+-- with the environment pointer.
+-- Find a different way of triggering bugs with name shadowing.
 let fun id (env : int) : int = env;
 in
 id 17

@@ -46,13 +46,13 @@ import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
 -- Continuations are second-class, so they get a different type. (I collapse
 -- the distinction between them later on, but maybe there's a more efficient
 -- way to do jumps...)
-newtype TmVar = TmVar String
+data TmVar = TmVar String Int
   deriving (Eq, Ord)
 newtype CoVar = CoVar String
   deriving (Eq, Ord)
 
 instance Show TmVar where
-  show (TmVar x) = x
+  show (TmVar x i) = x ++ show i
 instance Show CoVar where
   show (CoVar k) = k
 
@@ -167,7 +167,7 @@ cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
 
 
 var :: S.TmVar -> TmVar
-var (S.TmVar x) = TmVar x
+var (S.TmVar x) = TmVar x 0
 
 -- TODO: This actually has most elements of a type checker.
 -- Maybe I should add Except and error-reporting?
@@ -489,8 +489,8 @@ freshTm :: String -> (TmVar -> FreshM a) -> FreshM a
 freshTm x k = do
   scope <- ask
   case Map.lookup x scope of
-    Nothing -> local (Map.insert x 1) (k (TmVar (x ++ "0")))
-    Just i -> local (Map.insert x (i+1)) (k (TmVar (x ++ show i)))
+    Nothing -> local (Map.insert x 1) (k (TmVar x 0))
+    Just i -> local (Map.insert x (i+1)) (k (TmVar x i))
 
 freshCo :: String -> (CoVar -> FreshM a) -> FreshM a
 freshCo x k = do

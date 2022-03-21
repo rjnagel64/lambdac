@@ -71,7 +71,7 @@ instance Show Name where
   show (Name x) = x
 
 tmVar :: K.TmVar -> Name
-tmVar (K.TmVar x) = Name x
+tmVar (K.TmVar x i) = Name (x ++ show i)
 
 coVar :: K.CoVar -> Name
 coVar (K.CoVar k) = Name k
