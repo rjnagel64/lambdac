@@ -22,6 +22,10 @@ import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..)
 -- TODO: A simple type-checker.
 
 -- TODO: Annotate function and continuation definitions with useful information.
+-- * Number of occurrences
+-- * Availability for inlining
+-- * Call patterns
+-- * Usage/abscence/forcing of each argument
 
 
 -- TODO: Figure out call-pattern specialization

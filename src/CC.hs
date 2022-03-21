@@ -29,6 +29,7 @@ import Data.Map (Map)
 import Control.Monad.Reader
 
 import Data.List (intercalate, partition)
+import Data.Bifunctor
 
 import qualified CPS as K
 import CPS (TermK(..), FunDef(..), ContDef(..), ValueK(..), ArithK(..), CmpK(..))
@@ -142,8 +143,8 @@ data FunClosureDef
     funClosureName :: Name
   , funClosureFreeNames :: [(Name, Sort)]
   , funClosureRecNames :: [(Name, Sort)]
-  , funClosureParam :: (Name, Sort)
-  , funClosureCont :: (Name, Sort)
+  , funClosureParam :: [(Name, Sort)]
+  , funClosureCont :: [(Name, Sort)]
   , funClosureBody :: TermC
   }
 
@@ -278,16 +279,18 @@ cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
 cconv (LetCompareK x cmp e) = LetCompareC (tmVar x) (cconvCmp cmp) <$> cconv e
 
 cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
-cconvFunDef fs fun@(FunDef _ f (x, t) (k, s) e) = do
-  let extend c = Map.insert (tmVar x) (sortOf t) $ Map.insert (coVar k) (sortOf s) $ c
+cconvFunDef fs fun@(FunDef _ f x k e) = do
+  let tmbinds = map (bimap tmVar sortOf) [x]
+  let cobinds = map (bimap coVar sortOf) [k]
+  let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
   fields <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
   let (free, rec) = markRec fs (Set.toList fields)
   e' <- local extend (cconv e)
-  pure (FunClosureDef (tmVar f) free rec (tmVar x, sortOf t) (coVar k, sortOf s) e')
+  pure (FunClosureDef (tmVar f) free rec tmbinds cobinds e')
 
 cconvContDef :: Set Name -> ContDef a -> ConvM ContClosureDef
 cconvContDef ks kont@(ContDef _ k xs e) = do
-  let binds = map (\ (x, t) -> (tmVar x, sortOf t)) xs
+  let binds = map (bimap tmVar sortOf) xs
   let extend ctx' = foldr (uncurry Map.insert) ctx' binds
   fields <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
   let (free, rec) = markRec ks (Set.toList fields)
@@ -374,13 +377,13 @@ pprintCompare (GtC x y) = show x ++ " > " ++ show y
 pprintCompare (GeC x y) = show x ++ " >= " ++ show y
 
 pprintClosureDef :: Int -> FunClosureDef -> String
-pprintClosureDef n (FunClosureDef f free rec x k e) =
+pprintClosureDef n (FunClosureDef f free rec xs ks e) =
   indent n env ++ indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     env = "{" ++ intercalate ", " vars ++ "}\n"
     vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
     params = "(" ++ intercalate ", " args ++ ")"
-    args = map pprintPlace [x, k]
+    args = map pprintPlace xs ++ map pprintPlace ks
 
 pprintContClosureDef :: Int -> ContClosureDef -> String
 pprintContClosureDef n (ContClosureDef k free rec xs e) =

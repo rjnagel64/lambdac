@@ -264,9 +264,9 @@ hoistCmp (GeC x y) = PrimGeInt32 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
-hoistFunClosure (fdecl, C.FunClosureDef _f free rec (x, t) (k, s) body) = do
+hoistFunClosure (fdecl, C.FunClosureDef _f free rec xs ks body) = do
   let fields = free ++ rec
-  (fields', places', body') <- inClosure fields [(x, t), (k, s)] $ hoist body
+  (fields', places', body') <- inClosure fields (xs ++ ks) $ hoist body
   let envd = EnvDecl fields'
   let fd = ClosureDecl fdecl envd places' body'
   pure fd
