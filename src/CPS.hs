@@ -509,7 +509,7 @@ indent n s = replicate n ' ' ++ s
 pprintTerm :: Int -> TermK a -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
-pprintTerm n (CallK f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
+pprintTerm n (CallK f xs ks) = indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
 pprintTerm n (CaseK x k1 s1 k2 s2) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetValK x t v e) =

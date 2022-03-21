@@ -336,7 +336,7 @@ indent n s = replicate n ' ' ++ s
 pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (JumpC k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
-pprintTerm n (CallC f x k) = indent n $ show f ++ " " ++ show x ++ " " ++ show k ++ ";\n"
+pprintTerm n (CallC f xs ks) = indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContC fs e) =
