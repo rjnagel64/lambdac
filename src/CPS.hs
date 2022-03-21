@@ -100,7 +100,7 @@ data ContDef = ContDef CoVar [(TmVar, TypeK)] TermK
 
 -- | Function definitions
 -- @f (x:τ) (k:σ) := e@
-data FunDef = FunDef TmVar TmVar TypeK CoVar TypeK TermK
+data FunDef = FunDef TmVar (TmVar, TypeK) (CoVar, TypeK) TermK
 
 -- | Values require no evaluation.
 data ValueK
@@ -184,7 +184,7 @@ cps env (TmLam x t e) k =
     freshCo "k" $ \k' -> do
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef f (var x) t' k' (ContK [s']) e']
+      let fs = [FunDef f (var x, t') (k', ContK [s']) e']
       (e'', _t'') <- k f (FunK t' s')
       let res = LetFunK fs e''
       pure (res, FunK t' s')
@@ -333,7 +333,7 @@ cpsFun env (TmFun f x t s e) =
     let t' = cpsType t
     let s' = cpsType s
     (e', _s') <- cpsTail (Map.insert x t' env) e k
-    let def = FunDef (var f) (var x) t' k (ContK [s']) e'
+    let def = FunDef (var f) (var x, t') (k, ContK [s']) e'
     pure def
 
 -- | CPS-convert a term in tail position.
@@ -348,7 +348,7 @@ cpsTail env (TmLam x t e) k =
     freshCo "k" $ \k' -> do
       let t' = cpsType t
       (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef f (var x) t' k' (ContK [s']) e']
+      let fs = [FunDef f (var x, t') (k', ContK [s']) e']
       let res = LetFunK fs (JumpK k [f])
       pure (res, FunK t' s')
 cpsTail env (TmLet x t e1 e2) k =
@@ -549,7 +549,7 @@ pprintCompare (CmpGtK x y) = show x ++ " > " ++ show y
 pprintCompare (CmpGeK x y) = show x ++ " >= " ++ show y
 
 pprintFunDef :: Int -> FunDef -> String
-pprintFunDef n (FunDef f x t k s e) =
+pprintFunDef n (FunDef f (x, t) (k, s) e) =
   indent n (show f ++ " " ++ pprintParam (show x) t ++ " " ++ pprintParam (show k) s ++ " =\n") ++ pprintTerm (n+2) e
 
 pprintContDef :: Int -> ContDef -> String

@@ -82,7 +82,7 @@ withVal x v m = local f m
     f env = env { inlineValDefs = Map.insert x v (inlineValDefs env) }
 
 withFn :: FunDef -> InlineM a -> InlineM a
-withFn fn@(FunDef f _ _ _ _ _) m = local g m
+withFn fn@(FunDef f _ _ _) m = local g m
   where
     g env = env { inlineFnDefs = Map.insert f fn (inlineFnDefs env) }
 
@@ -119,7 +119,7 @@ inlineK (CallK f x k) = do
   env <- ask
   case Map.lookup f (inlineFnDefs env) of
     Nothing -> pure (CallK f x k)
-    Just (FunDef _ y _ k' _ e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
+    Just (FunDef _ (y, _) (k', _) e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
 -- Eliminators use 'inlineValDefs' to beta-reduce, if possible.
 -- (A function parameter will not reduce, e.g.)
 inlineK (CaseK x k1 s1 k2 s2) = do
@@ -198,7 +198,7 @@ data Usage
 
 -- Count number of 'let' bindings, recursively.
 sizeK :: TermK -> Int
-sizeK (LetFunK fs e) = sum (map (\ (FunDef f x _ k _ e') -> sizeK e') fs) + sizeK e
+sizeK (LetFunK fs e) = sum (map (\ (FunDef f (x, _) (k, _) e') -> sizeK e') fs) + sizeK e
 sizeK (LetValK x _ v e) = 1 + sizeK e
 
 

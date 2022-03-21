@@ -226,7 +226,7 @@ fieldsForValue (InlK x) = unitField (tmVar x)
 fieldsForValue (InrK y) = unitField (tmVar y)
 
 fieldsForFunDef :: FunDef -> FieldsFor
-fieldsForFunDef (FunDef _f x t k s e) =
+fieldsForFunDef (FunDef _f (x, t) (k, s) e) =
   bindFields [(tmVar x, sortOf t), (coVar k, sortOf s)] (fieldsFor e)
 
 fieldsForContDef :: ContDef -> FieldsFor
@@ -240,7 +240,7 @@ markRec :: Set Name -> [(Name, Sort)] -> ([(Name, Sort)], [(Name, Sort)])
 markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) xs
 
 funDefNames :: [FunDef] -> [(Name, Sort)]
-funDefNames fs = [(tmVar f, Closure) | FunDef f _ _ _ _ _ <- fs]
+funDefNames fs = [(tmVar f, Closure) | FunDef f _ _ _ <- fs]
 
 contDefNames :: [ContDef] -> [(Name, Sort)]
 contDefNames ks = [(coVar k, Closure) | ContDef k _ _ <- ks]
@@ -278,7 +278,7 @@ cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
 cconv (LetCompareK x cmp e) = LetCompareC (tmVar x) (cconvCmp cmp) <$> cconv e
 
 cconvFunDef :: Set Name -> FunDef -> ConvM FunClosureDef
-cconvFunDef fs fun@(FunDef f x t k s e) = do
+cconvFunDef fs fun@(FunDef f (x, t) (k, s) e) = do
   let extend c = Map.insert (tmVar x) (sortOf t) $ Map.insert (coVar k) (sortOf s) $ c
   fields <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
   let (free, rec) = markRec fs (Set.toList fields)
