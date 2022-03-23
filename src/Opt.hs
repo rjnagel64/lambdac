@@ -14,7 +14,7 @@ import Data.Traversable (for)
 import Control.Monad.Reader
 import Control.Monad.Writer
 
-import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..))
+import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..), TypeK(..), ArithK(..))
 
 -- [Compiling with Continuations, Continued] mostly.
 -- CPS transformation, Closure Conversion, hopefully C code generation.
@@ -202,16 +202,171 @@ sizeK (LetValK x _ v e) = 1 + sizeK e
 -- (I don't think I need this, because I can do closures+function pointers)
 
 
--- -- | Perform obvious beta-reductions, and then discard unused bindings
--- -- afterward.
--- simplify :: TermK -> TermK
--- -- If there is a binding y := (z, w), substitute x := z in e
--- simplify (LetFstK x t y e) = _
--- -- Hmm. If case on bool, how do I rewrite?
--- -- (I erased the distinction between if and case, but I think I still need it
--- -- for the simplification here, in order to give the right number of
--- -- arguments.)
--- -- (Alternatively, I could make booleans properly a sum type, with n = 0 fields
--- -- in each branch)
--- -- (if x := true, rewrite to k1 []. if x := inr z, rewrite to k2 [z])
--- simplify (CaseK x k1 s1 k2 s2) = _
+data SimplEnv = SimplEnv { simplValues :: Map TmVar ValueK, simplSubst :: Map TmVar TmVar }
+
+rename :: SimplEnv -> TmVar -> TmVar
+rename (SimplEnv _ sub) x = case Map.lookup x sub of
+  Nothing -> x
+  Just x' -> x'
+
+-- Pass the environment under a binder.
+-- May rename things???
+-- (If so, maintain in-scope set.)
+-- TODO: Fix scoping in Simpl.
+under :: TmVar -> SimplEnv -> SimplEnv
+under x env = env
+
+defineValue :: TmVar -> ValueK -> SimplEnv -> SimplEnv
+defineValue x v (SimplEnv def sub) = SimplEnv (Map.insert x v def) sub
+
+defineSubst :: TmVar -> TmVar -> SimplEnv -> SimplEnv
+defineSubst x y (SimplEnv def sub) = SimplEnv def (Map.insert x y sub)
+
+-- For DCE of assignment statements, we only really care about "some uses"
+-- (can't DCE) or "no uses" (can DCE). "One use" isn't important because we
+-- already reduced beta-redexes, so we can't inline variables further (only
+-- functions, etc.)
+--
+-- (On the other hand, it probably would be useful to give more refined usage
+-- information to the function parameters? for worker-wrapper and stuff,
+-- maybe?)
+-- (e.g., ProductUsage SimplUsage SimplUsage. let z = fst p + snd p would give
+-- (ProductUsage SomeUses SomeUses), but let z = snd p + 3 would give
+-- (ProductUsage NoUses SomeUses)) (I think I would need to refine the lattice)
+data SimplUsage
+  = NoUses
+  | SomeUses
+
+-- | A 'Census' counts what variables are used in a term (and sort of how many
+-- times they are used). This is important for DCE, WW, and probably inlining.
+newtype Census = Census (Set TmVar)
+
+deriving newtype instance Semigroup Census
+deriving newtype instance Monoid Census
+
+-- TODO: Probably need covariable occurrences? Not for beta-reduction, at least.
+-- Covariable occurrences are necessary for inlining, though.
+record :: TmVar -> Census -> Census
+record x (Census xs) = Census (Set.insert x xs)
+
+recordArith :: ArithK -> Census
+recordArith (AddK x y) = record x (record y mempty)
+recordArith (SubK x y) = record x (record y mempty)
+recordArith (MulK x y) = record x (record y mempty)
+
+bind :: TmVar -> Census -> Census
+bind x (Census xs) = Census (Set.delete x xs)
+
+query :: TmVar -> Census -> SimplUsage
+query x (Census xs) = if Set.member x xs then SomeUses else NoUses
+
+-- | Perform obvious beta-reductions, and then discard unused local bindings
+-- afterward.
+--
+-- TODO: Annotate each parameter of a definition with used/unused (for WW later on)
+-- TODO: Keep track of fun/cont definition occurrences as well? (For inlining)
+simplify :: SimplEnv -> TermK a -> (TermK a, Census)
+simplify env (HaltK x) =
+  let x' = rename env x in
+  (HaltK x', record x' mempty)
+simplify env (JumpK k xs) =
+  let xs' = map (rename env) xs in
+  (JumpK k xs', foldr record mempty xs')
+simplify env (CallK f xs ks) =
+  let xs' = map (rename env) xs in
+  (CallK f xs' ks, foldr record mempty xs')
+simplify env (CaseK x k1 s1 k2 s2) =
+  let x' = rename env x in
+  case Map.lookup x' (simplValues env) of
+    Just (InlK y) -> (JumpK k1 [y], record y mempty)
+    Just (InrK z) -> (JumpK k2 [z], record z mempty)
+    Just (BoolValK b) -> (JumpK (if b then k1 else k2) [], mempty)
+    _ ->
+      (CaseK x' k1 s1 k2 s2, record x' mempty)
+-- If there is a binding y := (z, w), substitute x := z in e
+simplify env (LetFstK x t y e) = 
+  -- Apply substitution
+  let y' = rename env y in
+  -- Check for redex
+  case Map.lookup y' (simplValues env) of
+    -- There is a redex: let x = fst (z1, z2) in e ~> e[x := z1]
+    Just (PairK z1 z2) ->
+      -- TODO: We are passing under the binder for 'x'. Wat do.
+      let env' = defineSubst x z1 (under x env) in
+      -- let env' = env { simplSubst = Map.insert x z1 (simplSubst env) } in
+      let (e', census) = simplify env' e in
+      case query x census of
+        -- No uses of this variable. Discard it.
+        -- The census of variable occurrences is unchanged.
+        NoUses -> (e', census)
+        -- cannot discard x.
+        SomeUses ->
+          -- Free occurrences of x in e' now refer to this binding.
+          -- there is an occurrence of y'.
+          let census' = record y' (bind x census) in
+          (LetFstK x t y' e', census')
+    -- No redex
+    _ ->
+      let env' = under x env in
+      let (e', census) = simplify env' e in
+      let census' = record y' (bind x census) in
+      (LetFstK x t y' e', census')
+simplify env (LetValK x t v e) =
+  let (v', census) = simplifyVal env v in
+  let env' = defineValue x v (under x env) in
+  let (e', census') = simplify env' e in
+  case query x census' of
+    NoUses -> (e', census')
+    SomeUses -> (LetValK x t v' e', census <> bind x census')
+-- if y := int, z := int, rewrite to let x = int(y op z) in ...
+-- If only one is an integer, it is still possible to commute/assoc to simplify
+-- arithmetic expressions. Maybe later.
+simplify env (LetArithK x op e) =
+  case simplifyArith env op of
+    -- Could not simplify
+    Left op' ->
+      let env' = under x env in -- pass under x
+      let (e', census) = simplify env' e in
+      case query x census of
+        NoUses -> (e', census)
+        SomeUses -> (LetArithK x op' e', recordArith op' <> bind x census)
+    -- Simplified to an integer
+    Right i ->
+      let env' = defineValue x (IntValK i) (under x env) in
+      let (e', census) = simplify env' e in
+      case query x census of
+        NoUses -> (e', census)
+        SomeUses -> (LetValK x IntK (IntValK i) e', bind x census)
+simplify env (LetContK ks e) =
+  let f (kont, cen) (ks', census) = (kont : ks', cen <> census) in
+  let (ks', census) = foldr f ([], mempty) (map (simplifyContDef env) ks) in
+  let (e', census') = simplify env e in
+  (LetContK ks' e', census <> census')
+
+simplifyVal :: SimplEnv -> ValueK -> (ValueK, Census)
+simplifyVal env (PairK y z) =
+  let (y', z') = (rename env y, rename env z) in (PairK y' z', record y' (record z' mempty))
+simplifyVal env (InlK y) = let y' = rename env y in (InlK y', record y' mempty)
+simplifyVal env (InrK z) = let z' = rename env z in (InrK z', record z' mempty)
+simplifyVal _ NilK = (NilK, mempty)
+simplifyVal _ (IntValK i) = (IntValK i, mempty)
+simplifyVal _ (BoolValK b) = (BoolValK b, mempty)
+
+simplifyArith :: SimplEnv -> ArithK -> Either ArithK Int
+simplifyArith env op = simpl (renameOp op)
+  where
+    renameOp (AddK x y) = (AddK, (+), rename env x, rename env y)
+    renameOp (SubK x y) = (SubK, (-), rename env x, rename env y)
+    renameOp (MulK x y) = (MulK, (*), rename env x, rename env y)
+
+    simpl (g, f, x', y') = case (Map.lookup x' (simplValues env), Map.lookup y' (simplValues env)) of
+      (Just (IntValK i), Just (IntValK j)) -> Right (f i j)
+      (_, _) -> Left (g x' y')
+
+simplifyContDef :: SimplEnv -> ContDef a -> (ContDef a, Census)
+simplifyContDef env (ContDef ann k xs e) =
+  -- Pass under xs binders
+  let env' = foldr (under . fst) env xs in
+  let (e', census) = simplify env' e in
+  let census' = foldr (bind . fst) census xs in
+  (ContDef ann k xs e', census')
