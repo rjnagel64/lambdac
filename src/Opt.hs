@@ -249,11 +249,6 @@ deriving newtype instance Monoid Census
 record :: TmVar -> Census -> Census
 record x (Census xs) = Census (Set.insert x xs)
 
-recordArith :: ArithK -> Census
-recordArith (AddK x y) = record x (record y mempty)
-recordArith (SubK x y) = record x (record y mempty)
-recordArith (MulK x y) = record x (record y mempty)
-
 bind :: TmVar -> Census -> Census
 bind x (Census xs) = Census (Set.delete x xs)
 
@@ -324,12 +319,12 @@ simplify env (LetValK x t v e) =
 simplify env (LetArithK x op e) =
   case simplifyArith env op of
     -- Could not simplify
-    Left op' ->
+    Left (op', census) ->
       let env' = under x env in -- pass under x
-      let (e', census) = simplify env' e in
-      case query x census of
-        NoUses -> (e', census)
-        SomeUses -> (LetArithK x op' e', recordArith op' <> bind x census)
+      let (e', census') = simplify env' e in
+      case query x census' of
+        NoUses -> (e', census')
+        SomeUses -> (LetArithK x op' e', census <> bind x census')
     -- Simplified to an integer
     Right i ->
       let env' = defineValue x (IntValK i) (under x env) in
@@ -352,7 +347,7 @@ simplifyVal _ NilK = (NilK, mempty)
 simplifyVal _ (IntValK i) = (IntValK i, mempty)
 simplifyVal _ (BoolValK b) = (BoolValK b, mempty)
 
-simplifyArith :: SimplEnv -> ArithK -> Either ArithK Int
+simplifyArith :: SimplEnv -> ArithK -> Either (ArithK, Census) Int
 simplifyArith env op = simpl (renameOp op)
   where
     renameOp (AddK x y) = (AddK, (+), rename env x, rename env y)
@@ -361,7 +356,7 @@ simplifyArith env op = simpl (renameOp op)
 
     simpl (g, f, x', y') = case (Map.lookup x' (simplValues env), Map.lookup y' (simplValues env)) of
       (Just (IntValK i), Just (IntValK j)) -> Right (f i j)
-      (_, _) -> Left (g x' y')
+      (_, _) -> Left (g x' y', record x' (record y' mempty))
 
 simplifyContDef :: SimplEnv -> ContDef a -> (ContDef a, Census)
 simplifyContDef env (ContDef ann k xs e) =
