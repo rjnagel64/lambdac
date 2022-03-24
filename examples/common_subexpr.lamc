@@ -1,0 +1,2 @@
+let p : int * int = (3, 4) in
+fst p + fst p
