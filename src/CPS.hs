@@ -62,10 +62,6 @@ instance Show CoVar where
 -- assignments terminated by a control flow transfer.
 --
 -- (Actually, I think this IR is technically or nearly in ANF)
---
--- TODO: Add type annotations to binders. (And maybe more general annotations?)
--- (Or more general annotations. I want to know how many occurrences there are
--- of each binder, for inlining and DCE.)
 data TermK a
   -- Assignments
   -- let val x:t = v in e
