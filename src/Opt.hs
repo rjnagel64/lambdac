@@ -265,9 +265,13 @@ simplify env (HaltK x) =
   let x' = rename env x in
   (HaltK x', record x' mempty)
 simplify env (JumpK k xs) =
+  -- Note: This assumes that a jump uses all its arguments.
+  -- A more sophisticated analysis would require iterating to a fixpoint.
   let xs' = map (rename env) xs in
   (JumpK k xs', foldr record mempty xs')
 simplify env (CallK f xs ks) =
+  -- Note: This assumes that a function call uses all its arguments.
+  -- A more sophisticated analysis would require iterating to a fixpoint.
   let xs' = map (rename env) xs in
   (CallK f xs' ks, foldr record mempty xs')
 simplify env (CaseK x k1 s1 k2 s2) =

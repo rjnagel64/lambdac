@@ -19,6 +19,7 @@ module CPS
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.List (intercalate)
+import Data.Maybe (fromMaybe)
 
 import Control.Monad.Reader
 
@@ -147,8 +148,8 @@ data TypeK
   -- (σ1, ..., σn) -> 0
   -- The type of a continuation
   | ContK [TypeK]
-  -- (τ * σ) -> 0
-  -- The type of a function. σ should always be σ' -> 0, I think.
+  -- (τ * σ -> 0) -> 0
+  -- The type of a function.
   | FunK TypeK TypeK
 
 cpsType :: S.Type -> TypeK
@@ -162,6 +163,11 @@ cpsType (S.TyVarOcc _) = error "not implemented: polymorphic cpsType"
 cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
 
 
+-- TODO: I dislike this. It technically works, because shadowed source becomes
+-- shadowed CPS, but if I ever start renaming bound variables, it's going to
+-- fall apart.
+--
+-- Add a @Map S.TmVar TmVar@ to the CPS environment. (that parallels @Map S.TmVar TypeK@?)
 var :: S.TmVar -> TmVar
 var (S.TmVar x) = TmVar x 0
 
@@ -171,6 +177,7 @@ var (S.TmVar x) = TmVar x 0
 -- | CPS-convert a term.
 --
 -- TODO: Find a way to reduce the nesting. ContT, maybe?
+-- TODO: Should the type environment be considered part of the FreshM monad? I kind of think so.
 cps :: Map S.TmVar TypeK -> Term -> (TmVar -> TypeK -> FreshM (TermK (), TypeK)) -> FreshM (TermK (), TypeK)
 cps env (TmVarOcc x) k = case Map.lookup x env of
   Nothing -> error ("cps: variable not in scope: " ++ show x)
@@ -185,6 +192,9 @@ cps env (TmLam x t e) k =
       let res = LetFunK fs e''
       pure (res, FunK t' s')
 cps env (TmRecFun fs e) k = do
+  -- TODO: The names in these bindings should be added to the freshening scope.
+  -- (Or they should be freshened, if an inner and outer recursive definition
+  -- have the same name)
   let binds = [(f, FunK (cpsType t) (cpsType s)) | TmFun f _ t s _ <- fs]
   let env' = foldr (uncurry Map.insert) env binds
   fs' <- traverse (cpsFun env') fs
@@ -253,7 +263,7 @@ cps env (TmIf e et ef) k =
                 LetContK [ContDef () j [(x, s')] e'] $
                   LetContK [ContDef () k1 [] et'] $
                     LetContK [ContDef () k2 [] ef'] $
-                      -- NOTE: It really should be k2, k1 here.
+                      -- NOTE: k2, k1 is the correct order here.
                       -- This is because case branches are laid out in order of discriminant.
                       -- false = 0, true = 1, so the branches should be laid
                       -- out as false, true as oppose to the source order true,
@@ -455,7 +465,7 @@ cpsTail env (TmIf e et ef) k =
         (ef', sf') <- cpsTail env ef k
         let s' = fst (st', sf')
         let
-          -- NOTE: It really should be k2, k1 here.
+          -- NOTE: k2, k1 is the correct order here.
           -- This is because case branches are laid out in order of discriminant.
           -- false = 0, true = 1, so the branches should be laid
           -- out as false, true as oppose to the source order true,
@@ -474,6 +484,9 @@ cpsMain :: Term -> (TermK (), TypeK)
 cpsMain e = runFresh $ cps Map.empty e (\z t -> pure (HaltK z, t))
 
 
+-- TODO: Monad that stores both in-scope set and typing environment
+-- data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map TmVar TypeK }
+
 newtype FreshM a = FreshM { runFreshM :: Reader (Map String Int) a }
 
 deriving via Reader (Map String Int) instance Functor FreshM
@@ -484,16 +497,38 @@ deriving via Reader (Map String Int) instance MonadReader (Map String Int) Fresh
 freshTm :: String -> (TmVar -> FreshM a) -> FreshM a
 freshTm x k = do
   scope <- ask
-  case Map.lookup x scope of
-    Nothing -> local (Map.insert x 1) (k (TmVar x 0))
-    Just i -> local (Map.insert x (i+1)) (k (TmVar x i))
+  let i = fromMaybe 0 (Map.lookup x scope)
+  let x' = TmVar x i
+  let extend sc = Map.insert x (i+1) sc
+  local extend (k x')
 
 freshCo :: String -> (CoVar -> FreshM a) -> FreshM a
 freshCo x k = do
   scope <- ask
-  case Map.lookup x scope of
-    Nothing -> local (Map.insert x 1) (k (CoVar (x ++ "0")))
-    Just i -> local (Map.insert x (i+1)) (k (CoVar (x ++ show i)))
+  let i = fromMaybe 0 (Map.lookup x scope)
+  let x' = CoVar (x ++ show i)
+  let extend sc = Map.insert x (i+1) sc
+  local extend (k x')
+
+-- -- Hang on, if I rename the functions to avoid shadowing existing definitions,
+-- -- that means I need to rename occurrences of these functions in the body of
+-- -- the `let fun` binding. AARGH.
+-- -- I guess that means I need to lookup the subst at TmVarOcc? Do I have to
+-- -- worry about passing under binders?
+-- --
+-- -- ... Can I *not* rename the functions, just add them to the scope?
+-- -- (Actually, I only need a S.TmVar -> TmVar map, which is easier to deal with.)
+-- freshenFns :: [TmFun] -> ([TmFun] -> FreshM a) -> FreshM a
+-- freshenFns fs k = do
+--   scope <- ask
+--   let
+--     freshen sc (TmFun (S.TmVar f) x s t e) =
+--       let i = fromMaybe 0 (Map.lookup x sc) in
+--       let f' = TmVar f i in
+--       (Map.insert x (i+1) sc, TmFun f' x s t e)
+--   let (scope', fs') = mapAccumL freshen scope fs
+--   let extend sc = scope'
+--   local extend (k fs')
 
 runFresh :: FreshM a -> a
 runFresh = flip runReader Map.empty . runFreshM

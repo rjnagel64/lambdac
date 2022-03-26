@@ -1,0 +1,7 @@
+
+-- Problem: both 'fun f' and the lambda are CPS renamed to 'f0'.
+-- The function then recurses in the wrong way.
+let fun f (x : int) : int -> int =
+  \ (y : int) -> if x == 0 then y else f (x - 1) (x + y);
+in
+f 3 0
