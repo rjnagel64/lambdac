@@ -178,16 +178,17 @@ var (S.TmVar x) = TmVar x 0
 --
 -- TODO: Find a way to reduce the nesting. ContT, maybe?
 -- TODO: Should the type environment be considered part of the CPS monad? I kind of think so.
-cps :: Map S.TmVar TypeK -> Term -> (TmVar -> TypeK -> CPS (TermK (), TypeK)) -> CPS (TermK (), TypeK)
+cps :: Map S.TmVar (TmVar, TypeK) -> Term -> (TmVar -> TypeK -> CPS (TermK (), TypeK)) -> CPS (TermK (), TypeK)
 cps env (TmVarOcc x) k = case Map.lookup x env of
   Nothing -> error ("cps: variable not in scope: " ++ show x)
-  Just t -> k (var x) t
+  Just (x', t) -> k x' t
 cps env (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
+      let x' = var x
       let t' = cpsType t
-      (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef () f [(var x, t')] [(k', ContK [s'])] e']
+      (e', s') <- cpsTail (Map.insert x (x', t') env) e k'
+      let fs = [FunDef () f [(x', t')] [(k', ContK [s'])] e']
       (e'', _t'') <- k f (FunK t' s')
       let res = LetFunK fs e''
       pure (res, FunK t' s')
@@ -195,7 +196,7 @@ cps env (TmRecFun fs e) k = do
   -- TODO: The names in these bindings should be added to the freshening scope.
   -- (Or they should be freshened, if an inner and outer recursive definition
   -- have the same name)
-  let binds = [(f, FunK (cpsType t) (cpsType s)) | TmFun f _ t s _ <- fs]
+  let binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f _ t s _ <- fs]
   let env' = foldr (uncurry Map.insert) env binds
   fs' <- traverse (cpsFun env') fs
   (e', t') <- cps env' e k
@@ -234,18 +235,20 @@ cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
       freshTm "x" $ \x ->
         freshCo "k1" $ \k1 ->
           freshCo "k2" $ \k2 -> do
+            let xl' = var xl
             let tl' = cpsType tl
-            (el', sl') <- cpsTail (Map.insert xl tl' env) el j
+            (el', sl') <- cpsTail (Map.insert xl (xl', tl') env) el j
+            let xr' = var xr
             let tr' = cpsType tr
-            (er', sr') <- cpsTail (Map.insert xr tr' env) er j
+            (er', sr') <- cpsTail (Map.insert xr (xr', tr') env) er j
             let s' = fst (sl', sr')
             (e', _t') <- k x s'
             -- TODO: Case branches that accept multiple arguments at once
             let
               res = 
                 LetContK [ContDef () j [(x, s')] e'] $
-                  LetContK [ContDef () k1 [(var xl, tl')] el'] $
-                    LetContK [ContDef () k2 [(var xr, tr')] er'] $
+                  LetContK [ContDef () k1 [(xl', tl')] el'] $
+                    LetContK [ContDef () k2 [(xr', tr')] er'] $
                       CaseK z k1 (ContK [tl']) k2 (ContK [tr'])
             pure (res, s')
 cps env (TmIf e et ef) k =
@@ -311,11 +314,12 @@ cps _env (TmInt i) k =
     let res = LetValK x IntK (IntValK i) e'
     pure (res, t')
 cps env (TmLet x t e1 e2) k = do
+  let x' = var x
   let t' = cpsType t
-  (e2', t2') <- cps (Map.insert x t' env) e2 k
+  (e2', t2') <- cps (Map.insert x (x', t') env) e2 k
   freshCo "j" $ \j -> do
     (e1', _t1') <- cpsTail env e1 j
-    let res = LetContK [ContDef () j [(var x, t')] e2'] e1'
+    let res = LetContK [ContDef () j [(x', t')] e2'] e1'
     pure (res, t2')
 cps env (TmArith e1 op e2) k =
   cps env e1 $ \x _t1 ->
@@ -332,29 +336,34 @@ cps env (TmCmp e1 cmp e2) k =
         let res = LetCompareK z (makeCompare cmp x y) e'
         pure (res, t')
 
-cpsFun :: Map S.TmVar TypeK -> TmFun -> CPS (FunDef ())
+cpsFun :: Map S.TmVar (TmVar, TypeK) -> TmFun -> CPS (FunDef ())
 cpsFun env (TmFun f x t s e) =
   freshCo "k" $ \k -> do
     -- Recursive bindings already handled, outside of this.
+    f' <- case Map.lookup f env of
+      Nothing -> error "cpsFun: function not in scope (unreachable?)"
+      Just (f', _) -> pure f'
+    let x' = var x
     let t' = cpsType t
     let s' = cpsType s
-    (e', _s') <- cpsTail (Map.insert x t' env) e k
-    let def = FunDef () (var f) [(var x, t')] [(k, ContK [s'])] e'
+    (e', _s') <- cpsTail (Map.insert x (x', t') env) e k
+    let def = FunDef () f' [(x', t')] [(k, ContK [s'])] e'
     pure def
 
 -- | CPS-convert a term in tail position.
 -- In tail position, the continuation is always a continuation variable, which
 -- allows for simpler translations.
-cpsTail :: Map S.TmVar TypeK -> Term -> CoVar -> CPS (TermK (), TypeK)
+cpsTail :: Map S.TmVar (TmVar, TypeK) -> Term -> CoVar -> CPS (TermK (), TypeK)
 cpsTail env (TmVarOcc x) k = case Map.lookup x env of
   Nothing -> error ("cpsTail: variable not in scope: " ++ show x)
-  Just t' -> pure (JumpK k [var x], t')
+  Just (x', t') -> pure (JumpK k [x'], t')
 cpsTail env (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
+      let x' = var x
       let t' = cpsType t
-      (e', s') <- cpsTail (Map.insert x t' env) e k'
-      let fs = [FunDef () f [(var x, t')] [(k', ContK [s'])] e']
+      (e', s') <- cpsTail (Map.insert x (x', t') env) e k'
+      let fs = [FunDef () f [(x', t')] [(k', ContK [s'])] e']
       let res = LetFunK fs (JumpK k [f])
       pure (res, FunK t' s')
 cpsTail env (TmLet x t e1 e2) k =
@@ -362,13 +371,14 @@ cpsTail env (TmLet x t e1 e2) k =
   -- -->
   -- let j (x:t) = [[e2]] k; in [[e1]] j
   freshCo "j" $ \j -> do
+    let x' = var x
     let t' = cpsType t
-    (e2', _t2') <- cpsTail (Map.insert x t' env) e2 k
+    (e2', _t2') <- cpsTail (Map.insert x (x', t') env) e2 k
     (e1', t1') <- cpsTail env e1 j
-    let res = LetContK [ContDef () j [(var x, t')] e2'] e1'
+    let res = LetContK [ContDef () j [(x', t')] e2'] e1'
     pure (res, t1')
 cpsTail env (TmRecFun fs e) k = do
-  let binds = [(f, cpsType (S.TyArr t s)) | TmFun f _x t s _e <- fs]
+  let binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f _x t s _e <- fs]
   let env' = foldr (uncurry Map.insert) env binds
   fs' <- traverse (cpsFun env') fs
   (e', t') <- cpsTail env' e k
@@ -443,15 +453,17 @@ cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
     -- _t === SumK (cpsType tl) (cpsType tr), because input is well-typed.
     freshCo "k1" $ \k1 ->
       freshCo "k2" $ \k2 -> do
+        let xl' = var xl
         let tl' = cpsType tl
-        (el', sl') <- cpsTail (Map.insert xl tl' env) el k
+        (el', sl') <- cpsTail (Map.insert xl (xl', tl') env) el k
+        let xr' = var xr
         let tr' = cpsType tr
-        (er', sr') <- cpsTail (Map.insert xr tr' env) er k
+        (er', sr') <- cpsTail (Map.insert xr (xr', tr') env) er k
         -- TODO: Case branches that accept multiple arguments at once
         let
           res =
-            LetContK [ContDef () k1 [(var xl, tl')] el'] $
-              LetContK [ContDef () k2 [(var xr, tr')] er'] $
+            LetContK [ContDef () k1 [(xl', tl')] el'] $
+              LetContK [ContDef () k2 [(xr', tr')] er'] $
                 CaseK z k1 (ContK [tl']) k2 (ContK [tr'])
         -- both branches have same type, so this is valid.
         -- (Alternatively, put `returns s` on Source.TmCase)
@@ -487,28 +499,39 @@ cpsMain e = runFresh $ cps Map.empty e (\z t -> pure (HaltK z, t))
 -- TODO: Monad that stores both in-scope set and typing environment
 -- data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map TmVar TypeK }
 
-newtype CPS a = CPS { runCPS :: Reader (Map String Int) a }
+data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int }
 
-deriving via Reader (Map String Int) instance Functor CPS
-deriving via Reader (Map String Int) instance Applicative CPS
-deriving via Reader (Map String Int) instance Monad CPS
-deriving via Reader (Map String Int) instance MonadReader (Map String Int) CPS
+emptyEnv :: CPSEnv
+emptyEnv = CPSEnv Map.empty
+
+newtype CPS a = CPS { runCPS :: Reader CPSEnv a }
+
+deriving via Reader CPSEnv instance Functor CPS
+deriving via Reader CPSEnv instance Applicative CPS
+deriving via Reader CPSEnv instance Monad CPS
+deriving via Reader CPSEnv instance MonadReader CPSEnv CPS
 
 freshTm :: String -> (TmVar -> CPS a) -> CPS a
 freshTm x k = do
-  scope <- ask
+  scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = TmVar x i
-  let extend sc = Map.insert x (i+1) sc
+  let extend (CPSEnv sc) = CPSEnv (Map.insert x (i+1) sc)
   local extend (k x')
 
 freshCo :: String -> (CoVar -> CPS a) -> CPS a
 freshCo x k = do
-  scope <- ask
+  scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = CoVar (x ++ show i)
-  let extend sc = Map.insert x (i+1) sc
+  let extend (CPSEnv sc) = CPSEnv (Map.insert x (i+1) sc)
   local extend (k x')
+
+-- freshVarBind :: S.TmVar -> S.Type -> ((TmVar, TypeK) -> CPS a) -> CPS a
+-- freshVarBind (S.TmVar x) t k =
+--   freshTm x $ \x' -> do
+--     let t' = cpsType t
+--     k (x', t')
 
 -- -- Hang on, if I rename the functions to avoid shadowing existing definitions,
 -- -- that means I need to rename occurrences of these functions in the body of
@@ -531,7 +554,7 @@ freshCo x k = do
 --   local extend (k fs')
 
 runFresh :: CPS a -> a
-runFresh = flip runReader Map.empty . runCPS
+runFresh = flip runReader emptyEnv . runCPS
 
 
 indent :: Int -> String -> String
