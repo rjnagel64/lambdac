@@ -187,7 +187,7 @@ cps env (TmLam x t e) k =
     freshCo "k" $ \k' -> do
       let x' = var x
       let t' = cpsType t
-      (e', s') <- cpsTail (Map.insert x (x', t') env) e k'
+      (e', s') <- cpsTail (extendCtx [(x, (x', t'))] env) e k'
       let fs = [FunDef () f [(x', t')] [(k', ContK [s'])] e']
       (e'', _t'') <- k f (FunK t' s')
       let res = LetFunK fs e''
@@ -197,7 +197,7 @@ cps env (TmRecFun fs e) k = do
   -- (Or they should be freshened, if an inner and outer recursive definition
   -- have the same name)
   let binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f _ t s _ <- fs]
-  let env' = foldr (uncurry Map.insert) env binds
+  let env' = extendCtx binds env
   fs' <- traverse (cpsFun env') fs
   (e', t') <- cps env' e k
   let res = LetFunK fs' e'
@@ -237,10 +237,10 @@ cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
           freshCo "k2" $ \k2 -> do
             let xl' = var xl
             let tl' = cpsType tl
-            (el', sl') <- cpsTail (Map.insert xl (xl', tl') env) el j
+            (el', sl') <- cpsTail (extendCtx [(xl, (xl', tl'))] env) el j
             let xr' = var xr
             let tr' = cpsType tr
-            (er', sr') <- cpsTail (Map.insert xr (xr', tr') env) er j
+            (er', sr') <- cpsTail (extendCtx [(xr, (xr', tr'))] env) er j
             let s' = fst (sl', sr')
             (e', _t') <- k x s'
             -- TODO: Case branches that accept multiple arguments at once
@@ -316,7 +316,7 @@ cps _env (TmInt i) k =
 cps env (TmLet x t e1 e2) k = do
   let x' = var x
   let t' = cpsType t
-  (e2', t2') <- cps (Map.insert x (x', t') env) e2 k
+  (e2', t2') <- cps (extendCtx [(x, (x', t'))] env) e2 k
   freshCo "j" $ \j -> do
     (e1', _t1') <- cpsTail env e1 j
     let res = LetContK [ContDef () j [(x', t')] e2'] e1'
@@ -346,7 +346,7 @@ cpsFun env (TmFun f x t s e) =
     let x' = var x
     let t' = cpsType t
     let s' = cpsType s
-    (e', _s') <- cpsTail (Map.insert x (x', t') env) e k
+    (e', _s') <- cpsTail (extendCtx [(x, (x', t'))] env) e k
     let def = FunDef () f' [(x', t')] [(k, ContK [s'])] e'
     pure def
 
@@ -362,7 +362,7 @@ cpsTail env (TmLam x t e) k =
     freshCo "k" $ \k' -> do
       let x' = var x
       let t' = cpsType t
-      (e', s') <- cpsTail (Map.insert x (x', t') env) e k'
+      (e', s') <- cpsTail (extendCtx [(x, (x', t'))] env) e k'
       let fs = [FunDef () f [(x', t')] [(k', ContK [s'])] e']
       let res = LetFunK fs (JumpK k [f])
       pure (res, FunK t' s')
@@ -373,13 +373,13 @@ cpsTail env (TmLet x t e1 e2) k =
   freshCo "j" $ \j -> do
     let x' = var x
     let t' = cpsType t
-    (e2', _t2') <- cpsTail (Map.insert x (x', t') env) e2 k
+    (e2', _t2') <- cpsTail (extendCtx [(x, (x', t'))] env) e2 k
     (e1', t1') <- cpsTail env e1 j
     let res = LetContK [ContDef () j [(x', t')] e2'] e1'
     pure (res, t1')
 cpsTail env (TmRecFun fs e) k = do
   let binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f _x t s _e <- fs]
-  let env' = foldr (uncurry Map.insert) env binds
+  let env' = extendCtx binds env
   fs' <- traverse (cpsFun env') fs
   (e', t') <- cpsTail env' e k
   let res = LetFunK fs' e'
@@ -455,10 +455,10 @@ cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
       freshCo "k2" $ \k2 -> do
         let xl' = var xl
         let tl' = cpsType tl
-        (el', sl') <- cpsTail (Map.insert xl (xl', tl') env) el k
+        (el', sl') <- cpsTail (extendCtx [(xl, (xl', tl'))] env) el k
         let xr' = var xr
         let tr' = cpsType tr
-        (er', sr') <- cpsTail (Map.insert xr (xr', tr') env) er k
+        (er', sr') <- cpsTail (extendCtx [(xr, (xr', tr'))] env) er k
         -- TODO: Case branches that accept multiple arguments at once
         let
           res =
@@ -498,6 +498,9 @@ cpsMain e = runFresh $ cps Map.empty e (\z t -> pure (HaltK z, t))
 
 -- TODO: Monad that stores both in-scope set and typing environment
 -- data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map TmVar TypeK }
+
+extendCtx :: [(S.TmVar, (TmVar, TypeK))] -> Map S.TmVar (TmVar, TypeK) -> Map S.TmVar (TmVar, TypeK)
+extendCtx binds env = foldr (uncurry Map.insert) env binds
 
 data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int }
 
