@@ -177,8 +177,8 @@ var (S.TmVar x) = TmVar x 0
 -- | CPS-convert a term.
 --
 -- TODO: Find a way to reduce the nesting. ContT, maybe?
--- TODO: Should the type environment be considered part of the FreshM monad? I kind of think so.
-cps :: Map S.TmVar TypeK -> Term -> (TmVar -> TypeK -> FreshM (TermK (), TypeK)) -> FreshM (TermK (), TypeK)
+-- TODO: Should the type environment be considered part of the CPS monad? I kind of think so.
+cps :: Map S.TmVar TypeK -> Term -> (TmVar -> TypeK -> CPS (TermK (), TypeK)) -> CPS (TermK (), TypeK)
 cps env (TmVarOcc x) k = case Map.lookup x env of
   Nothing -> error ("cps: variable not in scope: " ++ show x)
   Just t -> k (var x) t
@@ -332,7 +332,7 @@ cps env (TmCmp e1 cmp e2) k =
         let res = LetCompareK z (makeCompare cmp x y) e'
         pure (res, t')
 
-cpsFun :: Map S.TmVar TypeK -> TmFun -> FreshM (FunDef ())
+cpsFun :: Map S.TmVar TypeK -> TmFun -> CPS (FunDef ())
 cpsFun env (TmFun f x t s e) =
   freshCo "k" $ \k -> do
     -- Recursive bindings already handled, outside of this.
@@ -345,7 +345,7 @@ cpsFun env (TmFun f x t s e) =
 -- | CPS-convert a term in tail position.
 -- In tail position, the continuation is always a continuation variable, which
 -- allows for simpler translations.
-cpsTail :: Map S.TmVar TypeK -> Term -> CoVar -> FreshM (TermK (), TypeK)
+cpsTail :: Map S.TmVar TypeK -> Term -> CoVar -> CPS (TermK (), TypeK)
 cpsTail env (TmVarOcc x) k = case Map.lookup x env of
   Nothing -> error ("cpsTail: variable not in scope: " ++ show x)
   Just t' -> pure (JumpK k [var x], t')
@@ -487,14 +487,14 @@ cpsMain e = runFresh $ cps Map.empty e (\z t -> pure (HaltK z, t))
 -- TODO: Monad that stores both in-scope set and typing environment
 -- data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map TmVar TypeK }
 
-newtype FreshM a = FreshM { runFreshM :: Reader (Map String Int) a }
+newtype CPS a = CPS { runCPS :: Reader (Map String Int) a }
 
-deriving via Reader (Map String Int) instance Functor FreshM
-deriving via Reader (Map String Int) instance Applicative FreshM
-deriving via Reader (Map String Int) instance Monad FreshM
-deriving via Reader (Map String Int) instance MonadReader (Map String Int) FreshM
+deriving via Reader (Map String Int) instance Functor CPS
+deriving via Reader (Map String Int) instance Applicative CPS
+deriving via Reader (Map String Int) instance Monad CPS
+deriving via Reader (Map String Int) instance MonadReader (Map String Int) CPS
 
-freshTm :: String -> (TmVar -> FreshM a) -> FreshM a
+freshTm :: String -> (TmVar -> CPS a) -> CPS a
 freshTm x k = do
   scope <- ask
   let i = fromMaybe 0 (Map.lookup x scope)
@@ -502,7 +502,7 @@ freshTm x k = do
   let extend sc = Map.insert x (i+1) sc
   local extend (k x')
 
-freshCo :: String -> (CoVar -> FreshM a) -> FreshM a
+freshCo :: String -> (CoVar -> CPS a) -> CPS a
 freshCo x k = do
   scope <- ask
   let i = fromMaybe 0 (Map.lookup x scope)
@@ -518,7 +518,7 @@ freshCo x k = do
 -- --
 -- -- ... Can I *not* rename the functions, just add them to the scope?
 -- -- (Actually, I only need a S.TmVar -> TmVar map, which is easier to deal with.)
--- freshenFns :: [TmFun] -> ([TmFun] -> FreshM a) -> FreshM a
+-- freshenFns :: [TmFun] -> ([TmFun] -> CPS a) -> CPS a
 -- freshenFns fs k = do
 --   scope <- ask
 --   let
@@ -530,8 +530,8 @@ freshCo x k = do
 --   let extend sc = scope'
 --   local extend (k fs')
 
-runFresh :: FreshM a -> a
-runFresh = flip runReader Map.empty . runFreshM
+runFresh :: CPS a -> a
+runFresh = flip runReader Map.empty . runCPS
 
 
 indent :: Int -> String -> String
