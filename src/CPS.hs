@@ -493,7 +493,8 @@ cpsTail _env (TmBool b) k =
 
 
 cpsMain :: Term -> (TermK (), TypeK)
-cpsMain e = runFresh $ cps Map.empty e (\z t -> pure (HaltK z, t))
+cpsMain e = flip runReader emptyEnv $ runCPS $
+  cps Map.empty e (\z t -> pure (HaltK z, t))
 
 
 -- TODO: Monad that stores both in-scope set and typing environment
@@ -555,10 +556,6 @@ freshCo x k = do
 --   let (scope', fs') = mapAccumL freshen scope fs
 --   let extend sc = scope'
 --   local extend (k fs')
-
-runFresh :: CPS a -> a
-runFresh = flip runReader emptyEnv . runCPS
-
 
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
