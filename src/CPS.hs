@@ -177,34 +177,34 @@ var (S.TmVar x) = TmVar x 0
 -- | CPS-convert a term.
 --
 -- TODO: Find a way to reduce the nesting. ContT, maybe?
--- TODO: Should the type environment be considered part of the CPS monad? I kind of think so.
-cps :: Map S.TmVar (TmVar, TypeK) -> Term -> (TmVar -> TypeK -> CPS (TermK (), TypeK)) -> CPS (TermK (), TypeK)
-cps env (TmVarOcc x) k = case Map.lookup x env of
-  Nothing -> error ("cps: variable not in scope: " ++ show x)
-  Just (x', t) -> k x' t
-cps env (TmLam x t e) k =
+cps :: Term -> (TmVar -> TypeK -> CPS (TermK (), TypeK)) -> CPS (TermK (), TypeK)
+cps (TmVarOcc x) k = do
+  env <- asks cpsEnvCtx
+  case Map.lookup x env of
+    Nothing -> error ("cps: variable not in scope: " ++ show x)
+    Just (x', t) -> k x' t
+cps (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
       let x' = var x
       let t' = cpsType t
-      (e', s') <- cpsTail (extendCtx [(x, (x', t'))] env) e k'
+      (e', s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k'
       let fs = [FunDef () f [(x', t')] [(k', ContK [s'])] e']
       (e'', _t'') <- k f (FunK t' s')
       let res = LetFunK fs e''
       pure (res, FunK t' s')
-cps env (TmRecFun fs e) k = do
+cps (TmRecFun fs e) k = do
   -- TODO: The names in these bindings should be added to the freshening scope.
   -- (Or they should be freshened, if an inner and outer recursive definition
   -- have the same name)
   let binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f _ t s _ <- fs]
-  let env' = extendCtx binds env
-  fs' <- traverse (cpsFun env') fs
-  (e', t') <- cps env' e k
+  fs' <- withVarBinds binds $ traverse cpsFun fs
+  (e', t') <- withVarBinds binds $ cps e k
   let res = LetFunK fs' e'
   pure (res, t')
-cps env (TmApp e1 e2) k =
-  cps env e1 $ \v1 t1 -> do
-    cps env e2 $ \v2 _t2 -> do
+cps (TmApp e1 e2) k =
+  cps e1 $ \v1 t1 -> do
+    cps e2 $ \v2 _t2 -> do
       s' <- case t1 of
         FunK _t2' s' -> pure s'
         _ -> error ("bad function type: " ++ pprintType t1)
@@ -213,34 +213,34 @@ cps env (TmApp e1 e2) k =
           (e', _t') <- k xv s'
           let res = LetContK [ContDef () kv [(xv, s')] e'] (CallK v1 [v2] [kv])
           pure (res, s')
-cps env (TmInl a b e) k =
-  cps env e $ \z _t ->
+cps (TmInl a b e) k =
+  cps e $ \z _t ->
     freshTm "x" $ \x -> do
       let ta = cpsType a
       let tb = cpsType b
       (e', _t') <- k x (SumK ta tb)
       let res = LetValK x (SumK ta tb) (InlK z) e'
       pure (res, SumK ta tb)
-cps env (TmInr a b e) k =
-  cps env e $ \z _t ->
+cps (TmInr a b e) k =
+  cps e $ \z _t ->
     freshTm "x" $ \x -> do
       let ta = cpsType a
       let tb = cpsType b
       (e', _t') <- k x (SumK ta tb)
       let res = LetValK x (SumK ta tb) (InrK z) e'
       pure (res, SumK ta tb)
-cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
-  cps env e $ \z _t ->
+cps (TmCase e (xl, tl, el) (xr, tr, er)) k =
+  cps e $ \z _t ->
     freshCo "j" $ \j ->
       freshTm "x" $ \x ->
         freshCo "k1" $ \k1 ->
           freshCo "k2" $ \k2 -> do
             let xl' = var xl
             let tl' = cpsType tl
-            (el', sl') <- cpsTail (extendCtx [(xl, (xl', tl'))] env) el j
+            (el', sl') <- withVarBinds [(xl, (xl', tl'))] $ cpsTail el j
             let xr' = var xr
             let tr' = cpsType tr
-            (er', sr') <- cpsTail (extendCtx [(xr, (xr', tr'))] env) er j
+            (er', sr') <- withVarBinds [(xr, (xr', tr'))] $ cpsTail er j
             let s' = fst (sl', sr')
             (e', _t') <- k x s'
             -- TODO: Case branches that accept multiple arguments at once
@@ -251,14 +251,14 @@ cps env (TmCase e (xl, tl, el) (xr, tr, er)) k =
                     LetContK [ContDef () k2 [(xr', tr')] er'] $
                       CaseK z k1 (ContK [tl']) k2 (ContK [tr'])
             pure (res, s')
-cps env (TmIf e et ef) k =
-  cps env e $ \z _t -> -- t =~= BoolK
+cps (TmIf e et ef) k =
+  cps e $ \z _t -> -- t =~= BoolK
     freshCo "j" $ \j ->
       freshTm "x" $ \x ->
         freshCo "k1" $ \k1 ->
           freshCo "k2" $ \k2 -> do
-            (et', st') <- cpsTail env et j
-            (ef', sf') <- cpsTail env ef j
+            (et', st') <- cpsTail et j
+            (ef', sf') <- cpsTail ef j
             let s' = fst (st', sf')
             (e', _t') <- k x s'
             let
@@ -273,20 +273,20 @@ cps env (TmIf e et ef) k =
                       -- false.
                       CaseK z k2 (ContK []) k1 (ContK [])
             pure (res, s')
-cps _env (TmBool b) k =
+cps (TmBool b) k =
   freshTm "x" $ \x -> do
     (e', t') <- k x BoolK
     let res = LetValK x BoolK (BoolValK b) e'
     pure (res, t')
-cps env (TmPair e1 e2) k =
-  cps env e1 $ \v1 t1 ->
-    cps env e2 $ \v2 t2 ->
+cps (TmPair e1 e2) k =
+  cps e1 $ \v1 t1 ->
+    cps e2 $ \v2 t2 ->
       freshTm "x" $ \x -> do
         (e', _t') <- k x (ProdK t1 t2)
         let res = LetValK x (ProdK t1 t2) (PairK v1 v2) e'
         pure (res, ProdK t1 t2)
-cps env (TmFst e) k =
-  cps env e $ \v t ->  do
+cps (TmFst e) k =
+  cps e $ \v t ->  do
     (ta, _tb) <- case t of
       ProdK ta tb -> pure (ta, tb)
       _ -> error "bad projection"
@@ -294,8 +294,8 @@ cps env (TmFst e) k =
       (e', _t') <- k x ta
       let res = LetFstK x ta v e'
       pure (res, ta)
-cps env (TmSnd e) k =
-  cps env e $ \v t -> do
+cps (TmSnd e) k =
+  cps e $ \v t -> do
     (_ta, tb) <- case t of
       ProdK ta tb -> pure (ta, tb)
       _ -> error "bad projection"
@@ -303,42 +303,43 @@ cps env (TmSnd e) k =
       (e', _t') <- k x tb
       let res = LetSndK x tb v e'
       pure (res, tb)
-cps _env TmNil k =
+cps TmNil k =
   freshTm "x" $ \x -> do
     (e', t') <- k x UnitK
     let res = LetValK x UnitK NilK e'
     pure (res, t')
-cps _env (TmInt i) k =
+cps (TmInt i) k =
   freshTm "x" $ \x -> do
     (e', t') <- k x IntK
     let res = LetValK x IntK (IntValK i) e'
     pure (res, t')
-cps env (TmLet x t e1 e2) k = do
+cps (TmLet x t e1 e2) k = do
   let x' = var x
   let t' = cpsType t
-  (e2', t2') <- cps (extendCtx [(x, (x', t'))] env) e2 k
+  (e2', t2') <- withVarBinds [(x, (x', t'))] $ cps e2 k
   freshCo "j" $ \j -> do
-    (e1', _t1') <- cpsTail env e1 j
+    (e1', _t1') <- cpsTail e1 j
     let res = LetContK [ContDef () j [(x', t')] e2'] e1'
     pure (res, t2')
-cps env (TmArith e1 op e2) k =
-  cps env e1 $ \x _t1 ->
-    cps env e2 $ \y _t2 ->
+cps (TmArith e1 op e2) k =
+  cps e1 $ \x _t1 ->
+    cps e2 $ \y _t2 ->
       freshTm "z" $ \z -> do
         (e', t') <- k z IntK
         let res = LetArithK z (makeArith op x y) e'
         pure (res, t')
-cps env (TmCmp e1 cmp e2) k =
-  cps env e1 $ \x _t1 ->
-    cps env e2 $ \y _t2 ->
+cps (TmCmp e1 cmp e2) k =
+  cps e1 $ \x _t1 ->
+    cps e2 $ \y _t2 ->
       freshTm "z" $ \z -> do
         (e', t') <- k z BoolK
         let res = LetCompareK z (makeCompare cmp x y) e'
         pure (res, t')
 
-cpsFun :: Map S.TmVar (TmVar, TypeK) -> TmFun -> CPS (FunDef ())
-cpsFun env (TmFun f x t s e) =
+cpsFun :: TmFun -> CPS (FunDef ())
+cpsFun (TmFun f x t s e) =
   freshCo "k" $ \k -> do
+    env <- asks cpsEnvCtx
     -- Recursive bindings already handled, outside of this.
     f' <- case Map.lookup f env of
       Nothing -> error "cpsFun: function not in scope (unreachable?)"
@@ -346,119 +347,120 @@ cpsFun env (TmFun f x t s e) =
     let x' = var x
     let t' = cpsType t
     let s' = cpsType s
-    (e', _s') <- cpsTail (extendCtx [(x, (x', t'))] env) e k
+    (e', _s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k
     let def = FunDef () f' [(x', t')] [(k, ContK [s'])] e'
     pure def
 
 -- | CPS-convert a term in tail position.
 -- In tail position, the continuation is always a continuation variable, which
 -- allows for simpler translations.
-cpsTail :: Map S.TmVar (TmVar, TypeK) -> Term -> CoVar -> CPS (TermK (), TypeK)
-cpsTail env (TmVarOcc x) k = case Map.lookup x env of
-  Nothing -> error ("cpsTail: variable not in scope: " ++ show x)
-  Just (x', t') -> pure (JumpK k [x'], t')
-cpsTail env (TmLam x t e) k =
+cpsTail :: Term -> CoVar -> CPS (TermK (), TypeK)
+cpsTail (TmVarOcc x) k = do
+  env <- asks cpsEnvCtx
+  case Map.lookup x env of
+    Nothing -> error ("cpsTail: variable not in scope: " ++ show x)
+    Just (x', t') -> pure (JumpK k [x'], t')
+cpsTail (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
       let x' = var x
       let t' = cpsType t
-      (e', s') <- cpsTail (extendCtx [(x, (x', t'))] env) e k'
+      (e', s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k'
       let fs = [FunDef () f [(x', t')] [(k', ContK [s'])] e']
       let res = LetFunK fs (JumpK k [f])
       pure (res, FunK t' s')
-cpsTail env (TmLet x t e1 e2) k =
+cpsTail (TmLet x t e1 e2) k =
   -- [[let x:t = e1 in e2]] k
   -- -->
   -- let j (x:t) = [[e2]] k; in [[e1]] j
   freshCo "j" $ \j -> do
     let x' = var x
     let t' = cpsType t
-    (e2', _t2') <- cpsTail (extendCtx [(x, (x', t'))] env) e2 k
-    (e1', t1') <- cpsTail env e1 j
+    (e2', _t2') <- withVarBinds [(x, (x', t'))] $ cpsTail e2 k
+    (e1', t1') <- cpsTail e1 j
     let res = LetContK [ContDef () j [(x', t')] e2'] e1'
     pure (res, t1')
-cpsTail env (TmRecFun fs e) k = do
+cpsTail (TmRecFun fs e) k = do
   let binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f _x t s _e <- fs]
-  let env' = extendCtx binds env
-  fs' <- traverse (cpsFun env') fs
-  (e', t') <- cpsTail env' e k
+  fs' <- withVarBinds binds $ traverse cpsFun fs
+  (e', t') <- withVarBinds binds $ cpsTail e k
   let res = LetFunK fs' e'
   pure (res, t')
-cpsTail env (TmInl a b e) k =
-  cps env e $ \z _t ->
+cpsTail (TmInl a b e) k =
+  cps e $ \z _t ->
     freshTm "x" $ \x -> do
       let ta = cpsType a
       let tb = cpsType b
       let res = LetValK x (SumK ta tb) (InlK z) (JumpK k [x])
       pure (res, SumK ta tb)
-cpsTail env (TmInr a b e) k =
-  cps env e $ \z _t ->
+cpsTail (TmInr a b e) k =
+  cps e $ \z _t ->
     freshTm "x" $ \x -> do
       let ta = cpsType a
       let tb = cpsType b
       let res = LetValK x (SumK ta tb) (InrK z) (JumpK k [x])
       pure (res, SumK ta tb)
-cpsTail env (TmPair e1 e2) k =
-  cps env e1 $ \v1 t1 ->
-    cps env e2 $ \v2 t2 ->
+cpsTail (TmPair e1 e2) k =
+  cps e1 $ \v1 t1 ->
+    cps e2 $ \v2 t2 ->
       freshTm "x" $ \x -> do
         let res = LetValK x (ProdK t1 t2) (PairK v1 v2) (JumpK k [x])
         pure (res, ProdK t1 t2)
-cpsTail env (TmFst e) k =
-  cps env e $ \z t -> do
+cpsTail (TmFst e) k =
+  cps e $ \z t -> do
     (ta, _tb) <- case t of
       ProdK ta tb -> pure (ta, tb)
       _ -> error "bad projection"
     freshTm "x" $ \x -> do
       let res = LetFstK x ta z (JumpK k [x])
       pure (res, ta)
-cpsTail env (TmSnd e) k =
-  cps env e $ \z t -> do
+cpsTail (TmSnd e) k =
+  cps e $ \z t -> do
     (_ta, tb) <- case t of
       ProdK ta tb -> pure (ta, tb)
       _ -> error "bad projection"
     freshTm "x" $ \x -> do
       let res = LetSndK x tb z (JumpK k [x])
       pure (res, tb)
-cpsTail _env TmNil k =
+cpsTail TmNil k =
   freshTm "x" $ \x -> do
     let res = LetValK x UnitK NilK (JumpK k [x])
     pure (res, UnitK)
-cpsTail _env (TmInt i) k =
+cpsTail (TmInt i) k =
   freshTm "x" $ \x -> do
     let res = LetValK x IntK (IntValK i) (JumpK k [x])
     pure (res, IntK)
-cpsTail env (TmArith e1 op e2) k =
-  cps env e1 $ \x _t1 -> -- t1 =~= IntK
-    cps env e2 $ \y _t2 -> -- t2 =~= IntK
+cpsTail (TmArith e1 op e2) k =
+  cps e1 $ \x _t1 -> -- t1 =~= IntK
+    cps e2 $ \y _t2 -> -- t2 =~= IntK
       freshTm "z" $ \z -> do
         let res = LetArithK z (makeArith op x y) (JumpK k [z])
         pure (res, IntK)
-cpsTail env (TmCmp e1 cmp e2) k =
-  cps env e1 $ \x _t1 -> -- t1 =~= IntK
-    cps env e2 $ \y _t2 -> -- t2 =~= IntK
+cpsTail (TmCmp e1 cmp e2) k =
+  cps e1 $ \x _t1 -> -- t1 =~= IntK
+    cps e2 $ \y _t2 -> -- t2 =~= IntK
       freshTm "z" $ \z -> do
         let res = LetCompareK z (makeCompare cmp x y) (JumpK k [z])
         pure (res, BoolK)
-cpsTail env (TmApp e1 e2) k =
-  cps env e1 $ \f t1 -> -- t1 =~= t2 -> s
-    cps env e2 $ \x _t2 -> do
+cpsTail (TmApp e1 e2) k =
+  cps e1 $ \f t1 -> -- t1 =~= t2 -> s
+    cps e2 $ \x _t2 -> do
       s' <- case t1 of
         FunK _t2' s' -> pure s'
         _ -> error ("bad function type: " ++ pprintType t1)
       let res = CallK f [x] [k]
       pure (res, s')
-cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
-  cps env e $ \z _t -> do
+cpsTail (TmCase e (xl, tl, el) (xr, tr, er)) k =
+  cps e $ \z _t -> do
     -- _t === SumK (cpsType tl) (cpsType tr), because input is well-typed.
     freshCo "k1" $ \k1 ->
       freshCo "k2" $ \k2 -> do
         let xl' = var xl
         let tl' = cpsType tl
-        (el', sl') <- cpsTail (extendCtx [(xl, (xl', tl'))] env) el k
+        (el', sl') <- withVarBinds [(xl, (xl', tl'))] $ cpsTail el k
         let xr' = var xr
         let tr' = cpsType tr
-        (er', sr') <- cpsTail (extendCtx [(xr, (xr', tr'))] env) er k
+        (er', sr') <- withVarBinds [(xr, (xr', tr'))] $ cpsTail er k
         -- TODO: Case branches that accept multiple arguments at once
         let
           res =
@@ -469,12 +471,12 @@ cpsTail env (TmCase e (xl, tl, el) (xr, tr, er)) k =
         -- (Alternatively, put `returns s` on Source.TmCase)
         let s' = fst (sl', sr')
         pure (res, s')
-cpsTail env (TmIf e et ef) k =
-  cps env e $ \z _t -> do
+cpsTail (TmIf e et ef) k =
+  cps e $ \z _t -> do
     freshCo "k1" $ \k1 ->
       freshCo "k2" $ \k2 -> do
-        (et', st') <- cpsTail env et k
-        (ef', sf') <- cpsTail env ef k
+        (et', st') <- cpsTail et k
+        (ef', sf') <- cpsTail ef k
         let s' = fst (st', sf')
         let
           -- NOTE: k2, k1 is the correct order here.
@@ -487,26 +489,21 @@ cpsTail env (TmIf e et ef) k =
               LetContK [ContDef () k2 [] ef'] $
                 CaseK z k2 (ContK []) k1 (ContK [])
         pure (res, s')
-cpsTail _env (TmBool b) k =
+cpsTail (TmBool b) k =
   freshTm "x" $ \x ->
     pure (LetValK x BoolK (BoolValK b) (JumpK k [x]), BoolK)
 
 
 cpsMain :: Term -> (TermK (), TypeK)
 cpsMain e = flip runReader emptyEnv $ runCPS $
-  cps Map.empty e (\z t -> pure (HaltK z, t))
+  cps e (\z t -> pure (HaltK z, t))
 
 
--- TODO: Monad that stores both in-scope set and typing environment
--- data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map TmVar TypeK }
 
-extendCtx :: [(S.TmVar, (TmVar, TypeK))] -> Map S.TmVar (TmVar, TypeK) -> Map S.TmVar (TmVar, TypeK)
-extendCtx binds env = foldr (uncurry Map.insert) env binds
-
-data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int }
+data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map S.TmVar (TmVar, TypeK) }
 
 emptyEnv :: CPSEnv
-emptyEnv = CPSEnv Map.empty
+emptyEnv = CPSEnv Map.empty Map.empty
 
 newtype CPS a = CPS { runCPS :: Reader CPSEnv a }
 
@@ -520,7 +517,7 @@ freshTm x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = TmVar x i
-  let extend (CPSEnv sc) = CPSEnv (Map.insert x (i+1) sc)
+  let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
   local extend (k x')
 
 freshCo :: String -> (CoVar -> CPS a) -> CPS a
@@ -528,8 +525,16 @@ freshCo x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = CoVar (x ++ show i)
-  let extend (CPSEnv sc) = CPSEnv (Map.insert x (i+1) sc)
+  let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
   local extend (k x')
+
+withVarBinds :: [(S.TmVar, (TmVar, TypeK))] -> CPS a -> CPS a
+withVarBinds binds m = local extend m
+  where
+    extend (CPSEnv sc ctx) = CPSEnv sc (extendCtx binds ctx)
+
+extendCtx :: [(S.TmVar, (TmVar, TypeK))] -> Map S.TmVar (TmVar, TypeK) -> Map S.TmVar (TmVar, TypeK)
+extendCtx binds env = foldr (uncurry Map.insert) env binds
 
 -- freshVarBind :: S.TmVar -> S.Type -> ((TmVar, TypeK) -> CPS a) -> CPS a
 -- freshVarBind (S.TmVar x) t k =
