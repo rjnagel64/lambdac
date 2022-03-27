@@ -162,6 +162,13 @@ cpsType (S.TyArr a b) = FunK (cpsType a) (cpsType b)
 cpsType (S.TyVarOcc _) = error "not implemented: polymorphic cpsType"
 cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
 
+contDefType :: ContDef a -> TypeK
+contDefType (ContDef _ _ xs _) = ContK (map snd xs)
+
+funDefType :: FunDef a -> TypeK
+funDefType (FunDef _ _ [x] [k] _) = FunK (snd x) (snd k)
+funDefType (FunDef _ _ _ _ _) = error "not supported: function with multiple params/conts"
+
 
 -- TODO: I dislike this. It technically works, because shadowed source becomes
 -- shadowed CPS, but if I ever start renaming bound variables, it's going to
@@ -238,18 +245,20 @@ cps (TmCase e (xl, tl, el) (xr, tr, er)) k =
             let xl' = var xl
             let tl' = cpsType tl
             (el', sl') <- withVarBinds [(xl, (xl', tl'))] $ cpsTail el j
+            let kont1 = ContDef () k1 [(xl', tl')] el'
             let xr' = var xr
             let tr' = cpsType tr
             (er', sr') <- withVarBinds [(xr, (xr', tr'))] $ cpsTail er j
+            let kont2 = ContDef () k2 [(xr', tr')] er'
             let s' = fst (sl', sr')
             (e', _t') <- k x s'
             -- TODO: Case branches that accept multiple arguments at once
             let
               res = 
                 LetContK [ContDef () j [(x, s')] e'] $
-                  LetContK [ContDef () k1 [(xl', tl')] el'] $
-                    LetContK [ContDef () k2 [(xr', tr')] er'] $
-                      CaseK z k1 (ContK [tl']) k2 (ContK [tr'])
+                  LetContK [kont1] $
+                    LetContK [kont2] $
+                      CaseK z k1 (contDefType kont1) k2 (contDefType kont2)
             pure (res, s')
 cps (TmIf e et ef) k =
   cps e $ \z _t -> -- t =~= BoolK
@@ -258,20 +267,22 @@ cps (TmIf e et ef) k =
         freshCo "k1" $ \k1 ->
           freshCo "k2" $ \k2 -> do
             (et', st') <- cpsTail et j
+            let kont1 = ContDef () k1 [] et'
             (ef', sf') <- cpsTail ef j
+            let kont2 = ContDef () k2 [] ef'
             let s' = fst (st', sf')
             (e', _t') <- k x s'
             let
               res =
                 LetContK [ContDef () j [(x, s')] e'] $
-                  LetContK [ContDef () k1 [] et'] $
-                    LetContK [ContDef () k2 [] ef'] $
+                  LetContK [kont1] $
+                    LetContK [kont2] $
                       -- NOTE: k2, k1 is the correct order here.
                       -- This is because case branches are laid out in order of discriminant.
                       -- false = 0, true = 1, so the branches should be laid
                       -- out as false, true as oppose to the source order true,
                       -- false.
-                      CaseK z k2 (ContK []) k1 (ContK [])
+                      CaseK z k2 (contDefType kont2) k1 (contDefType kont1)
             pure (res, s')
 cps (TmBool b) k =
   freshTm "x" $ \x -> do
@@ -458,15 +469,17 @@ cpsTail (TmCase e (xl, tl, el) (xr, tr, er)) k =
         let xl' = var xl
         let tl' = cpsType tl
         (el', sl') <- withVarBinds [(xl, (xl', tl'))] $ cpsTail el k
+        let kont1 = ContDef () k1 [(xl', tl')] el'
         let xr' = var xr
         let tr' = cpsType tr
         (er', sr') <- withVarBinds [(xr, (xr', tr'))] $ cpsTail er k
+        let kont2 = ContDef () k2 [(xr', tr')] er'
         -- TODO: Case branches that accept multiple arguments at once
         let
           res =
-            LetContK [ContDef () k1 [(xl', tl')] el'] $
-              LetContK [ContDef () k2 [(xr', tr')] er'] $
-                CaseK z k1 (ContK [tl']) k2 (ContK [tr'])
+            LetContK [kont1] $
+              LetContK [kont2] $
+                CaseK z k1 (contDefType kont1) k2 (contDefType kont2)
         -- both branches have same type, so this is valid.
         -- (Alternatively, put `returns s` on Source.TmCase)
         let s' = fst (sl', sr')
@@ -476,7 +489,9 @@ cpsTail (TmIf e et ef) k =
     freshCo "k1" $ \k1 ->
       freshCo "k2" $ \k2 -> do
         (et', st') <- cpsTail et k
+        let kont1 = ContDef () k1 [] et'
         (ef', sf') <- cpsTail ef k
+        let kont2 = ContDef () k2 [] ef'
         let s' = fst (st', sf')
         let
           -- NOTE: k2, k1 is the correct order here.
@@ -485,9 +500,9 @@ cpsTail (TmIf e et ef) k =
           -- out as false, true as oppose to the source order true,
           -- false.
           res =
-            LetContK [ContDef () k1 [] et'] $
-              LetContK [ContDef () k2 [] ef'] $
-                CaseK z k2 (ContK []) k1 (ContK [])
+            LetContK [kont1] $
+              LetContK [kont2] $
+                CaseK z k2 (contDefType kont2) k1 (contDefType kont1)
         pure (res, s')
 cpsTail (TmBool b) k =
   freshTm "x" $ \x ->
@@ -528,39 +543,21 @@ freshCo x k = do
   let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
   local extend (k x')
 
+-- TODO: Rather than require the user to provide TmVar and TypeK, this function
+-- should freshen the variables and CPS-convert the types. (Return the updated
+-- binds through a continuation argument?)
 withVarBinds :: [(S.TmVar, (TmVar, TypeK))] -> CPS a -> CPS a
 withVarBinds binds m = local extend m
   where
+    -- TODO: This should update the in-scope set, so we don't have problems
+    -- with shadowing definitions and parameters.
     extend (CPSEnv sc ctx) = CPSEnv sc (extendCtx binds ctx)
 
 extendCtx :: [(S.TmVar, (TmVar, TypeK))] -> Map S.TmVar (TmVar, TypeK) -> Map S.TmVar (TmVar, TypeK)
 extendCtx binds env = foldr (uncurry Map.insert) env binds
 
--- freshVarBind :: S.TmVar -> S.Type -> ((TmVar, TypeK) -> CPS a) -> CPS a
--- freshVarBind (S.TmVar x) t k =
---   freshTm x $ \x' -> do
---     let t' = cpsType t
---     k (x', t')
 
--- -- Hang on, if I rename the functions to avoid shadowing existing definitions,
--- -- that means I need to rename occurrences of these functions in the body of
--- -- the `let fun` binding. AARGH.
--- -- I guess that means I need to lookup the subst at TmVarOcc? Do I have to
--- -- worry about passing under binders?
--- --
--- -- ... Can I *not* rename the functions, just add them to the scope?
--- -- (Actually, I only need a S.TmVar -> TmVar map, which is easier to deal with.)
--- freshenFns :: [TmFun] -> ([TmFun] -> CPS a) -> CPS a
--- freshenFns fs k = do
---   scope <- ask
---   let
---     freshen sc (TmFun (S.TmVar f) x s t e) =
---       let i = fromMaybe 0 (Map.lookup x sc) in
---       let f' = TmVar f i in
---       (Map.insert x (i+1) sc, TmFun f' x s t e)
---   let (scope', fs') = mapAccumL freshen scope fs
---   let extend sc = scope'
---   local extend (k fs')
+-- Pretty-printing
 
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
