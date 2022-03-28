@@ -242,14 +242,8 @@ cps (TmCase e (xl, tl, el) (xr, tr, er)) k =
       freshTm "x" $ \x ->
         freshCo "k1" $ \k1 ->
           freshCo "k2" $ \k2 -> do
-            let xl' = var xl
-            let tl' = cpsType tl
-            (el', sl') <- withVarBinds [(xl, (xl', tl'))] $ cpsTail el j
-            let kont1 = ContDef () k1 [(xl', tl')] el'
-            let xr' = var xr
-            let tr' = cpsType tr
-            (er', sr') <- withVarBinds [(xr, (xr', tr'))] $ cpsTail er j
-            let kont2 = ContDef () k2 [(xr', tr')] er'
+            (kont1, sl') <- cpsBranch k1 [(xl, tl)] el j
+            (kont2, sr') <- cpsBranch k2 [(xr, tr)] er j
             let s' = fst (sl', sr')
             (e', _t') <- k x s'
             -- TODO: Case branches that accept multiple arguments at once
@@ -266,10 +260,8 @@ cps (TmIf e et ef) k =
       freshTm "x" $ \x ->
         freshCo "k1" $ \k1 ->
           freshCo "k2" $ \k2 -> do
-            (et', st') <- cpsTail et j
-            let kont1 = ContDef () k1 [] et'
-            (ef', sf') <- cpsTail ef j
-            let kont2 = ContDef () k2 [] ef'
+            (kont1, st') <- cpsBranch k1 [] et j
+            (kont2, sf') <- cpsBranch k2 [] ef j
             let s' = fst (st', sf')
             (e', _t') <- k x s'
             let
@@ -466,14 +458,8 @@ cpsTail (TmCase e (xl, tl, el) (xr, tr, er)) k =
     -- _t === SumK (cpsType tl) (cpsType tr), because input is well-typed.
     freshCo "k1" $ \k1 ->
       freshCo "k2" $ \k2 -> do
-        let xl' = var xl
-        let tl' = cpsType tl
-        (el', sl') <- withVarBinds [(xl, (xl', tl'))] $ cpsTail el k
-        let kont1 = ContDef () k1 [(xl', tl')] el'
-        let xr' = var xr
-        let tr' = cpsType tr
-        (er', sr') <- withVarBinds [(xr, (xr', tr'))] $ cpsTail er k
-        let kont2 = ContDef () k2 [(xr', tr')] er'
+        (kont1, sl') <- cpsBranch k1 [(xl, tl)] el k
+        (kont2, sr') <- cpsBranch k2 [(xr, tr)] er k
         -- TODO: Case branches that accept multiple arguments at once
         let
           res =
@@ -488,10 +474,8 @@ cpsTail (TmIf e et ef) k =
   cps e $ \z _t -> do
     freshCo "k1" $ \k1 ->
       freshCo "k2" $ \k2 -> do
-        (et', st') <- cpsTail et k
-        let kont1 = ContDef () k1 [] et'
-        (ef', sf') <- cpsTail ef k
-        let kont2 = ContDef () k2 [] ef'
+        (kont1, st') <- cpsBranch k1 [] et k
+        (kont2, sf') <- cpsBranch k2 [] ef k
         let s' = fst (st', sf')
         let
           -- NOTE: k2, k1 is the correct order here.
@@ -513,6 +497,22 @@ cpsMain :: Term -> (TermK (), TypeK)
 cpsMain e = flip runReader emptyEnv $ runCPS $
   cps e (\z t -> pure (HaltK z, t))
 
+
+-- | CPS-transform a case alternative @(x:t)+ -> e@.
+--
+-- @cpsBranch k xs e j@ returns @(cont k xs = [[e]] j; s)@ where @s@ is the
+-- type of @e@.
+cpsBranch :: CoVar -> [(S.TmVar, S.Type)] -> Term -> CoVar -> CPS (ContDef (), TypeK)
+cpsBranch k [(x, t)] e j = freshenVarBind x t $ \ (x', t') -> do
+  (e', s') <- withVarBinds [(x, (x', t'))] $ cpsTail e j
+  pure (ContDef () k [(x', t')] e', s')
+cpsBranch k [] e j = do
+  -- TODO: This is/should be an instance of the general version where xs = [].
+  -- I think it is, because withVarBinds [] is no-op. (and freshenVarBinds
+  -- should also be no-op)
+  (e', s') <- cpsTail e j
+  pure (ContDef () k [] e', s')
+cpsBranch _ _ _ _ = error "multi-argument case branches not yet supported"
 
 
 data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map S.TmVar (TmVar, TypeK) }
@@ -552,6 +552,11 @@ withVarBinds binds m = local extend m
     -- TODO: This should update the in-scope set, so we don't have problems
     -- with shadowing definitions and parameters.
     extend (CPSEnv sc ctx) = CPSEnv sc (extendCtx binds ctx)
+
+-- TODO: *Actually* freshen the binder here.
+-- (Currently, this is just the same as @let (x', t') = (var x, cpsType t) in e@)
+freshenVarBind :: S.TmVar -> S.Type -> ((TmVar, TypeK) -> CPS a) -> CPS a
+freshenVarBind x t k = k (var x, cpsType t)
 
 extendCtx :: [(S.TmVar, (TmVar, TypeK))] -> Map S.TmVar (TmVar, TypeK) -> Map S.TmVar (TmVar, TypeK)
 extendCtx binds env = foldr (uncurry Map.insert) env binds
