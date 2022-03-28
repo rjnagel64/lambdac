@@ -376,13 +376,11 @@ cpsTail (TmLet x t e1 e2) k =
   -- [[let x:t = e1 in e2]] k
   -- -->
   -- let j (x:t) = [[e2]] k; in [[e1]] j
+  -- (This is similar, but not quite the same as @case e1 of x:t -> e2@)
   freshCo "j" $ \j -> do
-    let x' = var x
-    let t' = cpsType t
-    (e2', _t2') <- withVarBinds [(x, (x', t'))] $ cpsTail e2 k
-    (e1', t1') <- cpsTail e1 j
-    let res = LetContK [ContDef () j [(x', t')] e2'] e1'
-    pure (res, t1')
+    (kont, t2') <- cpsBranch j [(x, t)] e2 k
+    (e1', _t1') <- cpsTail e1 j
+    pure (LetContK [kont] e1', t2')
 cpsTail (TmRecFun fs e) k = do
   let binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f _x t s _e <- fs]
   fs' <- withVarBinds binds $ traverse cpsFun fs
