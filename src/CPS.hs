@@ -193,13 +193,12 @@ cps (TmVarOcc x) k = do
 cps (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
-      let x' = var x
-      let t' = cpsType t
-      (e', s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k'
-      let fs = [FunDef () f [(x', t')] [(k', ContK [s'])] e']
-      (e'', _t'') <- k f (FunK t' s')
-      let res = LetFunK fs e''
-      pure (res, FunK t' s')
+      (fun, ty) <- freshenVarBind x t $ \ (x', t') -> do
+        (e', s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k'
+        let fun = FunDef () f [(x', t')] [(k', ContK [s'])] e'
+        pure (fun, FunK t' s')
+      (e'', _t'') <- k f ty
+      pure (LetFunK [fun] e'', ty)
 cps (TmRecFun fs e) k = do
   -- TODO: The names in these bindings should be added to the freshening scope.
   -- (Or they should be freshened, if an inner and outer recursive definition
@@ -366,17 +365,17 @@ cpsTail (TmVarOcc x) k = do
 cpsTail (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
-      let x' = var x
-      let t' = cpsType t
-      (e', s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k'
-      let fs = [FunDef () f [(x', t')] [(k', ContK [s'])] e']
-      let res = LetFunK fs (JumpK k [f])
-      pure (res, FunK t' s')
+      (fun, ty) <- freshenVarBind x t $ \ (x', t') -> do
+        (e', s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k'
+        let fun = FunDef () f [(x', t')] [(k', ContK [s'])] e'
+        pure (fun, FunK t' s')
+      let res = LetFunK [fun] (JumpK k [f])
+      pure (res, ty)
 cpsTail (TmLet x t e1 e2) k =
   -- [[let x:t = e1 in e2]] k
   -- -->
   -- let j (x:t) = [[e2]] k; in [[e1]] j
-  -- (This is similar, but not quite the same as @case e1 of x:t -> e2@)
+  -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
   freshCo "j" $ \j -> do
     (kont, t2') <- cpsBranch j [(x, t)] e2 k
     (e1', _t1') <- cpsTail e1 j
