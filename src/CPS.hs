@@ -316,13 +316,13 @@ cps (TmInt i) k =
     let res = LetValK x IntK (IntValK i) e'
     pure (res, t')
 cps (TmLet x t e1 e2) k = do
-  let x' = var x
-  let t' = cpsType t
-  (e2', t2') <- withVarBinds [(x, (x', t'))] $ cps e2 k
   freshCo "j" $ \j -> do
-    (e1', _t1') <- cpsTail e1 j
-    let res = LetContK [ContDef () j [(x', t')] e2'] e1'
-    pure (res, t2')
+    (kont, t2') <- freshenVarBind x t $ \ (x', t') -> do
+      (e2', t2') <- withVarBinds [(x, (x', t'))] $ cps e2 k
+      let kont = ContDef () j [(x', t')] e2'
+      pure (kont, t2')
+    (e1', t1') <- cpsTail e1 j
+    pure (LetContK [kont] e1', t2')
 cps (TmArith e1 op e2) k =
   cps e1 $ \x _t1 ->
     cps e2 $ \y _t2 ->
