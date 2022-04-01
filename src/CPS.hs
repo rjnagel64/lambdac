@@ -347,12 +347,12 @@ cpsFun (TmFun f x t s e) =
     f' <- case Map.lookup f env of
       Nothing -> error "cpsFun: function not in scope (unreachable?)"
       Just (f', _) -> pure f'
-    let x' = var x
-    let t' = cpsType t
     let s' = cpsType s
-    (e', _s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k
-    let def = FunDef () f' [(x', t')] [(k, ContK [s'])] e'
-    pure def
+    fun <- freshenVarBind x t $ \ (x', t') -> do
+      (e', _s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k
+      -- assert _s' == s'
+      pure (FunDef () f' [(x', t')] [(k, ContK [s'])] e')
+    pure fun
 
 -- | CPS-convert a term in tail position.
 -- In tail position, the continuation is always a continuation variable, which
