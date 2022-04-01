@@ -203,9 +203,10 @@ cps (TmRecFun fs e) k = do
   -- TODO: The names in these bindings should be added to the freshening scope.
   -- (Or they should be freshened, if an inner and outer recursive definition
   -- have the same name)
-  let binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f _ t s _ <- fs]
-  fs' <- withVarBinds binds $ traverse cpsFun fs
-  (e', t') <- withVarBinds binds $ cps e k
+  (fs', e', t') <- freshenFunBinds fs $ \binds -> do
+    fs' <- withVarBinds binds $ traverse cpsFun fs
+    (e', t') <- withVarBinds binds $ cps e k
+    pure (fs', e', t')
   let res = LetFunK fs' e'
   pure (res, t')
 cps (TmApp e1 e2) k =
@@ -381,9 +382,10 @@ cpsTail (TmLet x t e1 e2) k =
     (e1', _t1') <- cpsTail e1 j
     pure (LetContK [kont] e1', t2')
 cpsTail (TmRecFun fs e) k = do
-  let binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f _x t s _e <- fs]
-  fs' <- withVarBinds binds $ traverse cpsFun fs
-  (e', t') <- withVarBinds binds $ cpsTail e k
+  (fs', e', t') <- freshenFunBinds fs $ \binds -> do
+    fs' <- withVarBinds binds $ traverse cpsFun fs
+    (e', t') <- withVarBinds binds $ cpsTail e k
+    pure (fs', e', t')
   let res = LetFunK fs' e'
   pure (res, t')
 cpsTail (TmInl a b e) k =
@@ -550,13 +552,18 @@ withVarBinds binds m = local extend m
     -- with shadowing definitions and parameters.
     extend (CPSEnv sc ctx) = CPSEnv sc (extendCtx binds ctx)
 
+extendCtx :: [(S.TmVar, (TmVar, TypeK))] -> Map S.TmVar (TmVar, TypeK) -> Map S.TmVar (TmVar, TypeK)
+extendCtx binds env = foldr (uncurry Map.insert) env binds
+
 -- TODO: *Actually* freshen the binder here.
 -- (Currently, this is just the same as @let (x', t') = (var x, cpsType t) in e@)
 freshenVarBind :: S.TmVar -> S.Type -> ((TmVar, TypeK) -> CPS a) -> CPS a
 freshenVarBind x t k = k (var x, cpsType t)
 
-extendCtx :: [(S.TmVar, (TmVar, TypeK))] -> Map S.TmVar (TmVar, TypeK) -> Map S.TmVar (TmVar, TypeK)
-extendCtx binds env = foldr (uncurry Map.insert) env binds
+freshenFunBinds :: [TmFun] -> ([(S.TmVar, (TmVar, TypeK))] -> CPS a) -> CPS a
+freshenFunBinds fs k = k binds
+  where
+    binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f x t s e <- fs]
 
 
 -- Pretty-printing
