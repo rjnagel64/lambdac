@@ -1,11 +1,4 @@
--- TODO: This results in a miscompilation.
 let
-  -- NAME CAPTURE ISSUE:
-  -- The function created for the lambdas here are called 'f0' and 'f1'.
-  -- The parameter of 'bimap' is 'f', which gets renamed to 'f0'.
-  -- 'f0' (the function) is incorrectly registered as recursive, because it
-  -- contains an application of 'f0' (the higher-order function passed as
-  -- argument)
   fun bimap (f : int -> int) : (int -> int) -> (int * int) -> (int * int) =
     \ (g : int -> int) ->
       \ (p : int * int) ->

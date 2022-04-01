@@ -171,13 +171,12 @@ funDefType (FunDef _ _ [x] [k] _) = FunK (snd x) (snd k)
 funDefType (FunDef _ _ _ _ _) = error "not supported: function with multiple params/conts"
 
 
-
 -- TODO: This actually has most elements of a type checker.
 -- Maybe I should add Except and error-reporting?
 
 -- | CPS-convert a term.
 --
--- TODO: Find a way to reduce the nesting. ContT, maybe?
+-- TODO: Find a way to reduce the nesting. ContT, maybe? No, that wouldn't work for cpsTail
 cps :: Term -> (TmVar -> TypeK -> CPS (TermK (), TypeK)) -> CPS (TermK (), TypeK)
 cps (TmVarOcc x) k = do
   env <- asks cpsEnvCtx
@@ -187,10 +186,10 @@ cps (TmVarOcc x) k = do
 cps (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
-      (fun, ty) <- freshenVarBind x t $ \ (x', t') -> do
-        (e', s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k'
-        let fun = FunDef () f [(x', t')] [(k', ContK [s'])] e'
-        pure (fun, FunK t' s')
+      (fun, ty) <- freshenVarBind x t $ \bx -> do
+        (e', s') <- withVarBinds [(x, bx)] $ cpsTail e k'
+        let fun = FunDef () f [bx] [(k', ContK [s'])] e'
+        pure (fun, FunK (snd bx) s')
       (e'', _t'') <- k f ty
       pure (LetFunK [fun] e'', ty)
 cps (TmRecFun fs e) k = do
@@ -312,9 +311,9 @@ cps (TmInt i) k =
     pure (res, t')
 cps (TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
-    (kont, t2') <- freshenVarBind x t $ \ (x', t') -> do
-      (e2', t2') <- withVarBinds [(x, (x', t'))] $ cps e2 k
-      let kont = ContDef () j [(x', t')] e2'
+    (kont, t2') <- freshenVarBind x t $ \bx -> do
+      (e2', t2') <- withVarBinds [(x, bx)] $ cps e2 k
+      let kont = ContDef () j [bx] e2'
       pure (kont, t2')
     (e1', t1') <- cpsTail e1 j
     pure (LetContK [kont] e1', t2')
@@ -342,10 +341,10 @@ cpsFun (TmFun f x t s e) =
       Nothing -> error "cpsFun: function not in scope (unreachable?)"
       Just (f', _) -> pure f'
     let s' = cpsType s
-    fun <- freshenVarBind x t $ \ (x', t') -> do
-      (e', _s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k
+    fun <- freshenVarBind x t $ \bx -> do
+      (e', _s') <- withVarBinds [(x, bx)] $ cpsTail e k
       -- assert _s' == s'
-      pure (FunDef () f' [(x', t')] [(k, ContK [s'])] e')
+      pure (FunDef () f' [bx] [(k, ContK [s'])] e')
     pure fun
 
 -- | CPS-convert a term in tail position.
@@ -360,10 +359,10 @@ cpsTail (TmVarOcc x) k = do
 cpsTail (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
-      (fun, ty) <- freshenVarBind x t $ \ (x', t') -> do
-        (e', s') <- withVarBinds [(x, (x', t'))] $ cpsTail e k'
-        let fun = FunDef () f [(x', t')] [(k', ContK [s'])] e'
-        pure (fun, FunK t' s')
+      (fun, ty) <- freshenVarBind x t $ \bx -> do
+        (e', s') <- withVarBinds [(x, bx)] $ cpsTail e k'
+        let fun = FunDef () f [bx] [(k', ContK [s'])] e'
+        pure (fun, FunK (snd bx) s')
       let res = LetFunK [fun] (JumpK k [f])
       pure (res, ty)
 cpsTail (TmLet x t e1 e2) k =
@@ -496,9 +495,9 @@ cpsMain e = flip runReader emptyEnv $ runCPS $
 -- @cpsBranch k xs e j@ returns @(cont k xs = [[e]] j; s)@ where @s@ is the
 -- type of @e@.
 cpsBranch :: CoVar -> [(S.TmVar, S.Type)] -> Term -> CoVar -> CPS (ContDef (), TypeK)
-cpsBranch k [(x, t)] e j = freshenVarBind x t $ \ (x', t') -> do
-  (e', s') <- withVarBinds [(x, (x', t'))] $ cpsTail e j
-  pure (ContDef () k [(x', t')] e', s')
+cpsBranch k [(x, t)] e j = freshenVarBind x t $ \bx -> do
+  (e', s') <- withVarBinds [(x, bx)] $ cpsTail e j
+  pure (ContDef () k [bx] e', s')
 cpsBranch k [] e j = do
   -- TODO: This is/should be an instance of the general version where xs = [].
   -- I think it is, because withVarBinds [] is no-op. (and freshenVarBinds
