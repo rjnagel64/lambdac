@@ -20,6 +20,7 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
+import Data.Traversable (mapAccumL)
 
 import Control.Monad.Reader
 
@@ -170,13 +171,6 @@ funDefType (FunDef _ _ [x] [k] _) = FunK (snd x) (snd k)
 funDefType (FunDef _ _ _ _ _) = error "not supported: function with multiple params/conts"
 
 
--- TODO: I dislike this. It technically works, because shadowed source becomes
--- shadowed CPS, but if I ever start renaming bound variables, it's going to
--- fall apart.
---
--- Add a @Map S.TmVar TmVar@ to the CPS environment. (that parallels @Map S.TmVar TypeK@?)
-var :: S.TmVar -> TmVar
-var (S.TmVar x) = TmVar x 0
 
 -- TODO: This actually has most elements of a type checker.
 -- Maybe I should add Except and error-reporting?
@@ -542,28 +536,28 @@ freshCo x k = do
   let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
   local extend (k x')
 
--- TODO: Rather than require the user to provide TmVar and TypeK, this function
--- should freshen the variables and CPS-convert the types. (Return the updated
--- binds through a continuation argument?)
+-- TODO: Fuse this function with 'freshenVarBind' and 'freshenFunBinds', to
+-- eliminate possibility of error.
 withVarBinds :: [(S.TmVar, (TmVar, TypeK))] -> CPS a -> CPS a
 withVarBinds binds m = local extend m
   where
-    -- TODO: This should update the in-scope set, so we don't have problems
-    -- with shadowing definitions and parameters.
-    extend (CPSEnv sc ctx) = CPSEnv sc (extendCtx binds ctx)
+    extend (CPSEnv sc ctx) = CPSEnv sc (foldr (uncurry Map.insert) ctx binds)
 
-extendCtx :: [(S.TmVar, (TmVar, TypeK))] -> Map S.TmVar (TmVar, TypeK) -> Map S.TmVar (TmVar, TypeK)
-extendCtx binds env = foldr (uncurry Map.insert) env binds
-
--- TODO: *Actually* freshen the binder here.
--- (Currently, this is just the same as @let (x', t') = (var x, cpsType t) in e@)
 freshenVarBind :: S.TmVar -> S.Type -> ((TmVar, TypeK) -> CPS a) -> CPS a
-freshenVarBind x t k = k (var x, cpsType t)
+freshenVarBind (S.TmVar x) t k = freshTm x $ \x' -> k (x', cpsType t)
 
 freshenFunBinds :: [TmFun] -> ([(S.TmVar, (TmVar, TypeK))] -> CPS a) -> CPS a
-freshenFunBinds fs k = k binds
-  where
-    binds = [(f, (var f, cpsType (S.TyArr t s))) | TmFun f x t s e <- fs]
+freshenFunBinds fs k = do
+  scope <- asks cpsEnvScope
+  let
+    pick :: Map String Int -> TmFun -> (Map String Int, (S.TmVar, (TmVar, TypeK)))
+    pick sc (TmFun (S.TmVar f) _x t s _e) =
+      let i = fromMaybe 0 (Map.lookup f scope) in
+      let f' = TmVar f i in
+      (Map.insert f (i+1) sc, (S.TmVar f, (f', cpsType (S.TyArr t s))))
+    (sc', binds) = mapAccumL pick scope fs
+  let extend (CPSEnv _sc ctx) = CPSEnv sc' ctx
+  local extend (k binds)
 
 
 -- Pretty-printing

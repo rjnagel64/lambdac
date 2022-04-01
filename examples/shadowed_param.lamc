@@ -3,7 +3,7 @@ let
     -- This lambda is turned into a named function.
     -- The name of that function should not capture any existing name.
     \ (p : int * int) ->
-      f (fst p);
+      f (snd p);
 in
 let fun inc (x : int) : int = x + 1; in
 outer inc (7, 32)
