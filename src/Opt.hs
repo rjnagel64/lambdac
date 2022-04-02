@@ -118,6 +118,8 @@ inlineK (CallK f [x] [k]) = do
     Just (FunDef () _ [(y, _)] [(k', _)] e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
 -- Eliminators use 'inlineValDefs' to beta-reduce, if possible.
 -- (A function parameter will not reduce, e.g.)
+-- Actually, isn't reducing @case inl x of ...@ and @fst (x, y)@ the
+-- responsibility of 'simplify', not 'inlineK'?
 inlineK (CaseK x k1 s1 k2 s2) = do
   x' <- appTmSub x
   env <- ask
@@ -179,12 +181,23 @@ data Usage
   -- variable occurs more than once
   | ManyUsage
 
--- | Count occurrences and pick loop breakers, annotating binders with usage
--- information.
--- TODO: Can't really return a map of usage information because it might shadow.
--- Need to annotate binders.
--- countOccurrences :: TermK -> (TermK, Map TmVar Usage, Map CoVar Usage)
--- countOccurrences e = (_, _, _)
+-- -- | Count occurrences and pick loop breakers, annotating binders with usage
+-- -- information.
+-- countOccurrences :: TermK a -> (TermK Usage, Map TmVar Usage, Map CoVar Usage)
+-- -- TODO: We're mostly trying to count continuation/function occurrences, right?
+-- -- Do we really need to count the arguments?
+-- -- Hmm. Probably. Consider `let fun f = ...; in k f` That's a use of `k` and a
+-- -- use of `f`.
+-- countOccurrences (JumpK k xs) = (JumpK k xs, Map.singleton k _, Map.singleton x _)
+-- countOccurrences (CallK f xs ks) = (CallK f xs ks, _, _)
+-- -- Somehow merge the occurrences from each branch.
+-- -- Also, I think that the case branch continuations are particularly
+-- -- second-class, so it may be possible to treat them specially.
+-- countOccurrences (CaseK x k1 k2) = (CaseK x k1 k2, Map.singleton x _, Map.fromList [(k1, _), (k2, _)])
+-- countOccurrences (LetFstK x t y e) =
+--   let (e', tms, cos) = countOccurrences e in
+--   (LetFstK x t y e', Map.insert y _ (Map.delete x tms), cos)
+-- countOccurrences (LetContK ks e) = _
 
 -- TODO: Count occurrences of covariables as well.
 -- countOccurrences :: Map TmVar ValueK -> Set TmVar -> TermK -> (TermK, Map TmVar Int)
