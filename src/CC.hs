@@ -11,6 +11,7 @@ module CC
   , FunClosureDef(..)
   , ContClosureDef(..)
   , Name(..)
+  , prime
   , ValueC(..)
   , ArithC(..)
   , CmpC(..)
@@ -65,17 +66,20 @@ import CPS (TermK(..), FunDef(..), ContDef(..), ValueK(..), ArithK(..), CmpK(..)
 -- do n-ary tuples instead.)
 
 -- The sort of a name can be determined from where it is bound.
-newtype Name = Name String
+data Name = Name String Int
   deriving (Eq, Ord)
 
 instance Show Name where
-  show (Name x) = x
+  show (Name x i) = x ++ show i
+
+prime :: Name -> Name
+prime (Name x i) = Name x (i+1)
 
 tmVar :: K.TmVar -> Name
-tmVar (K.TmVar x i) = Name (x ++ show i)
+tmVar (K.TmVar x i) = Name x i
 
 coVar :: K.CoVar -> Name
-coVar (K.CoVar k) = Name k
+coVar (K.CoVar k) = Name k 0
 
 -- | 'Sort' is really a simplified form of type information.
 -- Value = int | bool | t1 * t2 | t1 + t2 | ()

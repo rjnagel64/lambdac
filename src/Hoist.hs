@@ -64,6 +64,13 @@ data PlaceName = PlaceName { placeSort :: Sort, placeName :: String }
 
 data FieldName = FieldName { fieldSort :: Sort, fieldName :: String }
 
+asPlaceName :: Sort -> C.Name -> PlaceName
+asPlaceName s (C.Name x i) = PlaceName s (x ++ show i)
+
+asFieldName :: Sort -> C.Name -> FieldName
+asFieldName s (C.Name x i) = FieldName s (x ++ show i)
+
+
 -- | 'DeclName's are used to refer to top-level functions and continuations.
 -- They are introduced by (hoisting) function/continuation closure bingings,
 -- and used when allocating function/continuation closures.
@@ -72,6 +79,9 @@ newtype DeclName = DeclName String
 
 instance Show DeclName where
   show (DeclName d) = d
+
+asDeclName :: C.Name -> DeclName
+asDeclName (C.Name x i) = DeclName (x ++ show i)
 
 
 data ClosureDecl
@@ -206,9 +216,9 @@ hoist (LetContC ks e) = do
     pure (AllocClosure ks' e')
 
 envAllocField :: (C.Name, Sort) -> HoistM (FieldName, Name)
-envAllocField (C.Name x, s) = do
-  let field = FieldName s x
-  x' <- hoistVarOcc (C.Name x)
+envAllocField (x, s) = do
+  let field = asFieldName s x
+  x' <- hoistVarOcc x
   pure (field, x')
 
 
@@ -218,11 +228,10 @@ placesForClosureAllocs closureName cdecls kont = do
   let
     pickPlace sc (d, def) =
       let cname = closureName def in
-      let C.Name c = cname in
-      let p = go sc c (0 :: Int) in (Map.insert cname p sc, (p, d, def))
-    go sc c i = case Map.lookup (C.Name (c ++ show i)) sc of
-      Nothing -> PlaceName Closure (c ++ show i)
-      Just _ -> go sc c (i+1)
+      let p = go sc cname in (Map.insert cname p sc, (p, d, def))
+    go sc c = case Map.lookup c sc of
+      Nothing -> asPlaceName Closure c
+      Just _ -> go sc (C.prime c)
   let (scope', cplaces) = mapAccumL pickPlace scope cdecls
   let extend (HoistEnv _ fields) = HoistEnv scope' fields
   local extend (kont cplaces)
@@ -231,12 +240,11 @@ placesForClosureAllocs closureName cdecls kont = do
 declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(DeclName, a)]
 declareClosureNames closureName cs =
   for cs $ \def -> do
-    let C.Name f = closureName def
     let
-      pickName i ds =
-        let d = DeclName (f ++ show i) in
-        if Set.member d ds then pickName (i+1) ds else (d, Set.insert d ds)
-    (d, decls') <- pickName (0 :: Int) <$> get
+      pickName f ds =
+        let d = asDeclName f in
+        if Set.member d ds then pickName (C.prime f) ds else (d, Set.insert d ds)
+    (d, decls') <- pickName (closureName def) <$> get
     put decls'
     pure (d, def)
 
@@ -287,8 +295,8 @@ inClosure :: [(C.Name, Sort)] -> [(C.Name, Sort)] -> HoistM a -> HoistM ([FieldN
 inClosure fields places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   tellThunk (ThunkType [s | (_, s) <- places])
-  let places' = map (\ (x@(C.Name x'), s) -> (x, PlaceName s x')) places
-  let fields' = map (\ (x@(C.Name x'), s) -> (x, FieldName s x')) fields
+  let places' = map (\ (x, s) -> (x, asPlaceName s x)) places
+  let fields' = map (\ (x, s) -> (x, asFieldName s x)) fields
   -- Preserve 'DeclName's?
   let replaceEnv (HoistEnv _ _) = HoistEnv (Map.fromList places') (Map.fromList fields')
   r <- local replaceEnv m
@@ -324,18 +332,16 @@ withPlace x s m = do
   pure (x', a)
 
 makePlace :: C.Name -> Sort -> HoistM PlaceName
-makePlace (C.Name x) s = do
+makePlace x s = do
   HoistEnv places _ <- ask
-  go x (0 :: Int) places
+  go x places
   where
-    go :: String -> Int -> Map C.Name PlaceName -> HoistM PlaceName
-    go v i ps =
-      let v' = (C.Name (v ++ show i)) in -- TODO: C.prime :: C.Name -> C.Name
-      -- I think this is fine. We might shadow local names, which is bad, but
-      -- environment references are guarded by 'env->'.
-      case Map.lookup v' ps of
-        Nothing -> pure (PlaceName s (v ++ show i))
-        Just _ -> go v (i+1) ps
+    -- I think this is fine. We might shadow local names, which is bad, but
+    -- environment references are guarded by 'env->'.
+    go :: C.Name -> Map C.Name PlaceName -> HoistM PlaceName
+    go v ps = case Map.lookup v ps of
+      Nothing -> pure (asPlaceName s v)
+      Just _ -> go (C.prime v) ps
 
 
 indent :: Int -> String -> String
