@@ -6,6 +6,7 @@ import Control.Monad (when)
 import System.Exit
 import Options.Applicative
 import System.Process.Typed
+import System.FilePath
 
 import qualified Lexer as L
 import qualified Parser as P
@@ -14,8 +15,6 @@ import qualified CPS as K
 import qualified CC as C
 import qualified Hoist as H
 import qualified Emit as E
-
--- TODO: Implement ==
 
 -- Note: Returning multiple values from a function is passing multiple values
 -- to the continuation.
@@ -81,13 +80,14 @@ main = do
     putStrLn $ "--- Code Generation ---"
     putStrLn obj
 
-  -- TODO: Name output file based on input file
-  writeFile "out.c" obj
+  -- TODO: Use temporary file for C output by default?
+  let outputFile = takeFileName (driverFile args) -<.> ".out.c"
+  let executableFile = dropExtension (takeFileName (driverFile args))
+  writeFile outputFile obj
 
-  -- TODO: Name executable based on input file
   -- TODO: Flag to skip invoking clang, merely output the C code
   -- (e.g., to debug code-gen errors/warnings)
-  let compileProcess = proc "clang" ["-I./rts/", "-L./rts/", "-lrts", "out.c", "-o", "demo"]
+  let compileProcess = proc "clang" ["-I./rts/", "-L./rts/", "-lrts", outputFile, "-o", executableFile]
   exitCode <- runProcess compileProcess
   case exitCode of
     ExitSuccess -> pure ()

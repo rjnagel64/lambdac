@@ -48,4 +48,5 @@ executable lambdac
       , lambdac
       , optparse-applicative ^>=0.17.0
       , typed-process ^>=0.2.8.0
+      , filepath ^>=1.4.2.2
 
