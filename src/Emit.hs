@@ -257,20 +257,16 @@ emitCase envp x ks =
   ,"    }"]
   where
     emitCaseBranch :: (Int, (Name, ThunkType)) -> [String]
-    emitCaseBranch (i, (k, t)) = case t of 
-      ThunkType [] ->
-        let method = thunkSuspendName (namesForThunk t) in
-        let args = [emitName envp k] in
+    emitCaseBranch (i, (k, t)) =
+      let
+        method = thunkSuspendName (namesForThunk t)
+        mkArg :: (Int, Sort) -> String
+        mkArg (j, s) = asSort s (emitName envp x ++ "->words[" ++ show j ++ "]")
+        args = emitName envp k : map mkArg (zip [0..] (thunkArgSorts t))
+      in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
         ,"        break;"]
-      ThunkType [s] -> 
-        let method = thunkSuspendName (namesForThunk t) in
-        let args = [emitName envp k, asSort s (emitName envp x ++ "->words[0]")] in
-        ["    case " ++ show i ++ ":"
-        ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
-        ,"        break;"]
-      ThunkType _ -> error "multi-argument case branches not yet supported."
 
 emitValueAlloc :: String -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int32(" ++ show i ++ ")"

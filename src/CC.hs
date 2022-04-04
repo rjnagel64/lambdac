@@ -108,7 +108,7 @@ sortOf _ = Value
 -- one continuation, etc.) requires a different type of thunk when that closure
 -- is opened. A thunk type specifies what arguments have been provided to the
 -- closure.
-newtype ThunkType = ThunkType [Sort]
+newtype ThunkType = ThunkType { thunkArgSorts :: [Sort] }
   deriving (Eq, Ord)
 
 thunkTypeOf :: K.TypeK -> Maybe ThunkType

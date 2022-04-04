@@ -193,9 +193,6 @@ cps (TmLam x t e) k =
       (e'', _t'') <- k f ty
       pure (LetFunK [fun] e'', ty)
 cps (TmRecFun fs e) k = do
-  -- TODO: The names in these bindings should be added to the freshening scope.
-  -- (Or they should be freshened, if an inner and outer recursive definition
-  -- have the same name)
   (fs', e', t') <- freshenFunBinds fs $ \binds -> do
     fs' <- withVarBinds binds $ traverse cpsFun fs
     (e', t') <- withVarBinds binds $ cps e k
