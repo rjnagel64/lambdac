@@ -278,15 +278,18 @@ emitValueAlloc envp (InlH y) = "allocate_inl(" ++ asSort Alloc (emitName envp y)
 emitValueAlloc envp (InrH y) = "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ")"
 
 emitPrimOp :: String -> PrimOp -> String
-emitPrimOp envp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
-emitPrimOp envp (PrimSubInt32 x y) = "prim_subint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
-emitPrimOp envp (PrimMulInt32 x y) = "prim_mulint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
-emitPrimOp envp (PrimEqInt32 x y) = "prim_eqint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
-emitPrimOp envp (PrimNeInt32 x y) = "prim_neint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
-emitPrimOp envp (PrimLtInt32 x y) = "prim_ltint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
-emitPrimOp envp (PrimLeInt32 x y) = "prim_leint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
-emitPrimOp envp (PrimGtInt32 x y) = "prim_gtint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
-emitPrimOp envp (PrimGeInt32 x y) = "prim_geint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"
+emitPrimOp envp (PrimAddInt32 x y) = emitPrimCall envp "prim_addint32" [x, y]
+emitPrimOp envp (PrimSubInt32 x y) = emitPrimCall envp "prim_subint32" [x, y]
+emitPrimOp envp (PrimMulInt32 x y) = emitPrimCall envp "prim_mulint32" [x, y]
+emitPrimOp envp (PrimEqInt32 x y) = emitPrimCall envp "prim_eqint32" [x, y]
+emitPrimOp envp (PrimNeInt32 x y) = emitPrimCall envp "prim_neint32" [x, y]
+emitPrimOp envp (PrimLtInt32 x y) = emitPrimCall envp "prim_ltint32" [x, y]
+emitPrimOp envp (PrimLeInt32 x y) = emitPrimCall envp "prim_leint32" [x, y]
+emitPrimOp envp (PrimGtInt32 x y) = emitPrimCall envp "prim_gtint32" [x, y]
+emitPrimOp envp (PrimGeInt32 x y) = emitPrimCall envp "prim_geint32" [x, y]
+
+emitPrimCall :: String -> String -> [Name] -> String
+emitPrimCall envp f xs = f ++ "(" ++ intercalate ", " (map (emitName envp) xs) ++ ")"
 
 asSort :: Sort -> String -> String
 asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
