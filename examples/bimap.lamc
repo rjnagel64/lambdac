@@ -6,4 +6,4 @@ let
 in
 let fun inc (x : int) : int = x + 1; in
 let fun dbl (x : int) : int = x + x; in
-fst (bimap dbl inc (17, 131))
+bimap dbl inc (17, 131)
