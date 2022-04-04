@@ -169,6 +169,14 @@ void cons_new_alloc(struct alloc_header *alloc) {
     }
 }
 
+struct sum *make_sum(uint32_t discriminant, uint32_t num_fields) {
+    struct sum *v = malloc(sizeof(struct sum) + num_fields * sizeof(uintptr_t));
+    v->header.type = ALLOC_SUM;
+    v->discriminant = discriminant;
+    v->num_fields = num_fields;
+    return v;
+}
+
 struct closure *allocate_closure(
         void *env,
         void (*trace)(void *env),
@@ -211,30 +219,21 @@ struct value *allocate_nil(void) {
 }
 
 struct sum *allocate_true(void) {
-    struct sum *v = malloc(sizeof(struct sum) + 0 * sizeof(uintptr_t));
-    v->header.type = ALLOC_SUM;
-    v->discriminant = 1;
-    v->num_fields = 0;
+    struct sum *v = make_sum(1, 0);
 
     cons_new_alloc(AS_ALLOC(v));
     return v;
 }
 
 struct sum *allocate_false(void) {
-    struct sum *v = malloc(sizeof(struct sum) + 0 * sizeof(uintptr_t));
-    v->header.type = ALLOC_SUM;
-    v->discriminant = 0;
-    v->num_fields = 0;
+    struct sum *v = make_sum(0, 0);
 
     cons_new_alloc(AS_ALLOC(v));
     return v;
 }
 
 struct sum *allocate_inl(struct alloc_header *x) {
-    struct sum *v = malloc(sizeof(struct sum) + 1 * sizeof(uintptr_t));
-    v->header.type = ALLOC_SUM;
-    v->discriminant = 0;
-    v->num_fields = 1;
+    struct sum *v = make_sum(0, 1);
     v->words[0] = (uintptr_t)x;
 
     cons_new_alloc(AS_ALLOC(v));
@@ -242,10 +241,7 @@ struct sum *allocate_inl(struct alloc_header *x) {
 }
 
 struct sum *allocate_inr(struct alloc_header *y) {
-    struct sum *v = malloc(sizeof(struct sum) + 1 * sizeof(uintptr_t));
-    v->header.type = ALLOC_SUM;
-    v->discriminant = 1;
-    v->num_fields = 1;
+    struct sum *v = make_sum(1, 1);
     v->words[0] = (uintptr_t)y;
 
     cons_new_alloc(AS_ALLOC(v));
