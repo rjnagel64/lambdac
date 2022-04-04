@@ -159,6 +159,16 @@ void sweep_all_allocations(void) {
     }
 }
 
+void cons_new_alloc(struct alloc_header *alloc) {
+    alloc->next = first_allocation;
+    first_allocation = alloc;
+    num_allocs++;
+    push_local(first_allocation);
+    if (num_allocs > gc_threshold) {
+        collect();
+    }
+}
+
 struct closure *allocate_closure(
         void *env,
         void (*trace)(void *env),
@@ -169,124 +179,76 @@ struct closure *allocate_closure(
     cl->trace = trace;
     cl->code = code;
 
-    cl->header.next = first_allocation;
-    first_allocation = (struct alloc_header *)cl;
-    num_allocs++;
-    push_local(first_allocation);
-    if (num_allocs > gc_threshold) {
-        collect();
-    }
+    cons_new_alloc(AS_ALLOC(cl));
     return cl;
 }
 
 struct value *allocate_int32(int32_t x) {
     struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_CONST;
-    v->header.next = first_allocation;
     v->words[0] = (uintptr_t)x;
 
-    first_allocation = (struct alloc_header *)v;
-    num_allocs++;
-    push_local(first_allocation);
-    if (num_allocs > gc_threshold) {
-        collect();
-    }
+    cons_new_alloc(AS_ALLOC(v));
     return v;
 }
 
 struct value *allocate_pair(struct alloc_header *x, struct alloc_header *y) {
     struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
     v->header.type = ALLOC_PROD;
-    v->header.next = first_allocation;
     v->words[0] = (uintptr_t)x;
     v->words[1] = (uintptr_t)y;
 
-    first_allocation = (struct alloc_header *)v;
-    num_allocs++;
-    push_local(first_allocation);
-    if (num_allocs > gc_threshold) {
-        collect();
-    }
+    cons_new_alloc(AS_ALLOC(v));
     return v;
 }
 
 struct value *allocate_nil(void) {
     struct value *v = malloc(sizeof(struct value));
     v->header.type = ALLOC_CONST;
-    v->header.next = first_allocation;
 
-    first_allocation = (struct alloc_header *)v;
-    num_allocs++;
-    push_local(first_allocation);
-    if (num_allocs > gc_threshold) {
-        collect();
-    }
+    cons_new_alloc(AS_ALLOC(v));
     return v;
 }
 
 struct sum *allocate_true(void) {
     struct sum *v = malloc(sizeof(struct sum) + 0 * sizeof(uintptr_t));
     v->header.type = ALLOC_SUM;
-    v->header.next = first_allocation;
     v->discriminant = 1;
     v->num_fields = 0;
 
-    first_allocation = (struct alloc_header *)v;
-    num_allocs++;
-    push_local(first_allocation);
-    if (num_allocs > gc_threshold) {
-        collect();
-    }
+    cons_new_alloc(AS_ALLOC(v));
     return v;
 }
 
 struct sum *allocate_false(void) {
     struct sum *v = malloc(sizeof(struct sum) + 0 * sizeof(uintptr_t));
     v->header.type = ALLOC_SUM;
-    v->header.next = first_allocation;
     v->discriminant = 0;
     v->num_fields = 0;
 
-    first_allocation = (struct alloc_header *)v;
-    num_allocs++;
-    push_local(first_allocation);
-    if (num_allocs > gc_threshold) {
-        collect();
-    }
+    cons_new_alloc(AS_ALLOC(v));
     return v;
 }
 
 struct sum *allocate_inl(struct alloc_header *x) {
     struct sum *v = malloc(sizeof(struct sum) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_SUM;
-    v->header.next = first_allocation;
     v->discriminant = 0;
     v->num_fields = 1;
     v->words[0] = (uintptr_t)x;
 
-    first_allocation = (struct alloc_header *)v;
-    num_allocs++;
-    push_local(first_allocation);
-    if (num_allocs > gc_threshold) {
-        collect();
-    }
+    cons_new_alloc(AS_ALLOC(v));
     return v;
 }
 
 struct sum *allocate_inr(struct alloc_header *y) {
     struct sum *v = malloc(sizeof(struct sum) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_SUM;
-    v->header.next = first_allocation;
     v->discriminant = 1;
     v->num_fields = 1;
     v->words[0] = (uintptr_t)y;
 
-    first_allocation = (struct alloc_header *)v;
-    num_allocs++;
-    push_local(first_allocation);
-    if (num_allocs > gc_threshold) {
-        collect();
-    }
+    cons_new_alloc(AS_ALLOC(v));
     return v;
 }
 
