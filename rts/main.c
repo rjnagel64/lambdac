@@ -72,12 +72,18 @@ void display_alloc(int prec, struct alloc_header *alloc, struct string_buf *sb) 
         if (prec > 0) {
             string_buf_push(sb, "(");
         }
+        // TODO: FIXME: use proper constructor names when printing sum types
+        // Currently, I disambiguate by number of fields.
+        // However, when I add general ADTs, this will not work *at all*.
+        // (Arbitrary number of variants, each with unique names)
+        // This is why Haskell has the 'Show' type class: so the runtime
+        // doesn't need to keep track of this information.
         switch (v->discriminant) {
         case 0:
-            string_buf_push(sb, "inl");
+            string_buf_push(sb, (v->num_fields == 0) ? "false" : "inl");
             break;
         case 1:
-            string_buf_push(sb, "inr");
+            string_buf_push(sb, (v->num_fields == 0) ? "true" : "inr");
             break;
         };
         for (uint32_t i = 0; i < v->num_fields; i++) {
