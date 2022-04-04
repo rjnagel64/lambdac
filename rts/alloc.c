@@ -193,12 +193,7 @@ struct value *allocate_int32(int32_t x) {
     return v;
 }
 
-// TODO: This does not allow allocating (id, not). Functions and continuations are not 'struct value'.
-// To rectify this, I think I need to move towards the info-table approach.
-// All GC objects are info pointer followed by fields. For product, fields are
-// components. For sum, fields are discriminant and payload. For closure,
-// fields are captures. For constants, fields are value.
-struct value *allocate_pair(struct value *x, struct value *y) {
+struct value *allocate_pair(struct alloc_header *x, struct alloc_header *y) {
     struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
     v->header.type = ALLOC_PROD;
     v->header.next = first_allocation;
@@ -229,6 +224,7 @@ struct value *allocate_nil(void) {
 }
 
 // TODO: Make booleans like 0/1, instead of inl ()/inr ()
+// (Either that, or make booleans sum type with 0 fields)
 struct value *allocate_true(void) {
     struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_CONST;
@@ -259,7 +255,7 @@ struct value *allocate_false(void) {
     return v;
 }
 
-struct value *allocate_inl(struct value *x) {
+struct value *allocate_inl(struct alloc_header *x) {
     struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
     v->header.type = ALLOC_SUM;
     v->header.next = first_allocation;
@@ -275,7 +271,7 @@ struct value *allocate_inl(struct value *x) {
     return v;
 }
 
-struct value *allocate_inr(struct value *y) {
+struct value *allocate_inr(struct alloc_header *y) {
     struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
     v->header.type = ALLOC_SUM;
     v->header.next = first_allocation;

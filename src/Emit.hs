@@ -276,9 +276,9 @@ emitValueAlloc _ (IntH i) = "allocate_int32(" ++ show i ++ ")"
 emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
 emitValueAlloc _ NilH = "allocate_nil()"
-emitValueAlloc envp (PairH y z) = "allocate_pair(" ++ emitName envp y ++ ", " ++ emitName envp z ++ ")"
-emitValueAlloc envp (InlH y) = "allocate_inl(" ++ emitName envp y ++ ")"
-emitValueAlloc envp (InrH y) = "allocate_inr(" ++ emitName envp y ++ ")"
+emitValueAlloc envp (PairH y z) = "allocate_pair(" ++ asSort Alloc (emitName envp y) ++ ", " ++ asSort Alloc (emitName envp z) ++ ")"
+emitValueAlloc envp (InlH y) = "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ")"
+emitValueAlloc envp (InrH y) = "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ")"
 
 emitPrimOp :: String -> PrimOp -> String
 emitPrimOp envp (PrimAddInt32 x y) = "prim_addint32(" ++ emitName envp x ++ ", " ++ emitName envp y ++ ")"

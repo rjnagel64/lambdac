@@ -49,11 +49,9 @@ void mark_gray(struct alloc_header *alloc);
 void sweep_all_allocations(void);
 
 struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*code)(void));
-// TODO: Make these take struct alloc_header * instead
-// (This way, function and continuation closures can be stored in pairs and sums)
-struct value *allocate_pair(struct value *x, struct value *y);
-struct value *allocate_inl(struct value *v);
-struct value *allocate_inr(struct value *v);
+struct value *allocate_pair(struct alloc_header *x, struct alloc_header *y);
+struct value *allocate_inl(struct alloc_header *v);
+struct value *allocate_inr(struct alloc_header *v);
 // Corresponds to Int32# constructor? No discriminant, though.
 struct value *allocate_int32(int32_t x);
 // TODO: true, false, and nil are truly constant. Return a single shared
