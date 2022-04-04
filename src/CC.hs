@@ -29,7 +29,7 @@ import Data.Set (Set)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Control.Monad.Reader
-import Control.Monad.Writer
+import Control.Monad.Writer hiding (Sum)
 
 import Data.List (intercalate, partition)
 import Data.Maybe (mapMaybe)
@@ -88,17 +88,19 @@ coVar (K.CoVar k) = Name k 0
 -- Value = int | bool | t1 * t2 | t1 + t2 | ()
 -- Closure = (t1, t2, ...) -> 0
 -- Alloc = a : *
-data Sort = Closure | Value | Alloc
+data Sort = Closure | Value | Alloc | Sum
   deriving (Eq, Ord)
 
 instance Show Sort where
   show Closure = "closure"
   show Value = "value"
   show Alloc = "alloc_header"
+  show Sum = "sum"
 
 sortOf :: K.TypeK -> Sort
 sortOf (K.ContK _) = Closure
 sortOf (K.FunK _ _) = Closure
+sortOf (K.SumK _ _) = Sum
 sortOf _ = Value
 
 -- | Each type of closure (e.g., one boxed argument, one unboxed argument and

@@ -60,9 +60,10 @@ void trace_prod(struct value *v) {
     mark_gray(AS_ALLOC(v->words[1]));
 }
 
-void trace_sum(struct value *v) {
-    // Skip the discriminant.
-    mark_gray(AS_ALLOC(v->words[1]));
+void trace_sum(struct sum *v) {
+    for (uint32_t i = 0; i < v->num_fields; i++) {
+        mark_gray(AS_ALLOC(v->words[i]));
+    }
 }
 
 void trace_closure(struct closure *cl) {
@@ -81,7 +82,7 @@ void trace_alloc(struct alloc_header *alloc) {
         trace_prod(AS_VALUE(alloc));
         break;
     case ALLOC_SUM:
-        trace_sum(AS_VALUE(alloc));
+        trace_sum(AS_SUM(alloc));
         break;
     }
 }
@@ -255,12 +256,13 @@ struct value *allocate_false(void) {
     return v;
 }
 
-struct value *allocate_inl(struct alloc_header *x) {
-    struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
+struct sum *allocate_inl(struct alloc_header *x) {
+    struct sum *v = malloc(sizeof(struct sum) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_SUM;
     v->header.next = first_allocation;
-    v->words[0] = 0;
-    v->words[1] = (uintptr_t)x;
+    v->discriminant = 0;
+    v->num_fields = 1;
+    v->words[0] = (uintptr_t)x;
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
@@ -271,12 +273,13 @@ struct value *allocate_inl(struct alloc_header *x) {
     return v;
 }
 
-struct value *allocate_inr(struct alloc_header *y) {
-    struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
+struct sum *allocate_inr(struct alloc_header *y) {
+    struct sum *v = malloc(sizeof(struct sum) + 1 * sizeof(uintptr_t));
     v->header.type = ALLOC_SUM;
     v->header.next = first_allocation;
-    v->words[0] = 1;
-    v->words[1] = (uintptr_t)y;
+    v->discriminant = 1;
+    v->num_fields = 1;
+    v->words[0] = (uintptr_t)y;
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;

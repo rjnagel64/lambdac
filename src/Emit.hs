@@ -80,6 +80,7 @@ namesForThunk (ThunkType ss) =
     code Closure = 'C'
     code Value = 'V'
     code Alloc = 'A'
+    code Sum = 'S'
 
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
@@ -249,7 +250,7 @@ emitSuspend envp cl xs = "    " ++ method ++ "(" ++ intercalate ", " args ++ ");
 
 emitCase :: String -> Name -> [(Name, ThunkType)] -> [String]
 emitCase envp x ks =
-  ["    switch (" ++ emitName envp x ++ "->words[0]) {"] ++
+  ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch (zip [0..] ks) ++
   ["    default:"
   ,"        panic(\"invalid discriminant\");"
@@ -265,7 +266,7 @@ emitCase envp x ks =
         ,"        break;"]
       ThunkType [s] -> 
         let method = thunkSuspendName (namesForThunk t) in
-        let args = [emitName envp k, asSort s (emitName envp x ++ "->words[1]")] in
+        let args = [emitName envp k, asSort s (emitName envp x ++ "->words[0]")] in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
         ,"        break;"]
@@ -295,6 +296,7 @@ asSort :: Sort -> String -> String
 asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
 asSort Value x = "AS_VALUE(" ++ x ++ ")"
 asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
+asSort Sum x = "AS_SUM(" ++ x ++ ")"
 
 emitAllocGroup :: String -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
@@ -327,11 +329,13 @@ emitFieldDecl :: FieldName -> String
 emitFieldDecl (FieldName Closure c) = "struct closure *" ++ c
 emitFieldDecl (FieldName Value x) = "struct value *" ++ x
 emitFieldDecl (FieldName Alloc a) = "struct alloc_header *" ++ a
+emitFieldDecl (FieldName Sum x) = "struct sum *" ++ x
 
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName Closure k) = "struct closure *" ++ k
 emitPlace (PlaceName Value x) = "struct value *" ++ x
 emitPlace (PlaceName Alloc a) = "struct alloc_header *" ++ a
+emitPlace (PlaceName Sum x) = "struct sum *" ++ x
 
 emitName :: String -> Name -> String
 emitName _ (LocalName x) = x

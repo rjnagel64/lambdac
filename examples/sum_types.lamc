@@ -1,0 +1,4 @@
+case inr @unit @int 13 of {
+  inl (x : unit) -> 42;
+  inr (y : int) -> y
+}

@@ -43,6 +43,15 @@ struct closure {
 
 #define AS_CLOSURE(v) ((struct closure *)(v))
 
+struct sum {
+    struct alloc_header header;
+    uint32_t discriminant;
+    uint32_t num_fields;
+    uintptr_t words[];
+};
+
+#define AS_SUM(v) ((struct sum *)(v))
+
 
 extern void (*trace_roots)(void);
 void mark_gray(struct alloc_header *alloc);
@@ -50,8 +59,8 @@ void sweep_all_allocations(void);
 
 struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*code)(void));
 struct value *allocate_pair(struct alloc_header *x, struct alloc_header *y);
-struct value *allocate_inl(struct alloc_header *v);
-struct value *allocate_inr(struct alloc_header *v);
+struct sum *allocate_inl(struct alloc_header *v);
+struct sum *allocate_inr(struct alloc_header *v);
 // Corresponds to Int32# constructor? No discriminant, though.
 struct value *allocate_int32(int32_t x);
 // TODO: true, false, and nil are truly constant. Return a single shared
