@@ -20,6 +20,7 @@ module CC
 
   , cconv
   , runConv
+  , pprintThunkType
   , pprintTerm
   ) where
 
@@ -28,8 +29,10 @@ import Data.Set (Set)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Control.Monad.Reader
+import Control.Monad.Writer
 
 import Data.List (intercalate, partition)
+import Data.Maybe (mapMaybe)
 import Data.Bifunctor
 
 import qualified CPS as K
@@ -105,10 +108,10 @@ sortOf _ = Value
 newtype ThunkType = ThunkType [Sort]
   deriving (Eq, Ord)
 
-thunkTypeOf :: K.TypeK -> ThunkType
-thunkTypeOf (K.ContK ss) = ThunkType (map sortOf ss)
-thunkTypeOf (K.FunK t s) = ThunkType [sortOf t, sortOf (K.ContK [s])]
-thunkTypeOf _ = error "this type is not a closure"
+thunkTypeOf :: K.TypeK -> Maybe ThunkType
+thunkTypeOf (K.ContK ss) = Just (ThunkType (map sortOf ss))
+thunkTypeOf (K.FunK t s) = Just (ThunkType [sortOf t, sortOf (K.ContK [s])])
+thunkTypeOf _ = Nothing
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -252,15 +255,16 @@ funDefNames fs = [(tmVar f, Closure) | FunDef _ f _ _ _ <- fs]
 contDefNames :: [ContDef a] -> [(Name, Sort)]
 contDefNames ks = [(coVar k, Closure) | ContDef _ k _ _ <- ks]
 
-newtype ConvM a = ConvM { runConvM :: Reader (Map Name Sort) a }
+newtype ConvM a = ConvM { runConvM :: ReaderT (Map Name Sort) (Writer (Set ThunkType)) a }
 
 deriving newtype instance Functor ConvM
 deriving newtype instance Applicative ConvM
 deriving newtype instance Monad ConvM
 deriving newtype instance MonadReader (Map Name Sort) ConvM
+deriving newtype instance MonadWriter (Set ThunkType) ConvM
 
-runConv :: ConvM a -> a
-runConv = flip runReader Map.empty . runConvM
+runConv :: ConvM a -> (a, Set ThunkType)
+runConv = runWriter . flip runReaderT Map.empty . runConvM
 
 cconv :: TermK a -> ConvM TermC
 cconv (LetFunK fs e) =
@@ -276,8 +280,11 @@ cconv (LetContK ks e) =
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
-cconv (CaseK x k1 s1 k2 s2) =
-  pure $ CaseC (tmVar x) (coVar k1, thunkTypeOf s1) (coVar k2, thunkTypeOf s2)
+cconv (CaseK x k1 s1 k2 s2) = do
+  (t1, t2) <- case (thunkTypeOf s1, thunkTypeOf s2) of
+    (Just t1, Just t2) -> pure (t1, t2)
+    _ -> error "cconv: Branch of case is not a closure"
+  pure $ CaseC (tmVar x) (coVar k1, t1) (coVar k2, t2)
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> cconv e
@@ -286,6 +293,10 @@ cconv (LetCompareK x cmp e) = LetCompareC (tmVar x) (cconvCmp cmp) <$> cconv e
 
 cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
 cconvFunDef fs fun@(FunDef _ f xs ks e) = do
+  let
+    funThunk = ThunkType (map (sortOf . snd) xs ++ map (sortOf . snd) ks)
+    thunks = funThunk : mapMaybe thunkTypeOf (map snd xs ++ map snd ks)
+  tell (Set.fromList thunks)
   let tmbinds = map (bimap tmVar sortOf) xs
   let cobinds = map (bimap coVar sortOf) ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
@@ -296,6 +307,10 @@ cconvFunDef fs fun@(FunDef _ f xs ks e) = do
 
 cconvContDef :: Set Name -> ContDef a -> ConvM ContClosureDef
 cconvContDef ks kont@(ContDef _ k xs e) = do
+  let
+    contThunk = ThunkType (map (sortOf . snd) xs)
+    thunks = contThunk : mapMaybe thunkTypeOf (map snd xs)
+  tell (Set.fromList thunks)
   let binds = map (bimap tmVar sortOf) xs
   let extend ctx' = foldr (uncurry Map.insert) ctx' binds
   fields <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
@@ -337,9 +352,12 @@ cconvCmp (CmpGeK x y) = GeC (tmVar x) (tmVar y)
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
+pprintThunkType :: ThunkType -> String
+pprintThunkType (ThunkType ss) = "thunk (" ++ intercalate ", " (map show ss) ++ ") -> !\n"
+
 pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
-pprintTerm n (JumpC k x) = indent n $ show k ++ " " ++ show x ++ ";\n"
+pprintTerm n (JumpC k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
 pprintTerm n (CallC f xs ks) = indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
@@ -354,9 +372,9 @@ pprintTerm n (LetSndC x y e) =
 pprintTerm n (CaseC x (k1, _) (k2, _)) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetArithC x op e) =
-  indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace (x, Value) ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareC x cmp e) =
-  indent n ("let " ++ show x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace (x, Value) ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 
 pprintPlace :: (Name, Sort) -> String
 pprintPlace (x, s) = show s ++ " " ++ show x

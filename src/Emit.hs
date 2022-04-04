@@ -25,8 +25,8 @@ import Hoist
 -- text :: String -> Emit
 -- text s = Emit $ \_ -> B.fromText (T.pack s)
 
-emitProgram :: (HoistDecls, TermH) -> [String]
-emitProgram (HoistDecls (ts, cs), e) =
+emitProgram :: (Set ThunkType, [ClosureDecl], TermH) -> [String]
+emitProgram (ts, cs, e) =
   prologue ++
   concatMap emitThunkDecl ts ++
   concatMap emitClosureDecl cs ++

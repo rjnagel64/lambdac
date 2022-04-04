@@ -627,8 +627,8 @@ pprintType :: TypeK -> String
 pprintType (ContK ts) = "(" ++ intercalate ", " params ++ ") -> 0"
   where params = map pprintType ts
 pprintType (FunK t s) = pprintType (ContK [t, ContK [s]])
-pprintType (ProdK t s) = pprintType t ++ " * " ++ pprintAType s
-pprintType (SumK t s) = pprintType t ++ " + " ++ pprintAType s
+pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s
+pprintType (SumK t s) = pprintAType t ++ " + " ++ pprintAType s
 pprintType IntK = "int"
 pprintType UnitK = "unit"
 pprintType BoolK = "bool"

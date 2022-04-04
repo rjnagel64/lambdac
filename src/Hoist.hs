@@ -22,9 +22,9 @@ module Hoist
     , EnvAlloc(..)
 
     , runHoist
-    , HoistDecls(..)
+    , ClosureDecls(..)
     , hoist
-    , pprintDecls
+    , pprintClosures
     , pprintTerm
     ) where
 
@@ -133,29 +133,26 @@ data PrimOp
 data HoistEnv = HoistEnv (Map C.Name PlaceName) (Map C.Name FieldName)
 
 
-newtype HoistDecls = HoistDecls (Set ThunkType, [ClosureDecl])
+newtype ClosureDecls = ClosureDecls [ClosureDecl]
 
-deriving newtype instance Semigroup HoistDecls
-deriving newtype instance Monoid HoistDecls
+deriving newtype instance Semigroup ClosureDecls
+deriving newtype instance Monoid ClosureDecls
 
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer HoistDecls)) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer ClosureDecls)) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
-deriving newtype instance MonadWriter HoistDecls HoistM
+deriving newtype instance MonadWriter ClosureDecls HoistM
 deriving newtype instance MonadState (Set DeclName) HoistM
 
-runHoist :: HoistM a -> (a, HoistDecls)
+runHoist :: HoistM a -> (a, ClosureDecls)
 runHoist = runWriter .  flip evalStateT Set.empty .  flip runReaderT emptyEnv .  runHoistM
   where emptyEnv = HoistEnv mempty mempty
 
 tellClosures :: [ClosureDecl] -> HoistM ()
-tellClosures cs = tell (HoistDecls (mempty, cs))
-
-tellThunk :: ThunkType -> HoistM ()
-tellThunk t = tell (HoistDecls (Set.singleton t, mempty))
+tellClosures cs = tell (ClosureDecls cs)
 
 
 -- | After closure conversion, the code for each function and continuation can
@@ -294,7 +291,6 @@ hoistContClosure (kdecl, C.ContClosureDef _k free rec xs body) = do
 inClosure :: [(C.Name, Sort)] -> [(C.Name, Sort)] -> HoistM a -> HoistM ([FieldName], [PlaceName], a)
 inClosure fields places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
-  tellThunk (ThunkType [s | (_, s) <- places])
   let places' = map (\ (x, s) -> (x, asPlaceName s x)) places
   let fields' = map (\ (x, s) -> (x, asFieldName s x)) fields
   -- Preserve 'DeclName's?
@@ -387,12 +383,6 @@ pprintPlace (PlaceName s x) = show s ++ " " ++ x
 
 pprintField :: FieldName -> String
 pprintField (FieldName s x) = show s ++ " " ++ x
-
-pprintDecls :: HoistDecls -> String
-pprintDecls (HoistDecls (ts, cs)) = concatMap pprintThunkType (Set.toList ts) ++ pprintClosures cs
-
-pprintThunkType :: ThunkType -> String
-pprintThunkType (ThunkType ss) = "thunk (" ++ intercalate ", " (map show ss) ++ ") -> !\n"
 
 pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = "let {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"

@@ -1,0 +1,7 @@
+-- Problem: When CPSed, this has a continuation (int) -> 0.
+-- However, no closures of type (int) -> 0 are ever defined, so Hoist fails to
+-- record their closure type.
+--
+-- This causes the C code to not compile, as there is not definition for
+-- suspend_V.
+(\ (x : int) -> x)

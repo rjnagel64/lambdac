@@ -65,17 +65,17 @@ main = do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK
 
-  let srcC = C.runConv $ C.cconv srcK
+  let (srcC, thunkDecls) = C.runConv $ C.cconv srcK
   when (driverDumpCC args) $ do
     putStrLn $ "--- Closure Conversion ---"
-    putStrLn $ C.pprintTerm 0 srcC
+    putStrLn $ concatMap C.pprintThunkType thunkDecls ++ C.pprintTerm 0 srcC
 
-  let (srcH, decls) = H.runHoist $ H.hoist srcC
+  let (srcH, H.ClosureDecls closureDecls) = H.runHoist $ H.hoist srcC
   when (driverDumpHoist args) $ do
     putStrLn $ "--- Hoisting ---"
-    putStrLn $ H.pprintDecls decls ++ H.pprintTerm 0 srcH
+    putStrLn $ H.pprintClosures closureDecls ++ H.pprintTerm 0 srcH
 
-  let obj = unlines $ E.emitProgram (decls, srcH)
+  let obj = unlines $ E.emitProgram (thunkDecls, closureDecls, srcH)
   when (driverDumpEmit args) $ do
     putStrLn $ "--- Code Generation ---"
     putStrLn obj
