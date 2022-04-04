@@ -63,11 +63,9 @@ struct sum *allocate_inl(struct alloc_header *v);
 struct sum *allocate_inr(struct alloc_header *v);
 // Corresponds to Int32# constructor? No discriminant, though.
 struct value *allocate_int32(int32_t x);
-// TODO: true, false, and nil are truly constant. Return a single shared
-// instance of them?
 struct value *allocate_nil(void);
-struct value *allocate_true(void);
-struct value *allocate_false(void);
+struct sum *allocate_true(void);
+struct sum *allocate_false(void);
 
 // TODO: Restrict project_{fst,snd} to struct pair_value *?
 struct alloc_header *project_fst(struct value *v);

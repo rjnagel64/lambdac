@@ -101,6 +101,7 @@ sortOf :: K.TypeK -> Sort
 sortOf (K.ContK _) = Closure
 sortOf (K.FunK _ _) = Closure
 sortOf (K.SumK _ _) = Sum
+sortOf K.BoolK = Sum
 sortOf _ = Value
 
 -- | Each type of closure (e.g., one boxed argument, one unboxed argument and
@@ -121,8 +122,8 @@ data TermC
   = LetValC (Name, Sort) ValueC TermC -- let x = v in e, allocation
   | LetFstC (Name, Sort) Name TermC -- let x = fst y in e, projection
   | LetSndC (Name, Sort) Name TermC
-  | LetArithC Name ArithC TermC
-  | LetCompareC Name CmpC TermC
+  | LetArithC (Name, Sort) ArithC TermC
+  | LetCompareC (Name, Sort) CmpC TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
   -- Invoke a closure by providing a value for the only remaining argument.
@@ -215,7 +216,7 @@ fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortO
 fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
-fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Value)] (fieldsFor e)
+fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Sum)] (fieldsFor e)
 
 fieldsForArith :: ArithK -> FieldsFor
 fieldsForArith (AddK x y) = unitField (tmVar x) <> unitField (tmVar y)
@@ -290,8 +291,8 @@ cconv (CaseK x k1 s1 k2 s2) = do
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> cconv e
-cconv (LetArithK x op e) = LetArithC (tmVar x) (cconvArith op) <$> cconv e
-cconv (LetCompareK x cmp e) = LetCompareC (tmVar x) (cconvCmp cmp) <$> cconv e
+cconv (LetArithK x op e) = LetArithC (tmVar x, Value) (cconvArith op) <$> cconv e
+cconv (LetCompareK x cmp e) = LetCompareC (tmVar x, Sum) (cconvCmp cmp) <$> cconv e
 
 cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
 cconvFunDef fs fun@(FunDef _ f xs ks e) = do
@@ -374,9 +375,9 @@ pprintTerm n (LetSndC x y e) =
 pprintTerm n (CaseC x (k1, _) (k2, _)) =
   indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
 pprintTerm n (LetArithC x op e) =
-  indent n ("let " ++ pprintPlace (x, Value) ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareC x cmp e) =
-  indent n ("let " ++ pprintPlace (x, Value) ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 
 pprintPlace :: (Name, Sort) -> String
 pprintPlace (x, s) = show s ++ " " ++ show x

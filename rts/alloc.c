@@ -224,13 +224,12 @@ struct value *allocate_nil(void) {
     return v;
 }
 
-// TODO: Make booleans like 0/1, instead of inl ()/inr ()
-// (Either that, or make booleans sum type with 0 fields)
-struct value *allocate_true(void) {
-    struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
-    v->header.type = ALLOC_CONST;
+struct sum *allocate_true(void) {
+    struct sum *v = malloc(sizeof(struct sum) + 0 * sizeof(uintptr_t));
+    v->header.type = ALLOC_SUM;
     v->header.next = first_allocation;
-    v->words[0] = 1;
+    v->discriminant = 1;
+    v->num_fields = 0;
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;
@@ -241,11 +240,12 @@ struct value *allocate_true(void) {
     return v;
 }
 
-struct value *allocate_false(void) {
-    struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
-    v->header.type = ALLOC_CONST;
+struct sum *allocate_false(void) {
+    struct sum *v = malloc(sizeof(struct sum) + 0 * sizeof(uintptr_t));
+    v->header.type = ALLOC_SUM;
     v->header.next = first_allocation;
-    v->words[0] = 0;
+    v->discriminant = 0;
+    v->num_fields = 0;
 
     first_allocation = (struct alloc_header *)v;
     num_allocs++;

@@ -179,13 +179,13 @@ hoist (LetSndC (x, s) y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x s $ hoist e
   pure (LetSndH x' y' e')
-hoist (LetArithC x op e) = do
+hoist (LetArithC (x, s) op e) = do
   op' <- hoistArith op
-  (x', e') <- withPlace x Value $ hoist e
+  (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' op' e')
-hoist (LetCompareC x cmp e) = do
+hoist (LetCompareC (x, s) cmp e) = do
   cmp' <- hoistCmp cmp
-  (x', e') <- withPlace x Value $ hoist e
+  (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' cmp' e')
 hoist (LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
