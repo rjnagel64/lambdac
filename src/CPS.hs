@@ -167,6 +167,7 @@ contDefType :: ContDef a -> TypeK
 contDefType (ContDef _ _ xs _) = ContK (map snd xs)
 
 funDefType :: FunDef a -> TypeK
+-- Hang on, should this require ContK, or imply ContK, or what?
 funDefType (FunDef _ _ [x] [k] _) = FunK (snd x) (snd k)
 funDefType (FunDef _ _ _ _ _) = error "not supported: function with multiple params/conts"
 
@@ -184,9 +185,10 @@ cps (TmVarOcc x) k = do
 cps (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
-      (fun, ty) <- freshenVarBind (x, t) $ \bx -> do
-        (e', s') <- withVarBinds [bx] $ cpsTail e k'
-        let fun = FunDef () f [snd bx] [(k', ContK [s'])] e'
+      (fun, ty) <- freshenVarBinds [(x, t)] $ \bs -> do
+        (e', s') <- withVarBinds bs $ cpsTail e k'
+        let fun = FunDef () f (map snd bs) [(k', ContK [s'])] e'
+        let [bx] = bs -- necessary because FunK only supports one argument
         pure (fun, FunK (snd (snd bx)) s')
       (e'', _t'') <- k f ty
       pure (LetFunK [fun] e'', ty)
@@ -305,9 +307,9 @@ cps (TmInt i) k =
     pure (res, t')
 cps (TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
-    (kont, t2') <- freshenVarBind (x, t) $ \bx -> do
-      (e2', t2') <- withVarBinds [bx] $ cps e2 k
-      let kont = ContDef () j [snd bx] e2'
+    (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
+      (e2', t2') <- withVarBinds bs $ cps e2 k
+      let kont = ContDef () j (map snd bs) e2'
       pure (kont, t2')
     (e1', t1') <- cpsTail e1 j
     pure (LetContK [kont] e1', t2')
@@ -335,10 +337,10 @@ cpsFun (TmFun f x t s e) =
       Nothing -> error "cpsFun: function not in scope (unreachable?)"
       Just (f', _) -> pure f'
     let s' = cpsType s
-    fun <- freshenVarBind (x, t) $ \bx -> do
-      (e', _s') <- withVarBinds [bx] $ cpsTail e k
+    fun <- freshenVarBinds [(x, t)] $ \bs -> do
+      (e', _s') <- withVarBinds bs $ cpsTail e k
       -- assert _s' == s'
-      pure (FunDef () f' [snd bx] [(k, ContK [s'])] e')
+      pure (FunDef () f' (map snd bs) [(k, ContK [s'])] e')
     pure fun
 
 -- | CPS-convert a term in tail position.
@@ -353,9 +355,10 @@ cpsTail (TmVarOcc x) k = do
 cpsTail (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
-      (fun, ty) <- freshenVarBind (x, t) $ \bx -> do
-        (e', s') <- withVarBinds [bx] $ cpsTail e k'
-        let fun = FunDef () f [snd bx] [(k', ContK [s'])] e'
+      (fun, ty) <- freshenVarBinds [(x, t)] $ \bs -> do
+        (e', s') <- withVarBinds bs $ cpsTail e k'
+        let fun = FunDef () f (map snd bs) [(k', ContK [s'])] e'
+        let [bx] = bs
         pure (fun, FunK (snd (snd bx)) s')
       let res = LetFunK [fun] (JumpK k [f])
       pure (res, ty)
@@ -521,18 +524,12 @@ freshCo x k = do
   let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
   local extend (k x')
 
--- TODO: Fuse this function with 'freshenVarBind' and 'freshenFunBinds', to
+-- TODO: Fuse this function with 'freshenVarBinds' and 'freshenFunBinds', to
 -- eliminate possibility of error.
 withVarBinds :: [(S.TmVar, (TmVar, TypeK))] -> CPS a -> CPS a
 withVarBinds binds m = local extend m
   where
     extend (CPSEnv sc ctx) = CPSEnv sc (foldr (uncurry Map.insert) ctx binds)
-
--- TODO: Make this a special case of freshenVarBinds?
--- (May be better to generalize freshenVarBinds to Traversable, so I can do One
--- (TmVar, TypeK) for total pattern matching) 
-freshenVarBind :: (S.TmVar, S.Type) -> ((S.TmVar, (TmVar, TypeK)) -> CPS a) -> CPS a
-freshenVarBind (S.TmVar x, t) k = freshTm x $ \x' -> k (S.TmVar x, (x', cpsType t))
 
 freshenVarBinds :: [(S.TmVar, S.Type)] -> ([(S.TmVar, (TmVar, TypeK))] -> CPS a) -> CPS a
 freshenVarBinds bs k = do
