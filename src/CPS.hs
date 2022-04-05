@@ -175,8 +175,6 @@ funDefType (FunDef _ _ _ _ _) = error "not supported: function with multiple par
 -- Maybe I should add Except and error-reporting?
 
 -- | CPS-convert a term.
---
--- TODO: Find a way to reduce the nesting. ContT, maybe? No, that wouldn't work for cpsTail
 cps :: Term -> (TmVar -> TypeK -> CPS (TermK (), TypeK)) -> CPS (TermK (), TypeK)
 cps (TmVarOcc x) k = do
   env <- asks cpsEnvCtx
@@ -186,10 +184,10 @@ cps (TmVarOcc x) k = do
 cps (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
-      (fun, ty) <- freshenVarBind x t $ \bx -> do
-        (e', s') <- withVarBinds [(x, bx)] $ cpsTail e k'
-        let fun = FunDef () f [bx] [(k', ContK [s'])] e'
-        pure (fun, FunK (snd bx) s')
+      (fun, ty) <- freshenVarBind (x, t) $ \bx -> do
+        (e', s') <- withVarBinds [bx] $ cpsTail e k'
+        let fun = FunDef () f [snd bx] [(k', ContK [s'])] e'
+        pure (fun, FunK (snd (snd bx)) s')
       (e'', _t'') <- k f ty
       pure (LetFunK [fun] e'', ty)
 cps (TmRecFun fs e) k = do
@@ -236,7 +234,6 @@ cps (TmCase e (xl, tl, el) (xr, tr, er)) k =
             (kont2, sr') <- cpsBranch k2 [(xr, tr)] er j
             let s' = fst (sl', sr')
             (e', _t') <- k x s'
-            -- TODO: Case branches that accept multiple arguments at once
             let
               res = 
                 LetContK [ContDef () j [(x, s')] e'] $
@@ -308,9 +305,9 @@ cps (TmInt i) k =
     pure (res, t')
 cps (TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
-    (kont, t2') <- freshenVarBind x t $ \bx -> do
-      (e2', t2') <- withVarBinds [(x, bx)] $ cps e2 k
-      let kont = ContDef () j [bx] e2'
+    (kont, t2') <- freshenVarBind (x, t) $ \bx -> do
+      (e2', t2') <- withVarBinds [bx] $ cps e2 k
+      let kont = ContDef () j [snd bx] e2'
       pure (kont, t2')
     (e1', t1') <- cpsTail e1 j
     pure (LetContK [kont] e1', t2')
@@ -338,10 +335,10 @@ cpsFun (TmFun f x t s e) =
       Nothing -> error "cpsFun: function not in scope (unreachable?)"
       Just (f', _) -> pure f'
     let s' = cpsType s
-    fun <- freshenVarBind x t $ \bx -> do
-      (e', _s') <- withVarBinds [(x, bx)] $ cpsTail e k
+    fun <- freshenVarBind (x, t) $ \bx -> do
+      (e', _s') <- withVarBinds [bx] $ cpsTail e k
       -- assert _s' == s'
-      pure (FunDef () f' [bx] [(k, ContK [s'])] e')
+      pure (FunDef () f' [snd bx] [(k, ContK [s'])] e')
     pure fun
 
 -- | CPS-convert a term in tail position.
@@ -356,10 +353,10 @@ cpsTail (TmVarOcc x) k = do
 cpsTail (TmLam x t e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
-      (fun, ty) <- freshenVarBind x t $ \bx -> do
-        (e', s') <- withVarBinds [(x, bx)] $ cpsTail e k'
-        let fun = FunDef () f [bx] [(k', ContK [s'])] e'
-        pure (fun, FunK (snd bx) s')
+      (fun, ty) <- freshenVarBind (x, t) $ \bx -> do
+        (e', s') <- withVarBinds [bx] $ cpsTail e k'
+        let fun = FunDef () f [snd bx] [(k', ContK [s'])] e'
+        pure (fun, FunK (snd (snd bx)) s')
       let res = LetFunK [fun] (JumpK k [f])
       pure (res, ty)
 cpsTail (TmLet x t e1 e2) k =
@@ -449,7 +446,6 @@ cpsTail (TmCase e (xl, tl, el) (xr, tr, er)) k =
       freshCo "k2" $ \k2 -> do
         (kont1, sl') <- cpsBranch k1 [(xl, tl)] el k
         (kont2, sr') <- cpsBranch k2 [(xr, tr)] er k
-        -- TODO: Case branches that accept multiple arguments at once
         let
           res =
             LetContK [kont1] $
@@ -493,8 +489,8 @@ cpsMain e = flip runReader emptyEnv $ runCPS $
 -- type of @e@.
 cpsBranch :: CoVar -> [(S.TmVar, S.Type)] -> Term -> CoVar -> CPS (ContDef (), TypeK)
 cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
-  (e', s') <- withVarBinds (zip (map fst xs) xs') $ cpsTail e j
-  pure (ContDef () k xs' e', s')
+  (e', s') <- withVarBinds xs' $ cpsTail e j
+  pure (ContDef () k (map snd xs') e', s')
 
 
 data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map S.TmVar (TmVar, TypeK) }
@@ -535,17 +531,17 @@ withVarBinds binds m = local extend m
 -- TODO: Make this a special case of freshenVarBinds?
 -- (May be better to generalize freshenVarBinds to Traversable, so I can do One
 -- (TmVar, TypeK) for total pattern matching) 
-freshenVarBind :: S.TmVar -> S.Type -> ((TmVar, TypeK) -> CPS a) -> CPS a
-freshenVarBind (S.TmVar x) t k = freshTm x $ \x' -> k (x', cpsType t)
+freshenVarBind :: (S.TmVar, S.Type) -> ((S.TmVar, (TmVar, TypeK)) -> CPS a) -> CPS a
+freshenVarBind (S.TmVar x, t) k = freshTm x $ \x' -> k (S.TmVar x, (x', cpsType t))
 
-freshenVarBinds :: [(S.TmVar, S.Type)] -> ([(TmVar, TypeK)] -> CPS a) -> CPS a
+freshenVarBinds :: [(S.TmVar, S.Type)] -> ([(S.TmVar, (TmVar, TypeK))] -> CPS a) -> CPS a
 freshenVarBinds bs k = do
   scope <- asks cpsEnvScope
   let
     pick sc (S.TmVar x, t) =
       let i = fromMaybe 0 (Map.lookup x sc) in
       let x' = TmVar x i in
-      (Map.insert x (i+1) sc, (x', cpsType t))
+      (Map.insert x (i+1) sc, (S.TmVar x, (x', cpsType t)))
     (sc', bs') = mapAccumL pick scope bs
   let extend (CPSEnv _sc ctx) = CPSEnv sc' ctx
   local extend (k bs')
