@@ -492,16 +492,9 @@ cpsMain e = flip runReader emptyEnv $ runCPS $
 -- @cpsBranch k xs e j@ returns @(cont k xs = [[e]] j; s)@ where @s@ is the
 -- type of @e@.
 cpsBranch :: CoVar -> [(S.TmVar, S.Type)] -> Term -> CoVar -> CPS (ContDef (), TypeK)
-cpsBranch k [(x, t)] e j = freshenVarBind x t $ \bx -> do
-  (e', s') <- withVarBinds [(x, bx)] $ cpsTail e j
-  pure (ContDef () k [bx] e', s')
-cpsBranch k [] e j = do
-  -- TODO: This is/should be an instance of the general version where xs = [].
-  -- I think it is, because withVarBinds [] is no-op. (and freshenVarBinds
-  -- should also be no-op)
-  (e', s') <- cpsTail e j
-  pure (ContDef () k [] e', s')
-cpsBranch _ _ _ _ = error "multi-argument case branches not yet supported"
+cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
+  (e', s') <- withVarBinds (zip (map fst xs) xs') $ cpsTail e j
+  pure (ContDef () k xs' e', s')
 
 
 data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map S.TmVar (TmVar, TypeK) }
@@ -539,8 +532,23 @@ withVarBinds binds m = local extend m
   where
     extend (CPSEnv sc ctx) = CPSEnv sc (foldr (uncurry Map.insert) ctx binds)
 
+-- TODO: Make this a special case of freshenVarBinds?
+-- (May be better to generalize freshenVarBinds to Traversable, so I can do One
+-- (TmVar, TypeK) for total pattern matching) 
 freshenVarBind :: S.TmVar -> S.Type -> ((TmVar, TypeK) -> CPS a) -> CPS a
 freshenVarBind (S.TmVar x) t k = freshTm x $ \x' -> k (x', cpsType t)
+
+freshenVarBinds :: [(S.TmVar, S.Type)] -> ([(TmVar, TypeK)] -> CPS a) -> CPS a
+freshenVarBinds bs k = do
+  scope <- asks cpsEnvScope
+  let
+    pick sc (S.TmVar x, t) =
+      let i = fromMaybe 0 (Map.lookup x sc) in
+      let x' = TmVar x i in
+      (Map.insert x (i+1) sc, (x', cpsType t))
+    (sc', bs') = mapAccumL pick scope bs
+  let extend (CPSEnv _sc ctx) = CPSEnv sc' ctx
+  local extend (k bs')
 
 freshenFunBinds :: [TmFun] -> ([(S.TmVar, (TmVar, TypeK))] -> CPS a) -> CPS a
 freshenFunBinds fs k = do
