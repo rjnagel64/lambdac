@@ -151,6 +151,9 @@ data TypeK
   | ContK [TypeK]
   -- (τ * σ -> 0) -> 0
   -- The type of a function.
+  -- TODO: Generalize this to simply be the argument list of a function definition.
+  -- (τ+; σ+) -> 0. Each σi should be a continuation type, since it is the type
+  -- of a continuation argument.
   | FunK TypeK TypeK
 
 cpsType :: S.Type -> TypeK
@@ -169,6 +172,7 @@ contDefType (ContDef _ _ xs _) = ContK (map snd xs)
 funDefType :: FunDef a -> TypeK
 -- Hang on, should this require ContK, or imply ContK, or what?
 funDefType (FunDef _ _ [x] [k] _) = FunK (snd x) (snd k)
+-- funDefType (FunDef _ _ [(x, t)] [(k, ContK [s])] _) = FunK t s
 funDefType (FunDef _ _ _ _ _) = error "not supported: function with multiple params/conts"
 
 
