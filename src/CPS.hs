@@ -87,8 +87,8 @@ data TermK a
   | JumpK CoVar [TmVar]
   -- f x k, call f(x, k)
   | CallK TmVar [TmVar] [CoVar]
-  -- case x of k1 : s1 | k2 : s2, branch
-  | CaseK TmVar CoVar TypeK CoVar TypeK
+  -- case x of k1 : s1 | k2 : s2 | ..., branch
+  | CaseK TmVar [(CoVar, TypeK)]
   -- halt x
   | HaltK TmVar
 
@@ -245,7 +245,7 @@ cps (TmCase e (xl, tl, el) (xr, tr, er)) k =
                 LetContK [ContDef () j [(x, s')] e'] $
                   LetContK [kont1] $
                     LetContK [kont2] $
-                      CaseK z k1 (contDefType kont1) k2 (contDefType kont2)
+                      CaseK z [(k1, contDefType kont1), (k2, contDefType kont2)]
             pure (res, s')
 cps (TmIf e et ef) k =
   cps e $ \z _t -> -- t =~= BoolK
@@ -267,7 +267,7 @@ cps (TmIf e et ef) k =
                       -- false = 0, true = 1, so the branches should be laid
                       -- out as false, true as oppose to the source order true,
                       -- false.
-                      CaseK z k2 (contDefType kont2) k1 (contDefType kont1)
+                      CaseK z [(k2, contDefType kont2), (k1, contDefType kont1)]
             pure (res, s')
 cps (TmBool b) k =
   freshTm "x" $ \x -> do
@@ -457,7 +457,7 @@ cpsTail (TmCase e (xl, tl, el) (xr, tr, er)) k =
           res =
             LetContK [kont1] $
               LetContK [kont2] $
-                CaseK z k1 (contDefType kont1) k2 (contDefType kont2)
+                CaseK z [(k1, contDefType kont1), (k2, contDefType kont2)]
         -- both branches have same type, so this is valid.
         -- (Alternatively, put `returns s` on Source.TmCase)
         let s' = fst (sl', sr')
@@ -478,7 +478,7 @@ cpsTail (TmIf e et ef) k =
           res =
             LetContK [kont1] $
               LetContK [kont2] $
-                CaseK z k2 (contDefType kont2) k1 (contDefType kont1)
+                CaseK z [(k2, contDefType kont2), (k1, contDefType kont1)]
         pure (res, s')
 cpsTail (TmBool b) k =
   freshTm "x" $ \x ->
@@ -570,8 +570,9 @@ pprintTerm :: Int -> TermK a -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
 pprintTerm n (CallK f xs ks) = indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
-pprintTerm n (CaseK x k1 s1 k2 s2) =
-  indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
+pprintTerm n (CaseK x ks) =
+  let branches = intercalate " | " (map (show . fst) ks) in
+  indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValK x t v e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFunK fs e) =

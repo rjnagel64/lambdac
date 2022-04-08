@@ -120,14 +120,14 @@ inlineK (CallK f [x] [k]) = do
 -- (A function parameter will not reduce, e.g.)
 -- Actually, isn't reducing @case inl x of ...@ and @fst (x, y)@ the
 -- responsibility of 'simplify', not 'inlineK'?
-inlineK (CaseK x k1 s1 k2 s2) = do
+inlineK (CaseK x [(k1, s1), (k2, s2)]) = do
   x' <- appTmSub x
   env <- ask
   case Map.lookup x' (inlineValDefs env) of
     Just (InlK y) -> inlineK (JumpK k1 [y])
     Just (InrK y) -> inlineK (JumpK k2 [y])
     Just _ -> error "case on non-inj value"
-    Nothing -> pure (CaseK x' k1 s1 k2 s2)
+    Nothing -> pure (CaseK x' [(k1, s1), (k2, s2)])
 inlineK (LetFstK x t y e) = do
   y' <- appTmSub y
   env <- ask
@@ -287,14 +287,14 @@ simplify env (CallK f xs ks) =
   -- A more sophisticated analysis would require iterating to a fixpoint.
   let xs' = map (rename env) xs in
   (CallK f xs' ks, foldr record mempty xs')
-simplify env (CaseK x k1 s1 k2 s2) =
+simplify env (CaseK x [(k1, s1), (k2, s2)]) =
   let x' = rename env x in
   case Map.lookup x' (simplValues env) of
     Just (InlK y) -> (JumpK k1 [y], record y mempty)
     Just (InrK z) -> (JumpK k2 [z], record z mempty)
     Just (BoolValK b) -> (JumpK (if b then k1 else k2) [], mempty)
     _ ->
-      (CaseK x' k1 s1 k2 s2, record x' mempty)
+      (CaseK x' [(k1, s1), (k2, s2)], record x' mempty)
 -- If there is a binding y := (z, w), substitute x := z in e
 simplify env (LetFstK x t y e) = 
   -- Apply substitution

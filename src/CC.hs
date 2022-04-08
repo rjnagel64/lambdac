@@ -211,7 +211,7 @@ fieldsFor (CallK f xs ks) =
   unitField (tmVar f) <>
   foldMap (unitField . tmVar) xs <>
   foldMap (unitField . coVar) ks
-fieldsFor (CaseK x k1 _s1 k2 _s2) = unitField (tmVar x) <> unitField (coVar k1) <> unitField (coVar k2)
+fieldsFor (CaseK x ks) = unitField (tmVar x) <> foldMap (unitField . coVar . fst) ks
 fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
@@ -283,13 +283,13 @@ cconv (LetContK ks e) =
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
-cconv (CaseK x k1 s1 k2 s2) = do
+cconv (CaseK x ks) = do
   let
-    ann :: (K.CoVar, K.TypeK) -> Maybe (Name, ThunkType)
-    ann (k, s) = do
+    annThunkType :: (K.CoVar, K.TypeK) -> Maybe (Name, ThunkType)
+    annThunkType (k, s) = do
       t <- thunkTypeOf s
       pure (coVar k, t)
-  ks' <- case traverse ann [(k1, s1), (k2, s2)] of
+  ks' <- case traverse annThunkType ks of
     Just ks' -> pure ks'
     -- TODO: Better panic info: which branch isn't a thunk?
     Nothing -> error "cconv: some branch of case is not a closure"
