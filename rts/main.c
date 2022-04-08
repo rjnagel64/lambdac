@@ -68,24 +68,20 @@ void display_alloc(int prec, struct alloc_header *alloc, struct string_buf *sb) 
         break;
     case ALLOC_SUM:
         {
+        // Note: Because we do not have access to constructor names at runtime,
+        // we use a simplified debug output format here.
+        // That format is 'tag : arg1 arg2 ... argn', with parens as necessary.
+        //
+        // Once I have something analogous to show, this should hopefully
+        // become obsolete.
         struct sum *v = AS_SUM(alloc);
         if (prec > 0) {
             string_buf_push(sb, "(");
         }
-        // TODO: FIXME: use proper constructor names when printing sum types
-        // Currently, I disambiguate by number of fields.
-        // However, when I add general ADTs, this will not work *at all*.
-        // (Arbitrary number of variants, each with unique names)
-        // This is why Haskell has the 'Show' type class: so the runtime
-        // doesn't need to keep track of this information.
-        switch (v->discriminant) {
-        case 0:
-            string_buf_push(sb, (v->num_fields == 0) ? "false" : "inl");
-            break;
-        case 1:
-            string_buf_push(sb, (v->num_fields == 0) ? "true" : "inr");
-            break;
-        };
+        char s[16];
+        sprintf(s, "%d", v->discriminant);
+        string_buf_push(sb, s);
+        string_buf_push(sb, " :");
         for (uint32_t i = 0; i < v->num_fields; i++) {
             string_buf_push(sb, " ");
             display_alloc(1, AS_ALLOC(v->words[i]), sb);
