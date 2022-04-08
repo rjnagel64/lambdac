@@ -98,7 +98,7 @@ data TermH
   | LetSndH PlaceName Name TermH
   | HaltH Name
   | OpenH Name [(Name, Sort)] -- Open a closure, by providing a list of arguments and their sorts.
-  | CaseH Name (Name, ThunkType) (Name, ThunkType)
+  | CaseH Name [(Name, ThunkType)]
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
@@ -166,7 +166,7 @@ hoist (CaseC x (k1, s1) (k2, s2)) = do
   x' <- hoistVarOcc x
   k1' <- hoistVarOcc k1
   k2' <- hoistVarOcc k2
-  pure $ CaseH x' (k1', s1) (k2', s2)
+  pure $ CaseH x' [(k1', s1), (k2', s2)]
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -346,8 +346,9 @@ indent n s = replicate n ' ' ++ s
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH x) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (OpenH c xs) = indent n $ show c ++ " " ++ intercalate " " (map (show . fst) xs) ++ ";\n"
-pprintTerm n (CaseH x (k1, _) (k2, _)) =
-  indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
+pprintTerm n (CaseH x ks) =
+  let branches = intercalate " | " (map (show . fst) ks) in
+  indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFstH x y e) =

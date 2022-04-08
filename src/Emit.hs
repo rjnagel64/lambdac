@@ -214,7 +214,7 @@ emitClosureCode ns xs e =
     go2 (AllocClosure cs e') = foldr (Set.insert . placeName) (go2 e') (map closurePlace cs)
     go2 (HaltH _) = Set.empty
     go2 (OpenH _ _) = Set.empty
-    go2 (CaseH _ _ _) = Set.empty
+    go2 (CaseH _ _) = Set.empty
 
 emitParameterList :: [PlaceName] -> String
 emitParameterList ps = intercalate ", " (map emitPlace ps)
@@ -239,8 +239,8 @@ emitClosureBody envp (HaltH x) =
   ["    halt_with(" ++ asSort Alloc (emitName envp x) ++ ");"]
 emitClosureBody envp (OpenH c xs) =
   [emitSuspend envp c xs]
-emitClosureBody envp (CaseH x (k1, t) (k2, s)) =
-  emitCase envp x [(k1, t), (k2, s)]
+emitClosureBody envp (CaseH x ks) =
+  emitCase envp x ks
 
 emitSuspend :: String -> Name -> [(Name, Sort)] -> String
 emitSuspend envp cl xs = "    " ++ method ++ "(" ++ intercalate ", " args ++ ");"

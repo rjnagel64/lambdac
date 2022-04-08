@@ -43,6 +43,7 @@ struct closure {
 
 #define AS_CLOSURE(v) ((struct closure *)(v))
 
+// TODO: Are products meaningfully distinct from sums, or are they just single-ctor data types?
 struct sum {
     struct alloc_header header;
     uint32_t discriminant;
