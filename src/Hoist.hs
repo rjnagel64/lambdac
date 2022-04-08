@@ -162,11 +162,12 @@ hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = HaltH <$> hoistVarOcc x
 hoist (JumpC k xs) = OpenH <$> hoistVarOcc k <*> traverse hoistJumpArg xs
 hoist (CallC f xs ks) = OpenH <$> hoistVarOcc f <*> traverse hoistJumpArg (xs ++ ks)
-hoist (CaseC x (k1, s1) (k2, s2)) = do
+hoist (CaseC x ks) = do
   x' <- hoistVarOcc x
-  k1' <- hoistVarOcc k1
-  k2' <- hoistVarOcc k2
-  pure $ CaseH x' [(k1', s1), (k2', s2)]
+  ks' <- for ks $ \ (k, s) -> do
+    k' <- hoistVarOcc k
+    pure (k', s)
+  pure $ CaseH x' ks'
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e

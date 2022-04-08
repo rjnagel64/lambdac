@@ -130,7 +130,7 @@ data TermC
   | JumpC Name [Name] -- k x...
   | CallC Name [Name] [Name] -- f x+ k+
   | HaltC Name
-  | CaseC Name (Name, ThunkType) (Name, ThunkType) -- case x of k1 | k2
+  | CaseC Name [(Name, ThunkType)] -- case x of k1 | k2 | ...
 
 data ArithC
   = AddC Name Name
@@ -284,10 +284,16 @@ cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
 cconv (CaseK x k1 s1 k2 s2) = do
-  (t1, t2) <- case (thunkTypeOf s1, thunkTypeOf s2) of
-    (Just t1, Just t2) -> pure (t1, t2)
-    _ -> error "cconv: Branch of case is not a closure"
-  pure $ CaseC (tmVar x) (coVar k1, t1) (coVar k2, t2)
+  let
+    ann :: (K.CoVar, K.TypeK) -> Maybe (Name, ThunkType)
+    ann (k, s) = do
+      t <- thunkTypeOf s
+      pure (coVar k, t)
+  ks' <- case traverse ann [(k1, s1), (k2, s2)] of
+    Just ks' -> pure ks'
+    -- TODO: Better panic info: which branch isn't a thunk?
+    Nothing -> error "cconv: some branch of case is not a closure"
+  pure $ CaseC (tmVar x) ks'
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e
 cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> cconv e
@@ -372,8 +378,9 @@ pprintTerm n (LetFstC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (CaseC x (k1, _) (k2, _)) =
-  indent n $ "case " ++ show x ++ " of " ++ show k1 ++ " | " ++ show k2 ++ ";\n"
+pprintTerm n (CaseC x ks) =
+  let branches = intercalate " | " (map (show . fst) ks) in
+  indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetArithC x op e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareC x cmp e) =
