@@ -24,9 +24,10 @@ newtype CoVar = CoVar String
 data Term
   -- x
   = TmVarOcc TmVar
-  -- case e of inl (x : t1) -> e1; inr (y : t2) -> e2
-  -- TODO: Add return-type annotation on case-expressions?
-  | TmCase Term (TmVar, Type, Term) (TmVar, Type, Term)
+  -- case e return s of inl (x : t1) -> e1; inr (y : t2) -> e2
+  -- TODO: Store constructor name at each branch, and later map ctor names to
+  -- ctor tags
+  | TmCase Term Type (TmVar, Type, Term) (TmVar, Type, Term)
   -- inl @a @b e
   | TmInl Type Type Term
   -- inr @a @b e
@@ -51,8 +52,8 @@ data Term
   | TmInt Int
   -- true, false
   | TmBool Bool
-  -- if c then t else f
-  | TmIf Term Term Term
+  -- if c return s then t else f
+  | TmIf Term Type Term Term
   -- e1 `op` e2
   | TmArith Term TmArith Term
   -- e1 `cmp` e2

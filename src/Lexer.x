@@ -58,6 +58,7 @@ tokens :-
   "in" { tok TokIn }
   "case" { tok TokCase }
   "of" { tok TokOf }
+  "return" { tok TokReturn }
   "inl" { tok TokInl }
   "inr" { tok TokInr }
   "fst" { tok TokFst }
@@ -125,6 +126,7 @@ data Token
   -- data KW = Case | Fun | In | ...?
   | TokCase Loc
   | TokOf Loc
+  | TokReturn Loc
   | TokFun Loc
   | TokIn Loc
   | TokLet Loc
@@ -175,6 +177,7 @@ instance Located Token where
   loc (TokIn l) = l
   loc (TokLet l) = l
   loc (TokOf l) = l
+  loc (TokReturn l) = l
   loc (TokInl l) = l
   loc (TokInr l) = l
   loc (TokFst l) = l

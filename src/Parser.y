@@ -41,6 +41,7 @@ import Source
   'fun' { TokFun _ }
   'case' { TokCase _ }
   'of' { TokOf _ }
+  'return' { TokReturn _ }
   'let' { TokLet _ }
   'in' { TokIn _ }
   'inl' { TokInl _ }
@@ -74,9 +75,9 @@ Term :: { Term }
      | '\\' '(' ID ':' Type ')' '->' Term { TmLam (var $3) $5 $8 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
      | 'let' FunBinds 'in' Term { TmRecFun $2 $4 }
-     | 'case' Term 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
-       { TmCase $2 (var $7, $9, $12) (var $16, $18, $21) }
-     | 'if' Term 'then' Term 'else' Term { TmIf $2 $4 $6 }
+     | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
+       { TmCase $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
+     | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
 
      | Term '+' Term { TmArith $1 TmArithAdd $3 }
      | Term '-' Term { TmArith $1 TmArithSub $3 }

@@ -230,36 +230,38 @@ cps (TmInr a b e) k =
       (e', _t') <- k x (SumK ta tb)
       let res = LetValK x (SumK ta tb) (InrK z) e'
       pure (res, SumK ta tb)
-cps (TmCase e (xl, tl, el) (xr, tr, er)) k =
+cps (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z _t ->
     freshCo "j" $ \j ->
-      freshTm "x" $ \x ->
+      freshTm "x" $ \x -> do
+        let s' = cpsType s
+        (e', _t') <- k x s'
+        let kont = ContDef () j [(x, s')] e'
         freshCo "k1" $ \k1 ->
           freshCo "k2" $ \k2 -> do
             (kont1, sl') <- cpsBranch k1 [(xl, tl)] el j
             (kont2, sr') <- cpsBranch k2 [(xr, tr)] er j
-            let s' = fst (sl', sr')
-            (e', _t') <- k x s'
             let
               res = 
-                LetContK [ContDef () j [(x, s')] e'] $
+                LetContK [kont] $
                   LetContK [kont1] $
                     LetContK [kont2] $
                       CaseK z [(k1, contDefType kont1), (k2, contDefType kont2)]
             pure (res, s')
-cps (TmIf e et ef) k =
+cps (TmIf e s et ef) k =
   cps e $ \z _t -> -- t =~= BoolK
     freshCo "j" $ \j ->
-      freshTm "x" $ \x ->
+      freshTm "x" $ \x -> do
+        let s' = cpsType s
+        (e', _t') <- k x s'
+        let kont = ContDef () j [(x, s')] e'
         freshCo "k1" $ \k1 ->
           freshCo "k2" $ \k2 -> do
             (kont1, st') <- cpsBranch k1 [] et j
             (kont2, sf') <- cpsBranch k2 [] ef j
-            let s' = fst (st', sf')
-            (e', _t') <- k x s'
             let
               res =
-                LetContK [ContDef () j [(x, s')] e'] $
+                LetContK [kont] $
                   LetContK [kont1] $
                     LetContK [kont2] $
                       -- NOTE: k2, k1 is the correct order here.
@@ -446,9 +448,10 @@ cpsTail (TmApp e1 e2) k =
         _ -> error ("bad function type: " ++ pprintType t1)
       let res = CallK f [x] [k]
       pure (res, s')
-cpsTail (TmCase e (xl, tl, el) (xr, tr, er)) k =
+cpsTail (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z _t -> do
     -- _t === SumK (cpsType tl) (cpsType tr), because input is well-typed.
+    let s' = cpsType s
     freshCo "k1" $ \k1 ->
       freshCo "k2" $ \k2 -> do
         (kont1, sl') <- cpsBranch k1 [(xl, tl)] el k
@@ -458,17 +461,14 @@ cpsTail (TmCase e (xl, tl, el) (xr, tr, er)) k =
             LetContK [kont1] $
               LetContK [kont2] $
                 CaseK z [(k1, contDefType kont1), (k2, contDefType kont2)]
-        -- both branches have same type, so this is valid.
-        -- (Alternatively, put `returns s` on Source.TmCase)
-        let s' = fst (sl', sr')
         pure (res, s')
-cpsTail (TmIf e et ef) k =
+cpsTail (TmIf e s et ef) k =
   cps e $ \z _t -> do
+    let s' = cpsType s
     freshCo "k1" $ \k1 ->
       freshCo "k2" $ \k2 -> do
         (kont1, st') <- cpsBranch k1 [] et k
         (kont2, sf') <- cpsBranch k2 [] ef k
-        let s' = fst (st', sf')
         let
           -- NOTE: k2, k1 is the correct order here.
           -- This is because case branches are laid out in order of discriminant.
@@ -498,6 +498,10 @@ cpsBranch :: CoVar -> [(S.TmVar, S.Type)] -> Term -> CoVar -> CPS (ContDef (), T
 cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
   (e', s') <- withVarBinds xs' $ cpsTail e j
   pure (ContDef () k (map snd xs') e', s')
+
+-- cpsCase :: TmVar -> CoVar -> TypeK -> [([(S.TmVar, S.Type)], Term)] -> CPS (TermK, TypeK)
+-- cpsCase z j s' [b1, b2] = _
+-- cpsCase _ _ _ _ = error "cpsCase: exactly two branches supported at this time"
 
 
 data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map S.TmVar (TmVar, TypeK) }
