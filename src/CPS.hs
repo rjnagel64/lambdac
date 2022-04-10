@@ -237,17 +237,8 @@ cps (TmCase e s (xl, tl, el) (xr, tr, er)) k =
         let s' = cpsType s
         (e', _t') <- k x s'
         let kont = ContDef () j [(x, s')] e'
-        freshCo "k1" $ \k1 ->
-          freshCo "k2" $ \k2 -> do
-            (kont1, sl') <- cpsBranch k1 [(xl, tl)] el j
-            (kont2, sr') <- cpsBranch k2 [(xr, tr)] er j
-            let
-              res = 
-                LetContK [kont] $
-                  LetContK [kont1] $
-                    LetContK [kont2] $
-                      CaseK z [(k1, contDefType kont1), (k2, contDefType kont2)]
-            pure (res, s')
+        res <- cpsCase z j s' [([(xl, tl)], el), ([(xr, tr)], er)]
+        pure (LetContK [kont] res, s')
 cps (TmIf e s et ef) k =
   cps e $ \z _t -> -- t =~= BoolK
     freshCo "j" $ \j ->
@@ -255,22 +246,13 @@ cps (TmIf e s et ef) k =
         let s' = cpsType s
         (e', _t') <- k x s'
         let kont = ContDef () j [(x, s')] e'
-        freshCo "k1" $ \k1 ->
-          freshCo "k2" $ \k2 -> do
-            (kont1, st') <- cpsBranch k1 [] et j
-            (kont2, sf') <- cpsBranch k2 [] ef j
-            let
-              res =
-                LetContK [kont] $
-                  LetContK [kont1] $
-                    LetContK [kont2] $
-                      -- NOTE: k2, k1 is the correct order here.
-                      -- This is because case branches are laid out in order of discriminant.
-                      -- false = 0, true = 1, so the branches should be laid
-                      -- out as false, true as oppose to the source order true,
-                      -- false.
-                      CaseK z [(k2, contDefType kont2), (k1, contDefType kont1)]
-            pure (res, s')
+        -- NOTE: ef, et is the correct order here.
+        -- This is because case branches are laid out in order of discriminant.
+        -- false = 0, true = 1, so the branches should be laid
+        -- out as false, true as oppose to the source order true,
+        -- false.
+        res <- cpsCase z j s' [([], ef), ([], et)]
+        pure (LetContK [kont] res, s')
 cps (TmBool b) k =
   freshTm "x" $ \x -> do
     (e', t') <- k x BoolK
@@ -318,6 +300,7 @@ cps (TmLet x t e1 e2) k = do
       let kont = ContDef () j (map snd bs) e2'
       pure (kont, t2')
     (e1', t1') <- cpsTail e1 j
+    -- assert t1' == t
     pure (LetContK [kont] e1', t2')
 cps (TmArith e1 op e2) k =
   cps e1 $ \x _t1 ->
@@ -452,34 +435,18 @@ cpsTail (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z _t -> do
     -- _t === SumK (cpsType tl) (cpsType tr), because input is well-typed.
     let s' = cpsType s
-    freshCo "k1" $ \k1 ->
-      freshCo "k2" $ \k2 -> do
-        (kont1, sl') <- cpsBranch k1 [(xl, tl)] el k
-        (kont2, sr') <- cpsBranch k2 [(xr, tr)] er k
-        let
-          res =
-            LetContK [kont1] $
-              LetContK [kont2] $
-                CaseK z [(k1, contDefType kont1), (k2, contDefType kont2)]
-        pure (res, s')
+    res <- cpsCase z k s' [([(xl, tl)], el), ([(xr, tr)], er)]
+    pure (res, s')
 cpsTail (TmIf e s et ef) k =
   cps e $ \z _t -> do
     let s' = cpsType s
-    freshCo "k1" $ \k1 ->
-      freshCo "k2" $ \k2 -> do
-        (kont1, st') <- cpsBranch k1 [] et k
-        (kont2, sf') <- cpsBranch k2 [] ef k
-        let
-          -- NOTE: k2, k1 is the correct order here.
-          -- This is because case branches are laid out in order of discriminant.
-          -- false = 0, true = 1, so the branches should be laid
-          -- out as false, true as oppose to the source order true,
-          -- false.
-          res =
-            LetContK [kont1] $
-              LetContK [kont2] $
-                CaseK z [(k2, contDefType kont2), (k1, contDefType kont1)]
-        pure (res, s')
+    -- NOTE: ef, et is the correct order here.
+    -- This is because case branches are laid out in order of discriminant.
+    -- false = 0, true = 1, so the branches should be laid
+    -- out as false, true as oppose to the source order true,
+    -- false.
+    res <- cpsCase z k s' [([], ef), ([], et)]
+    pure (res, s')
 cpsTail (TmBool b) k =
   freshTm "x" $ \x ->
     pure (LetValK x BoolK (BoolValK b) (JumpK k [x]), BoolK)
@@ -499,9 +466,21 @@ cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
   (e', s') <- withVarBinds xs' $ cpsTail e j
   pure (ContDef () k (map snd xs') e', s')
 
--- cpsCase :: TmVar -> CoVar -> TypeK -> [([(S.TmVar, S.Type)], Term)] -> CPS (TermK, TypeK)
--- cpsCase z j s' [b1, b2] = _
--- cpsCase _ _ _ _ = error "cpsCase: exactly two branches supported at this time"
+-- | CPS-transform a case analysis, given a scrutinee, a continuation variable
+-- and its expected type, and a list of branches with bound variables.
+-- TODO: Generalize this to work for any number of branches
+cpsCase :: TmVar -> CoVar -> TypeK -> [([(S.TmVar, S.Type)], Term)] -> CPS (TermK ())
+cpsCase z j s' [(xs1, e1), (xs2, e2)] =
+  freshCo "k" $ \k1 -> do
+    freshCo "k" $ \k2 -> do
+      (kont1, s1') <- cpsBranch k1 xs1 e1 j
+      -- assert s' == s1'
+      (kont2, s2') <- cpsBranch k2 xs2 e2 j
+      -- assert s' == s2'
+      let alts = [(k1, contDefType kont1), (k2, contDefType kont2)]
+      let res = LetContK [kont1] $ LetContK [kont2] $ CaseK z alts
+      pure res
+cpsCase _ _ _ _ = error "cpsCase: exactly two branches supported at this time"
 
 
 data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map S.TmVar (TmVar, TypeK) }
