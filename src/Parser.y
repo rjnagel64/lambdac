@@ -63,6 +63,7 @@ import Source
 
 -- Precedence goes here, low to high
 
+%right '.'
 %right '->' 'in' 'else'
 %nonassoc '==' '!=' '<' '<=' '>' '>='
 %left '+' '-'
@@ -116,8 +117,8 @@ FunBind :: { TmFun }
 
 Type :: { Type }
      : AType { $1 }
-     | AType '->' Type { TyArr $1 $3 }
-     | Type '*' AType { TyProd $1 $3 }
+     | Type '->' Type { TyArr $1 $3 }
+     | Type '*' Type { TyProd $1 $3 }
      | 'forall' ID '.' Type { TyAll (tvar $2) $4 }
 
 AType :: { Type }
