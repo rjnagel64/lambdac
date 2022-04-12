@@ -129,6 +129,7 @@ void collect(void) {
                 prev->next = next;
             }
             free(alloc);
+            num_allocs--;
         } else {
             alloc->mark = 0;
             prev = alloc;
@@ -136,8 +137,10 @@ void collect(void) {
         alloc = next;
     }
 
-    // Increase threshold.
-    gc_threshold *= 2;
+    // Set new threshold.
+    // By using twice the current number of objects, the GC is sort of
+    // "adaptive".
+    gc_threshold = num_allocs * 2;
 }
 
 void sweep_all_allocations(void) {

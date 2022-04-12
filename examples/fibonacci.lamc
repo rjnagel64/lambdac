@@ -1,5 +1,5 @@
 let
   fun fib (n : int) : int =
-    if n < 2 then n else fib (n - 1) + fib (n - 2);
+    if n < 2 return int then n else fib (n - 1) + fib (n - 2);
 in
 fib 12
