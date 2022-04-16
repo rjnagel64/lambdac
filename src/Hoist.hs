@@ -105,8 +105,8 @@ data TermH
 data ClosureAlloc
   = ClosureAlloc { closurePlace :: PlaceName, closureDecl :: DeclName, closureEnv :: EnvAlloc }
 
--- TODO: Mark allocation arguments as recursive/non-recursive, to simplify Emit?
-newtype EnvAlloc = EnvAlloc [(FieldName, Name)]
+data EnvAlloc
+  = EnvAlloc { envAllocFreeArgs :: [(FieldName, Name)], envAllocRecArgs :: [(FieldName, Name)] }
 
 data ValueH
   = IntH Int32
@@ -196,8 +196,10 @@ hoist (LetFunC fs e) = do
 
   placesForClosureAllocs C.funClosureName fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f free rec _x _k _e) -> do
-      env <- traverse envAllocField (free ++ rec)
-      pure (ClosureAlloc p d (EnvAlloc env))
+      -- env <- traverse envAllocField (free ++ rec)
+      free' <- traverse envAllocField free
+      rec' <- traverse envAllocField rec
+      pure (ClosureAlloc p d (EnvAlloc free' rec'))
     e' <- hoist e
     pure (AllocClosure fs' e')
 hoist (LetContC ks e) = do
@@ -208,8 +210,10 @@ hoist (LetContC ks e) = do
 
   placesForClosureAllocs C.contClosureName kdecls $ \kplaces -> do
     ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k free rec _x _e) -> do
-      env <- traverse envAllocField (free ++ rec)
-      pure (ClosureAlloc p d (EnvAlloc env))
+      -- env <- traverse envAllocField (free ++ rec)
+      free' <- traverse envAllocField free
+      rec' <- traverse envAllocField rec
+      pure (ClosureAlloc p d (EnvAlloc free' rec'))
     e' <- hoist e
     pure (AllocClosure ks' e')
 
@@ -396,9 +400,9 @@ pprintClosureDecl n (ClosureDecl f (EnvDecl fs) params e) =
   where env = "{" ++ intercalate ", " (map pprintField fs) ++ "}"
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
-pprintClosureAlloc n (ClosureAlloc p d (EnvAlloc env)) =
+pprintClosureAlloc n (ClosureAlloc p d (EnvAlloc free rec)) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ env'
-  where env' = "{" ++ intercalate ", " (map pprintAllocArg env) ++ "}\n"
+  where env' = "{" ++ intercalate ", " (map pprintAllocArg (free ++ rec)) ++ "}\n"
 
 pprintAllocArg :: (FieldName, Name) -> String
 pprintAllocArg (field, x) = pprintField field ++ " = " ++ show x

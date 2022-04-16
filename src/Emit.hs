@@ -297,31 +297,35 @@ asSort Value x = "AS_VALUE(" ++ x ++ ")"
 asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
 
+-- TODO: Generalize emitAllocGroup and merge it with emitValueAlloc, to support
+-- allocating mutually-recursive values, of which closures are merely one
+-- example. (Eventually, I believe this will let me generalize 'let fun' to
+-- 'let rec x1 = e1; ...'.)
+-- (I probably need to restrict this to having an outermost ctor, so that there
+-- are fields to update. 'let x = x + 1; in x' doesn't make much sense, and
+-- can't really be implemented.)
 emitAllocGroup :: String -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
-  map (\ (ClosureAlloc p d env) -> emitAlloc envp bindGroup p d env) closures ++
-  concatMap (\ (ClosureAlloc p d env) -> emitPatch (namesForDecl d) bindGroup p env) closures
-  where
-    bindGroup = Set.fromList $ [d | ClosureAlloc _ (DeclName d) _ <- closures]
+  map (\ (ClosureAlloc p d env) -> emitAlloc envp p d env) closures ++
+  concatMap (\ (ClosureAlloc p d env) -> emitPatch (namesForDecl d) p env) closures
 
--- Names in bindGroup -> NULL
-emitAlloc :: String -> Set String -> PlaceName -> DeclName -> EnvAlloc -> String
-emitAlloc envp bindGroup p d (EnvAlloc xs) =
+emitAlloc :: String -> PlaceName -> DeclName -> EnvAlloc -> String
+emitAlloc envp p d (EnvAlloc free rec) =
   "    " ++ emitPlace p ++ " = " ++ "allocate_closure" ++ "(" ++ intercalate ", " args ++ ");"
   where
     ns = namesForDecl d
     args = [envArg, traceArg, codeArg]
-    -- Allocate closure environment here, with NULL for cyclic captures.
-    envArg = declAllocName ns ++ "(" ++ intercalate ", " (map (allocArg . snd) xs) ++ ")"
+    envArg = declAllocName ns ++ "(" ++ intercalate ", " envAllocArgs ++ ")"
     traceArg = declTraceName ns
     codeArg = "(void (*)(void))" ++ declCodeName ns
 
-    allocArg (LocalName x) | Set.member x bindGroup = "NULL"
-    allocArg x = emitName envp x
+    -- Recursive/cyclic environment references are initialized to NULL, and
+    -- then patched once all the closures have been allocated.
+    envAllocArgs = map (emitName envp . snd) free ++ map (const "NULL") rec
 
-emitPatch :: DeclNames -> Set String -> PlaceName -> EnvAlloc -> [String]
-emitPatch ns bindGroup (PlaceName _ p) (EnvAlloc xs) =
-  ["    " ++ env ++ "->" ++ f ++ " = " ++ x ++ ";" | (FieldName _ f, LocalName x) <- xs, Set.member x bindGroup]
+emitPatch :: DeclNames -> PlaceName -> EnvAlloc -> [String]
+emitPatch ns (PlaceName _ p) (EnvAlloc _free rec) =
+  ["    " ++ env ++ "->" ++ f ++ " = " ++ x ++ ";" | (FieldName _ f, LocalName x) <- rec]
   where env = "((struct " ++ declEnvName ns ++ " *)" ++ p ++ "->env)"
 
 emitFieldDecl :: FieldName -> String

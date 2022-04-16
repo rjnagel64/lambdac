@@ -88,6 +88,11 @@ data TermK a
   -- f x k, call f(x, k)
   | CallK TmVar [TmVar] [CoVar]
   -- case x of k1 : s1 | k2 : s2 | ..., branch
+  -- Idea: instead of annotating each covar with its 'ContK ss' , maybe
+  -- annotate 'x' with its type? This would let us know what sum type we are
+  -- analysing, and from that derive the type of each branch.
+  -- (Sort of. If it's a data type constructor, I would still need a symbol
+  -- table to look up the constructors of that type.)
   | CaseK TmVar [(CoVar, TypeK)]
   -- halt x
   | HaltK TmVar

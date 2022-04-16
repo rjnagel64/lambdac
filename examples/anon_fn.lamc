@@ -1,0 +1,2 @@
+let inc : int -> int = \ (x : int) -> x + 1 in
+(inc 8, \ (z : int) -> z * z)
