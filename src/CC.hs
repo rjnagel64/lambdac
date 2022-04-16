@@ -194,7 +194,8 @@ unitField x = FieldsFor $ \ctx -> case Map.lookup x ctx of
 
 bindFields :: [(Name, Sort)] -> FieldsFor -> FieldsFor
 bindFields xs fs = FieldsFor $ \ctx ->
-  let fields = runFieldsFor fs (foldr (uncurry Map.insert) ctx xs) in
+  let ctx' = foldr (uncurry Map.insert) ctx xs in
+  let fields = runFieldsFor fs ctx' in
   fields Set.\\ Set.fromList xs
 
 
@@ -294,11 +295,21 @@ cconv (CaseK x ks) = do
     -- TODO: Better panic info: which branch isn't a thunk?
     Nothing -> error "cconv: some branch of case is not a closure"
   pure $ CaseC (tmVar x) ks'
-cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> cconv e
-cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> cconv e
-cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> cconv e
-cconv (LetArithK x op e) = LetArithC (tmVar x, Value) (cconvArith op) <$> cconv e
-cconv (LetCompareK x cmp e) = LetCompareC (tmVar x, Sum) (cconvCmp cmp) <$> cconv e
+cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)
+  where
+    extend ctx = Map.insert (tmVar x) (sortOf t) ctx
+cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)
+  where
+    extend ctx = Map.insert (tmVar x) (sortOf t) ctx
+cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> local extend (cconv e)
+  where
+    extend ctx = Map.insert (tmVar x) (sortOf t) ctx
+cconv (LetArithK x op e) = LetArithC (tmVar x, Value) (cconvArith op) <$> local extend (cconv e)
+  where
+    extend ctx = Map.insert (tmVar x) Value ctx
+cconv (LetCompareK x cmp e) = LetCompareC (tmVar x, Sum) (cconvCmp cmp) <$> local extend (cconv e)
+  where
+    extend ctx = Map.insert (tmVar x) Sum ctx
 
 cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
 cconvFunDef fs fun@(FunDef _ f xs ks e) = do
