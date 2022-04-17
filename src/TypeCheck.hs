@@ -34,9 +34,12 @@ pprintType :: Int -> Type -> String
 pprintType p TyUnit = "unit"
 pprintType p TyBool = "bool"
 pprintType p TyInt = "int"
-pprintType p (TyArr t1 t2) = parensIf (p > 0) $ pprintType 1 t1 ++ " -> " ++ pprintType 0 t2
-pprintType p (TyProd t1 t2) = parensIf (p > 0) $ pprintType 1 t1 ++ " * " ++ pprintType 1 t2
-pprintType p (TySum t1 t2) = parensIf (p > 0) $ pprintType 2 t1 ++ " + " ++ pprintType 2 t2
+-- infixr 4 ->
+pprintType p (TyArr t1 t2) = parensIf (p > 4) $ pprintType 5 t1 ++ " -> " ++ pprintType 4 t2
+-- infix 5 *
+pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ pprintType 6 t2
+-- infix 5 +
+pprintType p (TySum t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " + " ++ pprintType 6 t2
 
 parensIf :: Bool -> String -> String
 parensIf True x = "(" ++ x ++ ")"
