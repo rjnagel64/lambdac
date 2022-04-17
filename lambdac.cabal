@@ -33,11 +33,20 @@ library
       Loc
       Parser
       Source
+      TypeCheck
       CPS
       Opt
       CC
       Hoist
       Emit
+    default-extensions:
+      LambdaCase
+      StandaloneDeriving
+      GeneralizedNewtypeDeriving
+      DerivingVia
+      FlexibleInstances
+      FlexibleContexts
+      MultiParamTypeClasses
 
 executable lambdac
     hs-source-dirs: app

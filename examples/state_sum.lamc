@@ -1,0 +1,24 @@
+-- trisum, using a monomorphic version of the state monad.
+let
+  bindUnitInt : (int -> unit * int) -> (unit -> int -> int * int) -> (int -> int * int) =
+    \ (m : int -> (unit * int)) -> \ (k : unit -> int -> (int * int)) ->
+    \ (st : int) -> let p : unit * int = m st in k (fst p) (snd p)
+in
+let
+  getInt : int -> int * int = \ (st : int) -> (st, st)
+in
+let
+  modifyInt : (int -> int) -> (int -> unit * int) = \ (f : int -> int) ->
+    \ (st : int) -> ((), f st)
+in
+let fun
+  trisum_state (n : int) : (int -> int * int) =
+    if n == 0 return int -> int * int then
+      getInt
+    else
+      bindUnitInt
+        (modifyInt (\ (acc : int) -> acc + n))
+        (\ (u : unit) -> trisum_state (n - 1));
+in
+let act : int -> int * int = trisum_state 10 in
+act 0

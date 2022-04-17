@@ -11,6 +11,7 @@ import System.FilePath
 import qualified Lexer as L
 import qualified Parser as P
 import qualified Source as S
+import qualified TypeCheck as T
 import qualified CPS as K
 import qualified CC as C
 import qualified Hoist as H
@@ -59,6 +60,12 @@ main = do
   args <- execParser opts
 
   srcS <- parseFile (driverFile args)
+  case T.checkProgram srcS of
+    Left err -> do
+      putStrLn "type error:"
+      putStrLn $ show err
+      exitFailure
+    Right () -> pure ()
 
   let (srcK, _) = K.cpsMain srcS
   when (driverDumpCPS args) $ do
