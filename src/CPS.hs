@@ -1,4 +1,3 @@
-{-# LANGUAGE StandaloneDeriving, DerivingVia, FlexibleInstances, MultiParamTypeClasses #-}
 
 module CPS
     ( TermK(..)
@@ -50,13 +49,13 @@ import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
 -- way to do jumps...)
 data TmVar = TmVar String Int
   deriving (Eq, Ord)
-newtype CoVar = CoVar String
+data CoVar = CoVar String Int
   deriving (Eq, Ord)
 
 instance Show TmVar where
   show (TmVar x i) = x ++ show i
 instance Show CoVar where
-  show (CoVar k) = k
+  show (CoVar k i) = k ++ show i
 
 -- | Terms in continuation-passing style.
 --
@@ -512,7 +511,7 @@ freshCo :: String -> (CoVar -> CPS a) -> CPS a
 freshCo x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
-  let x' = CoVar (x ++ show i)
+  let x' = CoVar x i
   let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
   local extend (k x')
 

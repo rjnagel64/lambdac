@@ -82,7 +82,7 @@ tmVar :: K.TmVar -> Name
 tmVar (K.TmVar x i) = Name x i
 
 coVar :: K.CoVar -> Name
-coVar (K.CoVar k) = Name k 0
+coVar (K.CoVar k i) = Name k i
 
 -- | 'Sort' is really a simplified form of type information.
 -- Value = int | bool | t1 * t2 | t1 + t2 | ()
