@@ -19,7 +19,7 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
-import Data.Traversable (mapAccumL)
+import Data.Traversable (mapAccumL, for)
 import Data.Bifunctor
 
 import Control.Monad.Reader
@@ -477,17 +477,25 @@ cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
 -- and its expected type, and a list of branches with bound variables.
 -- TODO: Generalize this to work for any number of branches
 cpsCase :: TmVar -> CoVar -> S.Type -> [([(S.TmVar, S.Type)], Term)] -> CPS (TermK ())
-cpsCase z j s [(xs1, e1), (xs2, e2)] =
-  freshCo "k" $ \k1 -> do
-    freshCo "k" $ \k2 -> do
-      (kont1, s1) <- cpsBranch k1 xs1 e1 j
-      assertEqual s s1
-      (kont2, s2) <- cpsBranch k2 xs2 e2 j
-      assertEqual s s2
-      let alts = [(k1, contDefType kont1), (k2, contDefType kont2)]
-      let res = LetContK [kont1] $ LetContK [kont2] $ CaseK z alts
-      pure res
-cpsCase _ _ _ _ = error "cpsCase: exactly two branches supported at this time"
+cpsCase z j s bs = do
+  -- Pick names for each branch continuation
+  scope <- asks cpsEnvScope
+  let
+    pick sc b =
+      let i = fromMaybe 0 (Map.lookup "k" sc) in
+      let k' = CoVar "k" i in
+      (Map.insert "k" (i+1) sc, (k', b))
+    (sc', bs') = mapAccumL pick scope bs
+  let extend (CPSEnv _sc ctx) = CPSEnv sc' ctx
+  -- CPS each branch
+  konts <- local extend $ for bs' $ \ (k, (xs, e)) -> do
+    (kont, s') <- cpsBranch k xs e j
+    assertEqual s s'
+    pure (k, kont)
+  -- Assemble the result term
+  let alts = map (second contDefType) konts
+  let res = foldr (LetContK . (:[]) . snd) (CaseK z alts) konts
+  pure res
 
 
 data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map S.TmVar (TmVar, S.Type) }
