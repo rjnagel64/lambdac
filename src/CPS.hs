@@ -178,12 +178,6 @@ cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
 contDefType :: ContDef a -> TypeK
 contDefType (ContDef _ _ xs _) = ContK (map snd xs)
 
-funDefType :: FunDef a -> TypeK
-funDefType (FunDef _ _ [(_, t)] [(_, ContK [s])] _) = FunK t s
-funDefType (FunDef _ _ _ [(_, ContK _)] _) = error "not supported: multiple return values"
-funDefType (FunDef _ _ _ [(_, _)] _) = error "continuation param must have type ContK"
-funDefType (FunDef _ _ _ _ _) = error "not supported: function with multiple params/conts"
-
 
 -- | CPS-convert a term.
 -- TODO: Does it really make sense to return TypeK from this? I'm starting to
@@ -441,12 +435,10 @@ cpsTail (TmApp e1 e2) k =
 cpsTail (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z _t -> do
     -- _t === SumK (cpsType tl) (cpsType tr), because input is well-typed.
-    let s' = cpsType s
     res <- cpsCase z k s [([(xl, tl)], el), ([(xr, tr)], er)]
     pure (res, s)
 cpsTail (TmIf e s et ef) k =
   cps e $ \z _t -> do
-    let s' = cpsType s
     -- NOTE: ef, et is the correct order here.
     -- This is because case branches are laid out in order of discriminant.
     -- false = 0, true = 1, so the branches should be laid
@@ -477,13 +469,13 @@ cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
 -- and its expected type, and a list of branches with bound variables.
 -- TODO: Generalize this to work for any number of branches
 cpsCase :: TmVar -> CoVar -> S.Type -> [([(S.TmVar, S.Type)], Term)] -> CPS (TermK ())
-cpsCase z j s' [(xs1, e1), (xs2, e2)] =
+cpsCase z j s [(xs1, e1), (xs2, e2)] =
   freshCo "k" $ \k1 -> do
     freshCo "k" $ \k2 -> do
-      (kont1, s1') <- cpsBranch k1 xs1 e1 j
-      -- assert s' == s1'
-      (kont2, s2') <- cpsBranch k2 xs2 e2 j
-      -- assert s' == s2'
+      (kont1, s1) <- cpsBranch k1 xs1 e1 j
+      -- assert s == s1
+      (kont2, s2) <- cpsBranch k2 xs2 e2 j
+      -- assert s == s2
       let alts = [(k1, contDefType kont1), (k2, contDefType kont2)]
       let res = LetContK [kont1] $ LetContK [kont2] $ CaseK z alts
       pure res
