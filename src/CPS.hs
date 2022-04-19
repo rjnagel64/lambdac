@@ -182,34 +182,47 @@ cps (TmVarOcc x) k = do
   case Map.lookup x env of
     Nothing -> throwError (NotInScope x)
     Just (x', t) -> k x' t
-cps (TmLam x t e) k =
-  freshTm "f" $ \f ->
-    freshCo "k" $ \k' -> do
-      (fun, ty) <- freshenVarBinds [(x, t)] $ \bs -> do
-        (e', s) <- withVarBinds bs $ cpsTail e k'
-        let fun = FunDef () f (map (second cpsType . snd) bs) [(k', ContK [cpsType s])] e'
-        pure (fun, S.TyArr t s)
-      (e'', _t'') <- k f ty
-      pure (LetFunK [fun] e'', ty)
-cps (TmRecFun fs e) k = do
-  (fs', e', t') <- freshenFunBinds fs $ \binds -> do
-    fs' <- withVarBinds binds $ traverse cpsFun fs
-    (e', t') <- withVarBinds binds $ cps e k
-    pure (fs', e', t')
-  let res = LetFunK fs' e'
-  pure (res, t')
-cps (TmApp e1 e2) k =
-  cps e1 $ \v1 t1 -> do
-    cps e2 $ \v2 t2 -> do
-      (t2', s') <- case t1 of
-        S.TyArr t2' s' -> pure (t2', s')
-        _ -> throwError (CannotApply t1)
-      assertEqual t2' t2
-      freshCo "k" $ \kv ->
-        freshTm "x" $ \xv -> do
-          (e', _t') <- k xv s'
-          let res = LetContK [ContDef () kv [(xv, cpsType s')] e'] (CallK v1 [v2] [kv])
-          pure (res, s')
+cps TmNil k =
+  freshTm "x" $ \x -> do
+    (e', _t) <- k x S.TyUnit
+    let res = LetValK x UnitK NilK e'
+    pure (res, S.TyUnit)
+cps (TmInt i) k =
+  freshTm "x" $ \x -> do
+    (e', _t) <- k x S.TyInt
+    let res = LetValK x IntK (IntValK i) e'
+    pure (res, S.TyInt)
+cps (TmBool b) k =
+  freshTm "x" $ \x -> do
+    (e', _t) <- k x S.TyBool
+    let res = LetValK x BoolK (BoolValK b) e'
+    pure (res, S.TyBool)
+cps (TmArith e1 op e2) k =
+  cps e1 $ \x t1 -> do
+    assertEqual S.TyInt t1
+    cps e2 $ \y t2 -> do
+      assertEqual S.TyInt t2
+      freshTm "z" $ \z -> do
+        (e', _t') <- k z S.TyInt
+        let res = LetArithK z (makeArith op x y) e'
+        pure (res, S.TyInt)
+cps (TmCmp e1 cmp e2) k =
+  cps e1 $ \x t1 -> do
+    assertEqual S.TyInt t1
+    cps e2 $ \y t2 -> do
+      assertEqual S.TyInt t2
+      freshTm "z" $ \z -> do
+        (e', _t') <- k z S.TyBool
+        let res = LetCompareK z (makeCompare cmp x y) e'
+        pure (res, S.TyBool)
+cps (TmPair e1 e2) k =
+  cps e1 $ \v1 t1 ->
+    cps e2 $ \v2 t2 ->
+      freshTm "x" $ \x -> do
+        let ty = S.TyProd t1 t2
+        (e', _t') <- k x ty
+        let res = LetValK x (cpsType ty) (PairK v1 v2) e'
+        pure (res, ty)
 cps (TmInl a b e) k =
   cps e $ \z t -> do
     assertEqual a t
@@ -226,6 +239,31 @@ cps (TmInr a b e) k =
       (e', _t') <- k x ty
       let res = LetValK x (cpsType ty) (InrK z) e'
       pure (res, ty)
+cps (TmLam x t e) k =
+  freshTm "f" $ \f ->
+    freshCo "k" $ \k' -> do
+      (fun, ty) <- freshenVarBinds [(x, t)] $ \bs -> do
+        (e', s) <- withVarBinds bs $ cpsTail e k'
+        let fun = FunDef () f (map (second cpsType . snd) bs) [(k', ContK [cpsType s])] e'
+        pure (fun, S.TyArr t s)
+      (e'', _t'') <- k f ty
+      pure (LetFunK [fun] e'', ty)
+cps (TmLet x t e1 e2) k = do
+  freshCo "j" $ \j -> do
+    (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
+      (e2', t2') <- withVarBinds bs $ cps e2 k
+      let kont = ContDef () j (map (second cpsType . snd) bs) e2'
+      pure (kont, t2')
+    (e1', t1') <- cpsTail e1 j
+    assertEqual t t1'
+    pure (LetContK [kont] e1', t2')
+cps (TmRecFun fs e) k = do
+  (fs', e', t') <- freshenFunBinds fs $ \binds -> do
+    fs' <- withVarBinds binds $ traverse cpsFun fs
+    (e', t') <- withVarBinds binds $ cps e k
+    pure (fs', e', t')
+  let res = LetFunK fs' e'
+  pure (res, t')
 cps (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
     assertEqual (S.TySum tl tr) t
@@ -250,19 +288,18 @@ cps (TmIf e s et ef) k =
         -- out as false, true as opposed to the source order true, false.
         res <- cpsCase z j s [([], ef), ([], et)]
         pure (LetContK [kont] res, s)
-cps (TmBool b) k =
-  freshTm "x" $ \x -> do
-    (e', _t) <- k x S.TyBool
-    let res = LetValK x BoolK (BoolValK b) e'
-    pure (res, S.TyBool)
-cps (TmPair e1 e2) k =
-  cps e1 $ \v1 t1 ->
-    cps e2 $ \v2 t2 ->
-      freshTm "x" $ \x -> do
-        let ty = S.TyProd t1 t2
-        (e', _t') <- k x ty
-        let res = LetValK x (cpsType ty) (PairK v1 v2) e'
-        pure (res, ty)
+cps (TmApp e1 e2) k =
+  cps e1 $ \v1 t1 -> do
+    cps e2 $ \v2 t2 -> do
+      (t2', s') <- case t1 of
+        S.TyArr t2' s' -> pure (t2', s')
+        _ -> throwError (CannotApply t1)
+      assertEqual t2' t2
+      freshCo "k" $ \kv ->
+        freshTm "x" $ \xv -> do
+          (e', _t') <- k xv s'
+          let res = LetContK [ContDef () kv [(xv, cpsType s')] e'] (CallK v1 [v2] [kv])
+          pure (res, s')
 cps (TmFst e) k =
   cps e $ \v t ->  do
     (ta, _tb) <- case t of
@@ -281,43 +318,6 @@ cps (TmSnd e) k =
       (e', _t') <- k x tb
       let res = LetSndK x (cpsType tb) v e'
       pure (res, tb)
-cps TmNil k =
-  freshTm "x" $ \x -> do
-    (e', _t) <- k x S.TyUnit
-    let res = LetValK x UnitK NilK e'
-    pure (res, S.TyUnit)
-cps (TmInt i) k =
-  freshTm "x" $ \x -> do
-    (e', _t) <- k x S.TyInt
-    let res = LetValK x IntK (IntValK i) e'
-    pure (res, S.TyInt)
-cps (TmLet x t e1 e2) k = do
-  freshCo "j" $ \j -> do
-    (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
-      (e2', t2') <- withVarBinds bs $ cps e2 k
-      let kont = ContDef () j (map (second cpsType . snd) bs) e2'
-      pure (kont, t2')
-    (e1', t1') <- cpsTail e1 j
-    assertEqual t t1'
-    pure (LetContK [kont] e1', t2')
-cps (TmArith e1 op e2) k =
-  cps e1 $ \x t1 -> do
-    assertEqual S.TyInt t1
-    cps e2 $ \y t2 -> do
-      assertEqual S.TyInt t2
-      freshTm "z" $ \z -> do
-        (e', _t') <- k z S.TyInt
-        let res = LetArithK z (makeArith op x y) e'
-        pure (res, S.TyInt)
-cps (TmCmp e1 cmp e2) k =
-  cps e1 $ \x t1 -> do
-    assertEqual S.TyInt t1
-    cps e2 $ \y t2 -> do
-      assertEqual S.TyInt t2
-      freshTm "z" $ \z -> do
-        (e', _t') <- k z S.TyBool
-        let res = LetCompareK z (makeCompare cmp x y) e'
-        pure (res, S.TyBool)
 
 cpsFun :: TmFun -> CPS (FunDef ())
 cpsFun (TmFun f x t s e) =
@@ -369,43 +369,6 @@ cpsTail (TmRecFun fs e) k = do
     pure (fs', e', t')
   let res = LetFunK fs' e'
   pure (res, t')
-cpsTail (TmInl a b e) k =
-  cps e $ \z t -> do
-    assertEqual a t
-    freshTm "x" $ \x -> do
-      let ty = S.TySum a b
-      let res = LetValK x (cpsType ty) (InlK z) (JumpK k [x])
-      pure (res, ty)
-cpsTail (TmInr a b e) k =
-  cps e $ \z t -> do
-    assertEqual b t
-    freshTm "x" $ \x -> do
-      let ty = S.TySum a b
-      let res = LetValK x (cpsType ty) (InrK z) (JumpK k [x])
-      pure (res, ty)
-cpsTail (TmPair e1 e2) k =
-  cps e1 $ \v1 t1 ->
-    cps e2 $ \v2 t2 ->
-      freshTm "x" $ \x -> do
-        let ty = S.TyProd t1 t2
-        let res = LetValK x (cpsType ty) (PairK v1 v2) (JumpK k [x])
-        pure (res, ty)
-cpsTail (TmFst e) k =
-  cps e $ \z t -> do
-    (ta, _tb) <- case t of
-      S.TyProd ta tb -> pure (ta, tb)
-      _ -> throwError (CannotProject t)
-    freshTm "x" $ \x -> do
-      let res = LetFstK x (cpsType ta) z (JumpK k [x])
-      pure (res, ta)
-cpsTail (TmSnd e) k =
-  cps e $ \z t -> do
-    (_ta, tb) <- case t of
-      S.TyProd ta tb -> pure (ta, tb)
-      _ -> throwError (CannotProject t)
-    freshTm "x" $ \x -> do
-      let res = LetSndK x (cpsType tb) z (JumpK k [x])
-      pure (res, tb)
 cpsTail TmNil k =
   freshTm "x" $ \x -> do
     let res = LetValK x UnitK NilK (JumpK k [x])
@@ -414,6 +377,9 @@ cpsTail (TmInt i) k =
   freshTm "x" $ \x -> do
     let res = LetValK x IntK (IntValK i) (JumpK k [x])
     pure (res, S.TyInt)
+cpsTail (TmBool b) k =
+  freshTm "x" $ \x ->
+    pure (LetValK x BoolK (BoolValK b) (JumpK k [x]), S.TyBool)
 cpsTail (TmArith e1 op e2) k =
   cps e1 $ \x t1 -> do
     assertEqual S.TyInt t1
@@ -430,15 +396,27 @@ cpsTail (TmCmp e1 cmp e2) k =
       freshTm "z" $ \z -> do
         let res = LetCompareK z (makeCompare cmp x y) (JumpK k [z])
         pure (res, S.TyBool)
-cpsTail (TmApp e1 e2) k =
-  cps e1 $ \f t1 ->
-    cps e2 $ \x t2 -> do
-      (t2', s') <- case t1 of
-        S.TyArr t2' s' -> pure (t2', s')
-        _ -> throwError (CannotApply t1)
-      assertEqual t2 t2'
-      let res = CallK f [x] [k]
-      pure (res, s')
+cpsTail (TmPair e1 e2) k =
+  cps e1 $ \v1 t1 ->
+    cps e2 $ \v2 t2 ->
+      freshTm "x" $ \x -> do
+        let ty = S.TyProd t1 t2
+        let res = LetValK x (cpsType ty) (PairK v1 v2) (JumpK k [x])
+        pure (res, ty)
+cpsTail (TmInl a b e) k =
+  cps e $ \z t -> do
+    assertEqual a t
+    freshTm "x" $ \x -> do
+      let ty = S.TySum a b
+      let res = LetValK x (cpsType ty) (InlK z) (JumpK k [x])
+      pure (res, ty)
+cpsTail (TmInr a b e) k =
+  cps e $ \z t -> do
+    assertEqual b t
+    freshTm "x" $ \x -> do
+      let ty = S.TySum a b
+      let res = LetValK x (cpsType ty) (InrK z) (JumpK k [x])
+      pure (res, ty)
 cpsTail (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
     assertEqual (S.TySum tl tr) t
@@ -454,9 +432,31 @@ cpsTail (TmIf e s et ef) k =
     -- false.
     res <- cpsCase z k s [([], ef), ([], et)]
     pure (res, s)
-cpsTail (TmBool b) k =
-  freshTm "x" $ \x ->
-    pure (LetValK x BoolK (BoolValK b) (JumpK k [x]), S.TyBool)
+cpsTail (TmApp e1 e2) k =
+  cps e1 $ \f t1 ->
+    cps e2 $ \x t2 -> do
+      (t2', s') <- case t1 of
+        S.TyArr t2' s' -> pure (t2', s')
+        _ -> throwError (CannotApply t1)
+      assertEqual t2 t2'
+      let res = CallK f [x] [k]
+      pure (res, s')
+cpsTail (TmFst e) k =
+  cps e $ \z t -> do
+    (ta, _tb) <- case t of
+      S.TyProd ta tb -> pure (ta, tb)
+      _ -> throwError (CannotProject t)
+    freshTm "x" $ \x -> do
+      let res = LetFstK x (cpsType ta) z (JumpK k [x])
+      pure (res, ta)
+cpsTail (TmSnd e) k =
+  cps e $ \z t -> do
+    (_ta, tb) <- case t of
+      S.TyProd ta tb -> pure (ta, tb)
+      _ -> throwError (CannotProject t)
+    freshTm "x" $ \x -> do
+      let res = LetSndK x (cpsType tb) z (JumpK k [x])
+      pure (res, tb)
 
 
 cpsMain :: Term -> Either TCError (TermK (), S.Type)
