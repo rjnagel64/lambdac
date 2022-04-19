@@ -213,6 +213,8 @@ struct value *allocate_pair(struct alloc_header *x, struct alloc_header *y) {
     return v;
 }
 
+// TODO: allocate_nil is incorrect. It is ALLOC_CONST, but does not initialize
+// its value field, so printing it reads unitialized memory.
 struct value *allocate_nil(void) {
     struct value *v = malloc(sizeof(struct value));
     v->header.type = ALLOC_CONST;

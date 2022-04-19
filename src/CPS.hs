@@ -51,11 +51,14 @@ data TmVar = TmVar String Int
   deriving (Eq, Ord)
 data CoVar = CoVar String Int
   deriving (Eq, Ord)
+data TyVar = TyVar String Int
 
 instance Show TmVar where
   show (TmVar x i) = x ++ show i
 instance Show CoVar where
   show (CoVar k i) = k ++ show i
+instance Show TyVar where
+  show (TyVar a i) = a ++ show i
 
 -- | Terms in continuation-passing style.
 --
@@ -153,11 +156,9 @@ data TypeK
   -- (σ1, ..., σn) -> 0
   -- The type of a continuation
   | ContK [TypeK]
-  -- (τ * σ -> 0) -> 0
+  -- @FunK τ σ@ denotes (τ, σ -> 0) -> 0
   -- The type of a function.
-  -- TODO: Generalize this to simply be the argument list of a function definition.
-  -- (τ+; σ+) -> 0. Each σi should be a continuation type, since it is the type
-  -- of a continuation argument.
+  -- TODO: Generalize 'FunK' to support multiple parameters/returns/continuations
   | FunK TypeK TypeK
 
 cpsType :: S.Type -> TypeK
@@ -174,14 +175,11 @@ contDefType :: ContDef a -> TypeK
 contDefType (ContDef _ _ xs _) = ContK (map snd xs)
 
 funDefType :: FunDef a -> TypeK
--- Hang on, should this require ContK, or imply ContK, or what?
-funDefType (FunDef _ _ [x] [k] _) = FunK (snd x) (snd k)
--- funDefType (FunDef _ _ [(x, t)] [(k, ContK [s])] _) = FunK t s
+funDefType (FunDef _ _ [(x, t)] [(k, ContK [s])] _) = FunK t s
+funDefType (FunDef _ _ [(x, t)] [(k, ContK ss)] _) = error "not supported: multiple return values"
+funDefType (FunDef _ _ [(x, t)] [(k, s)] _) = error "continuation param must have type ContK"
 funDefType (FunDef _ _ _ _ _) = error "not supported: function with multiple params/conts"
 
-
--- TODO: This actually has most elements of a type checker.
--- Maybe I should add Except and error-reporting?
 
 -- | CPS-convert a term.
 cps :: Term -> (TmVar -> TypeK -> CPS (TermK (), TypeK)) -> CPS (TermK (), TypeK)
@@ -191,15 +189,21 @@ cps (TmVarOcc x) k = do
     Nothing -> error ("cps: variable not in scope: " ++ show x)
     Just (x', t) -> k x' t
 cps (TmLam x t e) k =
-  freshTm "f" $ \ f ->
+  freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
       (fun, ty) <- freshenVarBinds [(x, t)] $ \bs -> do
         (e', s') <- withVarBinds bs $ cpsTail e k'
         let fun = FunDef () f (map snd bs) [(k', ContK [s'])] e'
-        let [bx] = bs -- necessary because FunK only supports one argument
-        pure (fun, FunK (snd (snd bx)) s')
+        pure (fun, funDefType fun)
       (e'', _t'') <- k f ty
       pure (LetFunK [fun] e'', ty)
+-- cps (TmTLam a e) k =
+--   freshTm "f" $ \f -> 
+--     freshCo "k" $ \k' -> do
+--       (abs, ty) <- freshenTyBinds [a] $ \bs -> do
+--         (e', s') <- withTyBinds bs $ cpsTail e k'
+--         let abs = AbsDef () f (map snd bs) [(k', ContK [s'])] e'
+--         pure (abs, AbsK (map snd bs) s')
 cps (TmRecFun fs e) k = do
   (fs', e', t') <- freshenFunBinds fs $ \binds -> do
     fs' <- withVarBinds binds $ traverse cpsFun fs
@@ -351,8 +355,7 @@ cpsTail (TmLam x t e) k =
       (fun, ty) <- freshenVarBinds [(x, t)] $ \bs -> do
         (e', s') <- withVarBinds bs $ cpsTail e k'
         let fun = FunDef () f (map snd bs) [(k', ContK [s'])] e'
-        let [bx] = bs
-        pure (fun, FunK (snd (snd bx)) s')
+        pure (fun, funDefType fun)
       let res = LetFunK [fun] (JumpK k [f])
       pure (res, ty)
 cpsTail (TmLet x t e1 e2) k =
@@ -512,6 +515,14 @@ freshCo x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = CoVar x i
+  let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
+  local extend (k x')
+
+freshTy :: String -> (TyVar -> CPS a) -> CPS a
+freshTy x k = do
+  scope <- asks cpsEnvScope
+  let i = fromMaybe 0 (Map.lookup x scope)
+  let x' = TyVar x i
   let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
   local extend (k x')
 

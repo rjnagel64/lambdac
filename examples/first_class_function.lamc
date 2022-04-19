@@ -1,3 +1,3 @@
 -- Functions can be stored in sums and products.
-let fun not (b : bool) : bool = if b then false else true; in
+let fun not (b : bool) : bool = if b return bool then false else true; in
 (not, inr @unit @(int -> int) (\ (x : int) -> x + 1))
