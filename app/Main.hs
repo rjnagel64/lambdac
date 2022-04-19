@@ -60,14 +60,12 @@ main = do
   args <- execParser opts
 
   srcS <- parseFile (driverFile args)
-  case T.checkProgram srcS of
+  srcK <- case K.cpsMain srcS of
     Left err -> do
       putStrLn "type error:"
       putStrLn $ show err
       exitFailure
-    Right () -> pure ()
-
-  let (srcK, _) = K.cpsMain srcS
+    Right (srcK, _t) -> pure srcK
   when (driverDumpCPS args) $ do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK

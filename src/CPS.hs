@@ -23,9 +23,12 @@ import Data.Traversable (mapAccumL)
 import Data.Bifunctor
 
 import Control.Monad.Reader
+import Control.Monad.Except
 
 import qualified Source as S
 import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
+
+-- TODO: @AbsK as ts@ denotes forall aa+.t+ -> 0
 
 -- call/cc: pass function return continuation to argument?
 -- what if call/cc in contdef? in let-binding?
@@ -157,13 +160,6 @@ data TypeK
   -- (σ1, ..., σn) -> 0
   -- The type of a continuation
   | ContK [TypeK]
-  -- @FunK τ σ@ denotes (τ, σ -> 0) -> 0
-  -- The type of a function.
-  -- TODO: Generalize 'FunK' to support multiple parameters/returns/continuations
-  -- Actually, it's not terribly clear how to do that. While the CPS IR
-  -- natively supports multiple parameters, continuations, and returns, the
-  -- Source IR doesn't, so Source -> CPS is also kind of complicated.
-  | FunK TypeK TypeK
 
 cpsType :: S.Type -> TypeK
 cpsType S.TyUnit = UnitK
@@ -171,7 +167,7 @@ cpsType S.TyInt = IntK
 cpsType S.TyBool = BoolK
 cpsType (S.TySum a b) = SumK (cpsType a) (cpsType b)
 cpsType (S.TyProd a b) = ProdK (cpsType a) (cpsType b)
-cpsType (S.TyArr a b) = FunK (cpsType a) (cpsType b)
+cpsType (S.TyArr a b) = ContK [cpsType a, ContK [cpsType b]]
 cpsType (S.TyVarOcc _) = error "not implemented: polymorphic cpsType"
 cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
 
@@ -180,13 +176,11 @@ contDefType (ContDef _ _ xs _) = ContK (map snd xs)
 
 
 -- | CPS-convert a term.
--- TODO: Does it really make sense to return TypeK from this? I'm starting to
--- think that S.Type might be better.
 cps :: Term -> (TmVar -> S.Type -> CPS (TermK (), S.Type)) -> CPS (TermK (), S.Type)
 cps (TmVarOcc x) k = do
   env <- asks cpsEnvCtx
   case Map.lookup x env of
-    Nothing -> error ("cps: variable not in scope: " ++ show x)
+    Nothing -> throwError (NotInScope x)
     Just (x', t) -> k x' t
 cps (TmLam x t e) k =
   freshTm "f" $ \f ->
@@ -205,35 +199,36 @@ cps (TmRecFun fs e) k = do
   let res = LetFunK fs' e'
   pure (res, t')
 cps (TmApp e1 e2) k =
-  -- TODO: How does cps TmApp work with multiple continuations?
-  -- Multiple continuations are conceptually the same as a single continuation
-  -- that takes a sum type.
   cps e1 $ \v1 t1 -> do
-    cps e2 $ \v2 _t2 -> do
-      s' <- case t1 of
-        S.TyArr _t2' s' -> pure s'
-        _ -> error ("bad function type: " ++ S.pprintType 0 t1)
+    cps e2 $ \v2 t2 -> do
+      (t2', s') <- case t1 of
+        S.TyArr t2' s' -> pure (t2', s')
+        _ -> throwError (CannotApply t1)
+      assertEqual t2' t2
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
           (e', _t') <- k xv s'
           let res = LetContK [ContDef () kv [(xv, cpsType s')] e'] (CallK v1 [v2] [kv])
           pure (res, s')
 cps (TmInl a b e) k =
-  cps e $ \z _t ->
+  cps e $ \z t -> do
+    assertEqual a t
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       (e', _t') <- k x ty
       let res = LetValK x (cpsType ty) (InlK z) e'
       pure (res, ty)
 cps (TmInr a b e) k =
-  cps e $ \z _t ->
+  cps e $ \z t -> do
+    assertEqual b t
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       (e', _t') <- k x ty
       let res = LetValK x (cpsType ty) (InrK z) e'
       pure (res, ty)
 cps (TmCase e s (xl, tl, el) (xr, tr, er)) k =
-  cps e $ \z _t ->
+  cps e $ \z t -> do
+    assertEqual (S.TySum tl tr) t
     freshCo "j" $ \j ->
       freshTm "x" $ \x -> do
         let s' = cpsType s
@@ -242,7 +237,8 @@ cps (TmCase e s (xl, tl, el) (xr, tr, er)) k =
         res <- cpsCase z j s [([(xl, tl)], el), ([(xr, tr)], er)]
         pure (LetContK [kont] res, s)
 cps (TmIf e s et ef) k =
-  cps e $ \z _t -> -- t =~= BoolK
+  cps e $ \z t -> do
+    assertEqual S.TyBool t
     freshCo "j" $ \j ->
       freshTm "x" $ \x -> do
         let s' = cpsType s
@@ -256,9 +252,9 @@ cps (TmIf e s et ef) k =
         pure (LetContK [kont] res, s)
 cps (TmBool b) k =
   freshTm "x" $ \x -> do
-    (e', t) <- k x S.TyBool
+    (e', _t) <- k x S.TyBool
     let res = LetValK x BoolK (BoolValK b) e'
-    pure (res, t)
+    pure (res, S.TyBool)
 cps (TmPair e1 e2) k =
   cps e1 $ \v1 t1 ->
     cps e2 $ \v2 t2 ->
@@ -271,7 +267,7 @@ cps (TmFst e) k =
   cps e $ \v t ->  do
     (ta, _tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
-      _ -> error "bad projection"
+      _ -> throwError (CannotProject t)
     freshTm "x" $ \x -> do
       (e', _t') <- k x ta
       let res = LetFstK x (cpsType ta) v e'
@@ -280,21 +276,21 @@ cps (TmSnd e) k =
   cps e $ \v t -> do
     (_ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
-      _ -> error "bad projection"
+      _ -> throwError (CannotProject t)
     freshTm "x" $ \x -> do
       (e', _t') <- k x tb
       let res = LetSndK x (cpsType tb) v e'
       pure (res, tb)
 cps TmNil k =
   freshTm "x" $ \x -> do
-    (e', t) <- k x S.TyUnit
+    (e', _t) <- k x S.TyUnit
     let res = LetValK x UnitK NilK e'
-    pure (res, t)
+    pure (res, S.TyUnit)
 cps (TmInt i) k =
   freshTm "x" $ \x -> do
-    (e', t) <- k x S.TyInt
+    (e', _t) <- k x S.TyInt
     let res = LetValK x IntK (IntValK i) e'
-    pure (res, t)
+    pure (res, S.TyInt)
 cps (TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
     (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
@@ -302,22 +298,26 @@ cps (TmLet x t e1 e2) k = do
       let kont = ContDef () j (map (second cpsType . snd) bs) e2'
       pure (kont, t2')
     (e1', t1') <- cpsTail e1 j
-    -- assert t1' == t
+    assertEqual t t1'
     pure (LetContK [kont] e1', t2')
 cps (TmArith e1 op e2) k =
-  cps e1 $ \x _t1 ->
-    cps e2 $ \y _t2 ->
+  cps e1 $ \x t1 -> do
+    assertEqual S.TyInt t1
+    cps e2 $ \y t2 -> do
+      assertEqual S.TyInt t2
       freshTm "z" $ \z -> do
-        (e', t') <- k z S.TyInt
+        (e', _t') <- k z S.TyInt
         let res = LetArithK z (makeArith op x y) e'
-        pure (res, t')
+        pure (res, S.TyInt)
 cps (TmCmp e1 cmp e2) k =
-  cps e1 $ \x _t1 ->
-    cps e2 $ \y _t2 ->
+  cps e1 $ \x t1 -> do
+    assertEqual S.TyInt t1
+    cps e2 $ \y t2 -> do
+      assertEqual S.TyInt t2
       freshTm "z" $ \z -> do
-        (e', t') <- k z S.TyBool
+        (e', _t') <- k z S.TyBool
         let res = LetCompareK z (makeCompare cmp x y) e'
-        pure (res, t')
+        pure (res, S.TyBool)
 
 cpsFun :: TmFun -> CPS (FunDef ())
 cpsFun (TmFun f x t s e) =
@@ -327,11 +327,10 @@ cpsFun (TmFun f x t s e) =
     f' <- case Map.lookup f env of
       Nothing -> error "cpsFun: function not in scope (unreachable?)"
       Just (f', _) -> pure f'
-    let s' = cpsType s
     fun <- freshenVarBinds [(x, t)] $ \bs -> do
-      (e', _s') <- withVarBinds bs $ cpsTail e k
-      -- assert _s' == s'
-      pure (FunDef () f' (map (second cpsType . snd) bs) [(k, ContK [s'])] e')
+      (e', s') <- withVarBinds bs $ cpsTail e k
+      assertEqual s s'
+      pure (FunDef () f' (map (second cpsType . snd) bs) [(k, ContK [cpsType s])] e')
     pure fun
 
 -- | CPS-convert a term in tail position.
@@ -341,7 +340,7 @@ cpsTail :: Term -> CoVar -> CPS (TermK (), S.Type)
 cpsTail (TmVarOcc x) k = do
   env <- asks cpsEnvCtx
   case Map.lookup x env of
-    Nothing -> error ("cpsTail: variable not in scope: " ++ show x)
+    Nothing -> throwError (NotInScope x)
     Just (x', t') -> pure (JumpK k [x'], t')
 cpsTail (TmLam x t e) k =
   freshTm "f" $ \ f ->
@@ -360,7 +359,8 @@ cpsTail (TmLet x t e1 e2) k =
   -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
   freshCo "j" $ \j -> do
     (kont, t2') <- cpsBranch j [(x, t)] e2 k
-    (e1', _t1') <- cpsTail e1 j
+    (e1', t1') <- cpsTail e1 j
+    assertEqual t t1'
     pure (LetContK [kont] e1', t2')
 cpsTail (TmRecFun fs e) k = do
   (fs', e', t') <- freshenFunBinds fs $ \binds -> do
@@ -370,13 +370,15 @@ cpsTail (TmRecFun fs e) k = do
   let res = LetFunK fs' e'
   pure (res, t')
 cpsTail (TmInl a b e) k =
-  cps e $ \z _t ->
+  cps e $ \z t -> do
+    assertEqual a t
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       let res = LetValK x (cpsType ty) (InlK z) (JumpK k [x])
       pure (res, ty)
 cpsTail (TmInr a b e) k =
-  cps e $ \z _t ->
+  cps e $ \z t -> do
+    assertEqual b t
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       let res = LetValK x (cpsType ty) (InrK z) (JumpK k [x])
@@ -392,7 +394,7 @@ cpsTail (TmFst e) k =
   cps e $ \z t -> do
     (ta, _tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
-      _ -> error "bad projection"
+      _ -> throwError (CannotProject t)
     freshTm "x" $ \x -> do
       let res = LetFstK x (cpsType ta) z (JumpK k [x])
       pure (res, ta)
@@ -400,7 +402,7 @@ cpsTail (TmSnd e) k =
   cps e $ \z t -> do
     (_ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
-      _ -> error "bad projection"
+      _ -> throwError (CannotProject t)
     freshTm "x" $ \x -> do
       let res = LetSndK x (cpsType tb) z (JumpK k [x])
       pure (res, tb)
@@ -413,32 +415,38 @@ cpsTail (TmInt i) k =
     let res = LetValK x IntK (IntValK i) (JumpK k [x])
     pure (res, S.TyInt)
 cpsTail (TmArith e1 op e2) k =
-  cps e1 $ \x _t1 -> -- t1 =~= IntK
-    cps e2 $ \y _t2 -> -- t2 =~= IntK
+  cps e1 $ \x t1 -> do
+    assertEqual S.TyInt t1
+    cps e2 $ \y t2 -> do
+      assertEqual S.TyInt t2
       freshTm "z" $ \z -> do
         let res = LetArithK z (makeArith op x y) (JumpK k [z])
         pure (res, S.TyInt)
 cpsTail (TmCmp e1 cmp e2) k =
-  cps e1 $ \x _t1 -> -- t1 =~= IntK
-    cps e2 $ \y _t2 -> -- t2 =~= IntK
+  cps e1 $ \x t1 -> do
+    assertEqual S.TyInt t1
+    cps e2 $ \y t2 -> do
+      assertEqual S.TyInt t2
       freshTm "z" $ \z -> do
         let res = LetCompareK z (makeCompare cmp x y) (JumpK k [z])
         pure (res, S.TyBool)
 cpsTail (TmApp e1 e2) k =
-  cps e1 $ \f t1 -> -- t1 =~= t2 -> s
-    cps e2 $ \x _t2 -> do
-      s' <- case t1 of
-        S.TyArr _t2' s' -> pure s'
-        _ -> error ("bad function type: " ++ S.pprintType 0 t1)
+  cps e1 $ \f t1 ->
+    cps e2 $ \x t2 -> do
+      (t2', s') <- case t1 of
+        S.TyArr t2' s' -> pure (t2', s')
+        _ -> throwError (CannotApply t1)
+      assertEqual t2 t2'
       let res = CallK f [x] [k]
       pure (res, s')
 cpsTail (TmCase e s (xl, tl, el) (xr, tr, er)) k =
-  cps e $ \z _t -> do
-    -- _t === SumK (cpsType tl) (cpsType tr), because input is well-typed.
+  cps e $ \z t -> do
+    assertEqual (S.TySum tl tr) t
     res <- cpsCase z k s [([(xl, tl)], el), ([(xr, tr)], er)]
     pure (res, s)
 cpsTail (TmIf e s et ef) k =
-  cps e $ \z _t -> do
+  cps e $ \z t -> do
+    assertEqual S.TyBool t
     -- NOTE: ef, et is the correct order here.
     -- This is because case branches are laid out in order of discriminant.
     -- false = 0, true = 1, so the branches should be laid
@@ -451,8 +459,8 @@ cpsTail (TmBool b) k =
     pure (LetValK x BoolK (BoolValK b) (JumpK k [x]), S.TyBool)
 
 
-cpsMain :: Term -> (TermK (), S.Type)
-cpsMain e = flip runReader emptyEnv $ runCPS $
+cpsMain :: Term -> Either TCError (TermK (), S.Type)
+cpsMain e = runExcept . flip runReaderT emptyEnv . runCPS $
   cps e (\z t -> pure (HaltK z, t))
 
 
@@ -473,9 +481,9 @@ cpsCase z j s [(xs1, e1), (xs2, e2)] =
   freshCo "k" $ \k1 -> do
     freshCo "k" $ \k2 -> do
       (kont1, s1) <- cpsBranch k1 xs1 e1 j
-      -- assert s == s1
+      assertEqual s s1
       (kont2, s2) <- cpsBranch k2 xs2 e2 j
-      -- assert s == s2
+      assertEqual s s2
       let alts = [(k1, contDefType kont1), (k2, contDefType kont2)]
       let res = LetContK [kont1] $ LetContK [kont2] $ CaseK z alts
       pure res
@@ -484,15 +492,53 @@ cpsCase _ _ _ _ = error "cpsCase: exactly two branches supported at this time"
 
 data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map S.TmVar (TmVar, S.Type) }
 
+data TCError
+  = NotInScope S.TmVar
+  | TypeMismatch S.Type S.Type -- expected, actual
+  | CannotProject S.Type
+  | CannotApply S.Type
+
+instance Show TCError where
+  show (TypeMismatch expected actual) = unlines
+    ["type mismatch:"
+    ,"expected: " ++ S.pprintType 0 expected
+    ,"actual:   " ++ S.pprintType 0 actual
+    ]
+  show (NotInScope x) = "variable not in scope: " ++ show x
+  show (CannotApply t) = "cannot apply argument to value of type " ++ S.pprintType 0 t
+  show (CannotProject t) = "cannot project field from value of type " ++ S.pprintType 0 t
+
 emptyEnv :: CPSEnv
 emptyEnv = CPSEnv Map.empty Map.empty
 
-newtype CPS a = CPS { runCPS :: Reader CPSEnv a }
+newtype CPS a = CPS { runCPS :: ReaderT CPSEnv (Except TCError) a }
 
-deriving via Reader CPSEnv instance Functor CPS
-deriving via Reader CPSEnv instance Applicative CPS
-deriving via Reader CPSEnv instance Monad CPS
-deriving via Reader CPSEnv instance MonadReader CPSEnv CPS
+deriving newtype instance Functor CPS
+deriving newtype instance Applicative CPS
+deriving newtype instance Monad CPS
+deriving newtype instance MonadReader CPSEnv CPS
+deriving newtype instance MonadError TCError CPS
+
+assertEqual :: S.Type -> S.Type -> CPS ()
+assertEqual expected actual = when (not (eqType expected actual)) $
+  throwError (TypeMismatch expected actual)
+
+-- TODO: What if instead of bool, I returned a datastructure pointing out the
+-- path to the first(?) (or all) discrepancy? (Context as to why the equality failed)
+-- TODO: Support polymorphic types here.
+eqType :: S.Type -> S.Type -> Bool
+eqType S.TyUnit S.TyUnit = True
+eqType S.TyUnit _ = False
+eqType S.TyBool S.TyBool = True
+eqType S.TyBool _ = False
+eqType S.TyInt S.TyInt = True
+eqType S.TyInt _ = False
+eqType (S.TyProd t1 t2) (S.TyProd t3 t4) = eqType t1 t3 && eqType t2 t4
+eqType (S.TyProd _ _) _ = False
+eqType (S.TySum t1 t2) (S.TySum t3 t4) = eqType t1 t3 && eqType t2 t4
+eqType (S.TySum _ _) _ = False
+eqType (S.TyArr t1 t2) (S.TyArr t3 t4) = eqType t1 t3 && eqType t2 t4
+eqType (S.TyArr _ _) _ = False
 
 freshTm :: String -> (TmVar -> CPS a) -> CPS a
 freshTm x k = do
@@ -619,7 +665,6 @@ pprintContDef n (ContDef _ k xs e) =
 pprintType :: TypeK -> String
 pprintType (ContK ts) = "(" ++ intercalate ", " params ++ ") -> 0"
   where params = map pprintType ts
-pprintType (FunK t s) = pprintType (ContK [t, ContK [s]])
 pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s
 pprintType (SumK t s) = pprintAType t ++ " + " ++ pprintAType s
 pprintType IntK = "int"

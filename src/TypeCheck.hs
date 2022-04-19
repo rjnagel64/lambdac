@@ -29,7 +29,6 @@ instance Show TCError where
   show (CannotApply t) = "cannot apply argument to value of type " ++ pprintType 0 t
   show (CannotProject t) = "cannot project field from value of type " ++ pprintType 0 t
 
-
 newtype TC a = TC { runTC :: ReaderT (Map TmVar Type) (Except TCError) a }
 
 deriving newtype instance Functor TC

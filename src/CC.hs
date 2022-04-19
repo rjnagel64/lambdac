@@ -99,7 +99,6 @@ instance Show Sort where
 
 sortOf :: K.TypeK -> Sort
 sortOf (K.ContK _) = Closure
-sortOf (K.FunK _ _) = Closure
 sortOf (K.SumK _ _) = Sum
 sortOf K.BoolK = Sum
 sortOf _ = Value
@@ -113,7 +112,6 @@ newtype ThunkType = ThunkType { thunkArgSorts :: [Sort] }
 
 thunkTypeOf :: K.TypeK -> Maybe ThunkType
 thunkTypeOf (K.ContK ss) = Just (ThunkType (map sortOf ss))
-thunkTypeOf (K.FunK t s) = Just (ThunkType [sortOf t, sortOf (K.ContK [s])])
 thunkTypeOf _ = Nothing
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
