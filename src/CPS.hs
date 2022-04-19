@@ -159,6 +159,9 @@ data TypeK
   -- @FunK τ σ@ denotes (τ, σ -> 0) -> 0
   -- The type of a function.
   -- TODO: Generalize 'FunK' to support multiple parameters/returns/continuations
+  -- Actually, it's not terribly clear how to do that. While the CPS IR
+  -- natively supports multiple parameters, continuations, and returns, the
+  -- Source IR doesn't, so Source -> CPS is also kind of complicated.
   | FunK TypeK TypeK
 
 cpsType :: S.Type -> TypeK
@@ -175,9 +178,9 @@ contDefType :: ContDef a -> TypeK
 contDefType (ContDef _ _ xs _) = ContK (map snd xs)
 
 funDefType :: FunDef a -> TypeK
-funDefType (FunDef _ _ [(x, t)] [(k, ContK [s])] _) = FunK t s
-funDefType (FunDef _ _ [(x, t)] [(k, ContK ss)] _) = error "not supported: multiple return values"
-funDefType (FunDef _ _ [(x, t)] [(k, s)] _) = error "continuation param must have type ContK"
+funDefType (FunDef _ _ [(_, t)] [(_, ContK [s])] _) = FunK t s
+funDefType (FunDef _ _ _ [(_, ContK _)] _) = error "not supported: multiple return values"
+funDefType (FunDef _ _ _ [(_, _)] _) = error "continuation param must have type ContK"
 funDefType (FunDef _ _ _ _ _) = error "not supported: function with multiple params/conts"
 
 
@@ -197,13 +200,6 @@ cps (TmLam x t e) k =
         pure (fun, funDefType fun)
       (e'', _t'') <- k f ty
       pure (LetFunK [fun] e'', ty)
--- cps (TmTLam a e) k =
---   freshTm "f" $ \f -> 
---     freshCo "k" $ \k' -> do
---       (abs, ty) <- freshenTyBinds [a] $ \bs -> do
---         (e', s') <- withTyBinds bs $ cpsTail e k'
---         let abs = AbsDef () f (map snd bs) [(k', ContK [s'])] e'
---         pure (abs, AbsK (map snd bs) s')
 cps (TmRecFun fs e) k = do
   (fs', e', t') <- freshenFunBinds fs $ \binds -> do
     fs' <- withVarBinds binds $ traverse cpsFun fs
@@ -212,6 +208,9 @@ cps (TmRecFun fs e) k = do
   let res = LetFunK fs' e'
   pure (res, t')
 cps (TmApp e1 e2) k =
+  -- TODO: How does cps TmApp work with multiple continuations?
+  -- Multiple continuations are conceptually the same as a single continuation
+  -- that takes a sum type.
   cps e1 $ \v1 t1 -> do
     cps e2 $ \v2 _t2 -> do
       s' <- case t1 of
