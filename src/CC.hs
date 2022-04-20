@@ -29,7 +29,7 @@ import Data.Set (Set)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Control.Monad.Reader
-import Control.Monad.Writer hiding (Sum)
+import Control.Monad.Writer hiding (Sum, Product)
 
 import Data.List (intercalate, partition)
 import Data.Maybe (mapMaybe)
@@ -88,19 +88,22 @@ coVar (K.CoVar k i) = Name k i
 -- Value = int | bool | t1 * t2 | t1 + t2 | ()
 -- Closure = (t1, t2, ...) -> 0
 -- Alloc = a : *
-data Sort = Closure | Value | Alloc | Sum
+data Sort = Closure | Value | Alloc | Sum | Product
   deriving (Eq, Ord)
 
 instance Show Sort where
   show Closure = "closure"
   show Value = "value"
-  show Alloc = "alloc_header"
+  show Alloc = "alloc_header" -- TODO: instance Show Sort shouldn't really care about C names
   show Sum = "sum"
+  show Product = "product"
 
 sortOf :: K.TypeK -> Sort
 sortOf (K.ContK _) = Closure
 sortOf (K.SumK _ _) = Sum
 sortOf K.BoolK = Sum
+sortOf (K.ProdK _ _) = Product
+sortOf K.UnitK = Product
 sortOf _ = Value
 
 -- | Each type of closure (e.g., one boxed argument, one unboxed argument and

@@ -81,6 +81,7 @@ namesForThunk (ThunkType ss) =
     code Value = 'V'
     code Alloc = 'A'
     code Sum = 'S'
+    code Product = 'P'
 
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
@@ -296,6 +297,7 @@ asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
 asSort Value x = "AS_VALUE(" ++ x ++ ")"
 asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
+asSort Product x = "AS_PRODUCT(" ++ x ++ ")"
 
 -- TODO: Generalize emitAllocGroup and merge it with emitValueAlloc, to support
 -- allocating mutually-recursive values, of which closures are merely one
@@ -333,12 +335,14 @@ emitFieldDecl (FieldName Closure c) = "struct closure *" ++ c
 emitFieldDecl (FieldName Value x) = "struct value *" ++ x
 emitFieldDecl (FieldName Alloc a) = "struct alloc_header *" ++ a
 emitFieldDecl (FieldName Sum x) = "struct sum *" ++ x
+emitFieldDecl (FieldName Product x) = "struct product *" ++ x
 
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName Closure k) = "struct closure *" ++ k
 emitPlace (PlaceName Value x) = "struct value *" ++ x
 emitPlace (PlaceName Alloc a) = "struct alloc_header *" ++ a
 emitPlace (PlaceName Sum x) = "struct sum *" ++ x
+emitPlace (PlaceName Product x) = "struct product *" ++ x
 
 emitName :: String -> Name -> String
 emitName _ (LocalName x) = x

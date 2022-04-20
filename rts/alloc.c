@@ -180,6 +180,13 @@ struct sum *make_sum(uint32_t discriminant, uint32_t num_fields) {
     return v;
 }
 
+struct product *make_product(uint32_t num_fields) {
+    struct product *v = malloc(sizeof(struct product) + num_fields * sizeof(uintptr_t));
+    v->header.type = ALLOC_PROD;
+    v->num_fields = num_fields;
+    return v;
+}
+
 struct closure *allocate_closure(
         void *env,
         void (*trace)(void *env),
@@ -203,9 +210,8 @@ struct value *allocate_int32(int32_t x) {
     return v;
 }
 
-struct value *allocate_pair(struct alloc_header *x, struct alloc_header *y) {
-    struct value *v = malloc(sizeof(struct value) + 2 * sizeof(uintptr_t));
-    v->header.type = ALLOC_PROD;
+struct product *allocate_pair(struct alloc_header *x, struct alloc_header *y) {
+    struct product *v = make_product(2);
     v->words[0] = (uintptr_t)x;
     v->words[1] = (uintptr_t)y;
 
@@ -213,11 +219,8 @@ struct value *allocate_pair(struct alloc_header *x, struct alloc_header *y) {
     return v;
 }
 
-// TODO: allocate_nil is incorrect. It is ALLOC_CONST, but does not initialize
-// its value field, so printing it reads unitialized memory.
-struct value *allocate_nil(void) {
-    struct value *v = malloc(sizeof(struct value));
-    v->header.type = ALLOC_CONST;
+struct product *allocate_nil(void) {
+    struct product *v = make_product(0);
 
     cons_new_alloc(AS_ALLOC(v));
     return v;
@@ -259,13 +262,11 @@ int32_t int32_value(struct value *v) {
     return (int32_t)v->words[0];
 }
 
-struct alloc_header *project_fst(struct value *v) {
-    // Unchecked. Use only on (a, b) values.
+struct alloc_header *project_fst(struct product *v) {
     return (struct alloc_header *)v->words[0];
 }
 
-struct alloc_header *project_snd(struct value *v) {
-    // Unchecked. Use only on (a, b) values.
+struct alloc_header *project_snd(struct product *v) {
     return (struct alloc_header *)v->words[1];
 }
 

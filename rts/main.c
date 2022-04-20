@@ -58,11 +58,14 @@ void display_alloc(int prec, struct alloc_header *alloc, struct string_buf *sb) 
         break;
     case ALLOC_PROD:
         {
-        struct value *v = AS_VALUE(alloc);
+        struct product *v = AS_PRODUCT(alloc);
         string_buf_push(sb, "(");
-        display_alloc(0, AS_ALLOC(v->words[0]), sb);
-        string_buf_push(sb, ", ");
-        display_alloc(0, AS_ALLOC(v->words[1]), sb);
+        for (uint32_t i = 0; i < v->num_fields; i++) {
+            if (i > 0) {
+                string_buf_push(sb, ", ");
+            }
+            display_alloc(0, AS_ALLOC(v->words[i]), sb);
+        }
         string_buf_push(sb, ")");
         }
         break;
