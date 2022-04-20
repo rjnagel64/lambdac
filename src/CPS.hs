@@ -312,18 +312,18 @@ cps (TmFst e) k =
       S.TyProd ta tb -> pure (ta, tb)
       _ -> throwError (CannotProject t)
     freshTm "x" $ \x -> do
-      (e', _t') <- k x ta
+      (e', t') <- k x ta
       let res = LetFstK x (cpsType ta) v e'
-      pure (res, ta)
+      pure (res, t')
 cps (TmSnd e) k =
   cps e $ \v t -> do
     (ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> throwError (CannotProject t)
     freshTm "x" $ \x -> do
-      (e', _t') <- k x tb
+      (e', t') <- k x tb
       let res = LetSndK x (cpsType tb) v e'
-      pure (res, tb)
+      pure (res, t')
 
 cpsFun :: TmFun -> CPS (FunDef ())
 cpsFun (TmFun f x t s e) =

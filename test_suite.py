@@ -7,50 +7,37 @@ import subprocess
 subprocess.run(["cabal", "build"])
 exe_path = subprocess.run(["cabal", "exec", "which", "lambdac"], capture_output=True, encoding="utf8").stdout.strip()
 
-# TODO: Begin building abstractions
-# Collect multiple failures rather than crashing
-# Report output from failed tests
-# Helpers for standard test formats
-def test_fibonacci():
-    result = subprocess.run([exe_path, "examples/fibonacci.lamc"])
-    assert result.returncode == 0
+failed_tests = []
 
-    result = subprocess.run(["./fibonacci"], capture_output=True, encoding="utf8")
-    assert result.stdout == "result = 144\n"
-    print("fibonacci OK")
+def standard_test(name, result):
+    path = f"examples/{name}.lamc"
+    proc = subprocess.run([exe_path, path], capture_output=True, encoding="utf8")
+    if proc.returncode != 0:
+        print(f"{name} FAIL")
+        failed_tests.append((name, proc.stdout))
+        return
 
-def test_adder():
-    result = subprocess.run([exe_path, "examples/adder.lamc"])
-    assert result.returncode == 0
+    exe = f"./{name}"
+    proc = subprocess.run([exe], capture_output=True, encoding="utf8")
+    if proc.stdout != f"result = {result}\n":
+        print(f"{name} FAIL")
+        failed_tests.append((name, proc.stdout))
+        return
+    print(f"{name} OK")
 
-    result = subprocess.run(["./adder"], capture_output=True, encoding="utf8")
-    assert result.stdout == "result = 8\n"
-    print("adder OK")
+# TODO: compile-fail tests that assert error and possibly message
+def compile_fail(name, err):
+    pass
 
-def test_fact():
-    result = subprocess.run([exe_path, "examples/fact.lamc"])
-    assert result.returncode == 0
-    result = subprocess.run(["./fact"], capture_output=True, encoding="utf8")
-    assert result.stdout == "result = 3628800\n"
-    print("fact OK")
-
-def test_trisum():
-    result = subprocess.run([exe_path, "examples/trisum.lamc"])
-    assert result.returncode == 0
-    result = subprocess.run(["./trisum"], capture_output=True, encoding="utf8")
-    assert result.stdout == "result = 55\n"
-    print("trisum OK")
-
-def test_evenodd():
-    result = subprocess.run([exe_path, "examples/evenodd.lamc"])
-    assert result.returncode == 0
-    result = subprocess.run(["./evenodd"], capture_output=True, encoding="utf8")
-    assert result.stdout == "result = 1 :\n", result.stdout
-    print("evenodd OK")
+standard_test("fibonacci", "144")
+standard_test("trisum", "55")
+standard_test("tailfib", "144")
+standard_test("fact", "3628800")
+standard_test("evenodd", "1 :")
+standard_test("adder", "8")
+standard_test("bimap", "(34, 132)")
 
 
-test_fibonacci()
-test_adder()
-test_fact()
-test_trisum()
-test_evenodd()
+for (test, out) in failed_tests:
+    print(f"--- FAILED: {test} ---")
+    print(out)
