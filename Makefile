@@ -1,18 +1,6 @@
 
 RTSFLAGS = -O0
 
-demo: out.o rts/librts.a
-	clang out.o -L./rts/ -lrts -o demo
-
-out.o: out.c rts/rts.h
-	clang -I./rts/ -c out.c -o out.o
-
-fact: fact.o rts/librts.a
-	clang fact.o -L./rts/ -lrts -o fact
-
-fact.o: fact.c rts/rts.h
-	clang -I./rts/ -c fact.c -o fact.o
-
 rts/librts.a: rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/main.o
 	ar -crs rts/librts.a rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/main.o
 
@@ -35,8 +23,3 @@ rts/main.o: rts/main.c rts/alloc.h rts/control.h rts/panic.h
 clean:
 	rm -f rts/*.o
 	rm -f rts/librts.a
-	rm -f rts.o
-	rm -f fact.o
-	rm -f out.o
-	rm -f fact
-	rm -f demo

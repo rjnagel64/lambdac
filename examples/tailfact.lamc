@@ -1,6 +1,10 @@
 let
   fun fact1 (n : int) : int -> int =
-    \ (acc:int) -> if n == 0 then acc else fact1 (n - 1) (n * acc);
+    \ (acc : int) ->
+      if n == 0 return int then
+        acc
+      else
+        fact1 (n - 1) (n * acc);
   in
 let fun fact (n : int) : int = fact1 n 1; in
 fact 5
