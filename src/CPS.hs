@@ -303,9 +303,9 @@ cps (TmApp e1 e2) k =
       assertEqual argTy t2
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
-          (e', _t') <- k xv retTy
+          (e', t') <- k xv retTy
           let res = LetContK [ContDef () kv [(xv, cpsType retTy)] e'] (CallK v1 [v2] [kv])
-          pure (res, retTy)
+          pure (res, t')
 cps (TmFst e) k =
   cps e $ \v t ->  do
     (ta, tb) <- case t of
