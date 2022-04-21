@@ -3,6 +3,7 @@
 import subprocess
 
 # TODO: Move this to a subdirectory, and keep all executables/.out.c files there?
+# TODO: Run only specific tests, when specify in argv?
 
 subprocess.run(["cabal", "build"])
 exe_path = subprocess.run(["cabal", "exec", "which", "lambdac"], capture_output=True, encoding="utf8").stdout.strip()
@@ -36,6 +37,7 @@ standard_test("fact", "3628800")
 standard_test("evenodd", "<1 :>")
 standard_test("adder", "8")
 standard_test("bimap", "(34, 132)")
+standard_test("state_sum", "(55, 55)")
 
 
 for (test, out) in failed_tests:
