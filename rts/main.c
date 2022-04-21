@@ -43,7 +43,7 @@ void string_buf_push(struct string_buf *sb, const char *s) {
 // Render any value as a string.
 // Once I have a functioning IO system, this should probably be replaced with
 // whatever->string primops.
-void display_alloc(int prec, struct alloc_header *alloc, struct string_buf *sb) {
+void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
     switch (alloc->type) {
     case ALLOC_CLOSURE:
         string_buf_push(sb, "<closure>");
@@ -64,7 +64,7 @@ void display_alloc(int prec, struct alloc_header *alloc, struct string_buf *sb) 
             if (i > 0) {
                 string_buf_push(sb, ", ");
             }
-            display_alloc(0, AS_ALLOC(v->words[i]), sb);
+            display_alloc(AS_ALLOC(v->words[i]), sb);
         }
         string_buf_push(sb, ")");
         }
@@ -73,25 +73,21 @@ void display_alloc(int prec, struct alloc_header *alloc, struct string_buf *sb) 
         {
         // Note: Because we do not have access to constructor names at runtime,
         // we use a simplified debug output format here.
-        // That format is 'tag : arg1 arg2 ... argn', with parens as necessary.
+        // That format is '<tag : arg1 arg2 ... argn>', with parens as necessary.
         //
         // Once I have something analogous to show, this should hopefully
         // become obsolete.
         struct sum *v = AS_SUM(alloc);
-        if (prec > 0) {
-            string_buf_push(sb, "(");
-        }
+        string_buf_push(sb, "<");
         char s[16];
         sprintf(s, "%d", v->discriminant);
         string_buf_push(sb, s);
         string_buf_push(sb, " :");
         for (uint32_t i = 0; i < v->num_fields; i++) {
             string_buf_push(sb, " ");
-            display_alloc(1, AS_ALLOC(v->words[i]), sb);
+            display_alloc(AS_ALLOC(v->words[i]), sb);
         }
-        if (prec > 0) {
-            string_buf_push(sb, ")");
-        }
+        string_buf_push(sb, ">");
         }
         break;
     }
@@ -122,7 +118,7 @@ int main(void) {
     // Display the result value.
     // Once I have a functioning IO system, this can go away.
     struct string_buf *sb = string_buf_new();
-    display_alloc(0, result_value, sb);
+    display_alloc(result_value, sb);
     printf("result = %s\n", sb->data);
     string_buf_destroy(sb);
 

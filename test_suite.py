@@ -33,7 +33,7 @@ standard_test("fibonacci", "144")
 standard_test("trisum", "55")
 standard_test("tailfib", "144")
 standard_test("fact", "3628800")
-standard_test("evenodd", "1 :")
+standard_test("evenodd", "<1 :>")
 standard_test("adder", "8")
 standard_test("bimap", "(34, 132)")
 
