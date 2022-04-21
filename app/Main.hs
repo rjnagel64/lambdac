@@ -44,6 +44,7 @@ data DriverArgs
   , driverDumpEmit :: Bool
   }
 
+-- TODO: Support -o driver flag
 driver :: Parser DriverArgs
 driver = DriverArgs
   <$> argument str (metavar "FILE")
@@ -92,6 +93,7 @@ main = do
 
   -- TODO: Flag to skip invoking clang, merely output the C code
   -- (e.g., to debug code-gen errors/warnings)
+  -- --no-executable, maybe?
   let compileProcess = proc "clang" ["-I./rts/", "-L./rts/", "-lrts", outputFile, "-o", executableFile]
   exitCode <- runProcess compileProcess
   case exitCode of

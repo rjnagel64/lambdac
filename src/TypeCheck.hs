@@ -12,6 +12,9 @@ import Data.Foldable (traverse_)
 import Control.Monad.Except
 import Control.Monad.Reader
 
+-- TODO: This is kind of redundant with CPS. Once I iron out the bugs in CPS,
+-- this will be obsolete.
+
 
 data TCError
   = NotInScope TmVar
