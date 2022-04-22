@@ -38,16 +38,17 @@ parseFile f = readFile f >>= parseString
 data DriverArgs
   = DriverArgs {
     driverFile :: String
+  , driverOutFile :: Maybe String
   , driverDumpCPS :: Bool
   , driverDumpCC :: Bool
   , driverDumpHoist :: Bool
   , driverDumpEmit :: Bool
   }
 
--- TODO: Support -o driver flag
 driver :: Parser DriverArgs
 driver = DriverArgs
   <$> argument str (metavar "FILE")
+  <*> optional (strOption (short 'o' <> metavar "FILENAME" <> help "Output location"))
   <*> switch (long "dump-cps" <> help "whether to dump CPS IR")
   <*> switch (long "dump-cc" <> help "whether to dump CC IR")
   <*> switch (long "dump-hoist" <> help "whether to dump Hoist IR")
@@ -87,8 +88,12 @@ main = do
     putStrLn obj
 
   -- TODO: Use temporary file for C output by default?
-  let outputFile = takeFileName (driverFile args) -<.> ".out.c"
-  let executableFile = dropExtension (takeFileName (driverFile args))
+  let
+    (outputFile, executableFile) = case driverOutFile args of
+      Nothing -> ( takeFileName (driverFile args) -<.> ".out.c"
+                 , dropExtension (takeFileName (driverFile args))
+                 )
+      Just f -> (f <.> ".out.c", f)
   writeFile outputFile obj
 
   -- TODO: Flag to skip invoking clang, merely output the C code

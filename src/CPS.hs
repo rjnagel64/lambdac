@@ -252,7 +252,7 @@ cps (TmLam x argTy e) k =
         let s' = cpsType retTy
         let fun = FunDef () f (map (second cpsType . snd) bs) [(k', ContK [s'])] e'
         pure (fun, S.TyArr argTy retTy)
-      (e'', t'') <- k f ty -- TODO: Answer types and things. Is it correct to discard this?
+      (e'', t'') <- k f ty
       pure (LetFunK [fun] e'', t'')
 cps (TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do

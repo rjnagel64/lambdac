@@ -56,3 +56,6 @@ Code is compiled to C and linked with a rather small runtime.
   of [CHICKEN Scheme](https://www.more-magic.net/posts/internals-gc.html)
 * [Crafting Interpreters](https://www.craftinginterpreters.com), for details of
   the garbage collection algorithm
+* *From System F to Typed Assembly Language* by Greg Morrisett, David Walker,
+  Karl Crary, Neal Glew. I have since discovered that my pipeline is very
+  similar to this (CPS, CC, hoist, codegen)
