@@ -30,6 +30,9 @@ import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
 
 -- TODO: @AbsK as ts@ denotes forall aa+.t+ -> 0
 
+-- TODO: letrec (f : t -> s = e)+ in e', but check when CPSing that e has form '\ (x:t) -> rhs'.
+-- (Basically, desugar it to let fun (f (x : t) : s = rhs)+ in e')
+
 -- call/cc: pass function return continuation to argument?
 -- what if call/cc in contdef? in let-binding?
 --
@@ -40,11 +43,15 @@ import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
 -- version or the CPS translation works.
 --
 -- Typing rule for call/cc is Pierce's Law or something?
+-- (((a -> b) -> a) -> a)
+-- Shows that the original continuation (b) is discarded.
 --
 -- CPS transform for shift/reset?
 -- Actually, not really. call/cc and control effects cause computational impurity,
 -- which I don't want to deal with right now. Even if 'reset' can be used to
 -- encapsulate the impurity.
+-- Also, standard CPS is insufficient for delimited control. (CPS: can invoke a
+-- continuation. shift/reset: need to split, compose, and invoke continuations)
 
 
 -- All sorts of variables exist in the same namespace.

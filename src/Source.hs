@@ -10,6 +10,13 @@ module Source
   , pprintType
   ) where
 
+-- TODO: 'Source' level optimizations? At the very least, arity
+-- raising/uncurrying is much easier here.
+-- (On a related note, maybe support multiple arguments/parameters here, with
+-- requirement of exact arity matching. Parser still generates curried
+-- functions and applications, but Source and CPS support the uncurried
+-- versions as well.)
+
 -- | Term variables stand for values
 newtype TmVar = TmVar String
   deriving (Eq, Ord)

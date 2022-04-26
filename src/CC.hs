@@ -127,7 +127,7 @@ data TermC
   | LetCompareC (Name, Sort) CmpC TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
-  -- Invoke a closure by providing a value for the only remaining argument.
+  -- Invoke a closure by providing values for the remaining arguments.
   | JumpC Name [Name] -- k x...
   | CallC Name [Name] [Name] -- f x+ k+
   | HaltC Name
