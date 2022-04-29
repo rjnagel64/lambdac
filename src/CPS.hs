@@ -13,6 +13,7 @@ module CPS
 
     , cpsMain
     , pprintTerm
+    , pprintType
     ) where
 
 import qualified Data.Map as Map
@@ -694,4 +695,5 @@ pprintType BoolK = "bool"
 pprintAType :: TypeK -> String
 pprintAType IntK = "int"
 pprintAType UnitK = "unit"
+pprintAType BoolK = "bool"
 pprintAType t = "(" ++ pprintType t ++ ")"

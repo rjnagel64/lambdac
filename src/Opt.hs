@@ -19,8 +19,6 @@ import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..)
 -- [Compiling with Continuations, Continued] mostly.
 -- CPS transformation, Closure Conversion, hopefully C code generation.
 
--- TODO: A simple type-checker.
-
 -- TODO: Annotate function and continuation definitions with useful information.
 -- * Number of occurrences
 -- * Availability for inlining
@@ -382,3 +380,106 @@ simplifyContDef env (ContDef ann k xs e) =
   let (e', census) = simplify env' e in
   let census' = foldr (bind . fst) census xs in
   (ContDef ann k xs e', census')
+
+
+-- * Flatten product arguments into multiple parameters.
+--
+-- Could be smarter, by using usage/absence information (special case of
+-- worker-wrapper)
+-- (Furthermore, there should be heuristics for when to apply this)
+-- (e.g., flatten if the original variable is only projected from, not used
+-- directly)
+--
+-- Rewrite
+--   fun f (p : int * (bool * unit)) : int = e
+-- into
+--   fun f (x : int, y : bool, z : unit) : int =
+--     let t0 = (y, z) in
+--     let p = (x, t0) in
+--     e
+-- 
+-- And the call site 'f q' into
+--   let x0 = fst q in
+--   let x1 = snd q in
+--   let x2 = fst x1 in
+--   let x3 = snd x1 in
+--   f x0 x2 x3
+--
+-- (The simplified should run afterwards, to clean up)
+--
+-- This optimization should probably also run on continuation definitions.
+
+-- | Decompose a product type by labelling all its subterms.
+-- Invariant: the 'TypeK' in 'NotProduct' is not constructed using 'ProdK'.
+-- (Actually, nothing bad happens. It may even be beneficially, for partial
+-- flattening)
+data LabelledProduct
+  = NotProduct TypeK
+  | IsProduct TmVar LabelledProduct TmVar LabelledProduct
+
+unlabel :: LabelledProduct -> TypeK
+unlabel (NotProduct t) = t
+unlabel (IsProduct _ t1 _ t2) = ProdK (unlabel t1) (unlabel t2) 
+
+-- TODO: I need a supply of locally?-fresh names here.
+-- labelProduct :: Monad m => TypeK -> m LabelledProduct
+-- labelProduct (ProdK t1 t2) = _
+-- labelProduct t = pure (NotProduct t)
+
+-- | Label a function definition with its flattened arguments
+-- Other functions can use this annotation to transform the body and call sites.
+-- labelDefinition :: SomeMonad m => FunDef a -> m (FunDef [(TmVar, LabelledProduct)])
+-- labelDefinition fun = pure fun
+
+-- | After flattening the argument list, we need to rebuild the original value,
+-- because the body uses it.
+-- (the simplifier will clean this up, usually. If it doesn't, the optimizer
+-- should be less zealous)
+rebuildDefinition :: (TmVar, LabelledProduct) -> Endo (TermK ())
+-- Nothing to do: x : t is already in scope
+rebuildDefinition (x, NotProduct t) = mempty
+rebuildDefinition (x, IsProduct y1 t1 y2 t2) =
+-- Need to reconstitute x : t1 * t2 from y1 : t1 and y2 : t2 with a pair constructor
+  rebuildDefinition (y1, t1) <>
+    rebuildDefinition (y2, t2) <>
+      Endo (LetValK x (ProdK (unlabel t1) (unlabel t2)) (PairK y1 y2))
+
+rebuildDefinitions :: [(TmVar, LabelledProduct)] -> Endo (TermK ())
+rebuildDefinitions prods = foldMap rebuildDefinition prods
+
+-- flattenFunDef :: FunDef a -> FunDef a
+-- flattenFunDef (FunDef ann f xs ks e) = FunDef ann f xs' ks e'
+--   where
+--     prods = _
+--     xs' = concatMap _ (productLeaves prods)
+--     e' = _ -- rebuild parameter list, transform call sites
+
+-- Turn 'bind (p : t1 * t2) in e' into 'bind (x : t1, y : t2) in let p = (x, y) in e'
+-- flattenBinder :: [(TmVar, TypeK)] -> TermK () -> TermK ()
+-- flattenBinder xs e = _
+
+
+-- | Given an argument descibed by a product type, flatten it into components.
+-- This produces an endomorphism (to add the required projection statements),
+-- and a list of parameters.
+flattenArgument :: (TmVar, LabelledProduct) -> (Endo (TermK ()), [TmVar])
+flattenArgument (x, NotProduct t) = (mempty, [x])
+flattenArgument (p, IsProduct y1 t1 y2 t2) = mconcat [
+    -- Hmm. This only ever generates arguments for each leaf.
+    -- Are there situations where intermediate values are still useful?
+    -- Can this be adjusted to produce those?
+    (Endo (LetFstK y1 (unlabel t1) p), mempty)
+  , flattenArgument (y1, t1)
+  , (Endo (LetSndK y2 (unlabel t2) p), mempty)
+  , flattenArgument (y2, t2)
+  ]
+
+flattenCallSite :: TmVar -> [(TmVar, LabelledProduct)] -> [CoVar] -> TermK ()
+flattenCallSite fn prods ks =
+  let (Endo build, xs') = foldMap flattenArgument prods in
+  build (CallK fn xs' ks)
+
+flattenJumpSite :: CoVar -> [(TmVar, LabelledProduct)] -> TermK ()
+flattenJumpSite co prods =
+  let (Endo build, xs') = foldMap flattenArgument prods in
+  build (JumpK co xs')
