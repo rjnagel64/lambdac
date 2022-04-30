@@ -23,16 +23,12 @@ void init_locals(void);
 void destroy_locals(void);
 void reset_locals(void);
 
-// TODO: This representation with variable number of fields is getting somewhat inconvenient.
-// Replace it with 'struct pair_value', 'struct sum_value', 'struct int_value', etc.
-struct value {
+struct constant {
     struct alloc_header header;
-    // Count of words is not necessary? In-bounds access of fields is
-    // guaranteed by static typing. (Might be necessary for GC.)
-    uintptr_t words[];
+    uintptr_t value;
 };
 
-#define AS_VALUE(v) ((struct value *)(v))
+#define AS_CONST(v) ((struct constant *)(v))
 
 struct closure {
     struct alloc_header header;
@@ -70,14 +66,14 @@ struct product *allocate_pair(struct alloc_header *x, struct alloc_header *y);
 struct sum *allocate_inl(struct alloc_header *v);
 struct sum *allocate_inr(struct alloc_header *v);
 // Corresponds to Int32# constructor? No discriminant, though.
-struct value *allocate_int32(int32_t x);
+struct constant *allocate_int32(int32_t x);
 struct product *allocate_nil(void);
 struct sum *allocate_true(void);
 struct sum *allocate_false(void);
 
 struct alloc_header *project_fst(struct product *v);
 struct alloc_header *project_snd(struct product *v);
-int32_t int32_value(struct value *v); // partial
+int32_t int32_value(struct constant *v);
 
 
 #endif

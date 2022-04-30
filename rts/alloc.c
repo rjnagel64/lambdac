@@ -52,12 +52,13 @@ void mark_gray(struct alloc_header *alloc) {
     gray_list[num_gray++] = alloc;
 }
 
-void trace_const(struct value *v) {
+void trace_const(struct constant *v) {
 }
 
-void trace_prod(struct value *v) {
-    mark_gray(AS_ALLOC(v->words[0]));
-    mark_gray(AS_ALLOC(v->words[1]));
+void trace_prod(struct product *v) {
+    for (uint32_t i = 0; i < v->num_fields; i++) {
+        mark_gray(AS_ALLOC(v->words[i]));
+    }
 }
 
 void trace_sum(struct sum *v) {
@@ -76,10 +77,10 @@ void trace_alloc(struct alloc_header *alloc) {
         trace_closure(AS_CLOSURE(alloc));
         break;
     case ALLOC_CONST:
-        trace_const(AS_VALUE(alloc));
+        trace_const(AS_CONST(alloc));
         break;
     case ALLOC_PROD:
-        trace_prod(AS_VALUE(alloc));
+        trace_prod(AS_PRODUCT(alloc));
         break;
     case ALLOC_SUM:
         trace_sum(AS_SUM(alloc));
@@ -201,10 +202,10 @@ struct closure *allocate_closure(
     return cl;
 }
 
-struct value *allocate_int32(int32_t x) {
-    struct value *v = malloc(sizeof(struct value) + 1 * sizeof(uintptr_t));
+struct constant *allocate_int32(int32_t x) {
+    struct constant *v = malloc(sizeof(struct constant));
     v->header.type = ALLOC_CONST;
-    v->words[0] = (uintptr_t)x;
+    v->value = (uintptr_t)x;
 
     cons_new_alloc(AS_ALLOC(v));
     return v;
@@ -257,9 +258,8 @@ struct sum *allocate_inr(struct alloc_header *y) {
 }
 
 
-int32_t int32_value(struct value *v) {
-    // Unchecked. Use only on int32 values.
-    return (int32_t)v->words[0];
+int32_t int32_value(struct constant *v) {
+    return (int32_t)v->value;
 }
 
 struct alloc_header *project_fst(struct product *v) {

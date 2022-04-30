@@ -50,7 +50,7 @@ void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
         break;
     case ALLOC_CONST:
         {
-        struct value *v = AS_VALUE(alloc);
+        struct constant *v = AS_CONST(alloc);
         char s[16];
         sprintf(s, "%d", int32_value(v));
         string_buf_push(sb, s);

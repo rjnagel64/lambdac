@@ -294,7 +294,7 @@ emitPrimCall envp f xs = f ++ "(" ++ intercalate ", " (map (emitName envp) xs) +
 
 asSort :: Sort -> String -> String
 asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
-asSort Value x = "AS_VALUE(" ++ x ++ ")"
+asSort Value x = "AS_CONST(" ++ x ++ ")"
 asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
 asSort Product x = "AS_PRODUCT(" ++ x ++ ")"
@@ -332,14 +332,14 @@ emitPatch ns (PlaceName _ p) (EnvAlloc _free rec) =
 
 emitFieldDecl :: FieldName -> String
 emitFieldDecl (FieldName Closure c) = "struct closure *" ++ c
-emitFieldDecl (FieldName Value x) = "struct value *" ++ x
+emitFieldDecl (FieldName Value x) = "struct constant *" ++ x
 emitFieldDecl (FieldName Alloc a) = "struct alloc_header *" ++ a
 emitFieldDecl (FieldName Sum x) = "struct sum *" ++ x
 emitFieldDecl (FieldName Product x) = "struct product *" ++ x
 
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName Closure k) = "struct closure *" ++ k
-emitPlace (PlaceName Value x) = "struct value *" ++ x
+emitPlace (PlaceName Value x) = "struct constant *" ++ x
 emitPlace (PlaceName Alloc a) = "struct alloc_header *" ++ a
 emitPlace (PlaceName Sum x) = "struct sum *" ++ x
 emitPlace (PlaceName Product x) = "struct product *" ++ x

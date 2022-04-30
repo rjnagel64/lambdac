@@ -104,7 +104,7 @@ sortOf (K.SumK _ _) = Sum
 sortOf K.BoolK = Sum
 sortOf (K.ProdK _ _) = Product
 sortOf K.UnitK = Product
-sortOf _ = Value
+sortOf K.IntK = Value
 
 -- | Each type of closure (e.g., one boxed argument, one unboxed argument and
 -- one continuation, etc.) requires a different type of thunk when that closure
