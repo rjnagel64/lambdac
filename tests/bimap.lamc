@@ -1,0 +1,9 @@
+let
+  fun bimap (f : int -> int) : (int -> int) -> (int * int) -> (int * int) =
+    \ (g : int -> int) ->
+      \ (p : int * int) ->
+        (f (fst p), g (snd p));
+in
+let fun inc (x : int) : int = x + 1; in
+let fun dbl (x : int) : int = x + x; in
+bimap dbl inc (17, 131)

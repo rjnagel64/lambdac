@@ -2,24 +2,24 @@
 
 import subprocess
 
-# TODO: Move this to a subdirectory, and keep all executables/.out.c files there?
+# TODO: Move this script into tests/? Might need to adjust the CWD for cabal invocations
 # TODO: Run only specific tests, when specify in argv?
 
 subprocess.run(["cabal", "build"])
-exe_path = subprocess.run(["cabal", "exec", "which", "lambdac"], capture_output=True, encoding="utf8").stdout.strip()
+compiler_path = subprocess.run(["cabal", "exec", "which", "lambdac"], capture_output=True, encoding="utf8").stdout.strip()
 
 failed_tests = []
 
 def standard_test(name, result):
-    path = f"examples/{name}.lamc"
-    proc = subprocess.run([exe_path, path], capture_output=True, encoding="utf8")
+    path = f"./tests/{name}.lamc"
+    exe_path = f"./tests/bin/{name}"
+    proc = subprocess.run([compiler_path, path, "-o", exe_path], capture_output=True, encoding="utf8")
     if proc.returncode != 0:
         print(f"{name} FAIL")
         failed_tests.append((name, proc.stdout))
         return
 
-    exe = f"./{name}"
-    proc = subprocess.run([exe], capture_output=True, encoding="utf8")
+    proc = subprocess.run([exe_path], capture_output=True, encoding="utf8")
     if proc.stdout != f"result = {result}\n":
         print(f"{name} FAIL")
         failed_tests.append((name, proc.stdout))

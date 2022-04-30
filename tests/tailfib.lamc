@@ -1,0 +1,11 @@
+let fun fib (n : int) : int =
+  let fun go (i : int) : (int * int) -> int =
+    \ (p : int * int) ->
+      if i == 0 return int then
+        fst p
+      else
+      go (i - 1) (snd p, fst p + snd p);
+  in
+  go n (0, 1);
+in
+fib 12
