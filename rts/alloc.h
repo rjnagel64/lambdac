@@ -65,15 +65,15 @@ struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*cod
 struct product *allocate_pair(struct alloc_header *x, struct alloc_header *y);
 struct sum *allocate_inl(struct alloc_header *v);
 struct sum *allocate_inr(struct alloc_header *v);
-// Corresponds to Int32# constructor? No discriminant, though.
-struct constant *allocate_int32(int32_t x);
+// Corresponds to Int64# constructor? No discriminant, though.
+struct constant *allocate_int64(int64_t x);
 struct product *allocate_nil(void);
 struct sum *allocate_true(void);
 struct sum *allocate_false(void);
 
 struct alloc_header *project_fst(struct product *v);
 struct alloc_header *project_snd(struct product *v);
-int32_t int32_value(struct constant *v);
+int64_t int64_value(struct constant *v);
 
 
 #endif

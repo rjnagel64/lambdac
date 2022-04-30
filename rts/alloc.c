@@ -202,7 +202,7 @@ struct closure *allocate_closure(
     return cl;
 }
 
-struct constant *allocate_int32(int32_t x) {
+struct constant *allocate_int64(int64_t x) {
     struct constant *v = malloc(sizeof(struct constant));
     v->header.type = ALLOC_CONST;
     v->value = (uintptr_t)x;
@@ -258,8 +258,8 @@ struct sum *allocate_inr(struct alloc_header *y) {
 }
 
 
-int32_t int32_value(struct constant *v) {
-    return (int32_t)v->value;
+int64_t int64_value(struct constant *v) {
+    return (int64_t)v->value;
 }
 
 struct alloc_header *project_fst(struct product *v) {

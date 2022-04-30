@@ -109,7 +109,7 @@ data EnvAlloc
   = EnvAlloc { envAllocFreeArgs :: [(FieldName, Name)], envAllocRecArgs :: [(FieldName, Name)] }
 
 data ValueH
-  = IntH Int32
+  = IntH Int64
   | BoolH Bool
   | PairH Name Name
   | InlH Name
@@ -117,15 +117,15 @@ data ValueH
   | NilH
 
 data PrimOp
-  = PrimAddInt32 Name Name
-  | PrimSubInt32 Name Name
-  | PrimMulInt32 Name Name
-  | PrimEqInt32 Name Name
-  | PrimNeInt32 Name Name
-  | PrimLtInt32 Name Name
-  | PrimLeInt32 Name Name
-  | PrimGtInt32 Name Name
-  | PrimGeInt32 Name Name
+  = PrimAddInt64 Name Name
+  | PrimSubInt64 Name Name
+  | PrimMulInt64 Name Name
+  | PrimEqInt64 Name Name
+  | PrimNeInt64 Name Name
+  | PrimLtInt64 Name Name
+  | PrimLeInt64 Name Name
+  | PrimGtInt64 Name Name
+  | PrimGeInt64 Name Name
 
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
@@ -260,17 +260,17 @@ hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
 
 hoistArith :: ArithC -> HoistM PrimOp
-hoistArith (AddC x y) = PrimAddInt32 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistArith (SubC x y) = PrimSubInt32 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistArith (MulC x y) = PrimMulInt32 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith (SubC x y) = PrimSubInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith (MulC x y) = PrimMulInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 hoistCmp :: CmpC -> HoistM PrimOp
-hoistCmp (EqC x y) = PrimEqInt32 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (NeC x y) = PrimNeInt32 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (LtC x y) = PrimLtInt32 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (LeC x y) = PrimLeInt32 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (GtC x y) = PrimGtInt32 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (GeC x y) = PrimGeInt32 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (EqC x y) = PrimEqInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (NeC x y) = PrimNeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (LtC x y) = PrimLtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (LeC x y) = PrimLeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
@@ -374,15 +374,15 @@ pprintValue (InlH x) = "inl " ++ show x
 pprintValue (InrH y) = "inr " ++ show y
 
 pprintPrim :: PrimOp -> String
-pprintPrim (PrimAddInt32 x y) = "prim_addint32(" ++ show x ++ ", " ++ show y ++ ")"
-pprintPrim (PrimSubInt32 x y) = "prim_subint32(" ++ show x ++ ", " ++ show y ++ ")"
-pprintPrim (PrimMulInt32 x y) = "prim_mulint32(" ++ show x ++ ", " ++ show y ++ ")"
-pprintPrim (PrimEqInt32 x y) = "prim_eqint32(" ++ show x ++ ", " ++ show y ++ ")"
-pprintPrim (PrimNeInt32 x y) = "prim_neint32(" ++ show x ++ ", " ++ show y ++ ")"
-pprintPrim (PrimLtInt32 x y) = "prim_ltint32(" ++ show x ++ ", " ++ show y ++ ")"
-pprintPrim (PrimLeInt32 x y) = "prim_leint32(" ++ show x ++ ", " ++ show y ++ ")"
-pprintPrim (PrimGtInt32 x y) = "prim_gtint32(" ++ show x ++ ", " ++ show y ++ ")"
-pprintPrim (PrimGeInt32 x y) = "prim_geint32(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimSubInt64 x y) = "prim_subint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimMulInt64 x y) = "prim_mulint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimEqInt64 x y) = "prim_eqint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimNeInt64 x y) = "prim_neint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimLtInt64 x y) = "prim_ltint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimLeInt64 x y) = "prim_leint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimGtInt64 x y) = "prim_gtint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintPlace :: PlaceName -> String
 pprintPlace (PlaceName s x) = show s ++ " " ++ x

@@ -270,7 +270,7 @@ emitCase envp x ks =
         ,"        break;"]
 
 emitValueAlloc :: String -> ValueH -> String
-emitValueAlloc _ (IntH i) = "allocate_int32(" ++ show i ++ ")"
+emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
 emitValueAlloc _ NilH = "allocate_nil()"
@@ -279,15 +279,15 @@ emitValueAlloc envp (InlH y) = "allocate_inl(" ++ asSort Alloc (emitName envp y)
 emitValueAlloc envp (InrH y) = "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ")"
 
 emitPrimOp :: String -> PrimOp -> String
-emitPrimOp envp (PrimAddInt32 x y) = emitPrimCall envp "prim_addint32" [x, y]
-emitPrimOp envp (PrimSubInt32 x y) = emitPrimCall envp "prim_subint32" [x, y]
-emitPrimOp envp (PrimMulInt32 x y) = emitPrimCall envp "prim_mulint32" [x, y]
-emitPrimOp envp (PrimEqInt32 x y) = emitPrimCall envp "prim_eqint32" [x, y]
-emitPrimOp envp (PrimNeInt32 x y) = emitPrimCall envp "prim_neint32" [x, y]
-emitPrimOp envp (PrimLtInt32 x y) = emitPrimCall envp "prim_ltint32" [x, y]
-emitPrimOp envp (PrimLeInt32 x y) = emitPrimCall envp "prim_leint32" [x, y]
-emitPrimOp envp (PrimGtInt32 x y) = emitPrimCall envp "prim_gtint32" [x, y]
-emitPrimOp envp (PrimGeInt32 x y) = emitPrimCall envp "prim_geint32" [x, y]
+emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
+emitPrimOp envp (PrimSubInt64 x y) = emitPrimCall envp "prim_subint64" [x, y]
+emitPrimOp envp (PrimMulInt64 x y) = emitPrimCall envp "prim_mulint64" [x, y]
+emitPrimOp envp (PrimEqInt64 x y) = emitPrimCall envp "prim_eqint64" [x, y]
+emitPrimOp envp (PrimNeInt64 x y) = emitPrimCall envp "prim_neint64" [x, y]
+emitPrimOp envp (PrimLtInt64 x y) = emitPrimCall envp "prim_ltint64" [x, y]
+emitPrimOp envp (PrimLeInt64 x y) = emitPrimCall envp "prim_leint64" [x, y]
+emitPrimOp envp (PrimGtInt64 x y) = emitPrimCall envp "prim_gtint64" [x, y]
+emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
 
 emitPrimCall :: String -> String -> [Name] -> String
 emitPrimCall envp f xs = f ++ "(" ++ intercalate ", " (map (emitName envp) xs) ++ ")"

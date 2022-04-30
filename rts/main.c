@@ -52,7 +52,7 @@ void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
         {
         struct constant *v = AS_CONST(alloc);
         char s[16];
-        sprintf(s, "%d", int32_value(v));
+        sprintf(s, "%lld", int64_value(v));
         string_buf_push(sb, s);
         }
         break;
