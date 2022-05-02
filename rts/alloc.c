@@ -191,12 +191,14 @@ struct product *make_product(uint32_t num_fields) {
 struct closure *allocate_closure(
         void *env,
         void (*trace)(void *env),
-        void (*code)(void)) {
+        void (*code)(void),
+        void (*enter)(void)) {
     struct closure *cl = malloc(sizeof(struct closure));
     cl->header.type = ALLOC_CLOSURE;
     cl->env = env;
     cl->trace = trace;
     cl->code = code;
+    cl->enter = enter;
 
     cons_new_alloc(AS_ALLOC(cl));
     return cl;

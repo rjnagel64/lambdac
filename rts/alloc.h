@@ -35,6 +35,7 @@ struct closure {
     void *env;
     void (*trace)(void *env);
     void (*code)(void);
+    void (*enter)(void);
 };
 
 #define AS_CLOSURE(v) ((struct closure *)(v))
@@ -61,7 +62,7 @@ extern void (*trace_roots)(void);
 void mark_gray(struct alloc_header *alloc);
 void sweep_all_allocations(void);
 
-struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*code)(void));
+struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*code)(void), void (*enter)(void));
 struct product *allocate_pair(struct alloc_header *x, struct alloc_header *y);
 struct sum *allocate_inl(struct alloc_header *v);
 struct sum *allocate_inr(struct alloc_header *v);

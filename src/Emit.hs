@@ -133,7 +133,7 @@ emitThunkSuspend :: ThunkType -> [String]
 emitThunkSuspend (ThunkType ss) =
   ["void " ++ thunkSuspendName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = realloc(next_step, sizeof(struct " ++ thunkTypeName ns ++ "));"
-  ,"    next->header.enter = " ++ thunkEnterName ns ++ ";"
+  ,"    next->header.enter = closure->enter;"
   ,"    next->header.trace = " ++ thunkTraceName ns ++ ";"
   ,"    next->closure = closure;"] ++
   map assignField ss' ++
@@ -316,7 +316,7 @@ emitAlloc envp (ClosureAlloc p ty d (EnvAlloc free rec)) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ intercalate ", " args ++ ");"
   where
     ns = namesForDecl d
-    args = [envArg, traceArg, codeArg]
+    args = [envArg, traceArg, codeArg, enterArg]
     envArg = declAllocName ns ++ "(" ++ intercalate ", " envAllocArgs ++ ")"
     traceArg = declTraceName ns
     codeArg = "(void (*)(void))" ++ declCodeName ns
