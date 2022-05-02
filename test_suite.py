@@ -3,7 +3,7 @@
 import subprocess
 
 # TODO: Move this script into tests/? Might need to adjust the CWD for cabal invocations
-# TODO: Run only specific tests, when specify in argv?
+# TODO: Run only specific tests, when specified in argv?
 
 subprocess.run(["cabal", "build"])
 compiler_path = subprocess.run(["cabal", "exec", "which", "lambdac"], capture_output=True, encoding="utf8").stdout.strip()
@@ -26,9 +26,10 @@ def standard_test(name, result):
         return
     print(f"{name} OK")
 
-# TODO: compile-fail tests that assert error and possibly message
 def compile_fail(name, err):
-    pass
+    print(f"{name} FAIL")
+    failed_tests.append((name, "compile-fail tests not implemented"))
+    return
 
 standard_test("fibonacci", "144")
 standard_test("trisum", "55")

@@ -308,18 +308,19 @@ asSort Product x = "AS_PRODUCT(" ++ x ++ ")"
 -- can't really be implemented.)
 emitAllocGroup :: String -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
-  map (\ (ClosureAlloc p d env) -> emitAlloc envp p d env) closures ++
-  concatMap (\ (ClosureAlloc p d env) -> emitPatch (namesForDecl d) p env) closures
+  map (emitAlloc envp) closures ++
+  concatMap (\ (ClosureAlloc p _ty d env) -> emitPatch (namesForDecl d) p env) closures
 
-emitAlloc :: String -> PlaceName -> DeclName -> EnvAlloc -> String
-emitAlloc envp p d (EnvAlloc free rec) =
-  "    " ++ emitPlace p ++ " = " ++ "allocate_closure" ++ "(" ++ intercalate ", " args ++ ");"
+emitAlloc :: String -> ClosureAlloc -> String
+emitAlloc envp (ClosureAlloc p ty d (EnvAlloc free rec)) =
+  "    " ++ emitPlace p ++ " = allocate_closure(" ++ intercalate ", " args ++ ");"
   where
     ns = namesForDecl d
     args = [envArg, traceArg, codeArg]
     envArg = declAllocName ns ++ "(" ++ intercalate ", " envAllocArgs ++ ")"
     traceArg = declTraceName ns
     codeArg = "(void (*)(void))" ++ declCodeName ns
+    enterArg = thunkEnterName (namesForThunk ty)
 
     -- Recursive/cyclic environment references are initialized to NULL, and
     -- then patched once all the closures have been allocated.

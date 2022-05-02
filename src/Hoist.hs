@@ -103,7 +103,12 @@ data TermH
   | AllocClosure [ClosureAlloc] TermH
 
 data ClosureAlloc
-  = ClosureAlloc { closurePlace :: PlaceName, closureDecl :: DeclName, closureEnv :: EnvAlloc }
+  = ClosureAlloc {
+    closurePlace :: PlaceName
+  , closureType :: ThunkType
+  , closureDecl :: DeclName
+  , closureEnv :: EnvAlloc
+  }
 
 data EnvAlloc
   = EnvAlloc { envAllocFreeArgs :: [(FieldName, Name)], envAllocRecArgs :: [(FieldName, Name)] }
@@ -195,11 +200,12 @@ hoist (LetFunC fs e) = do
   tellClosures ds'
 
   placesForClosureAllocs C.funClosureName fdecls $ \fplaces -> do
-    fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f free rec _x _k _e) -> do
+    fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f free rec xs ks _e) -> do
       -- env <- traverse envAllocField (free ++ rec)
       free' <- traverse envAllocField free
       rec' <- traverse envAllocField rec
-      pure (ClosureAlloc p d (EnvAlloc free' rec'))
+      let ty = ThunkType ([s | (_x, s) <- xs] ++ [s | (_k, s) <- ks])
+      pure (ClosureAlloc p ty d (EnvAlloc free' rec'))
     e' <- hoist e
     pure (AllocClosure fs' e')
 hoist (LetContC ks e) = do
@@ -209,11 +215,12 @@ hoist (LetContC ks e) = do
   tellClosures ds'
 
   placesForClosureAllocs C.contClosureName kdecls $ \kplaces -> do
-    ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k free rec _x _e) -> do
+    ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k free rec xs _e) -> do
       -- env <- traverse envAllocField (free ++ rec)
       free' <- traverse envAllocField free
       rec' <- traverse envAllocField rec
-      pure (ClosureAlloc p d (EnvAlloc free' rec'))
+      let ty = ThunkType [s | (_x, s) <- xs]
+      pure (ClosureAlloc p ty d (EnvAlloc free' rec'))
     e' <- hoist e
     pure (AllocClosure ks' e')
 
@@ -400,7 +407,7 @@ pprintClosureDecl n (ClosureDecl f (EnvDecl fs) params e) =
   where env = "{" ++ intercalate ", " (map pprintField fs) ++ "}"
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
-pprintClosureAlloc n (ClosureAlloc p d (EnvAlloc free rec)) =
+pprintClosureAlloc n (ClosureAlloc p _t d (EnvAlloc free rec)) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ env'
   where env' = "{" ++ intercalate ", " (map pprintAllocArg (free ++ rec)) ++ "}\n"
 
