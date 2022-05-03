@@ -1,11 +1,15 @@
 
 
 import subprocess
+import sys
 
 # TODO: Move this script into tests/? Might need to adjust the CWD for cabal invocations
 # TODO: Run only specific tests, when specified in argv?
 
-subprocess.run(["cabal", "build"])
+proc = subprocess.run(["cabal", "build"])
+if proc.returncode != 0:
+    print(f"{sys.argv[0]}: Compiler failed to build: not running tests")
+    sys.exit(1)
 compiler_path = subprocess.run(["cabal", "exec", "which", "lambdac"], capture_output=True, encoding="utf8").stdout.strip()
 
 failed_tests = []

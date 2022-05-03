@@ -200,8 +200,8 @@ emitClosureCode ns xs e =
   emitClosureBody envPointer e ++
   ["}"]
   where
-    paramList = if null xs then "void *envp" else "void *envp, " ++ emitParameterList xs
-    xs' = Set.fromList (map placeName (xs)) `Set.union` go2 e
+    paramList = intercalate ", " (("void *"++envParam) : map emitPlace xs)
+    xs' = Set.fromList (map placeName xs) `Set.union` go2 e
     envParam = go "envp" xs'
     envPointer = go "env" (Set.insert envParam xs')
 
@@ -216,9 +216,6 @@ emitClosureCode ns xs e =
     go2 (HaltH _) = Set.empty
     go2 (OpenH _ _) = Set.empty
     go2 (CaseH _ _) = Set.empty
-
-emitParameterList :: [PlaceName] -> String
-emitParameterList ps = intercalate ", " (map emitPlace ps)
 
 emitClosureBody :: String -> TermH -> [String]
 emitClosureBody envp (LetValH x v e) =

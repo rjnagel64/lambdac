@@ -10,6 +10,7 @@ module CC
   ( TermC(..)
   , FunClosureDef(..)
   , ContClosureDef(..)
+  , EnvDef(..)
   , Name(..)
   , prime
   , ValueC(..)
@@ -152,8 +153,9 @@ data CmpC
 data FunClosureDef
   = FunClosureDef {
     funClosureName :: Name
-  , funClosureFreeNames :: [(Name, Sort)]
-  , funClosureRecNames :: [(Name, Sort)]
+    -- TODO: Have a name for the environment parameter
+    -- (It makes things cleaner later on)
+  , funEnvDef :: EnvDef
   , funClosureParam :: [(Name, Sort)]
   , funClosureCont :: [(Name, Sort)]
   , funClosureBody :: TermC
@@ -165,11 +167,12 @@ data FunClosureDef
 data ContClosureDef
   = ContClosureDef {
     contClosureName :: Name
-  , contClosureFreeNames :: [(Name, Sort)]
-  , contClosureRecNames :: [(Name, Sort)]
+  , contEnvDef :: EnvDef
   , contClosureParam :: [(Name, Sort)]
   , contClosureBody :: TermC
   }
+
+data EnvDef = EnvDef { envFreeNames :: [(Name, Sort)], envRecNames :: [(Name, Sort)] }
 
 data ValueC
   = PairC Name Name
@@ -324,7 +327,7 @@ cconvFunDef fs fun@(FunDef _ f xs ks e) = do
   fields <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
   let (free, rec) = markRec fs (Set.toList fields)
   e' <- local extend (cconv e)
-  pure (FunClosureDef (tmVar f) free rec tmbinds cobinds e')
+  pure (FunClosureDef (tmVar f) (EnvDef free rec) tmbinds cobinds e')
 
 cconvContDef :: Set Name -> ContDef a -> ConvM ContClosureDef
 cconvContDef ks kont@(ContDef _ k xs e) = do
@@ -337,7 +340,7 @@ cconvContDef ks kont@(ContDef _ k xs e) = do
   fields <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
   let (free, rec) = markRec ks (Set.toList fields)
   e' <- local extend (cconv e)
-  pure (ContClosureDef (coVar k) free rec binds e')
+  pure (ContClosureDef (coVar k) (EnvDef free rec) binds e')
 
 cconvValue :: ValueK -> ValueC
 cconvValue NilK = NilC
@@ -423,19 +426,20 @@ pprintCompare (GtC x y) = show x ++ " > " ++ show y
 pprintCompare (GeC x y) = show x ++ " >= " ++ show y
 
 pprintClosureDef :: Int -> FunClosureDef -> String
-pprintClosureDef n (FunClosureDef f free rec xs ks e) =
-  indent n env ++ indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
+pprintClosureDef n (FunClosureDef f env xs ks e) =
+  pprintEnvDef n env ++ indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
-    env = "{" ++ intercalate ", " vars ++ "}\n"
-    vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
     params = "(" ++ intercalate ", " args ++ ")"
     args = map pprintPlace xs ++ map pprintPlace ks
 
 pprintContClosureDef :: Int -> ContClosureDef -> String
-pprintContClosureDef n (ContClosureDef k free rec xs e) =
-  indent n env ++ indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
+pprintContClosureDef n (ContClosureDef k env xs e) =
+  pprintEnvDef n env ++ indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
-    env = "{" ++ intercalate ", " vars ++ "}\n"
-    vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
     params = "(" ++ intercalate ", " args ++ ")"
     args = map pprintPlace xs
+
+pprintEnvDef :: Int -> EnvDef -> String
+pprintEnvDef n (EnvDef free rec) = indent n $ "{" ++ intercalate ", " vars ++ "}\n"
+  where
+    vars = map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)

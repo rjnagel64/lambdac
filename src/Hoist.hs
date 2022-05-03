@@ -200,12 +200,10 @@ hoist (LetFunC fs e) = do
   tellClosures ds'
 
   placesForClosureAllocs C.funClosureName fdecls $ \fplaces -> do
-    fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f free rec xs ks _e) -> do
-      -- env <- traverse envAllocField (free ++ rec)
-      free' <- traverse envAllocField free
-      rec' <- traverse envAllocField rec
+    fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f env xs ks _e) -> do
+      env' <- hoistEnvDef env
       let ty = ThunkType ([s | (_x, s) <- xs] ++ [s | (_k, s) <- ks])
-      pure (ClosureAlloc p ty d (EnvAlloc free' rec'))
+      pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure fs' e')
 hoist (LetContC ks e) = do
@@ -215,14 +213,18 @@ hoist (LetContC ks e) = do
   tellClosures ds'
 
   placesForClosureAllocs C.contClosureName kdecls $ \kplaces -> do
-    ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k free rec xs _e) -> do
-      -- env <- traverse envAllocField (free ++ rec)
-      free' <- traverse envAllocField free
-      rec' <- traverse envAllocField rec
+    ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k env xs _e) -> do
+      env' <- hoistEnvDef env
       let ty = ThunkType [s | (_x, s) <- xs]
-      pure (ClosureAlloc p ty d (EnvAlloc free' rec'))
+      pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure ks' e')
+
+hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
+hoistEnvDef (C.EnvDef free rec) = do
+  free' <- traverse envAllocField free
+  rec' <- traverse envAllocField rec
+  pure (EnvAlloc free' rec')
 
 envAllocField :: (C.Name, Sort) -> HoistM (FieldName, Name)
 envAllocField (x, s) = do
@@ -281,17 +283,15 @@ hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
-hoistFunClosure (fdecl, C.FunClosureDef _f free rec xs ks body) = do
-  let fields = free ++ rec
-  (fields', places', body') <- inClosure fields (xs ++ ks) $ hoist body
+hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
+  (fields', places', body') <- inClosure env (xs ++ ks) $ hoist body
   let envd = EnvDecl fields'
   let fd = ClosureDecl fdecl envd places' body'
   pure fd
 
 hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ClosureDecl
-hoistContClosure (kdecl, C.ContClosureDef _k free rec xs body) = do
-  let fields = free ++ rec
-  (fields', places', body') <- inClosure fields xs $ hoist body
+hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
+  (fields', places', body') <- inClosure env xs $ hoist body
   let envd = EnvDecl fields'
   let kd = ClosureDecl kdecl envd places' body'
   pure kd
@@ -300,11 +300,12 @@ hoistContClosure (kdecl, C.ContClosureDef _k free rec xs body) = do
 -- set of declaration names intact. This is because inside a closure, all names
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: [(C.Name, Sort)] -> [(C.Name, Sort)] -> HoistM a -> HoistM ([FieldName], [PlaceName], a)
-inClosure fields places m = do
+inClosure :: C.EnvDef -> [(C.Name, Sort)] -> HoistM a -> HoistM ([FieldName], [PlaceName], a)
+inClosure (C.EnvDef free rec) places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
-  let places' = map (\ (x, s) -> (x, asPlaceName s x)) places
+  let fields = free ++ rec
   let fields' = map (\ (x, s) -> (x, asFieldName s x)) fields
+  let places' = map (\ (x, s) -> (x, asPlaceName s x)) places
   -- Preserve 'DeclName's?
   let replaceEnv (HoistEnv _ _) = HoistEnv (Map.fromList places') (Map.fromList fields')
   r <- local replaceEnv m
