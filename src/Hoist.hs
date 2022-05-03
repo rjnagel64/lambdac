@@ -37,7 +37,7 @@ import Control.Monad.Reader
 import Control.Monad.Writer
 import Control.Monad.State
 
-import Data.Int
+import Data.Int (Int64)
 import Data.Traversable (for, mapAccumL)
 import Data.List (intercalate)
 
@@ -221,10 +221,8 @@ hoist (LetContC ks e) = do
     pure (AllocClosure ks' e')
 
 hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
-hoistEnvDef (C.EnvDef free rec) = do
-  free' <- traverse envAllocField free
-  rec' <- traverse envAllocField rec
-  pure (EnvAlloc free' rec')
+hoistEnvDef (C.EnvDef free rec) =
+  EnvAlloc <$> traverse envAllocField free <*> traverse envAllocField rec
 
 envAllocField :: (C.Name, Sort) -> HoistM (FieldName, Name)
 envAllocField (x, s) = do

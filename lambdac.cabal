@@ -29,6 +29,7 @@ library
       Experiments.STLC
       Experiments.Runtime
       -- Experiments.F
+      -- Experiments.Monomorphise
       Lexer
       Loc
       Parser

@@ -86,7 +86,10 @@ coVar :: K.CoVar -> Name
 coVar (K.CoVar k i) = Name k i
 
 -- | 'Sort' is really a simplified form of type information.
--- Value = int | bool | t1 * t2 | t1 + t2 | ()
+-- TODO: I should preserve more type information through CC
+-- Value = int
+-- Sum = bool | t1 + t2
+-- Product = () | t1 * t2
 -- Closure = (t1, t2, ...) -> 0
 -- Alloc = a : *
 data Sort = Closure | Value | Alloc | Sum | Product
@@ -95,7 +98,7 @@ data Sort = Closure | Value | Alloc | Sum | Product
 instance Show Sort where
   show Closure = "closure"
   show Value = "value"
-  show Alloc = "alloc_header" -- TODO: instance Show Sort shouldn't really care about C names
+  show Alloc = "alloc"
   show Sum = "sum"
   show Product = "product"
 
@@ -147,7 +150,7 @@ data CmpC
   | GtC Name Name
   | GeC Name Name
 
--- | @f {x+} y k = e@
+-- | @f {x+} y+ k+ = e@
 -- Closures capture two sets of names: those from outer scopes, and those from
 -- the same recursive bind group.
 data FunClosureDef
@@ -156,19 +159,19 @@ data FunClosureDef
     -- TODO: Have a name for the environment parameter
     -- (It makes things cleaner later on)
   , funEnvDef :: EnvDef
-  , funClosureParam :: [(Name, Sort)]
-  , funClosureCont :: [(Name, Sort)]
+  , funClosureParams :: [(Name, Sort)]
+  , funClosureConts :: [(Name, Sort)]
   , funClosureBody :: TermC
   }
 
--- | @k {x+} y = e@
+-- | @k {x+} y+ = e@
 -- Closures capture two sets of names: those from outer scopes, and those from
 -- the same recursive bind group.
 data ContClosureDef
   = ContClosureDef {
     contClosureName :: Name
   , contEnvDef :: EnvDef
-  , contClosureParam :: [(Name, Sort)]
+  , contClosureParams :: [(Name, Sort)]
   , contClosureBody :: TermC
   }
 
@@ -196,6 +199,12 @@ unitField x = FieldsFor $ \ctx -> case Map.lookup x ctx of
   Nothing -> error ("unbound variable occurrence: " ++ show x ++ " not in " ++ show ctx)
   Just s -> Set.singleton (x, s)
 
+unitTm :: K.TmVar -> FieldsFor
+unitTm = unitField . tmVar
+
+unitCo :: K.CoVar -> FieldsFor
+unitCo = unitField . coVar
+
 bindFields :: [(Name, Sort)] -> FieldsFor -> FieldsFor
 bindFields xs fs = FieldsFor $ \ctx ->
   let ctx' = foldr (uncurry Map.insert) ctx xs in
@@ -210,39 +219,39 @@ fieldsFor (LetFunK fs e) =
 fieldsFor (LetContK ks e) =
   foldMap (bindFields ks' . fieldsForContDef) ks <> bindFields ks' (fieldsFor e)
   where ks' = contDefNames ks
-fieldsFor (HaltK x) = unitField (tmVar x)
-fieldsFor (JumpK k xs) = unitField (coVar k) <> foldMap (unitField . tmVar) xs
+fieldsFor (HaltK x) = unitTm x
+fieldsFor (JumpK k xs) = unitCo k <> foldMap unitTm xs
 fieldsFor (CallK f xs ks) =
-  unitField (tmVar f) <>
-  foldMap (unitField . tmVar) xs <>
-  foldMap (unitField . coVar) ks
-fieldsFor (CaseK x ks) = unitField (tmVar x) <> foldMap (unitField . coVar . fst) ks
-fieldsFor (LetFstK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
-fieldsFor (LetSndK x t y e) = unitField (tmVar y) <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
+  unitTm f <>
+  foldMap unitTm xs <>
+  foldMap unitCo ks
+fieldsFor (CaseK x ks) = unitTm x <> foldMap (unitCo . fst) ks
+fieldsFor (LetFstK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
+fieldsFor (LetSndK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Sum)] (fieldsFor e)
 
 fieldsForArith :: ArithK -> FieldsFor
-fieldsForArith (AddK x y) = unitField (tmVar x) <> unitField (tmVar y)
-fieldsForArith (SubK x y) = unitField (tmVar x) <> unitField (tmVar y)
-fieldsForArith (MulK x y) = unitField (tmVar x) <> unitField (tmVar y)
+fieldsForArith (AddK x y) = unitTm x <> unitTm y
+fieldsForArith (SubK x y) = unitTm x <> unitTm y
+fieldsForArith (MulK x y) = unitTm x <> unitTm y
 
 fieldsForCmp :: CmpK -> FieldsFor
-fieldsForCmp (CmpEqK x y) = unitField (tmVar x) <> unitField (tmVar y)
-fieldsForCmp (CmpNeK x y) = unitField (tmVar x) <> unitField (tmVar y)
-fieldsForCmp (CmpLtK x y) = unitField (tmVar x) <> unitField (tmVar y)
-fieldsForCmp (CmpLeK x y) = unitField (tmVar x) <> unitField (tmVar y)
-fieldsForCmp (CmpGtK x y) = unitField (tmVar x) <> unitField (tmVar y)
-fieldsForCmp (CmpGeK x y) = unitField (tmVar x) <> unitField (tmVar y)
+fieldsForCmp (CmpEqK x y) = unitTm x <> unitTm y
+fieldsForCmp (CmpNeK x y) = unitTm x <> unitTm y
+fieldsForCmp (CmpLtK x y) = unitTm x <> unitTm y
+fieldsForCmp (CmpLeK x y) = unitTm x <> unitTm y
+fieldsForCmp (CmpGtK x y) = unitTm x <> unitTm y
+fieldsForCmp (CmpGeK x y) = unitTm x <> unitTm y
 
 fieldsForValue :: ValueK -> FieldsFor
 fieldsForValue (IntValK _) = mempty
 fieldsForValue (BoolValK _) = mempty
 fieldsForValue NilK = mempty
-fieldsForValue (PairK x y) = unitField (tmVar x) <> unitField (tmVar y)
-fieldsForValue (InlK x) = unitField (tmVar x)
-fieldsForValue (InrK y) = unitField (tmVar y)
+fieldsForValue (PairK x y) = unitTm x <> unitTm y
+fieldsForValue (InlK x) = unitTm x
+fieldsForValue (InrK y) = unitTm y
 
 fieldsForFunDef :: FunDef a -> FieldsFor
 fieldsForFunDef (FunDef _ _f xs ks e) =
