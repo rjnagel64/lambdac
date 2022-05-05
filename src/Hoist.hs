@@ -116,10 +116,9 @@ data EnvAlloc
 data ValueH
   = IntH Int64
   | BoolH Bool
-  | PairH Name Name
+  | ProdH [Name]
   | InlH Name
   | InrH Name
-  | NilH
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -259,12 +258,13 @@ declareClosureNames closureName cs =
 
 
 hoistValue :: ValueC -> HoistM ValueH
-hoistValue (PairC x y) = PairH <$> hoistVarOcc x <*> hoistVarOcc y
-hoistValue (InlC x) = InlH <$> hoistVarOcc x
-hoistValue (InrC x) = InrH <$> hoistVarOcc x
-hoistValue NilC = pure NilH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
+-- TODO: Record product types in hoistValue
+hoistValue (PairC x y) = ProdH <$> traverse hoistVarOcc [x, y]
+hoistValue NilC = pure (ProdH [])
+hoistValue (InlC x) = InlH <$> hoistVarOcc x
+hoistValue (InrC x) = InrH <$> hoistVarOcc x
 
 hoistArith :: ArithC -> HoistM PrimOp
 hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -282,23 +282,21 @@ hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
-  (fields', places', body') <- inClosure env (xs ++ ks) $ hoist body
-  let envd = EnvDecl fields'
-  let fd = ClosureDecl fdecl envd places' body'
+  (env', places', body') <- inClosure env (xs ++ ks) $ hoist body
+  let fd = ClosureDecl fdecl env' places' body'
   pure fd
 
 hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ClosureDecl
 hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
-  (fields', places', body') <- inClosure env xs $ hoist body
-  let envd = EnvDecl fields'
-  let kd = ClosureDecl kdecl envd places' body'
+  (env', places', body') <- inClosure env xs $ hoist body
+  let kd = ClosureDecl kdecl env' places' body'
   pure kd
 
 -- | Replace the set of fields and places in the environment, while leaving the
 -- set of declaration names intact. This is because inside a closure, all names
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: C.EnvDef -> [(C.Name, Sort)] -> HoistM a -> HoistM ([FieldName], [PlaceName], a)
+inClosure :: C.EnvDef -> [(C.Name, Sort)] -> HoistM a -> HoistM (EnvDecl, [PlaceName], a)
 inClosure (C.EnvDef free rec) places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields = free ++ rec
@@ -307,7 +305,7 @@ inClosure (C.EnvDef free rec) places m = do
   -- Preserve 'DeclName's?
   let replaceEnv (HoistEnv _ _) = HoistEnv (Map.fromList places') (Map.fromList fields')
   r <- local replaceEnv m
-  pure (map snd fields', map snd places', r)
+  pure (EnvDecl (map snd fields'), map snd places', r)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
@@ -320,6 +318,7 @@ hoistVarOcc x = do
       Just (FieldName _ x') -> pure (EnvName x')
       Nothing -> error ("not in scope: " ++ show x)
 
+-- TODO: Better name for 'hoistJumpArg': it's used for hoisting product values as well
 hoistJumpArg :: C.Name -> HoistM (Name, Sort)
 hoistJumpArg x = do
   HoistEnv ps fs <- ask
@@ -372,8 +371,7 @@ pprintTerm n (AllocClosure cs e) =
   indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
 
 pprintValue :: ValueH -> String
-pprintValue NilH = "()"
-pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (ProdH xs) = "(" ++ intercalate ", " (map show xs) ++ ")"
 pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (InlH x) = "inl " ++ show x

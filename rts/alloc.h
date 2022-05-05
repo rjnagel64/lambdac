@@ -32,6 +32,10 @@ struct constant {
 
 struct closure {
     struct alloc_header header;
+    // Note: 'void *env' and 'void (*trace)(void *env)' is effectively the
+    // proposed type_info formulation of this stuff.
+    // The 'trace_const' methods in alloc.c are almost type_info, but need to
+    // take 'void *' as argument.
     void *env;
     void (*trace)(void *env);
     void (*code)(void);

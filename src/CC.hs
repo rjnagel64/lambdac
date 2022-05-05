@@ -92,7 +92,7 @@ coVar (K.CoVar k i) = Name k i
 -- Product = () | t1 * t2
 -- Closure = (t1, t2, ...) -> 0
 -- Alloc = a : *
-data Sort = Closure | Value | Alloc | Sum | Product
+data Sort = Closure | Value | Alloc | Sum | Product [Sort]
   deriving (Eq, Ord)
 
 instance Show Sort where
@@ -100,14 +100,14 @@ instance Show Sort where
   show Value = "value"
   show Alloc = "alloc"
   show Sum = "sum"
-  show Product = "product"
+  show (Product ss) = "product " ++ show ss
 
 sortOf :: K.TypeK -> Sort
 sortOf (K.ContK _) = Closure
 sortOf (K.SumK _ _) = Sum
 sortOf K.BoolK = Sum
-sortOf (K.ProdK _ _) = Product
-sortOf K.UnitK = Product
+sortOf (K.ProdK t1 t2) = Product [sortOf t1, sortOf t2]
+sortOf K.UnitK = Product []
 sortOf K.IntK = Value
 
 -- | Each type of closure (e.g., one boxed argument, one unboxed argument and
@@ -300,12 +300,9 @@ cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
 cconv (CaseK x ks) = do
   let
     annThunkType :: (K.CoVar, K.TypeK) -> Maybe (Name, ThunkType)
-    annThunkType (k, s) = do
-      t <- thunkTypeOf s
-      pure (coVar k, t)
+    annThunkType (k, s) = (,) <$> pure (coVar k) <*> thunkTypeOf s
   ks' <- case traverse annThunkType ks of
     Just ks' -> pure ks'
-    -- TODO: Better panic info: which branch isn't a thunk?
     Nothing -> error "cconv: some branch of case is not a closure"
   pure $ CaseC (tmVar x) ks'
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)

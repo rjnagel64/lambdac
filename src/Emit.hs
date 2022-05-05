@@ -76,12 +76,12 @@ namesForThunk (ThunkType ss) =
   }
   where
     -- This scheme will almost certainly break down as types get fancier.
-    tycode = map code ss
-    code Closure = 'C'
-    code Value = 'V'
-    code Alloc = 'A'
-    code Sum = 'S'
-    code Product = 'P'
+    tycode = concatMap code ss
+    code Closure = "C"
+    code Value = "V"
+    code Alloc = "A"
+    code Sum = "S"
+    code (Product ss) = "P" ++ show (length ss) ++ concatMap code ss
 
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
@@ -270,8 +270,11 @@ emitValueAlloc :: String -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
-emitValueAlloc _ NilH = "allocate_nil()"
-emitValueAlloc envp (PairH y z) = "allocate_pair(" ++ asSort Alloc (emitName envp y) ++ ", " ++ asSort Alloc (emitName envp z) ++ ")"
+-- TODO: Emit allocate_Pnxyz(x *a1, y *a2, z *a3) methods
+emitValueAlloc _ (ProdH []) = "allocate_nil()"
+emitValueAlloc envp (ProdH [y, z]) =
+  "allocate_pair(" ++ intercalate ", " (map (asSort Alloc . emitName envp) [y, z]) ++ ")"
+emitValueAlloc _ (ProdH _) = error "Not implemented: product values with n fields"
 emitValueAlloc envp (InlH y) = "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ")"
 emitValueAlloc envp (InrH y) = "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ")"
 
@@ -294,7 +297,7 @@ asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
 asSort Value x = "AS_CONST(" ++ x ++ ")"
 asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
-asSort Product x = "AS_PRODUCT(" ++ x ++ ")"
+asSort (Product ss) x = "AS_PRODUCT(" ++ x ++ ")"
 
 -- TODO: Generalize emitAllocGroup and merge it with emitValueAlloc, to support
 -- allocating mutually-recursive values, of which closures are merely one
@@ -333,14 +336,14 @@ emitFieldDecl (FieldName Closure c) = "struct closure *" ++ c
 emitFieldDecl (FieldName Value x) = "struct constant *" ++ x
 emitFieldDecl (FieldName Alloc a) = "struct alloc_header *" ++ a
 emitFieldDecl (FieldName Sum x) = "struct sum *" ++ x
-emitFieldDecl (FieldName Product x) = "struct product *" ++ x
+emitFieldDecl (FieldName (Product ss) x) = "struct product *" ++ x
 
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName Closure k) = "struct closure *" ++ k
 emitPlace (PlaceName Value x) = "struct constant *" ++ x
 emitPlace (PlaceName Alloc a) = "struct alloc_header *" ++ a
 emitPlace (PlaceName Sum x) = "struct sum *" ++ x
-emitPlace (PlaceName Product x) = "struct product *" ++ x
+emitPlace (PlaceName (Product ss) x) = "struct product *" ++ x
 
 emitName :: String -> Name -> String
 emitName _ (LocalName x) = x
