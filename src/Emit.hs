@@ -151,6 +151,11 @@ emitThunkSuspend (ThunkType ss) =
 
 emitProductDecl :: ProductType -> [String]
 emitProductDecl (ProductType ss) =
+  emitProductAlloc (ProductType ss) ++
+  concatMap (emitProductProjection (ProductType ss)) (zip [0..] ss)
+
+emitProductAlloc :: ProductType -> [String]
+emitProductAlloc (ProductType ss) =
   ["struct product *allocate_" ++ ty ++ "(" ++ intercalate ", " args ++ ") {"
   ,"    struct product *v = malloc(sizeof(struct product) + " ++ numFields ++ " * sizeof(uintptr_t));"
   ,"    v->header.type = ALLOC_PROD;"
@@ -165,6 +170,17 @@ emitProductDecl (ProductType ss) =
     iss = zip [0..] ss :: [(Int, Sort)]
     args = if null ss then ["void"] else map emitPlace [PlaceName s ("arg" ++ show i) | (i, s) <- iss]
     assignField (i, s) = "    v->words[" ++ show i ++ "] = (uintptr_t)arg" ++ show i ++ ";"
+
+emitProductProjection :: ProductType -> (Int, Sort) -> [String]
+emitProductProjection (ProductType ss) (i, s) =
+  [fn ++ "(struct product *p) {"
+  ,"    return " ++ asSort s ("p->words[" ++ show i ++ "]") ++ ";"
+  ,"}"]
+  where
+    ty = tycode (Product ss)
+    fnName = "project_" ++ ty ++ "_" ++ show i
+    -- TODO: It's kind of a hack to treat function as a place name.
+    fn = emitPlace (PlaceName s fnName)
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d envd params e) =
@@ -230,8 +246,7 @@ emitClosureCode ns xs e =
     -- Find the set of temporaries used by this function.
     go2 (LetValH p _ e') = Set.insert (placeName p) (go2 e')
     go2 (LetPrimH p _ e') = Set.insert (placeName p) (go2 e')
-    go2 (LetFstH p _ e') = Set.insert (placeName p) (go2 e')
-    go2 (LetSndH p _ e') = Set.insert (placeName p) (go2 e')
+    go2 (LetProjectH p _ _ _ e') = Set.insert (placeName p) (go2 e')
     go2 (AllocClosure cs e') = foldr (Set.insert . placeName) (go2 e') (map closurePlace cs)
     go2 (HaltH _) = Set.empty
     go2 (OpenH _ _) = Set.empty
@@ -241,12 +256,10 @@ emitClosureBody :: String -> TermH -> [String]
 emitClosureBody envp (LetValH x v e) =
   ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc envp v ++ ";"] ++
   emitClosureBody envp e
-emitClosureBody envp (LetFstH x y e) =
-  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_fst(" ++ emitName envp y ++ ")") ++ ";"] ++
+emitClosureBody envp (LetProjectH x y (ProductType ss) i e) =
+  ["    " ++ emitPlace x ++ " = " ++ emitPrimCall envp projection [y] ++ ";"] ++
   emitClosureBody envp e
-emitClosureBody envp (LetSndH x y e) =
-  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_snd(" ++ emitName envp y ++ ")") ++ ";"] ++
-  emitClosureBody envp e
+  where projection = "project_" ++ tycode (Product ss) ++ "_" ++ show i
 emitClosureBody envp (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp envp p ++ ";"] ++
   emitClosureBody envp e
@@ -290,11 +303,8 @@ emitValueAlloc :: String -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
-emitValueAlloc envp (ProdH xs) =
-  "allocate_" ++ ty ++ "(" ++ intercalate ", " args ++ ")"
-  where
-    ty = tycode (Product (map snd xs))
-    args = map (emitName envp . fst) xs
+emitValueAlloc envp (ProdH ss xs) = emitPrimCall envp ("allocate_" ++ ty) xs
+  where ty = tycode (Product ss)
 emitValueAlloc envp (InlH y) = "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ")"
 emitValueAlloc envp (InrH y) = "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ")"
 

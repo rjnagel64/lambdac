@@ -279,6 +279,7 @@ newtype TypeDecls = TypeDecls { getTypeDecls :: (Set ThunkType, Set ProductType)
 deriving newtype instance Semigroup TypeDecls
 deriving newtype instance Monoid TypeDecls
 
+-- TODO: Field names on 'ProductType'?
 newtype ProductType = ProductType [Sort]
   deriving (Eq, Ord)
 

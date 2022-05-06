@@ -75,8 +75,6 @@ struct constant *allocate_int64(int64_t x);
 struct sum *allocate_true(void);
 struct sum *allocate_false(void);
 
-struct alloc_header *project_fst(struct product *v);
-struct alloc_header *project_snd(struct product *v);
 int64_t int64_value(struct constant *v);
 
 

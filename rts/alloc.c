@@ -248,11 +248,3 @@ int64_t int64_value(struct constant *v) {
     return (int64_t)v->value;
 }
 
-struct alloc_header *project_fst(struct product *v) {
-    return (struct alloc_header *)v->words[0];
-}
-
-struct alloc_header *project_snd(struct product *v) {
-    return (struct alloc_header *)v->words[1];
-}
-

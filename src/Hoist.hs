@@ -35,7 +35,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Control.Monad.Reader
-import Control.Monad.Writer
+import Control.Monad.Writer hiding (Product)
 import Control.Monad.State
 
 import Data.Int (Int64)
@@ -93,10 +93,8 @@ newtype EnvDecl = EnvDecl [FieldName]
 data TermH
   = LetValH PlaceName ValueH TermH
   | LetPrimH PlaceName PrimOp TermH
-  -- fst and snd are built-in constructs, for when I expand to n-ary products
-  -- and projections.
-  | LetFstH PlaceName Name TermH
-  | LetSndH PlaceName Name TermH
+  -- 'let value x = y #2 in e'
+  | LetProjectH PlaceName Name ProductType Int TermH
   | HaltH Name
   | OpenH Name [(Name, Sort)] -- Open a closure, by providing a list of arguments and their sorts.
   | CaseH Name [(Name, ThunkType)]
@@ -117,7 +115,7 @@ data EnvAlloc
 data ValueH
   = IntH Int64
   | BoolH Bool
-  | ProdH [(Name, Sort)]
+  | ProdH [Sort] [Name]
   | InlH Name
   | InrH Name
 
@@ -178,13 +176,21 @@ hoist (LetValC (x, s) v e) = do
   (x', e') <- withPlace x s $ hoist e
   pure $ LetValH x' v' e'
 hoist (LetFstC (x, s) y e) = do
-  y' <- hoistVarOcc y
+  (y', sy) <- hoistJumpArg y
+  let
+    p = case sy of
+      Product ss -> ProductType ss
+      _ -> error "can only project field of product value"
   (x', e') <- withPlace x s $ hoist e
-  pure (LetFstH x' y' e')
+  pure (LetProjectH x' y' p 0 e')
 hoist (LetSndC (x, s) y e) = do
-  y' <- hoistVarOcc y
+  (y', sy) <- hoistJumpArg y
+  let
+    p = case sy of
+      Product ss -> ProductType ss
+      _ -> error "can only project field of product value"
   (x', e') <- withPlace x s $ hoist e
-  pure (LetSndH x' y' e')
+  pure (LetProjectH x' y' p 1 e')
 hoist (LetArithC (x, s) op e) = do
   op' <- hoistArith op
   (x', e') <- withPlace x s $ hoist e
@@ -261,8 +267,10 @@ declareClosureNames closureName cs =
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
-hoistValue (PairC x y) = ProdH <$> traverse hoistJumpArg [x, y]
-hoistValue NilC = pure (ProdH [])
+hoistValue (PairC x y) = do
+  (xs, ss) <- unzip <$> traverse hoistJumpArg [x, y]
+  pure (ProdH ss xs)
+hoistValue NilC = pure (ProdH [] [])
 hoistValue (InlC x) = InlH <$> hoistVarOcc x
 hoistValue (InrC x) = InrH <$> hoistVarOcc x
 
@@ -361,17 +369,15 @@ pprintTerm n (CaseH x ks) =
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetFstH x y e) =
-  indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetSndH x y e) =
-  indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetProjectH x y _p i e) =
+  indent n ("let " ++ pprintPlace x ++ " = " ++ show y ++ " #" ++ show i ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetPrimH x p e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintPrim p ++ ";\n") ++ pprintTerm n e
 pprintTerm n (AllocClosure cs e) =
   indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
 
 pprintValue :: ValueH -> String
-pprintValue (ProdH xs) = "(" ++ intercalate ", " (map show xs) ++ ")"
+pprintValue (ProdH _ xs) = "(" ++ intercalate ", " (map show xs) ++ ")"
 pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (InlH x) = "inl " ++ show x
