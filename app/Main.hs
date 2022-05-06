@@ -72,7 +72,7 @@ main = do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK
 
-  let (srcC, thunkDecls) = C.runConv $ C.cconv srcK
+  let (srcC, C.TypeDecls (thunkDecls, productDecls)) = C.runConv $ C.cconv srcK
   when (driverDumpCC args) $ do
     putStrLn $ "--- Closure Conversion ---"
     putStrLn $ concatMap C.pprintThunkType thunkDecls ++ C.pprintTerm 0 srcC
@@ -82,7 +82,7 @@ main = do
     putStrLn $ "--- Hoisting ---"
     putStrLn $ H.pprintClosures closureDecls ++ H.pprintTerm 0 srcH
 
-  let obj = unlines $ E.emitProgram (thunkDecls, closureDecls, srcH)
+  let obj = unlines $ E.emitProgram (thunkDecls, productDecls, closureDecls, srcH)
   when (driverDumpEmit args) $ do
     putStrLn $ "--- Code Generation ---"
     putStrLn obj

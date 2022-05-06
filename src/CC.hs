@@ -18,6 +18,8 @@ module CC
   , CmpC(..)
   , Sort(..)
   , ThunkType(..)
+  , ProductType(..)
+  , TypeDecls(..)
 
   , cconv
   , runConv
@@ -272,17 +274,28 @@ funDefNames fs = [(tmVar f, Closure) | FunDef _ f _ _ _ <- fs]
 contDefNames :: [ContDef a] -> [(Name, Sort)]
 contDefNames ks = [(coVar k, Closure) | ContDef _ k _ _ <- ks]
 
-newtype ConvM a = ConvM { runConvM :: ReaderT (Map Name Sort) (Writer (Set ThunkType)) a }
+newtype TypeDecls = TypeDecls { getTypeDecls :: (Set ThunkType, Set ProductType) }
+
+deriving newtype instance Semigroup TypeDecls
+deriving newtype instance Monoid TypeDecls
+
+newtype ProductType = ProductType [Sort]
+  deriving (Eq, Ord)
+
+newtype ConvM a = ConvM { runConvM :: ReaderT (Map Name Sort) (Writer TypeDecls) a }
 
 deriving newtype instance Functor ConvM
 deriving newtype instance Applicative ConvM
 deriving newtype instance Monad ConvM
 deriving newtype instance MonadReader (Map Name Sort) ConvM
-deriving newtype instance MonadWriter (Set ThunkType) ConvM
+deriving newtype instance MonadWriter TypeDecls ConvM
 
-runConv :: ConvM a -> (a, Set ThunkType)
+runConv :: ConvM a -> (a, TypeDecls)
 runConv = runWriter . flip runReaderT Map.empty . runConvM
 
+-- Idea: I could factor out the fieldsFor computation by doing a first
+-- annotation pass over the data, and then having
+-- 'cconv :: TermK EnvFields -> ConvM TermC'
 cconv :: TermK a -> ConvM TermC
 cconv (LetFunK fs e) =
   LetFunC <$> local extendGroup (traverse (cconvFunDef fs') fs) <*> local extendGroup (cconv e)
@@ -311,7 +324,7 @@ cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> local extend
 cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) (sortOf t) ctx
-cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> local extend (cconv e)
+cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) <$> cconvValue v <*> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) (sortOf t) ctx
 cconv (LetArithK x op e) = LetArithC (tmVar x, Value) (cconvArith op) <$> local extend (cconv e)
@@ -326,7 +339,10 @@ cconvFunDef fs fun@(FunDef _ f xs ks e) = do
   let
     funThunk = ThunkType (map (sortOf . snd) xs ++ map (sortOf . snd) ks)
     thunks = funThunk : mapMaybe thunkTypeOf (map snd xs ++ map snd ks)
-  tell (Set.fromList thunks)
+  -- TODO: Product types in the argument list?
+  -- (Not currently a problem, because I only need to allocate products, not
+  -- generate type declarations)
+  tell (TypeDecls (Set.fromList thunks, mempty))
   let tmbinds = map (bimap tmVar sortOf) xs
   let cobinds = map (bimap coVar sortOf) ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
@@ -340,7 +356,7 @@ cconvContDef ks kont@(ContDef _ k xs e) = do
   let
     contThunk = ThunkType (map (sortOf . snd) xs)
     thunks = contThunk : mapMaybe thunkTypeOf (map snd xs)
-  tell (Set.fromList thunks)
+  tell (TypeDecls (Set.fromList thunks, mempty))
   let binds = map (bimap tmVar sortOf) xs
   let extend ctx' = foldr (uncurry Map.insert) ctx' binds
   fields <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
@@ -348,13 +364,20 @@ cconvContDef ks kont@(ContDef _ k xs e) = do
   e' <- local extend (cconv e)
   pure (ContClosureDef (coVar k) (EnvDef free rec) binds e')
 
-cconvValue :: ValueK -> ValueC
-cconvValue NilK = NilC
-cconvValue (PairK x y) = PairC (tmVar x) (tmVar y)
-cconvValue (IntValK i) = IntC i
-cconvValue (BoolValK b) = BoolC b
-cconvValue (InlK x) = InlC (tmVar x)
-cconvValue (InrK y) = InrC (tmVar y)
+cconvValue :: ValueK -> ConvM ValueC
+cconvValue NilK = do
+  tell (TypeDecls (mempty, Set.singleton (ProductType [])))
+  pure NilC
+cconvValue (PairK x y) = do
+  ctx <- ask
+  let sx = ctx Map.! (tmVar x)
+  let sy = ctx Map.! (tmVar y)
+  tell (TypeDecls (mempty, Set.singleton (ProductType [sx, sy])))
+  pure (PairC (tmVar x) (tmVar y))
+cconvValue (IntValK i) = pure (IntC i)
+cconvValue (BoolValK b) = pure (BoolC b)
+cconvValue (InlK x) = pure (InlC (tmVar x))
+cconvValue (InrK y) = pure (InrC (tmVar y))
 
 cconvArith :: ArithK -> ArithC
 cconvArith (AddK x y) = AddC (tmVar x) (tmVar y)

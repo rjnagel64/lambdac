@@ -25,10 +25,11 @@ import Hoist
 -- text :: String -> Emit
 -- text s = Emit $ \_ -> B.fromText (T.pack s)
 
-emitProgram :: (Set ThunkType, [ClosureDecl], TermH) -> [String]
-emitProgram (ts, cs, e) =
+emitProgram :: (Set ThunkType, Set ProductType, [ClosureDecl], TermH) -> [String]
+emitProgram (ts, ps, cs, e) =
   prologue ++
   concatMap emitThunkDecl ts ++
+  concatMap emitProductDecl ps ++
   concatMap emitClosureDecl cs ++
   emitEntryPoint e
 
@@ -66,22 +67,24 @@ data ThunkNames
   , thunkSuspendName :: String
   }
 
+-- This scheme will almost certainly break down as types get fancier.
+tycode :: Sort -> String
+tycode Closure = "C"
+tycode Value = "V"
+tycode Alloc = "A"
+tycode Sum = "S"
+tycode (Product ss) = 'P' : show (length ss) ++ concatMap tycode ss
+
 namesForThunk :: ThunkType -> ThunkNames
 namesForThunk (ThunkType ss) =
   ThunkNames {
-    thunkTypeName = "thunk_" ++ tycode
-  , thunkEnterName = "enter_" ++ tycode
-  , thunkTraceName = "trace_" ++ tycode
-  , thunkSuspendName = "suspend_" ++ tycode
+    thunkTypeName = "thunk_" ++ ty
+  , thunkEnterName = "enter_" ++ ty
+  , thunkTraceName = "trace_" ++ ty
+  , thunkSuspendName = "suspend_" ++ ty
   }
   where
-    -- This scheme will almost certainly break down as types get fancier.
-    tycode = concatMap code ss
-    code Closure = "C"
-    code Value = "V"
-    code Alloc = "A"
-    code Sum = "S"
-    code (Product ss) = "P" ++ show (length ss) ++ concatMap code ss
+    ty = concatMap tycode ss
 
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
@@ -145,6 +148,23 @@ emitThunkSuspend (ThunkType ss) =
     paramList = intercalate ", " ("struct closure *closure" : map makeParam ss')
     makeParam (i, s) = emitPlace (PlaceName s ("arg" ++ show i))
     assignField (i, _) = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
+
+emitProductDecl :: ProductType -> [String]
+emitProductDecl (ProductType ss) =
+  ["struct product *allocate_" ++ ty ++ "(" ++ intercalate ", " args ++ ") {"
+  ,"    struct product *v = malloc(sizeof(struct product) + " ++ numFields ++ " * sizeof(uintptr_t));"
+  ,"    v->header.type = ALLOC_PROD;"
+  ,"    v->num_fields = " ++ numFields ++ ";"] ++
+  map assignField iss ++
+  ["    cons_new_alloc(AS_ALLOC(v));"
+  ,"    return v;"
+  ,"}"]
+  where
+    numFields = show (length ss)
+    ty = tycode (Product ss)
+    iss = zip [0..] ss :: [(Int, Sort)]
+    args = if null ss then ["void"] else map emitPlace [PlaceName s ("arg" ++ show i) | (i, s) <- iss]
+    assignField (i, s) = "    v->words[" ++ show i ++ "] = (uintptr_t)arg" ++ show i ++ ";"
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d envd params e) =
@@ -270,11 +290,11 @@ emitValueAlloc :: String -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
--- TODO: Emit allocate_Pnxyz(x *a1, y *a2, z *a3) methods
-emitValueAlloc _ (ProdH []) = "allocate_nil()"
-emitValueAlloc envp (ProdH [y, z]) =
-  "allocate_pair(" ++ intercalate ", " (map (asSort Alloc . emitName envp) [y, z]) ++ ")"
-emitValueAlloc _ (ProdH _) = error "Not implemented: product values with n fields"
+emitValueAlloc envp (ProdH xs) =
+  "allocate_" ++ ty ++ "(" ++ intercalate ", " args ++ ")"
+  where
+    ty = tycode (Product (map snd xs))
+    args = map (emitName envp . fst) xs
 emitValueAlloc envp (InlH y) = "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ")"
 emitValueAlloc envp (InrH y) = "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ")"
 

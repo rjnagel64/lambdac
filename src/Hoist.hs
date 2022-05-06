@@ -13,6 +13,7 @@ module Hoist
     , Sort(..)
     , Name(..)
     , ThunkType(..)
+    , ProductType(..)
     , PlaceName(..)
     , FieldName(..)
     , DeclName(..)
@@ -42,7 +43,7 @@ import Data.Traversable (for, mapAccumL)
 import Data.List (intercalate)
 
 import qualified CC as C
-import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..), ThunkType(..))
+import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..), ThunkType(..), ProductType(..))
 
 -- This is only for free occurrences? Binders use a different type for names? Yeah.
 -- LocalName is for 'x'
@@ -116,7 +117,7 @@ data EnvAlloc
 data ValueH
   = IntH Int64
   | BoolH Bool
-  | ProdH [Name]
+  | ProdH [(Name, Sort)]
   | InlH Name
   | InrH Name
 
@@ -260,8 +261,7 @@ declareClosureNames closureName cs =
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
--- TODO: Record product types in hoistValue
-hoistValue (PairC x y) = ProdH <$> traverse hoistVarOcc [x, y]
+hoistValue (PairC x y) = ProdH <$> traverse hoistJumpArg [x, y]
 hoistValue NilC = pure (ProdH [])
 hoistValue (InlC x) = InlH <$> hoistVarOcc x
 hoistValue (InrC x) = InrH <$> hoistVarOcc x

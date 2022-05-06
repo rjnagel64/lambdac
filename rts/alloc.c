@@ -213,22 +213,6 @@ struct constant *allocate_int64(int64_t x) {
     return v;
 }
 
-struct product *allocate_pair(struct alloc_header *x, struct alloc_header *y) {
-    struct product *v = make_product(2);
-    v->words[0] = (uintptr_t)x;
-    v->words[1] = (uintptr_t)y;
-
-    cons_new_alloc(AS_ALLOC(v));
-    return v;
-}
-
-struct product *allocate_nil(void) {
-    struct product *v = make_product(0);
-
-    cons_new_alloc(AS_ALLOC(v));
-    return v;
-}
-
 struct sum *allocate_true(void) {
     struct sum *v = make_sum(1, 0);
 

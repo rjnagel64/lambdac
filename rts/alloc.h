@@ -19,10 +19,6 @@ struct alloc_header {
 
 #define AS_ALLOC(v) ((struct alloc_header *)(v))
 
-void init_locals(void);
-void destroy_locals(void);
-void reset_locals(void);
-
 struct constant {
     struct alloc_header header;
     uintptr_t value;
@@ -62,17 +58,20 @@ struct product {
 #define AS_PRODUCT(v) ((struct product *)(v))
 
 
+void init_locals(void);
+void destroy_locals(void);
+void reset_locals(void);
+
 extern void (*trace_roots)(void);
 void mark_gray(struct alloc_header *alloc);
 void sweep_all_allocations(void);
+void cons_new_alloc(struct alloc_header *alloc);
 
 struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*code)(void), void (*enter)(void));
-struct product *allocate_pair(struct alloc_header *x, struct alloc_header *y);
 struct sum *allocate_inl(struct alloc_header *v);
 struct sum *allocate_inr(struct alloc_header *v);
 // Corresponds to Int64# constructor? No discriminant, though.
 struct constant *allocate_int64(int64_t x);
-struct product *allocate_nil(void);
 struct sum *allocate_true(void);
 struct sum *allocate_false(void);
 
