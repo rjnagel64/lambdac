@@ -526,7 +526,7 @@ instance Show TCError where
     ,"actual:   " ++ S.pprintType 0 actual
     ]
   show (NotInScope x) = "variable not in scope: " ++ show x
-  show (CannotApply t) = "cannot apply argument to value of type " ++ S.pprintType 0 t
+  show (CannotApply t) = "value of type " ++ S.pprintType 0 t ++ " cannot have an argument applied to it"
   show (CannotProject t) = "cannot project field from value of type " ++ S.pprintType 0 t
 
 emptyEnv :: CPSEnv
@@ -547,6 +547,7 @@ assertEqual expected actual = when (not (eqType expected actual)) $
 -- TODO: What if instead of bool, I returned a datastructure pointing out the
 -- path to the first(?) (or all) discrepancy? (Context as to why the equality failed)
 -- TODO: Support polymorphic types here.
+-- wat
 eqType :: S.Type -> S.Type -> Bool
 eqType S.TyUnit S.TyUnit = True
 eqType S.TyUnit _ = False
@@ -560,6 +561,7 @@ eqType (S.TySum t1 t2) (S.TySum t3 t4) = eqType t1 t3 && eqType t2 t4
 eqType (S.TySum _ _) _ = False
 eqType (S.TyArr arg1 ret1) (S.TyArr arg2 ret2) = eqType arg1 arg2 && eqType ret1 ret2
 eqType (S.TyArr _ _) _ = False
+eqType t1 t2 = error ("not implemented: eqType " ++ S.pprintType 10 t1 ++ " " ++ S.pprintType 10 t2)
 
 freshTm :: String -> (TmVar -> CPS a) -> CPS a
 freshTm x k = do

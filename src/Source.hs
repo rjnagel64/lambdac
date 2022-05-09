@@ -123,6 +123,9 @@ data Type
 data TyVar
   = TyVar String
 
+instance Show TyVar where
+  show (TyVar x) = x
+
 -- something something showsPrec
 pprintType :: Int -> Type -> String
 pprintType p TyUnit = "unit"
@@ -134,6 +137,8 @@ pprintType p (TyArr t1 t2) = parensIf (p > 4) $ pprintType 5 t1 ++ " -> " ++ ppr
 pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ pprintType 6 t2
 -- infix 5 +
 pprintType p (TySum t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " + " ++ pprintType 6 t2
+pprintType p (TyVarOcc x) = show x
+pprintType p (TyAll x t) = parensIf (p > 0) $ "forall " ++ show x ++ "." ++ pprintType 0 t
 
 parensIf :: Bool -> String -> String
 parensIf True x = "(" ++ x ++ ")"

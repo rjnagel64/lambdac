@@ -73,6 +73,9 @@ tokens :-
   "int" { tok TokInt }
   "forall" { tok TokForall }
 
+  -- TODO: Permitting unary + on numeric literals actually causes some annoying TC errors.
+  -- n+1 lexes as 'n' '+1', which is a type error.
+  -- I honestly should probably just add an unary minus operator or something.
   [\- \+]? $digit+ { toks TokINT }
 
   $idstart $idcont* { toks TokID }

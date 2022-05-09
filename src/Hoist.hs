@@ -163,8 +163,8 @@ tellClosures cs = tell (ClosureDecls cs)
 -- function names to C names.
 hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = HaltH <$> hoistVarOcc x
-hoist (JumpC k xs) = OpenH <$> hoistVarOcc k <*> traverse hoistJumpArg xs
-hoist (CallC f xs ks) = OpenH <$> hoistVarOcc f <*> traverse hoistJumpArg (xs ++ ks)
+hoist (JumpC k xs) = OpenH <$> hoistVarOcc k <*> traverse hoistVarOcc' xs
+hoist (CallC f xs ks) = OpenH <$> hoistVarOcc f <*> traverse hoistVarOcc' (xs ++ ks)
 hoist (CaseC x ks) = do
   x' <- hoistVarOcc x
   ks' <- for ks $ \ (k, s) -> do
@@ -176,7 +176,7 @@ hoist (LetValC (x, s) v e) = do
   (x', e') <- withPlace x s $ hoist e
   pure $ LetValH x' v' e'
 hoist (LetFstC (x, s) y e) = do
-  (y', sy) <- hoistJumpArg y
+  (y', sy) <- hoistVarOcc' y
   let
     p = case sy of
       Product ss -> ProductType ss
@@ -184,7 +184,7 @@ hoist (LetFstC (x, s) y e) = do
   (x', e') <- withPlace x s $ hoist e
   pure (LetProjectH x' y' p 0 e')
 hoist (LetSndC (x, s) y e) = do
-  (y', sy) <- hoistJumpArg y
+  (y', sy) <- hoistVarOcc' y
   let
     p = case sy of
       Product ss -> ProductType ss
@@ -268,7 +268,7 @@ hoistValue :: ValueC -> HoistM ValueH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
 hoistValue (PairC x y) = do
-  (xs, ss) <- unzip <$> traverse hoistJumpArg [x, y]
+  (xs, ss) <- unzip <$> traverse hoistVarOcc' [x, y]
   pure (ProdH ss xs)
 hoistValue NilC = pure (ProdH [] [])
 hoistValue (InlC x) = InlH <$> hoistVarOcc x
@@ -326,9 +326,9 @@ hoistVarOcc x = do
       Just (FieldName _ x') -> pure (EnvName x')
       Nothing -> error ("not in scope: " ++ show x)
 
--- TODO: Better name for 'hoistJumpArg': it's used for hoisting product values as well
-hoistJumpArg :: C.Name -> HoistM (Name, Sort)
-hoistJumpArg x = do
+-- | Hoist a variable occurrence, and also retrieve its sort.
+hoistVarOcc' :: C.Name -> HoistM (Name, Sort)
+hoistVarOcc' x = do
   HoistEnv ps fs <- ask
   case Map.lookup x ps of
     Just (PlaceName s x') -> pure (LocalName x', s)

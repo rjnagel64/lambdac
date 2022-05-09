@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+// Hmm. What if ALLOC_INFORMED, for things that have had their fields traced
+// already (through some external type info, such as a closure environment)
+//
+// Then, pair this with 'void mark_gray_with_info(type_info info, void *alloc)'?
 enum allocation_type {
     ALLOC_CLOSURE,
     ALLOC_CONST,

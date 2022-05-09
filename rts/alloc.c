@@ -164,6 +164,7 @@ void sweep_all_allocations(void) {
 }
 
 void cons_new_alloc(struct alloc_header *alloc) {
+    alloc->mark = 0;
     alloc->next = first_allocation;
     first_allocation = alloc;
     num_allocs++;
