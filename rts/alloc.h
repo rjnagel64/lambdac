@@ -77,8 +77,7 @@ void destroy_locals(void);
 void reset_locals(void);
 
 extern void (*trace_roots)(void);
-void mark_gray(struct alloc_header *alloc);
-void mark_gray_with_info(struct alloc_header *alloc, void (*trace)(struct alloc_header *));
+void mark_gray(struct alloc_header *alloc, void (*trace)(struct alloc_header *));
 void sweep_all_allocations(void);
 void cons_new_alloc(struct alloc_header *alloc);
 

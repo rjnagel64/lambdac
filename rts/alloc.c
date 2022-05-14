@@ -48,11 +48,7 @@ struct gray_entry {
 static struct gray_entry *gray_list = NULL;
 static uint64_t num_gray = 0;
 static uint64_t gray_capacity = 0;
-void mark_gray(struct alloc_header *alloc) {
-    mark_gray_with_info(alloc, trace_alloc);
-}
-
-void mark_gray_with_info(struct alloc_header *alloc, void (*trace)(struct alloc_header *)) {
+void mark_gray(struct alloc_header *alloc, void (*trace)(struct alloc_header *)) {
     if (num_gray == gray_capacity) {
         gray_capacity *= 2;
         gray_list = realloc(gray_list, gray_capacity * sizeof(struct gray_entry));
@@ -68,14 +64,16 @@ void trace_constant(struct alloc_header *alloc) {
 void trace_product(struct alloc_header *alloc) {
     struct product *v = AS_PRODUCT(alloc);
     for (uint32_t i = 0; i < v->num_fields; i++) {
-        mark_gray(AS_ALLOC(v->words[i]));
+        // TODO: Use product information here instead of trace_alloc
+        mark_gray(AS_ALLOC(v->words[i]), trace_alloc);
     }
 }
 
 void trace_sum(struct alloc_header *alloc) {
     struct sum *v = AS_SUM(alloc);
     for (uint32_t i = 0; i < v->num_fields; i++) {
-        mark_gray(AS_ALLOC(v->words[i]));
+        // TODO: Use sum information here instead of trace_alloc
+        mark_gray(AS_ALLOC(v->words[i]), trace_alloc);
     }
 }
 
@@ -112,7 +110,8 @@ void collect(void) {
 
     // Push each local onto gray_list
     for (size_t i = 0; i < num_locals; i++) {
-        mark_gray(locals[i]);
+        // TODO: Store type_info with each local
+        mark_gray(locals[i], trace_alloc);
     }
     // Push each field of next_step onto gray_list
     trace_roots();

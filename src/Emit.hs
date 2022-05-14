@@ -109,13 +109,13 @@ emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    mark_gray(" ++ asSort Alloc "next->closure" ++ ");"] ++
+  ,"    " ++ emitMarkGray "next->closure" Closure ++ ";"] ++
   map traceField ss' ++
   ["}"]
   where
     ns = namesForThunk (ThunkType ss)
     ss' = zip [0..] ss :: [(Int, Sort)]
-    traceField (i, _s) = "    mark_gray(" ++ asSort Alloc ("next->arg" ++ show i) ++ ");"
+    traceField (i, s) = "    " ++ emitMarkGray ("next->arg" ++ show i) s ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
 emitThunkEnter (ThunkType ss) =
@@ -227,7 +227,16 @@ emitEnvTrace ns (EnvDecl fs) =
   ["}"]
   where
     traceField :: FieldName -> String
-    traceField (FieldName _ x) = "    mark_gray(" ++ asSort Alloc ("env->" ++ x) ++ ");"
+    traceField (FieldName s x) = "    " ++ emitMarkGray ("env->" ++ x) s ++ ";"
+
+emitMarkGray :: String -> Sort -> String
+emitMarkGray x s = "mark_gray(" ++ asSort Alloc x ++ ", " ++ infoForSort s ++ ")"
+  where
+    infoForSort Alloc = "trace_alloc"
+    infoForSort Sum = "trace_sum"
+    infoForSort Value = "trace_constant"
+    infoForSort (Product ss) = "trace_product"
+    infoForSort Closure = "trace_closure"
 
 emitClosureCode :: DeclNames -> [PlaceName] -> TermH -> [String]
 emitClosureCode ns xs e =
