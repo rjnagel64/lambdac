@@ -29,8 +29,8 @@ import Hoist
 emitProgram :: (Set ThunkType, Set ProductType, [ClosureDecl], TermH) -> [String]
 emitProgram (ts, ps, cs, e) =
   prologue ++
-  concatMap emitThunkDecl ts ++
   concatMap emitProductDecl ps ++
+  concatMap emitThunkDecl ts ++
   concatMap emitClosureDecl cs ++
   emitEntryPoint e
 
@@ -86,6 +86,20 @@ namesForThunk (ThunkType ss) =
   }
   where
     ty = concatMap tycode ss
+
+typeForSort :: Sort -> String
+typeForSort Alloc = "struct alloc_header *"
+typeForSort Closure = "struct closure *"
+typeForSort Value = "struct constant *"
+typeForSort Sum = "struct sum *"
+typeForSort (Product ss) = "struct product *"
+
+infoForSort :: Sort -> String
+infoForSort Alloc = "trace_alloc"
+infoForSort Sum = "trace_sum"
+infoForSort Value = "trace_constant"
+infoForSort (Product ss) = "trace_product_" ++ tycode (Product ss)
+infoForSort Closure = "trace_closure"
 
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
@@ -153,7 +167,7 @@ emitThunkSuspend (ThunkType ss) =
 emitProductDecl :: ProductType -> [String]
 emitProductDecl (ProductType ss) =
   emitProductAlloc (ProductType ss) ++
-  -- emitProductTrace (ProductType ss) ++
+  emitProductTrace (ProductType ss) ++
   concatMap (emitProductProjection (ProductType ss)) (zip [0..] ss)
 
 emitProductAlloc :: ProductType -> [String]
@@ -173,27 +187,25 @@ emitProductAlloc (ProductType ss) =
     args = if null ss then ["void"] else map emitPlace [PlaceName s ("arg" ++ show i) | (i, s) <- iss]
     assignField (i, s) = "    v->words[" ++ show i ++ "] = (uintptr_t)arg" ++ show i ++ ";"
 
--- emitProductTrace :: ProductType -> [String]
--- emitProductTrace (ProductType ss) =
---   ["void trace_product_" ++ ty ++ "(struct alloc_header *alloc) {"
---   ,"    struct product *v = AS_PRODUCT(alloc);"] ++
---   map traceField (zip [0..] ss) ++
---   ["}"]
---   where
---     ty = tycode (Product ss)
---     traceField :: (Int, Sort) -> String
---     traceField (i, s) = "    " ++ emitMarkGray ("v->words[" ++ show i ++ "]") s ++ ";"
+emitProductTrace :: ProductType -> [String]
+emitProductTrace (ProductType ss) =
+  ["void trace_product_" ++ ty ++ "(struct alloc_header *alloc) {"
+  ,"    struct product *v = AS_PRODUCT(alloc);"] ++
+  map traceField (zip [0..] ss) ++
+  ["}"]
+  where
+    ty = tycode (Product ss)
+    traceField :: (Int, Sort) -> String
+    traceField (i, s) = "    " ++ emitMarkGray ("v->words[" ++ show i ++ "]") s ++ ";"
 
 emitProductProjection :: ProductType -> (Int, Sort) -> [String]
 emitProductProjection (ProductType ss) (i, s) =
-  [fn ++ "(struct product *p) {"
+  [typeForSort s ++ fnName ++ "(struct product *p) {"
   ,"    return " ++ asSort s ("p->words[" ++ show i ++ "]") ++ ";"
   ,"}"]
   where
     ty = tycode (Product ss)
     fnName = "project_" ++ ty ++ "_" ++ show i
-    -- TODO: It's kind of a hack to treat function as a place name.
-    fn = emitPlace (PlaceName s fnName)
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d envd params e) =
@@ -244,12 +256,6 @@ emitEnvTrace ns (EnvDecl fs) =
 
 emitMarkGray :: String -> Sort -> String
 emitMarkGray x s = "mark_gray(" ++ asSort Alloc x ++ ", " ++ infoForSort s ++ ")"
-  where
-    infoForSort Alloc = "trace_alloc"
-    infoForSort Sum = "trace_sum"
-    infoForSort Value = "trace_constant"
-    infoForSort (Product ss) = "trace_product"
-    infoForSort Closure = "trace_closure"
 
 emitClosureCode :: DeclNames -> [PlaceName] -> TermH -> [String]
 emitClosureCode ns xs e =
@@ -384,18 +390,10 @@ emitPatch ns (PlaceName _ p) (EnvAlloc _free rec) =
   where env = "((struct " ++ declEnvName ns ++ " *)" ++ p ++ "->env)"
 
 emitFieldDecl :: FieldName -> String
-emitFieldDecl (FieldName Closure c) = "struct closure *" ++ c
-emitFieldDecl (FieldName Value x) = "struct constant *" ++ x
-emitFieldDecl (FieldName Alloc a) = "struct alloc_header *" ++ a
-emitFieldDecl (FieldName Sum x) = "struct sum *" ++ x
-emitFieldDecl (FieldName (Product ss) x) = "struct product *" ++ x
+emitFieldDecl (FieldName s x) = typeForSort s ++ x
 
 emitPlace :: PlaceName -> String
-emitPlace (PlaceName Closure k) = "struct closure *" ++ k
-emitPlace (PlaceName Value x) = "struct constant *" ++ x
-emitPlace (PlaceName Alloc a) = "struct alloc_header *" ++ a
-emitPlace (PlaceName Sum x) = "struct sum *" ++ x
-emitPlace (PlaceName (Product ss) x) = "struct product *" ++ x
+emitPlace (PlaceName s x) = typeForSort s ++ x
 
 emitName :: String -> Name -> String
 emitName _ (LocalName x) = x
