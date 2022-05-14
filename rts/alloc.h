@@ -21,12 +21,16 @@ struct alloc_header {
     struct alloc_header *next;
 };
 
+void trace_alloc(struct alloc_header *alloc);
+
 #define AS_ALLOC(v) ((struct alloc_header *)(v))
 
 struct constant {
     struct alloc_header header;
     uintptr_t value;
 };
+
+void trace_constant(struct alloc_header *alloc);
 
 #define AS_CONST(v) ((struct constant *)(v))
 
@@ -42,6 +46,8 @@ struct closure {
     void (*enter)(void);
 };
 
+void trace_closure(struct alloc_header *alloc);
+
 #define AS_CLOSURE(v) ((struct closure *)(v))
 
 struct sum {
@@ -51,6 +57,8 @@ struct sum {
     uintptr_t words[];
 };
 
+void trace_sum(struct alloc_header *alloc);
+
 #define AS_SUM(v) ((struct sum *)(v))
 
 struct product {
@@ -58,6 +66,8 @@ struct product {
     uint32_t num_fields;
     uintptr_t words[];
 };
+
+void trace_product(struct alloc_header *alloc);
 
 #define AS_PRODUCT(v) ((struct product *)(v))
 
@@ -68,6 +78,7 @@ void reset_locals(void);
 
 extern void (*trace_roots)(void);
 void mark_gray(struct alloc_header *alloc);
+void mark_gray_with_info(struct alloc_header *alloc, void (*trace)(struct alloc_header *));
 void sweep_all_allocations(void);
 void cons_new_alloc(struct alloc_header *alloc);
 

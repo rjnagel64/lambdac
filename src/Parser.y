@@ -63,6 +63,7 @@ import Source
 
 -- Precedence goes here, low to high
 
+-- TODO: Implement unary minus to replace signed literals
 %right '.'
 %right '->' 'in' 'else'
 %nonassoc '==' '!=' '<' '<=' '>' '>='
@@ -110,7 +111,7 @@ ATerm :: { Term }
 
 FunBinds :: { [TmFun] }
          : FunBind { [$1] }
-         | FunBinds FunBind { $1 ++ [$2] } -- TODO: DList
+         | FunBinds FunBind { $1 ++ [$2] }
 
 FunBind :: { TmFun }
         : 'fun' ID '(' ID ':' Type ')' ':' Type '=' Term ';' { TmFun (var $2) (var $4) $6 $9 $11 }

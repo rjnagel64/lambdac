@@ -41,49 +41,62 @@ void push_local(struct alloc_header *local) {
 
 // The gray list contains allocations in process of being traced. This avoids
 // overflow when exploring deeply, and also can avoid cycles. 
-static struct alloc_header **gray_list = NULL;
+struct gray_entry {
+    struct alloc_header *alloc;
+    void (*trace)(struct alloc_header *alloc);
+};
+static struct gray_entry *gray_list = NULL;
 static uint64_t num_gray = 0;
 static uint64_t gray_capacity = 0;
 void mark_gray(struct alloc_header *alloc) {
+    mark_gray_with_info(alloc, trace_alloc);
+}
+
+void mark_gray_with_info(struct alloc_header *alloc, void (*trace)(struct alloc_header *)) {
     if (num_gray == gray_capacity) {
         gray_capacity *= 2;
-        gray_list = realloc(gray_list, gray_capacity * sizeof(struct alloc_header *));
+        gray_list = realloc(gray_list, gray_capacity * sizeof(struct gray_entry));
     }
-    gray_list[num_gray++] = alloc;
+    gray_list[num_gray].alloc = alloc;
+    gray_list[num_gray].trace = trace;
+    num_gray++;
 }
 
-void trace_const(struct constant *v) {
+void trace_constant(struct alloc_header *alloc) {
 }
 
-void trace_prod(struct product *v) {
+void trace_product(struct alloc_header *alloc) {
+    struct product *v = AS_PRODUCT(alloc);
     for (uint32_t i = 0; i < v->num_fields; i++) {
         mark_gray(AS_ALLOC(v->words[i]));
     }
 }
 
-void trace_sum(struct sum *v) {
+void trace_sum(struct alloc_header *alloc) {
+    struct sum *v = AS_SUM(alloc);
     for (uint32_t i = 0; i < v->num_fields; i++) {
         mark_gray(AS_ALLOC(v->words[i]));
     }
 }
 
-void trace_closure(struct closure *cl) {
+void trace_closure(struct alloc_header *alloc) {
+    struct closure *cl = AS_CLOSURE(alloc);
     cl->trace(cl->env);
 }
 
 void trace_alloc(struct alloc_header *alloc) {
     switch (alloc->type) {
     case ALLOC_CLOSURE:
-        trace_closure(AS_CLOSURE(alloc));
+        trace_closure(alloc);
         break;
     case ALLOC_CONST:
-        trace_const(AS_CONST(alloc));
+        trace_constant(alloc);
         break;
     case ALLOC_PROD:
-        trace_prod(AS_PRODUCT(alloc));
+        trace_product(alloc);
         break;
     case ALLOC_SUM:
-        trace_sum(AS_SUM(alloc));
+        trace_sum(alloc);
         break;
     }
 }
@@ -91,9 +104,11 @@ void trace_alloc(struct alloc_header *alloc) {
 
 void collect(void) {
     // Alternatively, malloc at startup, realloc/resize here.
+    // That probably would be better, GC happens when there isn't much memory
+    // available to allocate for the gray list.
     gray_capacity = 8;
     num_gray = 0;
-    gray_list = malloc(gray_capacity * sizeof(struct alloc_header *));
+    gray_list = malloc(gray_capacity * sizeof(struct gray_entry));
 
     // Push each local onto gray_list
     for (size_t i = 0; i < num_locals; i++) {
@@ -104,15 +119,15 @@ void collect(void) {
 
     while (num_gray > 0) {
         // Pick an item
-        struct alloc_header *alloc = gray_list[--num_gray];
-        if (alloc->mark != 0) {
+        struct gray_entry gray = gray_list[--num_gray];
+        if (gray.alloc->mark != 0) {
             // if marked already, continue (avoid cycles.)
             continue;
         }
         // mark as reachable
-        alloc->mark = 1;
+        gray.alloc->mark = 1;
         // push all subfields as gray (trace)
-        trace_alloc(alloc);
+        gray.trace(gray.alloc);
     }
 
     free(gray_list);

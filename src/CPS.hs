@@ -29,8 +29,6 @@ import Control.Monad.Except
 import qualified Source as S
 import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
 
--- TODO: @AbsK as ts@ denotes forall aa+.t+ -> 0
-
 -- TODO: letrec (f : t -> s = e)+ in e', but check when CPSing that e has form '\ (x:t) -> rhs'.
 -- (Basically, desugar it to let fun (f (x : t) : s = rhs)+ in e')
 
@@ -41,7 +39,7 @@ import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
 --   fun callcc f k = f k k;
 -- ?
 -- I think that's the CPS representation, but I don't know how the source-level
--- version or the CPS translation works.
+-- version of the CPS translation works.
 --
 -- Typing rule for call/cc is Pierce's Law or something?
 -- (((a -> b) -> a) -> a)
