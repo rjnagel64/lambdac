@@ -25,6 +25,7 @@ import Hoist
 -- text :: String -> Emit
 -- text s = Emit $ \_ -> B.fromText (T.pack s)
 
+-- TODO: Ensure declarations (esp. product type declarations) are emitted in topological order
 emitProgram :: (Set ThunkType, Set ProductType, [ClosureDecl], TermH) -> [String]
 emitProgram (ts, ps, cs, e) =
   prologue ++
@@ -152,6 +153,7 @@ emitThunkSuspend (ThunkType ss) =
 emitProductDecl :: ProductType -> [String]
 emitProductDecl (ProductType ss) =
   emitProductAlloc (ProductType ss) ++
+  -- emitProductTrace (ProductType ss) ++
   concatMap (emitProductProjection (ProductType ss)) (zip [0..] ss)
 
 emitProductAlloc :: ProductType -> [String]
@@ -170,6 +172,17 @@ emitProductAlloc (ProductType ss) =
     iss = zip [0..] ss :: [(Int, Sort)]
     args = if null ss then ["void"] else map emitPlace [PlaceName s ("arg" ++ show i) | (i, s) <- iss]
     assignField (i, s) = "    v->words[" ++ show i ++ "] = (uintptr_t)arg" ++ show i ++ ";"
+
+-- emitProductTrace :: ProductType -> [String]
+-- emitProductTrace (ProductType ss) =
+--   ["void trace_product_" ++ ty ++ "(struct alloc_header *alloc) {"
+--   ,"    struct product *v = AS_PRODUCT(alloc);"] ++
+--   map traceField (zip [0..] ss) ++
+--   ["}"]
+--   where
+--     ty = tycode (Product ss)
+--     traceField :: (Int, Sort) -> String
+--     traceField (i, s) = "    " ++ emitMarkGray ("v->words[" ++ show i ++ "]") s ++ ";"
 
 emitProductProjection :: ProductType -> (Int, Sort) -> [String]
 emitProductProjection (ProductType ss) (i, s) =
