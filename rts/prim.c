@@ -15,6 +15,10 @@ struct constant *prim_mulint64(struct constant *x, struct constant *y) {
     return allocate_int64(int64_value(x) * int64_value(y));
 }
 
+struct constant *prim_negint64(struct constant *x) {
+    return allocate_int64(-int64_value(x));
+}
+
 struct sum *prim_eqint64(struct constant *x, struct constant *y) {
     if (int64_value(x) == int64_value(y)) {
         return allocate_true();

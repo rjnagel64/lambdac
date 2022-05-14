@@ -64,6 +64,8 @@ data Term
   | TmIf Term Type Term Term
   -- e1 `op` e2
   | TmArith Term TmArith Term
+  -- - e1
+  | TmNegate Term
   -- e1 `cmp` e2
   | TmCmp Term TmCmp Term
 

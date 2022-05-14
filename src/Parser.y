@@ -63,12 +63,12 @@ import Source
 
 -- Precedence goes here, low to high
 
--- TODO: Implement unary minus to replace signed literals
 %right '.'
 %right '->' 'in' 'else'
 %nonassoc '==' '!=' '<' '<=' '>' '>='
 %left '+' '-'
 %left '*'
+%right UMINUS
 
 %%
 
@@ -95,6 +95,7 @@ Term :: { Term }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
+     | '-' ATerm %prec UMINUS { TmNegate $2 }
 
 AppTerm :: { Term }
         : ATerm { $1 }

@@ -130,6 +130,7 @@ data TermC
   | LetFstC (Name, Sort) Name TermC -- let x = fst y in e, projection
   | LetSndC (Name, Sort) Name TermC
   | LetArithC (Name, Sort) ArithC TermC
+  | LetNegateC (Name, Sort) Name TermC -- let x = -y in e, unary negation
   | LetCompareC (Name, Sort) CmpC TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
@@ -232,6 +233,7 @@ fieldsFor (LetFstK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fiel
 fieldsFor (LetSndK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
+fieldsFor (LetNegateK x y e) = unitTm y <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Sum)] (fieldsFor e)
 
 fieldsForArith :: ArithK -> FieldsFor
@@ -331,6 +333,9 @@ cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) <$> cconvValue v <*> local
 cconv (LetArithK x op e) = LetArithC (tmVar x, Value) (cconvArith op) <$> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) Value ctx
+cconv (LetNegateK x y e) = LetNegateC (tmVar x, Value) (tmVar y) <$> local extend (cconv e)
+  where
+    extend ctx = Map.insert (tmVar x) Value ctx
 cconv (LetCompareK x cmp e) = LetCompareC (tmVar x, Sum) (cconvCmp cmp) <$> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) Sum ctx
@@ -428,6 +433,8 @@ pprintTerm n (CaseC x ks) =
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetArithC x op e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetNegateC x y e) =
+  indent n ("let " ++ pprintPlace x ++ " = -" ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareC x cmp e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 

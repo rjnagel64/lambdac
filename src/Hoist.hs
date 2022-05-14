@@ -123,6 +123,7 @@ data PrimOp
   = PrimAddInt64 Name Name
   | PrimSubInt64 Name Name
   | PrimMulInt64 Name Name
+  | PrimNegInt64 Name
   | PrimEqInt64 Name Name
   | PrimNeInt64 Name Name
   | PrimLtInt64 Name Name
@@ -195,6 +196,10 @@ hoist (LetArithC (x, s) op e) = do
   op' <- hoistArith op
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' op' e')
+hoist (LetNegateC (x, s) y e) = do
+  y' <- hoistVarOcc y
+  (x', e') <- withPlace x s $ hoist e
+  pure (LetPrimH x' (PrimNegInt64 y') e')
 hoist (LetCompareC (x, s) cmp e) = do
   cmp' <- hoistCmp cmp
   (x', e') <- withPlace x s $ hoist e
@@ -387,6 +392,7 @@ pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimSubInt64 x y) = "prim_subint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimMulInt64 x y) = "prim_mulint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimNegInt64 x) = "prim_negint64(" ++ show x ++ ")"
 pprintPrim (PrimEqInt64 x y) = "prim_eqint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimNeInt64 x y) = "prim_neint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimLtInt64 x y) = "prim_ltint64(" ++ show x ++ ", " ++ show y ++ ")"

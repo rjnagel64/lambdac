@@ -84,8 +84,10 @@ data TermK a
   | LetFstK TmVar TypeK TmVar (TermK a)
   -- let x:t = snd y in e
   | LetSndK TmVar TypeK TmVar (TermK a)
-  -- let z = x + y in e
+  -- let z = x `op` y in e
   | LetArithK TmVar ArithK (TermK a)
+  -- let x = -y in e
+  | LetNegateK TmVar TmVar (TermK a)
   -- let z = x `cmp` y in e 
   | LetCompareK TmVar CmpK (TermK a)
 
@@ -217,6 +219,13 @@ cps (TmArith e1 op e2) k =
         (e', t') <- k z S.TyInt
         let res = LetArithK z (makeArith op x y) e'
         pure (res, t')
+cps (TmNegate e) k =
+  cps e $ \x t -> do
+    assertEqual S.TyInt t
+    freshTm "z" $ \z -> do
+      (e', t') <- k z S.TyInt
+      let res = LetNegateK z x e'
+      pure (res, t')
 cps (TmCmp e1 cmp e2) k =
   cps e1 $ \x t1 -> do
     assertEqual S.TyInt t1
@@ -400,6 +409,12 @@ cpsTail (TmArith e1 op e2) k =
       freshTm "z" $ \z -> do
         let res = LetArithK z (makeArith op x y) (JumpK k [z])
         pure (res, S.TyInt)
+cpsTail (TmNegate e) k =
+  cps e $ \x t -> do
+    assertEqual S.TyInt t
+    freshTm "z" $ \z -> do
+      let res = LetNegateK z x (JumpK k [z])
+      pure (res, S.TyInt)
 cpsTail (TmCmp e1 cmp e2) k =
   cps e1 $ \x t1 -> do
     assertEqual S.TyInt t1
@@ -642,6 +657,8 @@ pprintTerm n (LetSndK x t y e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetArithK x op e) =
   indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetNegateK x y e) =
+  indent n ("let " ++ show x ++ " = -" ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareK x cmp e) =
   indent n ("let " ++ show x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 

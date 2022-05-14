@@ -89,6 +89,9 @@ infer (TmArith e1 _ e2) = do
   check e1 TyInt
   check e2 TyInt
   pure TyInt
+infer (TmNegate e) = do
+  check e TyInt
+  pure TyInt
 infer (TmCmp e1 _ e2) = do
   check e1 TyInt
   check e2 TyInt
