@@ -30,10 +30,10 @@ import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..)
 -- contify is basically call-pattern specialization for continuation arguments?
 -- TODO: Implement Call Arity to be smarter about passing multiple arguments
 -- together.
+-- TODO: Break Opt.hs into Opt/*.hs: split out specific optimizations
 
 newtype InlineM a = InlineM { runInlineM :: Reader InlineEnv a }
 
--- GND is less verbose, at least.
 deriving newtype instance Functor InlineM
 deriving newtype instance Applicative InlineM
 deriving newtype instance Monad InlineM
@@ -269,8 +269,7 @@ query x (Census xs) = if Set.member x xs then SomeUses else NoUses
 -- | Perform obvious beta-reductions, and then discard unused local bindings
 -- afterward.
 --
--- TODO: Annotate each parameter of a definition with used/unused (for WW later on)
--- TODO: Keep track of fun/cont definition occurrences as well? (For inlining)
+-- TODO: Annotate fun/cont definition with OneShot/MultiShot (for inlining)
 simplify :: SimplEnv -> TermK a -> (TermK a, Census)
 simplify env (HaltK x) =
   let x' = rename env x in
@@ -347,6 +346,22 @@ simplify env (LetArithK x op e) =
       case query x census of
         NoUses -> (e', census)
         SomeUses -> (LetValK x IntK (IntValK i) e', bind x census)
+-- if y := int, rewrite 'let x = -y in e' into 'let x = -int in e'.
+simplify env (LetNegateK x y e) =
+  case Map.lookup (rename env x) (simplValues env) of
+    Just (IntValK i) ->
+      let i' = negate i in
+      let env' = defineValue x (IntValK i') (under x env) in
+      let (e', census) = simplify env' e in
+      case query x census of
+        NoUses -> (e', census)
+        SomeUses -> (LetValK x IntK (IntValK i') e', bind x census)
+    _ ->
+      let env' = under x env in
+      let (e', census) = simplify env' e in
+      case query x census of
+        NoUses -> (e', census)
+        SomeUses -> (LetNegateK x (rename env y) e', bind x census)
 simplify env (LetContK ks e) =
   let f (kont, cen) (ks', census) = (kont : ks', cen <> census) in
   let (ks', census) = foldr f ([], mempty) (map (simplifyContDef env) ks) in
@@ -380,6 +395,15 @@ simplifyContDef env (ContDef ann k xs e) =
   let (e', census) = simplify env' e in
   let census' = foldr (bind . fst) census xs in
   (ContDef ann k xs e', census')
+
+-- data Usage = MustKeep | ProductUsage Usage Usage | CanDiscard
+-- data ParamUsage = ParamUsage { tmParamUsage :: Map TmVar Usage, coParamUsage :: Map CoVar Usage }
+-- -- Annotate each function/continuation parameter with how it is used in the
+-- -- body, to identify parameters that can be discarded.
+-- -- Must iterate to fixpoint
+-- markParamUsage :: TermK a -> TermK ParamUsage
+-- -- Use the parameter info to remove unused parameters, and rewrite the call sites.
+-- removeUnusedParams :: TermK ParamUsage -> TermK ()
 
 
 -- * Flatten product arguments into multiple parameters.
