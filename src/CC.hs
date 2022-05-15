@@ -299,6 +299,8 @@ runConv = runWriter . flip runReaderT Map.empty . runConvM
 -- Idea: I could factor out the fieldsFor computation by doing a first
 -- annotation pass over the data, and then having
 -- 'cconv :: TermK EnvFields -> ConvM TermC'
+-- This does get a bit messy with both TmVar/CoVar and Name being present,
+-- though.
 cconv :: TermK a -> ConvM TermC
 cconv (LetFunK fs e) =
   LetFunC <$> local extendGroup (traverse (cconvFunDef fs') fs) <*> local extendGroup (cconv e)

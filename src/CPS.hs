@@ -183,12 +183,13 @@ contDefType :: ContDef a -> TypeK
 contDefType (ContDef _ _ xs _) = ContK (map snd xs)
 
 
--- TODO: Verify that correct types are being returned by 'cps'
--- (I'm confused about some things regarding the type returned by invoking the
--- continuation, etc.)
--- I fixed the most glaring issues, but I'm certain that more are lurking.
-
 -- | CPS-convert a term.
+-- Note: The types being passed to the continuation and returned overall are a
+-- bit confusing to me. It would be nice if I could write a precise
+-- (dependently-typed) type signature, just as a form of documentation.
+--
+-- IIRC, the (TermK (), S.Type) returned here does not have the same meaning as
+-- the (TermK (), S.Type) returned by cpsTail.
 cps :: Term -> (TmVar -> S.Type -> CPS (TermK (), S.Type)) -> CPS (TermK (), S.Type)
 cps (TmVarOcc x) k = do
   env <- asks cpsEnvCtx
@@ -263,7 +264,7 @@ cps (TmLam x argTy e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
-        (e', retTy) <- withVarBinds bs $ cpsTail e k'
+        (e', retTy) <- cpsTail e k'
         let s' = cpsType retTy
         let fun = FunDef () f (map (second cpsType . snd) bs) [(k', ContK [s'])] e'
         pure (fun, S.TyArr argTy retTy)
@@ -272,16 +273,16 @@ cps (TmLam x argTy e) k =
 cps (TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
     (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
-      (e2', t2') <- withVarBinds bs $ cps e2 k
+      (e2', t2') <- cps e2 k
       let kont = ContDef () j (map (second cpsType . snd) bs) e2'
       pure (kont, t2')
     (e1', t1') <- cpsTail e1 j
     assertEqual t t1'
     pure (LetContK [kont] e1', t2')
 cps (TmRecFun fs e) k = do
-  (fs', e', t') <- freshenFunBinds fs $ \binds -> do
-    fs' <- withVarBinds binds $ traverse cpsFun fs
-    (e', t') <- withVarBinds binds $ cps e k
+  (fs', e', t') <- freshenFunBinds fs $ \_bs -> do
+    fs' <- traverse cpsFun fs
+    (e', t') <- cps e k
     pure (fs', e', t')
   let res = LetFunK fs' e'
   pure (res, t')
@@ -349,7 +350,7 @@ cpsFun (TmFun f x t s e) =
       Nothing -> error "cpsFun: function not in scope (unreachable?)"
       Just (f', _) -> pure f'
     fun <- freshenVarBinds [(x, t)] $ \bs -> do
-      (e', s') <- withVarBinds bs $ cpsTail e k
+      (e', s') <- cpsTail e k
       assertEqual s s'
       pure (FunDef () f' (map (second cpsType . snd) bs) [(k, ContK [cpsType s])] e')
     pure fun
@@ -367,7 +368,7 @@ cpsTail (TmLam x argTy e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
-        (e', retTy) <- withVarBinds bs $ cpsTail e k'
+        (e', retTy) <- cpsTail e k'
         let s' = cpsType retTy
         let fun = FunDef () f (map (second cpsType . snd) bs) [(k', ContK [s'])] e'
         pure (fun, S.TyArr argTy retTy)
@@ -384,9 +385,9 @@ cpsTail (TmLet x t e1 e2) k =
     assertEqual t t1'
     pure (LetContK [kont] e1', t2')
 cpsTail (TmRecFun fs e) k = do
-  (fs', e', t') <- freshenFunBinds fs $ \binds -> do
-    fs' <- withVarBinds binds $ traverse cpsFun fs
-    (e', t') <- withVarBinds binds $ cpsTail e k
+  (fs', e', t') <- freshenFunBinds fs $ \_bs -> do
+    fs' <- traverse cpsFun fs
+    (e', t') <- cpsTail e k
     pure (fs', e', t')
   let res = LetFunK fs' e'
   pure (res, t')
@@ -497,7 +498,7 @@ cpsMain e = runExcept . flip runReaderT emptyEnv . runCPS $
 -- type of @e@.
 cpsBranch :: CoVar -> [(S.TmVar, S.Type)] -> Term -> CoVar -> CPS (ContDef (), S.Type)
 cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
-  (e', s') <- withVarBinds xs' $ cpsTail e j
+  (e', s') <- cpsTail e j
   pure (ContDef () k (map (second cpsType . snd) xs') e', s')
 
 -- | CPS-transform a case analysis, given a scrutinee, a continuation variable
@@ -557,10 +558,9 @@ assertEqual :: S.Type -> S.Type -> CPS ()
 assertEqual expected actual = when (not (eqType expected actual)) $
   throwError (TypeMismatch expected actual)
 
--- TODO: What if instead of bool, I returned a datastructure pointing out the
+-- TODO: Support polymorphic types in 'CPS.eqType'.
+-- What if instead of Bool, I returned a datastructure pointing out the
 -- path to the first(?) (or all) discrepancy? (Context as to why the equality failed)
--- TODO: Support polymorphic types here.
--- wat
 eqType :: S.Type -> S.Type -> Bool
 eqType S.TyUnit S.TyUnit = True
 eqType S.TyUnit _ = False
@@ -600,13 +600,7 @@ freshTy x k = do
   let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
   local extend (k x')
 
--- TODO: Fuse this function with 'freshenVarBinds' and 'freshenFunBinds', to
--- eliminate possibility of error.
-withVarBinds :: [(S.TmVar, (TmVar, S.Type))] -> CPS a -> CPS a
-withVarBinds binds m = local extend m
-  where
-    extend (CPSEnv sc ctx) = CPSEnv sc (foldr (uncurry Map.insert) ctx binds)
-
+-- | Rename a sequence of variable bindings and bring them in to scope.
 freshenVarBinds :: [(S.TmVar, S.Type)] -> ([(S.TmVar, (TmVar, S.Type))] -> CPS a) -> CPS a
 freshenVarBinds bs k = do
   scope <- asks cpsEnvScope
@@ -616,9 +610,10 @@ freshenVarBinds bs k = do
       let x' = TmVar x i in
       (Map.insert x (i+1) sc, (S.TmVar x, (x', t)))
     (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx) = CPSEnv sc' ctx
+  let extend (CPSEnv _sc ctx) = CPSEnv sc' (foldr (uncurry Map.insert) ctx bs')
   local extend (k bs')
 
+-- | Rename a sequence of function bindings and bring them in to scope.
 freshenFunBinds :: [TmFun] -> ([(S.TmVar, (TmVar, S.Type))] -> CPS a) -> CPS a
 freshenFunBinds fs k = do
   scope <- asks cpsEnvScope
@@ -629,7 +624,7 @@ freshenFunBinds fs k = do
       let f' = TmVar f i in
       (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyArr argTy retTy)))
     (sc', binds) = mapAccumL pick scope fs
-  let extend (CPSEnv _sc ctx) = CPSEnv sc' ctx
+  let extend (CPSEnv _sc ctx) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds)
   local extend (k binds)
 
 
