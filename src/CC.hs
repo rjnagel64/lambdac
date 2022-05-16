@@ -281,7 +281,9 @@ newtype TypeDecls = TypeDecls { getTypeDecls :: (Set ThunkType, Set ProductType)
 deriving newtype instance Semigroup TypeDecls
 deriving newtype instance Monoid TypeDecls
 
--- TODO: Field names on 'ProductType'?
+-- Note: Currently, ProductType only deals with tuple types, which do not have
+-- named fields. In the future, if/when I have records (named or anonymous?), I
+-- should probably have a second type that describes named product types.
 newtype ProductType = ProductType [Sort]
   deriving (Eq, Ord)
 

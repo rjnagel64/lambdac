@@ -87,7 +87,6 @@ main = do
     putStrLn $ "--- Code Generation ---"
     putStrLn obj
 
-  -- TODO: Use temporary file for C output by default?
   let
     (outputFile, executableFile) = case driverOutFile args of
       Nothing -> ( takeFileName (driverFile args) -<.> ".out.c"
@@ -96,10 +95,8 @@ main = do
       Just f -> (f <.> ".out.c", f)
   writeFile outputFile obj
 
-  -- TODO: Flag to skip invoking clang, merely output the C code
-  -- (e.g., to debug code-gen errors/warnings)
-  -- --no-executable, maybe?
-  let compileProcess = proc "clang" ["-I./rts/", "-L./rts/", "-lrts", outputFile, "-o", executableFile]
+  let clangArgs = ["-I./rts/", "-L./rts/", "-lrts", outputFile, "-o", executableFile]
+  let compileProcess = proc "clang" clangArgs
   exitCode <- runProcess compileProcess
   case exitCode of
     ExitSuccess -> pure ()
