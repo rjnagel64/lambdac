@@ -1,0 +1,15 @@
+letrec
+  even : int -> bool =
+    \ (x : int) ->
+      if x == 0 return bool then
+        true
+      else
+        odd (x - 1);
+  odd : int -> bool =
+    \ (x : int) ->
+      if x == 0 return bool then
+        false
+      else
+        even (x - 1);
+in
+even 24

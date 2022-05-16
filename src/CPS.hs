@@ -29,9 +29,6 @@ import Control.Monad.Except
 import qualified Source as S
 import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
 
--- TODO: letrec (f : t -> s = e)+ in e', but check when CPSing that e has form '\ (x:t) -> rhs'.
--- (Basically, desugar it to let fun (f (x : t) : s = rhs)+ in e')
-
 -- call/cc: pass function return continuation to argument?
 -- what if call/cc in contdef? in let-binding?
 --
@@ -286,6 +283,13 @@ cps (TmRecFun fs e) k = do
     pure (fs', e', t')
   let res = LetFunK fs' e'
   pure (res, t')
+cps (TmLetRec fs e) k = do
+  (fs'', e', t') <- freshenRecBinds fs $ \fs' -> do
+    fs'' <- traverse cpsFun fs'
+    (e', t') <- cps e k
+    pure (fs'', e', t')
+  let res = LetFunK fs'' e'
+  pure (res, t')
 cps (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
     assertEqual (S.TySum tl tr) t
@@ -390,6 +394,13 @@ cpsTail (TmRecFun fs e) k = do
     (e', t') <- cpsTail e k
     pure (fs', e', t')
   let res = LetFunK fs' e'
+  pure (res, t')
+cpsTail (TmLetRec fs e) k = do
+  (fs'', e', t') <- freshenRecBinds fs $ \fs' -> do
+    fs'' <- traverse cpsFun fs'
+    (e', t') <- cpsTail e k
+    pure (fs'', e', t')
+  let res = LetFunK fs'' e'
   pure (res, t')
 cpsTail TmNil k =
   freshTm "x" $ \x -> do
@@ -532,6 +543,7 @@ data TCError
   | TypeMismatch S.Type S.Type -- expected, actual
   | CannotProject S.Type
   | CannotApply S.Type
+  | InvalidLetRec S.TmVar
 
 instance Show TCError where
   show (TypeMismatch expected actual) = unlines
@@ -542,6 +554,7 @@ instance Show TCError where
   show (NotInScope x) = "variable not in scope: " ++ show x
   show (CannotApply t) = "value of type " ++ S.pprintType 0 t ++ " cannot have an argument applied to it"
   show (CannotProject t) = "cannot project field from value of type " ++ S.pprintType 0 t
+  show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
 
 emptyEnv :: CPSEnv
 emptyEnv = CPSEnv Map.empty Map.empty
@@ -614,6 +627,7 @@ freshenVarBinds bs k = do
   local extend (k bs')
 
 -- | Rename a sequence of function bindings and bring them in to scope.
+-- TODO: freshenFunBinds doesn't need a continuation? (Just a local action)
 freshenFunBinds :: [TmFun] -> ([(S.TmVar, (TmVar, S.Type))] -> CPS a) -> CPS a
 freshenFunBinds fs k = do
   scope <- asks cpsEnvScope
@@ -626,6 +640,25 @@ freshenFunBinds fs k = do
     (sc', binds) = mapAccumL pick scope fs
   let extend (CPSEnv _sc ctx) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds)
   local extend (k binds)
+
+freshenRecBinds :: [(S.TmVar, S.Type, S.Term)] -> ([TmFun] -> CPS a) -> CPS a
+freshenRecBinds fs k = do
+  scope <- asks cpsEnvScope
+  let
+    pick :: Map String Int -> (S.TmVar, S.Type, S.Term) -> (Map String Int, (S.TmVar, (TmVar, S.Type)))
+    pick sc (S.TmVar f, ty, _e) =
+      let i = fromMaybe 0 (Map.lookup f scope) in
+      let f' = TmVar f i in
+      (Map.insert f (i+1) sc, (S.TmVar f, (f', ty)))
+    (sc', binds) = mapAccumL pick scope fs
+  let extend (CPSEnv _sc ctx) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds)
+  fs' <- for fs $ \ (f, ty, rhs) -> do
+    case (ty, rhs) of
+      (S.TyArr t s, S.TmLam x t' body) -> do
+        assertEqual t t'
+        pure (TmFun f x t s body)
+      (_, _) -> throwError (InvalidLetRec f)
+  local extend (k fs')
 
 
 -- Pretty-printing

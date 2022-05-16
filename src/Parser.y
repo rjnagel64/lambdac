@@ -43,6 +43,7 @@ import Source
   'of' { TokOf _ }
   'return' { TokReturn _ }
   'let' { TokLet _ }
+  'letrec' { TokLetRec _ }
   'in' { TokIn _ }
   'inl' { TokInl _ }
   'inr' { TokInr _ }
@@ -77,6 +78,7 @@ Term :: { Term }
      | '\\' '(' ID ':' Type ')' '->' Term { TmLam (var $3) $5 $8 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
      | 'let' FunBinds 'in' Term { TmRecFun $2 $4 }
+     | 'letrec' RecBinds 'in' Term { TmLetRec $2 $4 }
      | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
        { TmCase $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
@@ -116,6 +118,13 @@ FunBinds :: { [TmFun] }
 
 FunBind :: { TmFun }
         : 'fun' ID '(' ID ':' Type ')' ':' Type '=' Term ';' { TmFun (var $2) (var $4) $6 $9 $11 }
+
+RecBinds :: { [(TmVar, Type, Term)] }
+         : RecBind { [$1] }
+         | RecBinds RecBind { $1 ++ [$2] }
+
+RecBind :: { (TmVar, Type, Term) }
+        : ID ':' Type '=' Term ';' { (var $1, $3, $5) }
 
 Type :: { Type }
      : AType { $1 }

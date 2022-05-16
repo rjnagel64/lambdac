@@ -54,6 +54,8 @@ data Term
   | TmLet TmVar Type Term Term
   -- let rec fs+ in e
   | TmRecFun [TmFun] Term
+  -- let rec (x:t = e)+ in e'
+  | TmLetRec [(TmVar, Type, Term)] Term
   -- ()
   | TmNil
   -- 17

@@ -55,6 +55,7 @@ tokens :-
 
   "fun" { tok TokFun }
   "let" { tok TokLet }
+  "letrec" { tok TokLetRec }
   "in" { tok TokIn }
   "case" { tok TokCase }
   "of" { tok TokOf }
@@ -134,6 +135,7 @@ data Token
   | TokFun Loc
   | TokIn Loc
   | TokLet Loc
+  | TokLetRec Loc
 
   | TokInl Loc
   | TokInr Loc
@@ -180,6 +182,7 @@ instance Located Token where
   loc (TokFun l) = l
   loc (TokIn l) = l
   loc (TokLet l) = l
+  loc (TokLetRec l) = l
   loc (TokOf l) = l
   loc (TokReturn l) = l
   loc (TokInl l) = l

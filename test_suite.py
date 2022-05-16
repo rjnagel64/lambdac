@@ -44,6 +44,7 @@ standard_test("adder", "8")
 standard_test("bimap", "(34, 132)")
 standard_test("state_sum", "(55, 55)")
 standard_test("precedence", "-6")
+standard_test("letrec", "<1 :>")
 
 
 for (test, out) in failed_tests:
