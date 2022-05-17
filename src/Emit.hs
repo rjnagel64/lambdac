@@ -166,8 +166,8 @@ emitThunkSuspend (ThunkType ss) =
 
 emitProductDecl :: ProductType -> [String]
 emitProductDecl (ProductType ss) =
-  emitProductAlloc (ProductType ss) ++
   emitProductTrace (ProductType ss) ++
+  emitProductAlloc (ProductType ss) ++
   concatMap (emitProductProjection (ProductType ss)) (zip [0..] ss)
 
 emitProductAlloc :: ProductType -> [String]
@@ -177,7 +177,7 @@ emitProductAlloc (ProductType ss) =
   ,"    v->header.type = ALLOC_PROD;"
   ,"    v->num_fields = " ++ numFields ++ ";"] ++
   map assignField iss ++
-  ["    cons_new_alloc(AS_ALLOC(v));"
+  ["    cons_new_alloc(AS_ALLOC(v), trace_product_" ++ ty ++ ");"
   ,"    return v;"
   ,"}"]
   where

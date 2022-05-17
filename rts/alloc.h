@@ -79,7 +79,7 @@ void reset_locals(void);
 extern void (*trace_roots)(void);
 void mark_gray(struct alloc_header *alloc, void (*trace)(struct alloc_header *));
 void sweep_all_allocations(void);
-void cons_new_alloc(struct alloc_header *alloc);
+void cons_new_alloc(struct alloc_header *alloc, void (*trace)(struct alloc_header *));
 
 struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*code)(void), void (*enter)(void));
 struct sum *allocate_inl(struct alloc_header *v);

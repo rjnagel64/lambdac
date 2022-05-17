@@ -277,7 +277,7 @@ cps (TmLet x t e1 e2) k = do
     assertEqual t t1'
     pure (LetContK [kont] e1', t2')
 cps (TmRecFun fs e) k = do
-  (fs', e', t') <- freshenFunBinds fs $ \_bs -> do
+  (fs', e', t') <- freshenFunBinds fs $ do
     fs' <- traverse cpsFun fs
     (e', t') <- cps e k
     pure (fs', e', t')
@@ -389,7 +389,7 @@ cpsTail (TmLet x t e1 e2) k =
     assertEqual t t1'
     pure (LetContK [kont] e1', t2')
 cpsTail (TmRecFun fs e) k = do
-  (fs', e', t') <- freshenFunBinds fs $ \_bs -> do
+  (fs', e', t') <- freshenFunBinds fs $ do
     fs' <- traverse cpsFun fs
     (e', t') <- cpsTail e k
     pure (fs', e', t')
@@ -627,9 +627,8 @@ freshenVarBinds bs k = do
   local extend (k bs')
 
 -- | Rename a sequence of function bindings and bring them in to scope.
--- TODO: freshenFunBinds doesn't need a continuation? (Just a local action)
-freshenFunBinds :: [TmFun] -> ([(S.TmVar, (TmVar, S.Type))] -> CPS a) -> CPS a
-freshenFunBinds fs k = do
+freshenFunBinds :: [TmFun] -> CPS a -> CPS a
+freshenFunBinds fs m = do
   scope <- asks cpsEnvScope
   let
     pick :: Map String Int -> TmFun -> (Map String Int, (S.TmVar, (TmVar, S.Type)))
@@ -639,7 +638,7 @@ freshenFunBinds fs k = do
       (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyArr argTy retTy)))
     (sc', binds) = mapAccumL pick scope fs
   let extend (CPSEnv _sc ctx) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds)
-  local extend (k binds)
+  local extend m
 
 freshenRecBinds :: [(S.TmVar, S.Type, S.Term)] -> ([TmFun] -> CPS a) -> CPS a
 freshenRecBinds fs k = do
