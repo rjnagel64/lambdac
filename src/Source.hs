@@ -16,6 +16,13 @@ module Source
 -- requirement of exact arity matching. Parser still generates curried
 -- functions and applications, but Source and CPS support the uncurried
 -- versions as well.)
+--
+-- Idea for arity/eta-expansion: that thing with different arrow types for
+-- eta-safe and eta-unsafe functions. (and different lambda and application)
+-- CPS for an eta-safe function could gather eta-safe lambdas/apps
+-- (The parser still only generates eta-unsafe things, annotation pass to
+-- convert where possible)
+-- (I think the paper that used this idea was 'Call Arity'?)
 
 -- | Term variables stand for values
 newtype TmVar = TmVar String

@@ -94,6 +94,8 @@ coVar (K.CoVar k i) = Name k i
 -- Product = () | t1 * t2
 -- Closure = (t1, t2, ...) -> 0
 -- Alloc = a : *
+-- Eventually, I may want to distinguish between named and anonymous product
+-- types.
 data Sort = Closure | Value | Alloc | Sum | Product [Sort]
   deriving (Eq, Ord)
 

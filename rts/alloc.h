@@ -21,7 +21,12 @@ struct alloc_header {
     struct alloc_header *next;
 };
 
-void trace_alloc(struct alloc_header *alloc);
+struct _type_info {
+    void (*trace)(struct alloc_header *alloc);
+};
+typedef struct _type_info type_info;
+
+type_info any_info;
 
 #define AS_ALLOC(v) ((struct alloc_header *)(v))
 
@@ -30,7 +35,7 @@ struct constant {
     uintptr_t value;
 };
 
-void trace_constant(struct alloc_header *alloc);
+type_info constant_info;
 
 #define AS_CONST(v) ((struct constant *)(v))
 
@@ -40,16 +45,22 @@ struct closure {
     // proposed type_info formulation of this stuff.
     // The 'trace_const' methods in alloc.c are almost type_info, but need to
     // take 'void *' as argument.
+    //
+    // Hmm. Can't quite just have 'type_info env_info', because the environment
+    // is not managed by the GC, even though we trace through it.
     void *env;
     void (*trace)(void *env);
     void (*code)(void);
     void (*enter)(void);
 };
 
-void trace_closure(struct alloc_header *alloc);
+type_info closure_info;
 
 #define AS_CLOSURE(v) ((struct closure *)(v))
 
+// TODO: 'struct sum' is actually a generic representation of sum-of-products.
+// I only need 'T + S' and 'bool' right now. Split those off, and later on
+// implement concrete representation of sum-of-products data types.
 struct sum {
     struct alloc_header header;
     uint32_t discriminant;
@@ -57,7 +68,7 @@ struct sum {
     uintptr_t words[];
 };
 
-void trace_sum(struct alloc_header *alloc);
+type_info sum_info;
 
 #define AS_SUM(v) ((struct sum *)(v))
 
@@ -67,8 +78,6 @@ struct product {
     uintptr_t words[];
 };
 
-void trace_product(struct alloc_header *alloc);
-
 #define AS_PRODUCT(v) ((struct product *)(v))
 
 
@@ -77,9 +86,9 @@ void destroy_locals(void);
 void reset_locals(void);
 
 extern void (*trace_roots)(void);
-void mark_gray(struct alloc_header *alloc, void (*trace)(struct alloc_header *));
+void mark_gray(struct alloc_header *alloc, type_info info);
 void sweep_all_allocations(void);
-void cons_new_alloc(struct alloc_header *alloc, void (*trace)(struct alloc_header *));
+void cons_new_alloc(struct alloc_header *alloc, type_info info);
 
 struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*code)(void), void (*enter)(void));
 struct sum *allocate_inl(struct alloc_header *v);

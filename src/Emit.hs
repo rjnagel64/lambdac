@@ -95,11 +95,11 @@ typeForSort Sum = "struct sum *"
 typeForSort (Product ss) = "struct product *"
 
 infoForSort :: Sort -> String
-infoForSort Alloc = "trace_alloc"
-infoForSort Sum = "trace_sum"
-infoForSort Value = "trace_constant"
-infoForSort (Product ss) = "trace_product_" ++ tycode (Product ss)
-infoForSort Closure = "trace_closure"
+infoForSort Alloc = "any_info"
+infoForSort Sum = "sum_info"
+infoForSort Value = "constant_info"
+infoForSort (Product ss) = "product_" ++ tycode (Product ss) ++ "_info"
+infoForSort Closure = "closure_info"
 
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
@@ -167,6 +167,7 @@ emitThunkSuspend (ThunkType ss) =
 emitProductDecl :: ProductType -> [String]
 emitProductDecl (ProductType ss) =
   emitProductTrace (ProductType ss) ++
+  emitProductInfo (ProductType ss) ++
   emitProductAlloc (ProductType ss) ++
   concatMap (emitProductProjection (ProductType ss)) (zip [0..] ss)
 
@@ -177,7 +178,7 @@ emitProductAlloc (ProductType ss) =
   ,"    v->header.type = ALLOC_PROD;"
   ,"    v->num_fields = " ++ numFields ++ ";"] ++
   map assignField iss ++
-  ["    cons_new_alloc(AS_ALLOC(v), trace_product_" ++ ty ++ ");"
+  ["    cons_new_alloc(AS_ALLOC(v), " ++ infoForSort (Product ss) ++ ");"
   ,"    return v;"
   ,"}"]
   where
@@ -197,6 +198,12 @@ emitProductTrace (ProductType ss) =
     ty = tycode (Product ss)
     traceField :: (Int, Sort) -> String
     traceField (i, s) = "    " ++ emitMarkGray ("v->words[" ++ show i ++ "]") s ++ ";"
+
+emitProductInfo :: ProductType -> [String]
+emitProductInfo (ProductType ss) =
+  ["type_info product_" ++ ty ++ "_info = { trace_product_" ++ ty ++ " };"]
+  where
+    ty = tycode (Product ss)
 
 emitProductProjection :: ProductType -> (Int, Sort) -> [String]
 emitProductProjection (ProductType ss) (i, s) =
@@ -333,8 +340,8 @@ emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
 emitValueAlloc envp (ProdH ss xs) = emitPrimCall envp ("allocate_" ++ ty) xs
   where ty = tycode (Product ss)
-emitValueAlloc envp (InlH y) = "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ")"
-emitValueAlloc envp (InrH y) = "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ")"
+emitValueAlloc envp (InlH s y) = "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ")"
+emitValueAlloc envp (InrH s y) = "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ")"
 
 emitPrimOp :: String -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]

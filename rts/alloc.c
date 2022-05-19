@@ -11,7 +11,7 @@ static uint64_t gc_threshold = 256;
 // during the lifetime of a function.
 struct local_entry {
     struct alloc_header *alloc;
-    void (*trace)(struct alloc_header *alloc);
+    type_info info;
 };
 static struct local_entry *locals = NULL;
 static size_t num_locals = 0;
@@ -34,13 +34,13 @@ void reset_locals(void) {
     num_locals = 0;
 }
 
-void push_local(struct alloc_header *local, void (*trace)(struct alloc_header *)) {
+void push_local(struct alloc_header *local, type_info info) {
     if (num_locals == locals_capacity) {
         locals_capacity *= 2;
         locals = realloc(locals, locals_capacity * sizeof(struct local_entry));
     }
     locals[num_locals].alloc = local;
-    locals[num_locals].trace = trace;
+    locals[num_locals].info = info;
     num_locals++;
 }
 
@@ -48,29 +48,31 @@ void push_local(struct alloc_header *local, void (*trace)(struct alloc_header *)
 // overflow when exploring deeply, and also can avoid cycles. 
 struct gray_entry {
     struct alloc_header *alloc;
-    void (*trace)(struct alloc_header *alloc);
+    type_info info;
 };
 static struct gray_entry *gray_list = NULL;
 static uint64_t num_gray = 0;
 static uint64_t gray_capacity = 0;
-void mark_gray(struct alloc_header *alloc, void (*trace)(struct alloc_header *)) {
+void mark_gray(struct alloc_header *alloc, type_info info) {
     if (num_gray == gray_capacity) {
         gray_capacity *= 2;
         gray_list = realloc(gray_list, gray_capacity * sizeof(struct gray_entry));
     }
     gray_list[num_gray].alloc = alloc;
-    gray_list[num_gray].trace = trace;
+    gray_list[num_gray].info = info;
     num_gray++;
 }
 
 void trace_constant(struct alloc_header *alloc) {
 }
 
+type_info constant_info = { trace_constant };
+
 void trace_product(struct alloc_header *alloc) {
     struct product *v = AS_PRODUCT(alloc);
     for (uint32_t i = 0; i < v->num_fields; i++) {
         // TODO: Use product information here instead of trace_alloc
-        mark_gray(AS_ALLOC(v->words[i]), trace_alloc);
+        mark_gray(AS_ALLOC(v->words[i]), any_info);
     }
 }
 
@@ -78,14 +80,18 @@ void trace_sum(struct alloc_header *alloc) {
     struct sum *v = AS_SUM(alloc);
     for (uint32_t i = 0; i < v->num_fields; i++) {
         // TODO: Use sum information here instead of trace_alloc
-        mark_gray(AS_ALLOC(v->words[i]), trace_alloc);
+        mark_gray(AS_ALLOC(v->words[i]), any_info);
     }
 }
+
+type_info sum_info = { trace_sum };
 
 void trace_closure(struct alloc_header *alloc) {
     struct closure *cl = AS_CLOSURE(alloc);
     cl->trace(cl->env);
 }
+
+type_info closure_info = { trace_closure };
 
 void trace_alloc(struct alloc_header *alloc) {
     switch (alloc->type) {
@@ -104,6 +110,8 @@ void trace_alloc(struct alloc_header *alloc) {
     }
 }
 
+type_info any_info = { trace_alloc };
+
 
 void collect(void) {
     // Alternatively, malloc at startup, realloc/resize here.
@@ -115,7 +123,7 @@ void collect(void) {
 
     // Push each local onto gray_list
     for (size_t i = 0; i < num_locals; i++) {
-        mark_gray(locals[i].alloc, locals[i].trace);
+        mark_gray(locals[i].alloc, locals[i].info);
     }
     // Push each field of next_step onto gray_list
     trace_roots();
@@ -130,7 +138,7 @@ void collect(void) {
         // mark as reachable
         gray.alloc->mark = 1;
         // push all subfields as gray (trace)
-        gray.trace(gray.alloc);
+        gray.info.trace(gray.alloc);
     }
 
     free(gray_list);
@@ -181,12 +189,12 @@ void sweep_all_allocations(void) {
     }
 }
 
-void cons_new_alloc(struct alloc_header *alloc, void (*trace)(struct alloc_header *)) {
+void cons_new_alloc(struct alloc_header *alloc, type_info info) {
     alloc->mark = 0;
     alloc->next = first_allocation;
     first_allocation = alloc;
     num_allocs++;
-    push_local(first_allocation, trace);
+    push_local(first_allocation, info);
     if (num_allocs > gc_threshold) {
         collect();
     }
@@ -219,7 +227,7 @@ struct closure *allocate_closure(
     cl->code = code;
     cl->enter = enter;
 
-    cons_new_alloc(AS_ALLOC(cl), trace_closure);
+    cons_new_alloc(AS_ALLOC(cl), closure_info);
     return cl;
 }
 
@@ -228,21 +236,21 @@ struct constant *allocate_int64(int64_t x) {
     v->header.type = ALLOC_CONST;
     v->value = (uintptr_t)x;
 
-    cons_new_alloc(AS_ALLOC(v), trace_constant);
+    cons_new_alloc(AS_ALLOC(v), constant_info);
     return v;
 }
 
 struct sum *allocate_true(void) {
     struct sum *v = make_sum(1, 0);
 
-    cons_new_alloc(AS_ALLOC(v), trace_sum);
+    cons_new_alloc(AS_ALLOC(v), sum_info);
     return v;
 }
 
 struct sum *allocate_false(void) {
     struct sum *v = make_sum(0, 0);
 
-    cons_new_alloc(AS_ALLOC(v), trace_sum);
+    cons_new_alloc(AS_ALLOC(v), sum_info);
     return v;
 }
 
@@ -250,7 +258,7 @@ struct sum *allocate_inl(struct alloc_header *x) {
     struct sum *v = make_sum(0, 1);
     v->words[0] = (uintptr_t)x;
 
-    cons_new_alloc(AS_ALLOC(v), trace_sum);
+    cons_new_alloc(AS_ALLOC(v), sum_info);
     return v;
 }
 
@@ -258,7 +266,7 @@ struct sum *allocate_inr(struct alloc_header *y) {
     struct sum *v = make_sum(1, 1);
     v->words[0] = (uintptr_t)y;
 
-    cons_new_alloc(AS_ALLOC(v), trace_sum);
+    cons_new_alloc(AS_ALLOC(v), sum_info);
     return v;
 }
 

@@ -116,8 +116,8 @@ data ValueH
   = IntH Int64
   | BoolH Bool
   | ProdH [Sort] [Name]
-  | InlH Name
-  | InrH Name
+  | InlH Sort Name
+  | InrH Sort Name
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -276,8 +276,8 @@ hoistValue (PairC x y) = do
   (xs, ss) <- unzip <$> traverse hoistVarOcc' [x, y]
   pure (ProdH ss xs)
 hoistValue NilC = pure (ProdH [] [])
-hoistValue (InlC x) = InlH <$> hoistVarOcc x
-hoistValue (InrC x) = InrH <$> hoistVarOcc x
+hoistValue (InlC x) = uncurry (flip InlH) <$> hoistVarOcc' x
+hoistValue (InrC x) = uncurry (flip InrH) <$> hoistVarOcc' x
 
 hoistArith :: ArithC -> HoistM PrimOp
 hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -385,8 +385,8 @@ pprintValue :: ValueH -> String
 pprintValue (ProdH _ xs) = "(" ++ intercalate ", " (map show xs) ++ ")"
 pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"
-pprintValue (InlH x) = "inl " ++ show x
-pprintValue (InrH y) = "inr " ++ show y
+pprintValue (InlH _ x) = "inl " ++ show x
+pprintValue (InrH _ y) = "inr " ++ show y
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
