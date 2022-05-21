@@ -8,12 +8,12 @@ struct constant *prim_subint64(struct constant *x, struct constant *y);
 struct constant *prim_mulint64(struct constant *x, struct constant *y);
 struct constant *prim_negint64(struct constant *x);
 
-struct sum *prim_eqint64(struct constant *x, struct constant *y);
-struct sum *prim_neint64(struct constant *x, struct constant *y);
-struct sum *prim_ltint64(struct constant *x, struct constant *y);
-struct sum *prim_leint64(struct constant *x, struct constant *y);
-struct sum *prim_gtint64(struct constant *x, struct constant *y);
-struct sum *prim_geint64(struct constant *x, struct constant *y);
+struct bool_value *prim_eqint64(struct constant *x, struct constant *y);
+struct bool_value *prim_neint64(struct constant *x, struct constant *y);
+struct bool_value *prim_ltint64(struct constant *x, struct constant *y);
+struct bool_value *prim_leint64(struct constant *x, struct constant *y);
+struct bool_value *prim_gtint64(struct constant *x, struct constant *y);
+struct bool_value *prim_geint64(struct constant *x, struct constant *y);
 
 
 #endif

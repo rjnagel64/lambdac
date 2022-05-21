@@ -39,12 +39,13 @@ standard_test("fibonacci", "144")
 standard_test("trisum", "55")
 standard_test("tailfib", "144")
 standard_test("fact", "3628800")
-standard_test("evenodd", "<1 :>")
+standard_test("evenodd", "true")
 standard_test("adder", "8")
 standard_test("bimap", "(34, 132)")
 standard_test("state_sum", "(55, 55)")
 standard_test("precedence", "-6")
-standard_test("letrec", "<1 :>")
+standard_test("letrec", "true")
+standard_test("sums", "(inl 17, inr true)")
 
 
 for (test, out) in failed_tests:

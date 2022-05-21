@@ -78,13 +78,15 @@ void trace_product(struct alloc_header *alloc) {
 
 void trace_sum(struct alloc_header *alloc) {
     struct sum *v = AS_SUM(alloc);
-    for (uint32_t i = 0; i < v->num_fields; i++) {
-        // TODO: Use sum information here instead of trace_alloc
-        mark_gray(AS_ALLOC(v->words[i]), any_info);
-    }
+    mark_gray(v->payload, v->info);
 }
 
 type_info sum_info = { trace_sum };
+
+void trace_bool_value(struct alloc_header *alloc) {
+}
+
+type_info bool_value_info = { trace_bool_value };
 
 void trace_closure(struct alloc_header *alloc) {
     struct closure *cl = AS_CLOSURE(alloc);
@@ -106,6 +108,9 @@ void trace_alloc(struct alloc_header *alloc) {
         break;
     case ALLOC_SUM:
         trace_sum(alloc);
+        break;
+    case ALLOC_BOOL:
+        trace_bool_value(alloc);
         break;
     }
 }
@@ -179,6 +184,7 @@ void sweep_all_allocations(void) {
             free(alloc);
             break;
         case ALLOC_CONST:
+        case ALLOC_BOOL:
         case ALLOC_PROD:
         case ALLOC_SUM:
             // All fields are managed by GC.
@@ -198,21 +204,6 @@ void cons_new_alloc(struct alloc_header *alloc, type_info info) {
     if (num_allocs > gc_threshold) {
         collect();
     }
-}
-
-struct sum *make_sum(uint32_t discriminant, uint32_t num_fields) {
-    struct sum *v = malloc(sizeof(struct sum) + num_fields * sizeof(uintptr_t));
-    v->header.type = ALLOC_SUM;
-    v->discriminant = discriminant;
-    v->num_fields = num_fields;
-    return v;
-}
-
-struct product *make_product(uint32_t num_fields) {
-    struct product *v = malloc(sizeof(struct product) + num_fields * sizeof(uintptr_t));
-    v->header.type = ALLOC_PROD;
-    v->num_fields = num_fields;
-    return v;
 }
 
 struct closure *allocate_closure(
@@ -240,31 +231,41 @@ struct constant *allocate_int64(int64_t x) {
     return v;
 }
 
-struct sum *allocate_true(void) {
-    struct sum *v = make_sum(1, 0);
+struct bool_value *allocate_true(void) {
+    struct bool_value *v = malloc(sizeof(struct bool_value));
+    v->header.type = ALLOC_BOOL;
+    v->discriminant = 1;
+
+    cons_new_alloc(AS_ALLOC(v), bool_value_info);
+    return v;
+}
+
+struct bool_value *allocate_false(void) {
+    struct bool_value *v = malloc(sizeof(struct bool_value));
+    v->header.type = ALLOC_BOOL;
+    v->discriminant = 0;
+
+    cons_new_alloc(AS_ALLOC(v), bool_value_info);
+    return v;
+}
+
+struct sum *allocate_inl(struct alloc_header *x, type_info x_info) {
+    struct sum *v = malloc(sizeof(struct sum));
+    v->header.type = ALLOC_SUM;
+    v->discriminant = 0;
+    v->info = x_info;
+    v->payload = x;
 
     cons_new_alloc(AS_ALLOC(v), sum_info);
     return v;
 }
 
-struct sum *allocate_false(void) {
-    struct sum *v = make_sum(0, 0);
-
-    cons_new_alloc(AS_ALLOC(v), sum_info);
-    return v;
-}
-
-struct sum *allocate_inl(struct alloc_header *x) {
-    struct sum *v = make_sum(0, 1);
-    v->words[0] = (uintptr_t)x;
-
-    cons_new_alloc(AS_ALLOC(v), sum_info);
-    return v;
-}
-
-struct sum *allocate_inr(struct alloc_header *y) {
-    struct sum *v = make_sum(1, 1);
-    v->words[0] = (uintptr_t)y;
+struct sum *allocate_inr(struct alloc_header *y, type_info y_info) {
+    struct sum *v = malloc(sizeof(struct sum));
+    v->header.type = ALLOC_SUM;
+    v->discriminant = 1;
+    v->info = y_info;
+    v->payload = y;
 
     cons_new_alloc(AS_ALLOC(v), sum_info);
     return v;

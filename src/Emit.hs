@@ -340,8 +340,10 @@ emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
 emitValueAlloc envp (ProdH ss xs) = emitPrimCall envp ("allocate_" ++ ty) xs
   where ty = tycode (Product ss)
-emitValueAlloc envp (InlH s y) = "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ")"
-emitValueAlloc envp (InrH s y) = "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ")"
+emitValueAlloc envp (InlH s y) =
+  "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
+emitValueAlloc envp (InrH s y) =
+  "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
 
 emitPrimOp :: String -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]

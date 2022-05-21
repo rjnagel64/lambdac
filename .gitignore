@@ -1,5 +1,4 @@
-*.swp
-*.swo
+*.sw[onp]
 *.o
 *.a
 fact

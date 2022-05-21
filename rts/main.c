@@ -69,25 +69,26 @@ void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
         string_buf_push(sb, ")");
         }
         break;
+    case ALLOC_BOOL:
+        {
+        struct bool_value *v = AS_BOOL(alloc);
+        if (v->discriminant) {
+            string_buf_push(sb, "true");
+        } else {
+            string_buf_push(sb, "false");
+        }
+        }
+        break;
     case ALLOC_SUM:
         {
-        // Note: Because we do not have access to constructor names at runtime,
-        // we use a simplified debug output format here.
-        // That format is '<tag : arg1 arg2 ... argn>', with parens as necessary.
-        //
-        // Once I have something analogous to show, this should hopefully
-        // become obsolete.
         struct sum *v = AS_SUM(alloc);
-        string_buf_push(sb, "<");
-        char s[16];
-        sprintf(s, "%d", v->discriminant);
-        string_buf_push(sb, s);
-        string_buf_push(sb, " :");
-        for (uint32_t i = 0; i < v->num_fields; i++) {
-            string_buf_push(sb, " ");
-            display_alloc(AS_ALLOC(v->words[i]), sb);
+        if (v->discriminant == 0) {
+            string_buf_push(sb, "inl ");
+            display_alloc(v->payload, sb);
+        } else {
+            string_buf_push(sb, "inr ");
+            display_alloc(v->payload, sb);
         }
-        string_buf_push(sb, ">");
         }
         break;
     }

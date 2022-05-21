@@ -22,7 +22,7 @@ module Source
 -- CPS for an eta-safe function could gather eta-safe lambdas/apps
 -- (The parser still only generates eta-unsafe things, annotation pass to
 -- convert where possible)
--- (I think the paper that used this idea was 'Call Arity'?)
+-- (See 'Making a Faster Curry with Extensional Types')
 
 -- | Term variables stand for values
 newtype TmVar = TmVar String
