@@ -571,23 +571,33 @@ assertEqual :: S.Type -> S.Type -> CPS ()
 assertEqual expected actual = when (not (eqType expected actual)) $
   throwError (TypeMismatch expected actual)
 
--- TODO: Support polymorphic types in 'CPS.eqType'.
--- What if instead of Bool, I returned a datastructure pointing out the
--- path to the first(?) (or all) discrepancy? (Context as to why the equality failed)
 eqType :: S.Type -> S.Type -> Bool
-eqType S.TyUnit S.TyUnit = True
-eqType S.TyUnit _ = False
-eqType S.TyBool S.TyBool = True
-eqType S.TyBool _ = False
-eqType S.TyInt S.TyInt = True
-eqType S.TyInt _ = False
-eqType (S.TyProd t1 t2) (S.TyProd t3 t4) = eqType t1 t3 && eqType t2 t4
-eqType (S.TyProd _ _) _ = False
-eqType (S.TySum t1 t2) (S.TySum t3 t4) = eqType t1 t3 && eqType t2 t4
-eqType (S.TySum _ _) _ = False
-eqType (S.TyArr arg1 ret1) (S.TyArr arg2 ret2) = eqType arg1 arg2 && eqType ret1 ret2
-eqType (S.TyArr _ _) _ = False
-eqType t1 t2 = error ("not implemented: eqType " ++ S.pprintType 10 t1 ++ " " ++ S.pprintType 10 t2)
+eqType = eqType' Map.empty Map.empty
+
+eqType' :: Map S.TyVar S.TyVar -> Map S.TyVar S.TyVar -> S.Type -> S.Type -> Bool
+eqType' fw bw (S.TyVarOcc x) (S.TyVarOcc y) = case (Map.lookup x fw, Map.lookup y bw) of
+  -- Both bound: check that bijection holds
+  (Just y', Just x') -> y' == y && x' == x
+  -- Both free: require exact equality
+  (Nothing, Nothing) -> x == y
+  -- Cannot be equal if one free but the other is bound
+  _ -> False
+eqType' _ _ (S.TyVarOcc _) _ = False
+eqType' _ _ S.TyUnit S.TyUnit = True
+eqType' _ _ S.TyUnit _ = False
+eqType' _ _ S.TyBool S.TyBool = True
+eqType' _ _ S.TyBool _ = False
+eqType' _ _ S.TyInt S.TyInt = True
+eqType' _ _ S.TyInt _ = False
+eqType' fw bw (S.TyProd t1 t2) (S.TyProd t3 t4) = eqType' fw bw t1 t3 && eqType' fw bw t2 t4
+eqType' _ _ (S.TyProd _ _) _ = False
+eqType' fw bw (S.TySum t1 t2) (S.TySum t3 t4) = eqType' fw bw t1 t3 && eqType' fw bw t2 t4
+eqType' _ _ (S.TySum _ _) _ = False
+eqType' fw bw (S.TyArr arg1 ret1) (S.TyArr arg2 ret2) =
+  eqType' fw bw arg1 arg2 && eqType' fw bw ret1 ret2
+eqType' _ _ (S.TyArr _ _) _ = False
+eqType' fw bw (S.TyAll x t) (S.TyAll y s) = eqType' (Map.insert x y fw) (Map.insert y x bw) t s
+eqType' _ _ (S.TyAll _ _) _ = False
 
 freshTm :: String -> (TmVar -> CPS a) -> CPS a
 freshTm x k = do

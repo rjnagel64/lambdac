@@ -96,6 +96,7 @@ coVar (K.CoVar k i) = Name k i
 -- Alloc = a : *
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
+-- TODO: 'Sort.Alloc' should reference which type info it needs
 data Sort = Closure | Value | Alloc | Sum | Product [Sort]
   deriving (Eq, Ord)
 
@@ -191,6 +192,7 @@ data ValueC
   | BoolC Bool
 
 
+-- TODO: Closure conversion should record free type variables as well.
 newtype FieldsFor = FieldsFor { runFieldsFor :: Map Name Sort -> Set (Name, Sort) }
 
 instance Semigroup FieldsFor where

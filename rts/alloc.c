@@ -68,14 +68,6 @@ void trace_constant(struct alloc_header *alloc) {
 
 type_info constant_info = { trace_constant };
 
-void trace_product(struct alloc_header *alloc) {
-    struct product *v = AS_PRODUCT(alloc);
-    for (uint32_t i = 0; i < v->num_fields; i++) {
-        // TODO: Use product information here instead of trace_alloc
-        mark_gray(AS_ALLOC(v->words[i]), any_info);
-    }
-}
-
 void trace_sum(struct alloc_header *alloc) {
     struct sum *v = AS_SUM(alloc);
     mark_gray(v->payload, v->info);
@@ -94,6 +86,14 @@ void trace_closure(struct alloc_header *alloc) {
 }
 
 type_info closure_info = { trace_closure };
+
+
+void trace_product(struct alloc_header *alloc) {
+    struct product *v = AS_PRODUCT(alloc);
+    for (uint32_t i = 0; i < v->num_fields; i++) {
+        mark_gray(AS_ALLOC(v->words[i]), any_info);
+    }
+}
 
 void trace_alloc(struct alloc_header *alloc) {
     switch (alloc->type) {
