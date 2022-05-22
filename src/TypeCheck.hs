@@ -106,6 +106,10 @@ infer (TmRecFun fs e) = do
   let binds = [(f, TyArr t s) | TmFun f _ t s _ <- fs]
   withVars binds $ traverse_ checkFun fs
   withVars binds $ infer e
+infer (TmLetRec bs e) = do
+  let binds = [(x, t) | (x, t, _) <- bs]
+  withVars binds $ traverse_ (\ (_, t, e') -> check e' t) bs
+  withVars binds $ infer e
 
 check :: Term -> Type -> TC ()
 check e t = do
@@ -122,19 +126,31 @@ checkFun (TmFun _f x t s e) = do
 checkProgram :: Term -> Either TCError ()
 checkProgram e = runExcept . flip runReaderT Map.empty $ runTC $ infer e *> pure ()
 
--- TODO: What if instead of bool, I returned a datastructure pointing out the
--- path to the first(?) (or all) discrepancy? (Context as to why the equality failed)
--- TODO: Support polymorphic types here.
 eqType :: Type -> Type -> Bool
-eqType TyUnit TyUnit = True
-eqType TyUnit _ = False
-eqType TyBool TyBool = True
-eqType TyBool _ = False
-eqType TyInt TyInt = True
-eqType TyInt _ = False
-eqType (TyProd t1 t2) (TyProd t3 t4) = eqType t1 t3 && eqType t2 t4
-eqType (TyProd _ _) _ = False
-eqType (TySum t1 t2) (TySum t3 t4) = eqType t1 t3 && eqType t2 t4
-eqType (TySum _ _) _ = False
-eqType (TyArr t1 t2) (TyArr t3 t4) = eqType t1 t3 && eqType t2 t4
-eqType (TyArr _ _) _ = False
+eqType = eqType' Map.empty Map.empty
+
+eqType' :: Map TyVar TyVar -> Map TyVar TyVar -> Type -> Type -> Bool
+eqType' fw bw (TyVarOcc x) (TyVarOcc y) = case (Map.lookup x fw, Map.lookup y bw) of
+  -- Both bound: check that bijection holds
+  (Just y', Just x') -> y' == y && x' == x
+  -- Both free: require exact equality
+  (Nothing, Nothing) -> x == y
+  -- Cannot be equal if one free but the other is bound
+  _ -> False
+eqType' _ _ (TyVarOcc _) _ = False
+eqType' _ _ TyUnit TyUnit = True
+eqType' _ _ TyUnit _ = False
+eqType' _ _ TyBool TyBool = True
+eqType' _ _ TyBool _ = False
+eqType' _ _ TyInt TyInt = True
+eqType' _ _ TyInt _ = False
+eqType' fw bw (TyProd t1 t2) (TyProd t3 t4) = eqType' fw bw t1 t3 && eqType' fw bw t2 t4
+eqType' _ _ (TyProd _ _) _ = False
+eqType' fw bw (TySum t1 t2) (TySum t3 t4) = eqType' fw bw t1 t3 && eqType' fw bw t2 t4
+eqType' _ _ (TySum _ _) _ = False
+eqType' fw bw (TyArr arg1 ret1) (TyArr arg2 ret2) =
+  eqType' fw bw arg1 arg2 && eqType' fw bw ret1 ret2
+eqType' _ _ (TyArr _ _) _ = False
+eqType' fw bw (TyAll x t) (TyAll y s) = eqType' (Map.insert x y fw) (Map.insert y x bw) t s
+eqType' _ _ (TyAll _ _) _ = False
+
