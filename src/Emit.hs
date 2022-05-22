@@ -74,6 +74,7 @@ tycode Closure = "C"
 tycode Value = "V"
 tycode Alloc = "A"
 tycode Sum = "S"
+tycode Boolean = "B"
 tycode (Product ss) = 'P' : show (length ss) ++ concatMap tycode ss
 
 namesForThunk :: ThunkType -> ThunkNames
@@ -92,11 +93,13 @@ typeForSort Alloc = "struct alloc_header *"
 typeForSort Closure = "struct closure *"
 typeForSort Value = "struct constant *"
 typeForSort Sum = "struct sum *"
+typeForSort Boolean = "struct bool_value *"
 typeForSort (Product ss) = "struct product *"
 
 infoForSort :: Sort -> String
 infoForSort Alloc = "any_info"
 infoForSort Sum = "sum_info"
+infoForSort Boolean = "bool_value_info"
 infoForSort Value = "constant_info"
 infoForSort (Product ss) = "product_" ++ tycode (Product ss) ++ "_info"
 infoForSort Closure = "closure_info"
@@ -171,6 +174,7 @@ emitProductDecl (ProductType ss) =
   emitProductAlloc (ProductType ss) ++
   concatMap (emitProductProjection (ProductType ss)) (zip [0..] ss)
 
+-- TODO: Code generation for product types with polymorphic fields
 emitProductAlloc :: ProductType -> [String]
 emitProductAlloc (ProductType ss) =
   ["struct product *allocate_" ++ ty ++ "(" ++ intercalate ", " args ++ ") {"
@@ -365,6 +369,7 @@ asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
 asSort Value x = "AS_CONST(" ++ x ++ ")"
 asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
+asSort Boolean x = "AS_BOOL(" ++ x ++ ")"
 asSort (Product ss) x = "AS_PRODUCT(" ++ x ++ ")"
 
 -- TODO: Generalize emitAllocGroup and merge it with emitValueAlloc, to support

@@ -97,7 +97,7 @@ coVar (K.CoVar k i) = Name k i
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
 -- TODO: 'Sort.Alloc' should reference which type info it needs
-data Sort = Closure | Value | Alloc | Sum | Product [Sort]
+data Sort = Closure | Value | Alloc | Sum | Product [Sort] | Boolean
   deriving (Eq, Ord)
 
 instance Show Sort where
@@ -105,12 +105,13 @@ instance Show Sort where
   show Value = "value"
   show Alloc = "alloc"
   show Sum = "sum"
+  show Boolean = "bool"
   show (Product ss) = "product " ++ show ss
 
 sortOf :: K.TypeK -> Sort
 sortOf (K.ContK _) = Closure
 sortOf (K.SumK _ _) = Sum
-sortOf K.BoolK = Sum
+sortOf K.BoolK = Boolean
 sortOf (K.ProdK t1 t2) = Product [sortOf t1, sortOf t2]
 sortOf K.UnitK = Product []
 sortOf K.IntK = Value
@@ -238,7 +239,7 @@ fieldsFor (LetSndK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fiel
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetNegateK x y e) = unitTm y <> bindFields [(tmVar x, Value)] (fieldsFor e)
-fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Sum)] (fieldsFor e)
+fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Boolean)] (fieldsFor e)
 
 fieldsForArith :: ArithK -> FieldsFor
 fieldsForArith (AddK x y) = unitTm x <> unitTm y
@@ -344,9 +345,9 @@ cconv (LetArithK x op e) = LetArithC (tmVar x, Value) (cconvArith op) <$> local 
 cconv (LetNegateK x y e) = LetNegateC (tmVar x, Value) (tmVar y) <$> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) Value ctx
-cconv (LetCompareK x cmp e) = LetCompareC (tmVar x, Sum) (cconvCmp cmp) <$> local extend (cconv e)
+cconv (LetCompareK x cmp e) = LetCompareC (tmVar x, Boolean) (cconvCmp cmp) <$> local extend (cconv e)
   where
-    extend ctx = Map.insert (tmVar x) Sum ctx
+    extend ctx = Map.insert (tmVar x) Boolean ctx
 
 cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
 cconvFunDef fs fun@(FunDef _ f xs ks e) = do

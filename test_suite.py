@@ -46,6 +46,7 @@ standard_test("state_sum", "(55, 55)")
 standard_test("precedence", "-6")
 standard_test("letrec", "true")
 standard_test("sums", "(inl 17, inr true)")
+standard_test("slow_divmod", "((60, 3), (60, 3))")
 
 
 for (test, out) in failed_tests:

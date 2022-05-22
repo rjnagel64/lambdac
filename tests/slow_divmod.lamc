@@ -1,0 +1,24 @@
+-- Neither of these behave properly for negative inputs.
+let slow_divmod : int -> int -> (int * int) =
+  \ (x : int) -> \ (y : int) ->
+    let fun go (n : int) : int * int =
+      if (n + 1) * y > x return int * int then
+        (n, x - n * y)
+      else
+        go (n + 1);
+    in
+    go 0
+in
+let slow_divmod2 : int -> int -> int * int =
+  \ (x : int) -> \ (y : int) ->
+    let fun go (n : int) : int -> int * int =
+      \ (i : int) ->
+      if n < y return int * int then
+        (i, n)
+      else
+        go (n - y) (i + 1);
+    in
+    go x 0
+in
+-- ((60, 3), (60, 3))
+(slow_divmod 1023 17, slow_divmod2 1023 17)
