@@ -96,7 +96,7 @@ coVar (K.CoVar k i) = Name k i
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
 -- TODO: 'Sort.Alloc' should reference which type info it needs
-data Sort = Closure | Value | Alloc | Sum | Product [Sort] | Boolean
+data Sort = Closure | Value | Alloc | Sum | Product [Sort] | Boolean | List Sort
   deriving (Eq, Ord)
 
 instance Show Sort where
@@ -106,6 +106,7 @@ instance Show Sort where
   show Sum = "sum"
   show Boolean = "bool"
   show (Product ss) = "product " ++ show ss
+  show (List s) = "list " ++ show s
 
 sortOf :: K.TypeK -> Sort
 sortOf (K.ContK _) = Closure
@@ -114,6 +115,7 @@ sortOf K.BoolK = Boolean
 sortOf (K.ProdK t1 t2) = Product [sortOf t1, sortOf t2]
 sortOf K.UnitK = Product []
 sortOf K.IntK = Value
+sortOf (K.ListK t) = List (sortOf t)
 
 -- | Each type of closure (e.g., one boxed argument, one unboxed argument and
 -- one continuation, etc.) requires a different type of thunk when that closure
@@ -190,6 +192,8 @@ data ValueC
   | NilC
   | IntC Int
   | BoolC Bool
+  | EmptyC
+  | ConsC Name Name
 
 
 -- TODO: Closure conversion should record free type variables as well.
@@ -392,6 +396,8 @@ cconvValue (IntValK i) = pure (IntC i)
 cconvValue (BoolValK b) = pure (BoolC b)
 cconvValue (InlK x) = pure (InlC (tmVar x))
 cconvValue (InrK y) = pure (InrC (tmVar y))
+cconvValue EmptyK = pure EmptyC
+cconvValue (ConsK x y) = pure (ConsC (tmVar x) (tmVar y))
 
 cconvArith :: ArithK -> ArithC
 cconvArith (AddK x y) = AddC (tmVar x) (tmVar y)

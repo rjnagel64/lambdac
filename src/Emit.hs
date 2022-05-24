@@ -76,6 +76,7 @@ tycode Alloc = "A"
 tycode Sum = "S"
 tycode Boolean = "B"
 tycode (Product ss) = 'P' : show (length ss) ++ concatMap tycode ss
+tycode (List s) = 'L' : tycode s
 
 namesForThunk :: ThunkType -> ThunkNames
 namesForThunk (ThunkType ss) =
@@ -95,6 +96,7 @@ typeForSort Value = "struct constant *"
 typeForSort Sum = "struct sum *"
 typeForSort Boolean = "struct bool_value *"
 typeForSort (Product ss) = "struct product *"
+typeForSort (List s) = "struct list *"
 
 infoForSort :: Sort -> String
 infoForSort Alloc = "any_info"
@@ -103,6 +105,16 @@ infoForSort Boolean = "bool_value_info"
 infoForSort Value = "constant_info"
 infoForSort (Product ss) = "product_" ++ tycode (Product ss) ++ "_info"
 infoForSort Closure = "closure_info"
+infoForSort (List s) = "list_info"
+
+asSort :: Sort -> String -> String
+asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
+asSort Value x = "AS_CONST(" ++ x ++ ")"
+asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
+asSort Sum x = "AS_SUM(" ++ x ++ ")"
+asSort Boolean x = "AS_BOOL(" ++ x ++ ")"
+asSort (Product ss) x = "AS_PRODUCT(" ++ x ++ ")"
+asSort (List s) x = "AS_LIST(" ++ x ++ ")"
 
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
@@ -348,6 +360,9 @@ emitValueAlloc envp (InlH s y) =
   "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
 emitValueAlloc envp (InrH s y) =
   "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
+emitValueAlloc envp NilH = "allocate_nil()"
+emitValueAlloc envp (ConsH s x xs) =
+  "allocate_cons(" ++ asSort Alloc (emitName envp x) ++ ", " ++ infoForSort s ++ ", " ++ emitName envp xs ++ ")"
 
 emitPrimOp :: String -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
@@ -363,14 +378,6 @@ emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
 
 emitPrimCall :: String -> String -> [Name] -> String
 emitPrimCall envp f xs = f ++ "(" ++ intercalate ", " (map (emitName envp) xs) ++ ")"
-
-asSort :: Sort -> String -> String
-asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
-asSort Value x = "AS_CONST(" ++ x ++ ")"
-asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
-asSort Sum x = "AS_SUM(" ++ x ++ ")"
-asSort Boolean x = "AS_BOOL(" ++ x ++ ")"
-asSort (Product ss) x = "AS_PRODUCT(" ++ x ++ ")"
 
 -- TODO: Generalize emitAllocGroup and merge it with emitValueAlloc, to support
 -- allocating mutually-recursive values, of which closures are merely one

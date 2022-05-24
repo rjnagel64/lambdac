@@ -1,0 +1,4 @@
+case inl @int @unit 16 return int of {
+  inl (x : int) -> x + 1;
+  inr (z : unit) -> -33
+}

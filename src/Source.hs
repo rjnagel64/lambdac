@@ -81,11 +81,6 @@ data Term
   | TmEmpty Type
   -- x :: xs
   | TmCons Term Term
-  -- uncons xs
-  -- (unroll [] -> inl (); unroll (x :: xs) -> inr (x, xs))
-  -- TODO: Replace TmUnrollList with case analysis on lists
-  -- TODO: Rename TmUnrollList to TmUncons
-  -- | TmUnrollList Term
   -- case uncons e return s of nil -> e1; cons (y : t1) (ys : t2) -> e2
   | TmCaseList Term Type Term ((TmVar, Type), (TmVar, Type), Term)
 

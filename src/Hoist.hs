@@ -118,6 +118,8 @@ data ValueH
   | ProdH [Sort] [Name]
   | InlH Sort Name
   | InrH Sort Name
+  | NilH
+  | ConsH Sort Name Name
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -278,6 +280,8 @@ hoistValue (PairC x y) = do
 hoistValue NilC = pure (ProdH [] [])
 hoistValue (InlC x) = uncurry (flip InlH) <$> hoistVarOcc' x
 hoistValue (InrC x) = uncurry (flip InrH) <$> hoistVarOcc' x
+hoistValue EmptyC = pure NilH
+hoistValue (ConsC x xs) = uncurry (flip ConsH) <$> hoistVarOcc' x <*> hoistVarOcc xs
 
 hoistArith :: ArithC -> HoistM PrimOp
 hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
