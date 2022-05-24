@@ -143,7 +143,7 @@ data TermC
   | JumpC Name [Name] -- k x...
   | CallC Name [Name] [Name] -- f x+ k+
   | HaltC Name
-  | CaseC Name [(Name, ThunkType)] -- case x of k1 | k2 | ...
+  | CaseC Name Sort [(Name, ThunkType)] -- case x of k1 | k2 | ...
 
 data ArithC
   = AddC Name Name
@@ -236,7 +236,7 @@ fieldsFor (CallK f xs ks) =
   unitTm f <>
   foldMap unitTm xs <>
   foldMap unitCo ks
-fieldsFor (CaseK x ks) = unitTm x <> foldMap (unitCo . fst) ks
+fieldsFor (CaseK x t ks) = unitTm x <> foldMap (unitCo . fst) ks
 fieldsFor (LetFstK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetSndK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
@@ -325,14 +325,14 @@ cconv (LetContK ks e) =
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
-cconv (CaseK x ks) = do
+cconv (CaseK x t ks) = do
   let
     annThunkType :: (K.CoVar, K.TypeK) -> Maybe (Name, ThunkType)
     annThunkType (k, s) = (,) <$> pure (coVar k) <*> thunkTypeOf s
   ks' <- case traverse annThunkType ks of
     Just ks' -> pure ks'
     Nothing -> error "cconv: some branch of case is not a closure"
-  pure $ CaseC (tmVar x) ks'
+  pure $ CaseC (tmVar x) (sortOf t) ks'
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) (sortOf t) ctx
@@ -442,7 +442,7 @@ pprintTerm n (LetFstC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (CaseC x ks) =
+pprintTerm n (CaseC x s ks) =
   let branches = intercalate " | " (map (show . fst) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetArithC x op e) =

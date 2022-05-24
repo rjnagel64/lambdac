@@ -8,6 +8,7 @@
 
 module Hoist
     ( TermH(..)
+    , CaseKind(..)
     , ValueH(..)
     , PrimOp(..)
     , Sort(..)
@@ -35,7 +36,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Control.Monad.Reader
-import Control.Monad.Writer hiding (Product)
+import Control.Monad.Writer hiding (Product, Sum)
 import Control.Monad.State
 
 import Data.Int (Int64)
@@ -97,9 +98,18 @@ data TermH
   | LetProjectH PlaceName Name ProductType Int TermH
   | HaltH Name
   | OpenH Name [(Name, Sort)] -- Open a closure, by providing a list of arguments and their sorts.
-  | CaseH Name [(Name, ThunkType)]
+  | CaseH Name CaseKind [(Name, ThunkType)]
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
+
+-- TODO(eventually): bring back generic case expressions
+data CaseKind = CaseBool | CaseSum | CaseList
+
+caseKind :: Sort -> CaseKind
+caseKind Boolean = CaseBool
+caseKind Sum = CaseSum
+caseKind (List _) = CaseList
+caseKind s = error ("cannot perform case analysis on sort " ++ show s)
 
 data ClosureAlloc
   = ClosureAlloc {
@@ -168,12 +178,13 @@ hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = HaltH <$> hoistVarOcc x
 hoist (JumpC k xs) = OpenH <$> hoistVarOcc k <*> traverse hoistVarOcc' xs
 hoist (CallC f xs ks) = OpenH <$> hoistVarOcc f <*> traverse hoistVarOcc' (xs ++ ks)
-hoist (CaseC x ks) = do
+hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
+  let kind = caseKind t
   ks' <- for ks $ \ (k, s) -> do
     k' <- hoistVarOcc k
     pure (k', s)
-  pure $ CaseH x' ks'
+  pure $ CaseH x' kind ks'
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -373,7 +384,7 @@ indent n s = replicate n ' ' ++ s
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH x) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (OpenH c xs) = indent n $ show c ++ " " ++ intercalate " " (map (show . fst) xs) ++ ";\n"
-pprintTerm n (CaseH x ks) =
+pprintTerm n (CaseH x _kind ks) =
   let branches = intercalate " | " (map (show . fst) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValH x v e) =

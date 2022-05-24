@@ -301,7 +301,7 @@ emitClosureCode ns xs e =
     go2 (AllocClosure cs e') = foldr (Set.insert . placeName) (go2 e') (map closurePlace cs)
     go2 (HaltH _) = Set.empty
     go2 (OpenH _ _) = Set.empty
-    go2 (CaseH _ _) = Set.empty
+    go2 (CaseH _ _ _) = Set.empty
 
 emitClosureBody :: String -> TermH -> [String]
 emitClosureBody envp (LetValH x v e) =
@@ -321,8 +321,8 @@ emitClosureBody envp (HaltH x) =
   ["    halt_with(" ++ asSort Alloc (emitName envp x) ++ ");"]
 emitClosureBody envp (OpenH c xs) =
   [emitSuspend envp c xs]
-emitClosureBody envp (CaseH x ks) =
-  emitCase envp x ks
+emitClosureBody envp (CaseH x kind ks) =
+  emitCase kind envp x ks
 
 emitSuspend :: String -> Name -> [(Name, Sort)] -> String
 emitSuspend envp cl xs = "    " ++ method ++ "(" ++ intercalate ", " args ++ ");"
@@ -330,25 +330,31 @@ emitSuspend envp cl xs = "    " ++ method ++ "(" ++ intercalate ", " args ++ ");
     method = thunkSuspendName (namesForThunk (ThunkType (map snd xs)))
     args = emitName envp cl : map (emitName envp . fst) xs
 
-emitCase :: String -> Name -> [(Name, ThunkType)] -> [String]
-emitCase envp x ks =
+emitCase :: CaseKind -> String -> Name -> [(Name, ThunkType)] -> [String]
+emitCase kind envp x ks =
   ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
-  concatMap emitCaseBranch (zip [0..] ks) ++
+  concatMap emitCaseBranch (zip3 [0..] (branchArgNames kind) ks) ++
   ["    default:"
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    emitCaseBranch :: (Int, (Name, ThunkType)) -> [String]
-    emitCaseBranch (i, (k, t)) =
+    emitCaseBranch :: (Int, [String], (Name, ThunkType)) -> [String]
+    emitCaseBranch (i, argNames, (k, t)) =
       let
         method = thunkSuspendName (namesForThunk t)
-        mkArg :: (Int, Sort) -> String
-        mkArg (j, s) = asSort s (emitName envp x ++ "->words[" ++ show j ++ "]")
-        args = emitName envp k : map mkArg (zip [0..] (thunkArgSorts t))
+        -- mkArg :: (Int, Sort) -> String
+        -- mkArg (j, s) = asSort s (emitName envp x ++ "->words[" ++ show j ++ "]")
+        -- args = emitName envp k : map mkArg (zip [0..] (thunkArgSorts t))
+        args = emitName envp k : zipWith mkArg2 argNames (thunkArgSorts t)
+        mkArg2 argName argSort = asSort argSort (emitName envp x ++ "->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
         ,"        break;"]
+
+    branchArgNames CaseBool = [[], []]
+    branchArgNames CaseSum = [["payload"], ["payload"]]
+    branchArgNames CaseList = [[], ["head", "tail"]]
 
 emitValueAlloc :: String -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"

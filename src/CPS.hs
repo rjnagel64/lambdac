@@ -99,12 +99,8 @@ data TermK a
   -- f x k, call f(x, k)
   | CallK TmVar [TmVar] [CoVar]
   -- case x of k1 : s1 | k2 : s2 | ..., branch
-  -- Idea: instead of annotating each covar with its 'ContK ss' , maybe
-  -- annotate 'x' with its type? This would let us know what sum type we are
-  -- analysing, and from that derive the type of each branch.
-  -- (Sort of. If it's a data type constructor, I would still need a symbol
-  -- table to look up the constructors of that type.)
-  | CaseK TmVar [(CoVar, TypeK)]
+  -- TODO: Derive type of case branches from scrutinee type
+  | CaseK TmVar TypeK [(CoVar, TypeK)]
   -- halt x
   | HaltK TmVar
 
@@ -316,7 +312,7 @@ cps (TmCase e s (xl, tl, el) (xr, tr, er)) k =
         let s' = cpsType s
         (e', _t') <- k x s
         let kont = ContDef () j [(x, s')] e'
-        res <- cpsCase z j s [([(xl, tl)], el), ([(xr, tr)], er)]
+        res <- cpsCase z t j s [([(xl, tl)], el), ([(xr, tr)], er)]
         pure (LetContK [kont] res, s)
 cps (TmIf e s et ef) k =
   cps e $ \z t -> do
@@ -330,7 +326,7 @@ cps (TmIf e s et ef) k =
         -- This is because case branches are laid out in order of discriminant.
         -- false = 0, true = 1, so the branches should be laid
         -- out as false, true as opposed to the source order true, false.
-        res <- cpsCase z j s [([], ef), ([], et)]
+        res <- cpsCase z t j s [([], ef), ([], et)]
         pure (LetContK [kont] res, s)
 cps (TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
   cps e $ \z t -> do
@@ -344,7 +340,7 @@ cps (TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
         let s' = cpsType s
         (e', _t') <- k x s
         let kont = ContDef () j [(x, s')] e'
-        res <- cpsCase z j s [([], en), ([(y, thd), (ys, ttl)], ec)]
+        res <- cpsCase z t j s [([], en), ([(y, thd), (ys, ttl)], ec)]
         pure (LetContK [kont] res, s)
 cps (TmApp e1 e2) k =
   cps e1 $ \v1 t1 -> do
@@ -502,7 +498,7 @@ cpsTail (TmInr a b e) k =
 cpsTail (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
     assertEqual (S.TySum tl tr) t
-    res <- cpsCase z k s [([(xl, tl)], el), ([(xr, tr)], er)]
+    res <- cpsCase z t k s [([(xl, tl)], el), ([(xr, tr)], er)]
     pure (res, s)
 cpsTail (TmIf e s et ef) k =
   cps e $ \z t -> do
@@ -512,7 +508,7 @@ cpsTail (TmIf e s et ef) k =
     -- false = 0, true = 1, so the branches should be laid
     -- out as false, true as oppose to the source order true,
     -- false.
-    res <- cpsCase z k s [([], ef), ([], et)]
+    res <- cpsCase z t k s [([], ef), ([], et)]
     pure (res, s)
 cpsTail (TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
   cps e $ \z t -> do
@@ -521,7 +517,7 @@ cpsTail (TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
       _ -> throwError (BadListCase t)
     assertEqual telem thd
     assertEqual (S.TyList telem) ttl
-    res <- cpsCase z k s [([], en), ([(y, thd), (ys, ttl)], ec)]
+    res <- cpsCase z t k s [([], en), ([(y, thd), (ys, ttl)], ec)]
     pure (res, s)
 cpsTail (TmApp e1 e2) k =
   cps e1 $ \f t1 ->
@@ -565,8 +561,8 @@ cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
 
 -- | CPS-transform a case analysis, given a scrutinee, a continuation variable
 -- and its expected type, and a list of branches with bound variables.
-cpsCase :: TmVar -> CoVar -> S.Type -> [([(S.TmVar, S.Type)], Term)] -> CPS (TermK ())
-cpsCase z j s bs = do
+cpsCase :: TmVar -> S.Type -> CoVar -> S.Type -> [([(S.TmVar, S.Type)], Term)] -> CPS (TermK ())
+cpsCase z t j s bs = do
   -- Pick names for each branch continuation
   scope <- asks cpsEnvScope
   let
@@ -583,7 +579,7 @@ cpsCase z j s bs = do
     pure (k, kont)
   -- Assemble the result term
   let alts = map (second contDefType) konts
-  let res = foldr (LetContK . (:[]) . snd) (CaseK z alts) konts
+  let res = foldr (LetContK . (:[]) . snd) (CaseK z (cpsType t) alts) konts
   pure res
 
 
@@ -734,7 +730,7 @@ pprintTerm :: Int -> TermK a -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
 pprintTerm n (CallK f xs ks) = indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
-pprintTerm n (CaseK x ks) =
+pprintTerm n (CaseK x t ks) =
   let branches = intercalate " | " (map (show . fst) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValK x t v e) =
