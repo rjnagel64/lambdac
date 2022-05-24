@@ -367,10 +367,8 @@ cconvFunDef fs fun@(FunDef _ f xs ks e) = do
   let
     funThunk = ThunkType (map (sortOf . snd) xs ++ map (sortOf . snd) ks)
     thunks = funThunk : mapMaybe thunkTypeOf (map snd xs ++ map snd ks)
-  -- TODO: Product types in the argument list?
-  -- (Not currently a problem, because I only need to allocate products, not
-  -- generate type declarations)
-  tell (TypeDecls (Set.fromList thunks, mempty))
+    products = Set.unions (map productTypesOf (map snd xs ++ map snd ks))
+  tell (TypeDecls (Set.fromList thunks, products))
   let tmbinds = map (bimap tmVar sortOf) xs
   let cobinds = map (bimap coVar sortOf) ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
@@ -384,7 +382,8 @@ cconvContDef ks kont@(ContDef _ k xs e) = do
   let
     contThunk = ThunkType (map (sortOf . snd) xs)
     thunks = contThunk : mapMaybe thunkTypeOf (map snd xs)
-  tell (TypeDecls (Set.fromList thunks, mempty))
+    products = Set.unions (map productTypesOf (map snd xs))
+  tell (TypeDecls (Set.fromList thunks, products))
   let binds = map (bimap tmVar sortOf) xs
   let extend ctx' = foldr (uncurry Map.insert) ctx' binds
   fields <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
