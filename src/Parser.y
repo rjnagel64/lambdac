@@ -85,6 +85,8 @@ Term :: { Term }
      | 'letrec' RecBinds 'in' Term { TmLetRec $2 $4 }
      | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
        { TmCase $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
+     | 'case' 'uncons' Term 'return' Type 'of' '{' 'nil' '->' Term ';' 'cons' VarBind VarBind '->' Term '}'
+       { TmCaseList $3 $5 $10 ($13, $14, $16) }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
 
      | Term '+' Term { TmArith $1 TmArithAdd $3 }
@@ -101,7 +103,6 @@ Term :: { Term }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'nil' '@' AType { TmEmpty $3 }
      | 'cons' ATerm ATerm { TmCons $2 $3 }
-     | 'uncons' ATerm { TmUnrollList $2 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
@@ -118,6 +119,9 @@ ATerm :: { Term }
      | INT { TmInt (int $1) }
      | 'true' { TmBool True }
      | 'false' { TmBool False }
+
+VarBind :: { (TmVar, Type) }
+        : '(' ID ':' Type ')' { (var $2, $4) }
 
 FunBinds :: { [TmFun] }
          : FunBind { [$1] }

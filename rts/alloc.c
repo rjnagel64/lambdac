@@ -87,6 +87,29 @@ void trace_closure(struct alloc_header *alloc) {
 
 type_info closure_info = { trace_closure };
 
+void trace_list(struct alloc_header *alloc) {
+    struct list *l = AS_LIST(alloc);
+    switch (l->discriminant) {
+    case 0:
+        // nil
+        {
+        struct nil *n = AS_LIST_NIL(l);
+        }
+        break;
+    case 1:
+        // cons
+        {
+        struct cons *c = AS_LIST_CONS(l);
+        mark_gray(c->head, c->head_info);
+        mark_gray(AS_ALLOC(c->tail), list_info);
+        }
+        break;
+    }
+}
+
+type_info list_info = { trace_list };
+
+
 
 void trace_product(struct alloc_header *alloc) {
     struct product *v = AS_PRODUCT(alloc);
@@ -111,6 +134,9 @@ void trace_alloc(struct alloc_header *alloc) {
         break;
     case ALLOC_BOOL:
         trace_bool_value(alloc);
+        break;
+    case ALLOC_LIST:
+        trace_list(alloc);
         break;
     }
 }
@@ -187,6 +213,7 @@ void sweep_all_allocations(void) {
         case ALLOC_BOOL:
         case ALLOC_PROD:
         case ALLOC_SUM:
+        case ALLOC_LIST:
             // All fields are managed by GC.
             free(alloc);
             break;
@@ -269,6 +296,27 @@ struct sum *allocate_inr(struct alloc_header *y, type_info y_info) {
 
     cons_new_alloc(AS_ALLOC(v), sum_info);
     return v;
+}
+
+struct list *allocate_nil(void) {
+    struct nil *n = malloc(sizeof(struct nil));
+    n->header.header.type = ALLOC_LIST;
+    n->header.discriminant = 0;
+
+    cons_new_alloc(AS_ALLOC(n), list_info);
+    return AS_LIST(n);
+}
+
+struct list *allocate_cons(struct alloc_header *x, type_info info, struct list *xs) {
+    struct cons *c = malloc(sizeof(struct cons));
+    c->header.header.type = ALLOC_LIST;
+    c->header.discriminant = 1;
+    c->head_info = info;
+    c->head = x;
+    c->tail = xs;
+
+    cons_new_alloc(AS_ALLOC(c), list_info);
+    return AS_LIST(c);
 }
 
 

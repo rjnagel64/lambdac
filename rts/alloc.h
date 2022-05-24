@@ -14,6 +14,7 @@ enum allocation_type {
     ALLOC_BOOL,
     ALLOC_PROD,
     ALLOC_SUM,
+    ALLOC_LIST,
 };
 
 struct alloc_header {
@@ -87,6 +88,30 @@ struct product {
 
 #define AS_PRODUCT(v) ((struct product *)(v))
 
+struct list {
+    struct alloc_header header;
+    uint32_t discriminant;
+};
+
+struct nil {
+    struct list header;
+};
+
+struct cons {
+    struct list header;
+    // Hmm. I guess I need to have info for every element.
+    // Annoying, but manageable.
+    type_info head_info;
+    struct alloc_header *head;
+    struct list *tail;
+};
+
+type_info list_info;
+
+#define AS_LIST(v) ((struct list *)(v))
+#define AS_LIST_NIL(v) ((struct nil *)(v))
+#define AS_LIST_CONS(v) ((struct cons *)(v))
+
 
 void init_locals(void);
 void destroy_locals(void);
@@ -104,6 +129,8 @@ struct sum *allocate_inr(struct alloc_header *v, type_info info);
 struct constant *allocate_int64(int64_t x);
 struct bool_value *allocate_true(void);
 struct bool_value *allocate_false(void);
+struct list *allocate_nil(void);
+struct list *allocate_cons(struct alloc_header *x, type_info info, struct list *xs);
 
 int64_t int64_value(struct constant *v);
 

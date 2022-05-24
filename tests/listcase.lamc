@@ -1,1 +1,4 @@
-(uncons (cons 17 (nil @int)), uncons (nil @unit))
+case uncons (cons 17 (nil @int)) return int of {
+  nil -> 132;
+  cons (y : int) (ys : list int) -> y + y
+}

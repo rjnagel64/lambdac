@@ -1,7 +1,7 @@
 letrec sum : list int -> int =
   \ (xs : list int) -> case uncons xs return int of {
-    inl (z : unit) -> 0;
-    inr (p : int * list int) -> fst p + sum (snd p)
+    nil -> 0;
+    cons (y : int) (ys : list int) -> y + sum ys
   };
 in
 sum (cons 5 (cons 4 (cons 3 (cons 2 (cons 1 (cons 0 (nil @int)))))))

@@ -87,8 +87,6 @@ data TermK a
   | LetNegateK TmVar TmVar (TermK a)
   -- let z = x `cmp` y in e 
   | LetCompareK TmVar CmpK (TermK a)
-  -- let z = unroll y in e
-  | LetUnrollK TmVar TmVar (TermK a)
 
   -- let rec ks in e
   | LetContK [ContDef a] (TermK a)
@@ -334,6 +332,20 @@ cps (TmIf e s et ef) k =
         -- out as false, true as opposed to the source order true, false.
         res <- cpsCase z j s [([], ef), ([], et)]
         pure (LetContK [kont] res, s)
+cps (TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
+  cps e $ \z t -> do
+    telem <- case t of
+      S.TyList t' -> pure t'
+      _ -> throwError (BadListCase t)
+    assertEqual telem thd
+    assertEqual (S.TyList telem) ttl
+    freshCo "j" $ \j ->
+      freshTm "x" $ \x -> do
+        let s' = cpsType s
+        (e', _t') <- k x s
+        let kont = ContDef () j [(x, s')] e'
+        res <- cpsCase z j s [([], en), ([(y, thd), (ys, ttl)], ec)]
+        pure (LetContK [kont] res, s)
 cps (TmApp e1 e2) k =
   cps e1 $ \v1 t1 -> do
     cps e2 $ \v2 t2 -> do
@@ -363,15 +375,6 @@ cps (TmSnd e) k =
     freshTm "x" $ \x -> do
       (e', t') <- k x tb
       let res = LetSndK x (cpsType tb) v e'
-      pure (res, t')
-cps (TmUnrollList e) k =
-  cps e $ \v t -> do
-    ta <- case t of
-      S.TyList ta -> pure ta
-      _ -> throwError (CannotUnroll t)
-    freshTm "x" $ \x -> do
-      (e', t') <- k x (S.TySum S.TyUnit (S.TyProd ta t))
-      let res = LetUnrollK x v e'
       pure (res, t')
 
 cpsFun :: TmFun -> CPS (FunDef ())
@@ -511,6 +514,15 @@ cpsTail (TmIf e s et ef) k =
     -- false.
     res <- cpsCase z k s [([], ef), ([], et)]
     pure (res, s)
+cpsTail (TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
+  cps e $ \z t -> do
+    telem <- case t of
+      S.TyList t' -> pure t'
+      _ -> throwError (BadListCase t)
+    assertEqual telem thd
+    assertEqual (S.TyList telem) ttl
+    res <- cpsCase z k s [([], en), ([(y, thd), (ys, ttl)], ec)]
+    pure (res, s)
 cpsTail (TmApp e1 e2) k =
   cps e1 $ \f t1 ->
     cps e2 $ \x t2 -> do
@@ -536,14 +548,6 @@ cpsTail (TmSnd e) k =
     freshTm "x" $ \x -> do
       let res = LetSndK x (cpsType tb) z (JumpK k [x])
       pure (res, tb)
-cpsTail (TmUnrollList e) k =
-  cps e $ \z t -> do
-    ta <- case t of
-      S.TyList ta -> pure ta
-      _ -> throwError (CannotUnroll t)
-    freshTm "x" $ \x -> do
-      let res = LetUnrollK x z (JumpK k [x])
-      pure (res, S.TySum S.TyUnit (S.TyProd ta t))
 
 cpsMain :: Term -> Either TCError (TermK (), S.Type)
 cpsMain e = runExcept . flip runReaderT emptyEnv . runCPS $
@@ -589,8 +593,8 @@ data TCError
   = NotInScope S.TmVar
   | TypeMismatch S.Type S.Type -- expected, actual
   | CannotProject S.Type
-  | CannotUnroll S.Type
   | CannotApply S.Type
+  | BadListCase S.Type
   | InvalidLetRec S.TmVar
 
 instance Show TCError where
@@ -602,8 +606,8 @@ instance Show TCError where
   show (NotInScope x) = "variable not in scope: " ++ show x
   show (CannotApply t) = "value of type " ++ S.pprintType 0 t ++ " cannot have an argument applied to it"
   show (CannotProject t) = "cannot project field from value of type " ++ S.pprintType 0 t
-  show (CannotUnroll t) = "cannot unroll list head from value of type " ++ S.pprintType 0 t
   show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
+  show (BadListCase t) = "cannot perform list case analysis on type " ++ S.pprintType 0 t
 
 emptyEnv :: CPSEnv
 emptyEnv = CPSEnv Map.empty Map.empty
@@ -749,8 +753,6 @@ pprintTerm n (LetNegateK x y e) =
   indent n ("let " ++ show x ++ " = -" ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareK x cmp e) =
   indent n ("let " ++ show x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetUnrollK x y e) =
-  indent n ("let " ++ show x ++ " = unroll " ++ show y ++ ";\n") ++ pprintTerm n e
 
 pprintValue :: ValueK -> String
 pprintValue NilK = "()"

@@ -91,6 +91,20 @@ void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
         }
         }
         break;
+    case ALLOC_LIST:
+        {
+        struct list *l = AS_LIST(alloc);
+        if (l->discriminant == 0) {
+            string_buf_push(sb, "nil");
+        } else {
+            struct cons *c = AS_LIST_CONS(l);
+            string_buf_push(sb, "cons ");
+            display_alloc(c->head, sb);
+            string_buf_push(sb, " ");
+            display_alloc(AS_ALLOC(c->tail), sb);
+        }
+        }
+        break;
     }
 }
 
