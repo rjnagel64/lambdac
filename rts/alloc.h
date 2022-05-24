@@ -70,6 +70,8 @@ struct sum {
 type_info sum_info;
 
 #define AS_SUM(v) ((struct sum *)(v))
+#define AS_SUM_INL(v) (v)
+#define AS_SUM_INR(v) (v)
 
 struct bool_value {
     struct alloc_header header;
@@ -79,6 +81,8 @@ struct bool_value {
 type_info bool_value_info;
 
 #define AS_BOOL(v) ((struct bool_value *)(v))
+#define AS_BOOL_FALSE(v) (v)
+#define AS_BOOL_TRUE(v) (v)
 
 struct product {
     struct alloc_header header;

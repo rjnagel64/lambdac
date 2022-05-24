@@ -338,20 +338,20 @@ emitCase kind envp x ks =
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    emitCaseBranch :: (Int, [String], (Name, ThunkType)) -> [String]
-    emitCaseBranch (i, argNames, (k, t)) =
+    emitCaseBranch :: (Int, (String, [String]), (Name, ThunkType)) -> [String]
+    emitCaseBranch (i, (ctorCast, argNames), (k, t)) =
       let
         method = thunkSuspendName (namesForThunk t)
         args = emitName envp k : zipWith mkArg2 argNames (thunkArgSorts t)
-        mkArg2 argName argSort = asSort argSort (emitName envp x ++ "->" ++ argName)
+        mkArg2 argName argSort = asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
         ,"        break;"]
 
-    branchArgNames CaseBool = [[], []]
-    branchArgNames CaseSum = [["payload"], ["payload"]]
-    branchArgNames CaseList = [[], ["head", "tail"]]
+    branchArgNames CaseBool = [("AS_BOOL_FALSE", []), ("AS_BOOL_TRUE", [])]
+    branchArgNames CaseSum = [("AS_SUM_INL", ["payload"]), ("AS_SUM_INR", ["payload"])]
+    branchArgNames CaseList = [("AS_LIST_NIL", []), ("AS_LIST_CONS", ["head", "tail"])]
 
 emitValueAlloc :: String -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
