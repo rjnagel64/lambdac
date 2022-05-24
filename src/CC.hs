@@ -128,6 +128,15 @@ thunkTypeOf :: K.TypeK -> Maybe ThunkType
 thunkTypeOf (K.ContK ss) = Just (ThunkType (map sortOf ss))
 thunkTypeOf _ = Nothing
 
+productTypesOf :: K.TypeK -> Set ProductType
+productTypesOf K.UnitK = Set.singleton (ProductType [])
+productTypesOf (K.ProdK t s) = Set.insert (ProductType [sortOf t, sortOf s]) (productTypesOf t <> productTypesOf s)
+productTypesOf (K.SumK t s) = productTypesOf t <> productTypesOf s
+productTypesOf K.IntK = Set.empty
+productTypesOf K.BoolK = Set.empty
+productTypesOf (K.ContK ss) = Set.unions (map productTypesOf ss)
+productTypesOf (K.ListK t) = productTypesOf t
+
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
 data TermC
@@ -332,6 +341,7 @@ cconv (CaseK x t ks) = do
   ks' <- case traverse annThunkType ks of
     Just ks' -> pure ks'
     Nothing -> error "cconv: some branch of case is not a closure"
+  tell (TypeDecls (mempty, productTypesOf t))
   pure $ CaseC (tmVar x) (sortOf t) ks'
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)
   where

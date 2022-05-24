@@ -342,9 +342,6 @@ emitCase kind envp x ks =
     emitCaseBranch (i, argNames, (k, t)) =
       let
         method = thunkSuspendName (namesForThunk t)
-        -- mkArg :: (Int, Sort) -> String
-        -- mkArg (j, s) = asSort s (emitName envp x ++ "->words[" ++ show j ++ "]")
-        -- args = emitName envp k : map mkArg (zip [0..] (thunkArgSorts t))
         args = emitName envp k : zipWith mkArg2 argNames (thunkArgSorts t)
         mkArg2 argName argSort = asSort argSort (emitName envp x ++ "->" ++ argName)
       in
