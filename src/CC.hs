@@ -88,7 +88,6 @@ coVar :: K.CoVar -> Name
 coVar (K.CoVar k i) = Name k i
 
 -- | 'Sort' is really a simplified form of type information.
--- TODO: I should preserve more type information through CC
 -- Value = int
 -- Sum = bool | t1 + t2
 -- Product = () | t1 * t2

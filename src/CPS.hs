@@ -87,6 +87,8 @@ data TermK a
   | LetNegateK TmVar TmVar (TermK a)
   -- let z = x `cmp` y in e 
   | LetCompareK TmVar CmpK (TermK a)
+  -- let z = unroll y in e
+  | LetUnrollK TmVar TmVar (TermK a)
 
   -- let rec ks in e
   | LetContK [ContDef a] (TermK a)
@@ -124,6 +126,8 @@ data ValueK
   | InrK TmVar
   | IntValK Int
   | BoolValK Bool
+  | EmptyK
+  | ConsK TmVar TmVar
 
 data ArithK
   = AddK TmVar TmVar
@@ -165,6 +169,8 @@ data TypeK
   -- (σ1, ..., σn) -> 0
   -- The type of a continuation
   | ContK [TypeK]
+  -- List σ
+  | ListK TypeK
 
 cpsType :: S.Type -> TypeK
 cpsType S.TyUnit = UnitK
@@ -175,6 +181,7 @@ cpsType (S.TyProd a b) = ProdK (cpsType a) (cpsType b)
 cpsType (S.TyArr argTy retTy) = ContK [cpsType argTy, ContK [cpsType retTy]]
 cpsType (S.TyVarOcc _) = error "not implemented: polymorphic cpsType"
 cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
+cpsType (S.TyList a) = ListK (cpsType a)
 
 contDefType :: ContDef a -> TypeK
 contDefType (ContDef _ _ xs _) = ContK (map snd xs)
@@ -197,6 +204,11 @@ cps TmNil k =
   freshTm "x" $ \x -> do
     (e', t') <- k x S.TyUnit
     let res = LetValK x UnitK NilK e'
+    pure (res, t')
+cps (TmEmpty s) k =
+  freshTm "x" $ \x -> do
+    (e', t') <- k x (S.TyList s)
+    let res = LetValK x (ListK (cpsType s)) EmptyK e'
     pure (res, t')
 cps (TmInt i) k =
   freshTm "x" $ \x -> do
@@ -240,6 +252,14 @@ cps (TmPair e1 e2) k =
         let ty = S.TyProd t1 t2
         (e', t') <- k x ty
         let res = LetValK x (cpsType ty) (PairK v1 v2) e'
+        pure (res, t')
+cps (TmCons e1 e2) k =
+  cps e1 $ \v1 t1 ->
+    cps e2 $ \v2 t2 -> do
+      assertEqual (S.TyList t1) t2
+      freshTm "x" $ \x -> do
+        (e', t') <- k x t2
+        let res = LetValK x (cpsType t2) (ConsK v1 v2) e'
         pure (res, t')
 cps (TmInl a b e) k =
   cps e $ \z t -> do
@@ -344,6 +364,15 @@ cps (TmSnd e) k =
       (e', t') <- k x tb
       let res = LetSndK x (cpsType tb) v e'
       pure (res, t')
+cps (TmUnrollList e) k =
+  cps e $ \v t -> do
+    ta <- case t of
+      S.TyList ta -> pure ta
+      _ -> throwError (CannotUnroll t)
+    freshTm "x" $ \x -> do
+      (e', t') <- k x (S.TySum S.TyUnit (S.TyProd ta t))
+      let res = LetUnrollK x v e'
+      pure (res, t')
 
 cpsFun :: TmFun -> CPS (FunDef ())
 cpsFun (TmFun f x t s e) =
@@ -406,6 +435,10 @@ cpsTail TmNil k =
   freshTm "x" $ \x -> do
     let res = LetValK x UnitK NilK (JumpK k [x])
     pure (res, S.TyUnit)
+cpsTail (TmEmpty a) k =
+  freshTm "x" $ \x -> do
+    let res = LetValK x (ListK (cpsType a)) EmptyK (JumpK k [x])
+    pure (res, S.TyList a)
 cpsTail (TmInt i) k =
   freshTm "x" $ \x -> do
     let res = LetValK x IntK (IntValK i) (JumpK k [x])
@@ -442,6 +475,13 @@ cpsTail (TmPair e1 e2) k =
         let ty = S.TyProd t1 t2
         let res = LetValK x (cpsType ty) (PairK v1 v2) (JumpK k [x])
         pure (res, ty)
+cpsTail (TmCons e1 e2) k =
+  cps e1 $ \v1 t1 ->
+    cps e2 $ \v2 t2 -> do
+      assertEqual (S.TyList t1) t2
+      freshTm "x" $ \x -> do
+        let res = LetValK x (ListK (cpsType t1)) (ConsK v1 v2) (JumpK k [x])
+        pure (res, t2)
 cpsTail (TmInl a b e) k =
   cps e $ \z t -> do
     assertEqual a t
@@ -496,7 +536,14 @@ cpsTail (TmSnd e) k =
     freshTm "x" $ \x -> do
       let res = LetSndK x (cpsType tb) z (JumpK k [x])
       pure (res, tb)
-
+cpsTail (TmUnrollList e) k =
+  cps e $ \z t -> do
+    ta <- case t of
+      S.TyList ta -> pure ta
+      _ -> throwError (CannotUnroll t)
+    freshTm "x" $ \x -> do
+      let res = LetUnrollK x z (JumpK k [x])
+      pure (res, S.TySum S.TyUnit (S.TyProd ta t))
 
 cpsMain :: Term -> Either TCError (TermK (), S.Type)
 cpsMain e = runExcept . flip runReaderT emptyEnv . runCPS $
@@ -542,6 +589,7 @@ data TCError
   = NotInScope S.TmVar
   | TypeMismatch S.Type S.Type -- expected, actual
   | CannotProject S.Type
+  | CannotUnroll S.Type
   | CannotApply S.Type
   | InvalidLetRec S.TmVar
 
@@ -554,6 +602,7 @@ instance Show TCError where
   show (NotInScope x) = "variable not in scope: " ++ show x
   show (CannotApply t) = "value of type " ++ S.pprintType 0 t ++ " cannot have an argument applied to it"
   show (CannotProject t) = "cannot project field from value of type " ++ S.pprintType 0 t
+  show (CannotUnroll t) = "cannot unroll list head from value of type " ++ S.pprintType 0 t
   show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
 
 emptyEnv :: CPSEnv
@@ -598,6 +647,8 @@ eqType' fw bw (S.TyArr arg1 ret1) (S.TyArr arg2 ret2) =
 eqType' _ _ (S.TyArr _ _) _ = False
 eqType' fw bw (S.TyAll x t) (S.TyAll y s) = eqType' (Map.insert x y fw) (Map.insert y x bw) t s
 eqType' _ _ (S.TyAll _ _) _ = False
+eqType' fw bw (S.TyList a) (S.TyList b) = eqType' fw bw a b
+eqType' _ _ (S.TyList _) _ = False
 
 freshTm :: String -> (TmVar -> CPS a) -> CPS a
 freshTm x k = do
@@ -698,6 +749,8 @@ pprintTerm n (LetNegateK x y e) =
   indent n ("let " ++ show x ++ " = -" ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareK x cmp e) =
   indent n ("let " ++ show x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetUnrollK x y e) =
+  indent n ("let " ++ show x ++ " = unroll " ++ show y ++ ";\n") ++ pprintTerm n e
 
 pprintValue :: ValueK -> String
 pprintValue NilK = "()"
@@ -706,6 +759,8 @@ pprintValue (IntValK i) = show i
 pprintValue (BoolValK b) = if b then "true" else "false"
 pprintValue (InlK x) = "inl " ++ show x
 pprintValue (InrK y) = "inr " ++ show y
+pprintValue EmptyK = "nil"
+pprintValue (ConsK x y) = "cons " ++ show x ++ " " ++ show y
 
 pprintArith :: ArithK -> String
 pprintArith (AddK x y) = show x ++ " + " ++ show y
@@ -742,6 +797,7 @@ pprintType (ContK ts) = "(" ++ intercalate ", " params ++ ") -> 0"
   where params = map pprintType ts
 pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s
 pprintType (SumK t s) = pprintAType t ++ " + " ++ pprintAType s
+pprintType (ListK t) = "list " ++ pprintAType t
 pprintType IntK = "int"
 pprintType UnitK = "unit"
 pprintType BoolK = "bool"

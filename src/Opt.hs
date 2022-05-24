@@ -31,6 +31,8 @@ import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..)
 -- TODO: Implement Call Arity to be smarter about passing multiple arguments
 -- together.
 -- TODO: Break Opt.hs into Opt/*.hs: split out specific optimizations
+-- (Or, if I have optimizations for other phases (e.g., source, CC, etc.),
+-- Phase/Opt.hs and Phase/Opt/*.hs)
 
 newtype InlineM a = InlineM { runInlineM :: Reader InlineEnv a }
 

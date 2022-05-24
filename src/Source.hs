@@ -24,6 +24,8 @@ module Source
 -- convert where possible)
 -- (See 'Making a Faster Curry with Extensional Types')
 
+-- TODO: Implement lists
+
 -- | Term variables stand for values
 newtype TmVar = TmVar String
   deriving (Eq, Ord)
@@ -75,6 +77,15 @@ data Term
   | TmNegate Term
   -- e1 `cmp` e2
   | TmCmp Term TmCmp Term
+  -- [] @a
+  | TmEmpty Type
+  -- x :: xs
+  | TmCons Term Term
+  -- uncons xs
+  -- (unroll [] -> inl (); unroll (x :: xs) -> inr (x, xs))
+  -- TODO: Replace TmUnrollList with case analysis on lists
+  -- TODO: Rename TmUnrollList to TmUncons
+  | TmUnrollList Term
 
 data TmArith
   = TmArithAdd
@@ -102,6 +113,7 @@ data Type
   | TyBool
   | TyVarOcc TyVar
   | TyAll TyVar Type
+  | TyList Type
 
 data TyVar
   = TyVar String
@@ -123,6 +135,7 @@ pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ ppr
 pprintType p (TySum t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " + " ++ pprintType 6 t2
 pprintType p (TyVarOcc x) = show x
 pprintType p (TyAll x t) = parensIf (p > 0) $ "forall " ++ show x ++ "." ++ pprintType 0 t
+pprintType p (TyList t) = parensIf (p > 7) $ "List " ++ pprintType 8 t
 
 parensIf :: Bool -> String -> String
 parensIf True x = "(" ++ x ++ ")"

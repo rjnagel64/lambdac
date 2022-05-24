@@ -47,6 +47,9 @@ standard_test("precedence", "-6")
 standard_test("letrec", "true")
 standard_test("sums", "(inl 17, inr true)")
 standard_test("slow_divmod", "((60, 3), (60, 3))")
+standard_test("listctors", "(nil, cons true nil)")
+standard_test("listcase", "(inr (17, nil), inl ())")
+standard_test("listsum", "55")
 
 
 for (test, out) in failed_tests:

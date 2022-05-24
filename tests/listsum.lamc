@@ -1,0 +1,7 @@
+letrec sum : list int -> int =
+  \ (xs : list int) -> case unroll xs return int of {
+    inl z -> 0;
+    inr p -> fst p + sum (snd p)
+  }
+in
+sum [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
