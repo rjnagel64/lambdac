@@ -402,6 +402,8 @@ pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (InlH _ x) = "inl " ++ show x
 pprintValue (InrH _ y) = "inr " ++ show y
+pprintValue NilH = "nil"
+pprintValue (ConsH _ x xs) = "cons " ++ show x ++ " " ++ show xs
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"

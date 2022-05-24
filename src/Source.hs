@@ -121,16 +121,16 @@ instance Show TyVar where
 
 -- something something showsPrec
 pprintType :: Int -> Type -> String
-pprintType p TyUnit = "unit"
-pprintType p TyBool = "bool"
-pprintType p TyInt = "int"
+pprintType _ TyUnit = "unit"
+pprintType _ TyBool = "bool"
+pprintType _ TyInt = "int"
 -- infixr 4 ->
 pprintType p (TyArr t1 t2) = parensIf (p > 4) $ pprintType 5 t1 ++ " -> " ++ pprintType 4 t2
 -- infix 5 *
 pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ pprintType 6 t2
 -- infix 5 +
 pprintType p (TySum t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " + " ++ pprintType 6 t2
-pprintType p (TyVarOcc x) = show x
+pprintType _ (TyVarOcc x) = show x
 pprintType p (TyAll x t) = parensIf (p > 0) $ "forall " ++ show x ++ "." ++ pprintType 0 t
 pprintType p (TyList t) = parensIf (p > 7) $ "List " ++ pprintType 8 t
 

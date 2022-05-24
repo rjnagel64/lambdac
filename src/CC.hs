@@ -245,7 +245,7 @@ fieldsFor (CallK f xs ks) =
   unitTm f <>
   foldMap unitTm xs <>
   foldMap unitCo ks
-fieldsFor (CaseK x t ks) = unitTm x <> foldMap (unitCo . fst) ks
+fieldsFor (CaseK x _ ks) = unitTm x <> foldMap (unitCo . fst) ks
 fieldsFor (LetFstK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetSndK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
@@ -273,6 +273,8 @@ fieldsForValue NilK = mempty
 fieldsForValue (PairK x y) = unitTm x <> unitTm y
 fieldsForValue (InlK x) = unitTm x
 fieldsForValue (InrK y) = unitTm y
+fieldsForValue EmptyK = mempty
+fieldsForValue (ConsK x y) = unitTm x <> unitTm y
 
 fieldsForFunDef :: FunDef a -> FieldsFor
 fieldsForFunDef (FunDef _ _f xs ks e) =
@@ -451,7 +453,7 @@ pprintTerm n (LetFstC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (CaseC x s ks) =
+pprintTerm n (CaseC x _ ks) =
   let branches = intercalate " | " (map (show . fst) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetArithC x op e) =
@@ -471,6 +473,8 @@ pprintValue (IntC i) = show i
 pprintValue (BoolC b) = if b then "true" else "false"
 pprintValue (InlC x) = "inl " ++ show x
 pprintValue (InrC y) = "inr " ++ show y
+pprintValue EmptyC = "nil"
+pprintValue (ConsC x xs) = "cons " ++ show x ++ " " ++ show xs
 
 pprintArith :: ArithC -> String
 pprintArith (AddC x y) = show x ++ " + " ++ show y

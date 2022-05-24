@@ -732,7 +732,7 @@ pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map sho
 pprintTerm n (CallK f xs ks) = indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
 pprintTerm n (CaseK x t ks) =
   let branches = intercalate " | " (map (show . fst) ks) in
-  indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
+  indent n $ "case " ++ show x ++ " : " ++ pprintType t  ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValK x t v e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFunK fs e) =

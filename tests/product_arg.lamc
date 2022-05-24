@@ -1,0 +1,2 @@
+-- Even though we don't construct a product value, we still need type info for the argument
+\ (p : int * bool) -> p
