@@ -58,6 +58,10 @@ import Source
   'int' { TokInt _ }
   'bool' { TokBool _ }
   'forall' { TokForall _ }
+  'nil' { TokNil _ }
+  'cons' { TokCons _ }
+  'list' { TokList _ }
+  'uncons' { TokUncons _ }
 
   ID { TokID _ _ }
   INT { TokINT _ _ }
@@ -95,6 +99,9 @@ Term :: { Term }
 
      | 'inl' '@' AType '@' AType ATerm { TmInl $3 $5 $6 }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
+     | 'nil' '@' AType { TmEmpty $3 }
+     | 'cons' ATerm ATerm { TmCons $2 $3 }
+     | 'uncons' ATerm { TmUnrollList $2 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
@@ -127,10 +134,14 @@ RecBind :: { (TmVar, Type, Term) }
         : ID ':' Type '=' Term ';' { (var $1, $3, $5) }
 
 Type :: { Type }
-     : AType { $1 }
-     | Type '->' Type { TyArr $1 $3 }
-     | Type '*' Type { TyProd $1 $3 }
+     : AppType { $1 }
+     | AppType '->' Type { TyArr $1 $3 }
+     | Type '*' AppType { TyProd $1 $3 }
      | 'forall' ID '.' Type { TyAll (tvar $2) $4 }
+
+AppType :: { Type }
+        : AType { $1 }
+        | 'list' AppType { TyList $2 }
 
 AType :: { Type }
       : '(' Type ')' { $2 }

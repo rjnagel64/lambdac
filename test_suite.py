@@ -20,13 +20,13 @@ def standard_test(name, result):
     proc = subprocess.run([compiler_path, path, "-o", exe_path], capture_output=True, encoding="utf8")
     if proc.returncode != 0:
         print(f"{name} FAIL")
-        failed_tests.append((name, proc.stdout))
+        failed_tests.append((name, proc.stdout, proc.stderr))
         return
 
     proc = subprocess.run([exe_path], capture_output=True, encoding="utf8")
     if proc.stdout != f"result = {result}\n":
         print(f"{name} FAIL")
-        failed_tests.append((name, proc.stdout))
+        failed_tests.append((name, proc.stdout, proc.stderr))
         return
     print(f"{name} OK")
 
@@ -49,9 +49,12 @@ standard_test("sums", "(inl 17, inr true)")
 standard_test("slow_divmod", "((60, 3), (60, 3))")
 standard_test("listctors", "(nil, cons true nil)")
 standard_test("listcase", "(inr (17, nil), inl ())")
-standard_test("listsum", "55")
+standard_test("listsum", "15")
 
 
-for (test, out) in failed_tests:
+for (test, out, err) in failed_tests:
     print(f"--- FAILED: {test} ---")
+    print(f"--- STDOUT: ---")
     print(out)
+    print(f"--- STDERR: ---")
+    print(err)

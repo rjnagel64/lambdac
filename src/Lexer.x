@@ -73,6 +73,10 @@ tokens :-
   "bool" { tok TokBool }
   "int" { tok TokInt }
   "forall" { tok TokForall }
+  "nil" { tok TokNil }
+  "cons" { tok TokCons }
+  "list" { tok TokList }
+  "uncons" { tok TokUncons }
 
   -- Note: Permitting unary + on numeric literals actually causes some problems.
   -- n+1 lexes as 'n' '+1', which is a type error, with a very poor message.
@@ -152,6 +156,10 @@ data Token
   | TokInt Loc
   | TokBool Loc
   | TokForall Loc
+  | TokNil Loc
+  | TokCons Loc
+  | TokList Loc
+  | TokUncons Loc
   deriving (Show)
 
 instance Located Token where
@@ -198,6 +206,10 @@ instance Located Token where
   loc (TokInt l) = l
   loc (TokBool l) = l
   loc (TokForall l) = l
+  loc (TokNil l) = l
+  loc (TokCons l) = l
+  loc (TokList l) = l
+  loc (TokUncons l) = l
 
 -- | Lex a string.
 lex :: String -> [Token]
