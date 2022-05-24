@@ -62,6 +62,12 @@ main = do
   args <- execParser opts
 
   srcS <- parseFile (driverFile args)
+  case T.checkProgram srcS of
+    Left err -> do
+      putStrLn "type error:"
+      putStrLn $ show err
+      exitFailure
+    Right () -> pure ()
   srcK <- case K.cpsMain srcS of
     Left err -> do
       putStrLn "type error:"

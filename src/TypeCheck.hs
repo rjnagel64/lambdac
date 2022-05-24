@@ -7,13 +7,10 @@ import Source
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import Data.Foldable (traverse_)
+import Data.Foldable (traverse_, for_)
 
 import Control.Monad.Except
 import Control.Monad.Reader
-
--- TODO: This is kind of redundant with CPS. Once I iron out the bugs in CPS,
--- this will be obsolete.
 
 
 data TCError
@@ -21,6 +18,7 @@ data TCError
   | TypeMismatch Type Type -- expected, actual
   | CannotProject Type
   | CannotApply Type
+  | InvalidLetRec TmVar
 
 instance Show TCError where
   show (TypeMismatch expected actual) = unlines
@@ -29,8 +27,9 @@ instance Show TCError where
     ,"actual:   " ++ pprintType 0 actual
     ]
   show (NotInScope x) = "variable not in scope: " ++ show x
-  show (CannotApply t) = "cannot apply argument to value of type " ++ pprintType 0 t
+  show (CannotApply t) = "value of type " ++ pprintType 0 t ++ " cannot have an argument applied to it"
   show (CannotProject t) = "cannot project field from value of type " ++ pprintType 0 t
+  show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
 
 newtype TC a = TC { runTC :: ReaderT (Map TmVar Type) (Except TCError) a }
 
@@ -52,9 +51,14 @@ infer (TmVarOcc x) = do
     Just t -> pure t
     Nothing -> throwError (NotInScope x)
 infer TmNil = pure TyUnit
+infer (TmEmpty t) = pure (TyList t)
 infer (TmBool _) = pure TyBool
 infer (TmInt _) = pure TyInt
 infer (TmPair e1 e2) = TyProd <$> infer e1 <*> infer e2
+infer (TmCons e1 e2) = do
+  thead <- infer e1
+  check e2 (TyList thead)
+  pure (TyList thead)
 infer (TmIf c a t f) = do
   check c TyBool
   check t a
@@ -65,6 +69,11 @@ infer (TmCase e c (xl, tl, el) (xr, tr, er)) = do
   withVars [(xl, tl)] $ check el c
   withVars [(xr, tr)] $ check er c
   pure c
+infer (TmCaseList e s enil ((xhead, thead), (xtail, ttail), econs)) = do
+  check e (TyList thead)
+  check enil s
+  withVars [(xhead, thead), (xtail, ttail)] $ check econs s
+  pure s
 infer (TmFst e) = do
   infer e >>= \case
     TyProd t1 _t2 -> pure t1
@@ -107,6 +116,9 @@ infer (TmRecFun fs e) = do
   withVars binds $ traverse_ checkFun fs
   withVars binds $ infer e
 infer (TmLetRec bs e) = do
+  for_ bs $ \ (x, _, rhs) -> case rhs of
+    TmLam _ _ _ -> pure ()
+    _ -> throwError (InvalidLetRec x)
   let binds = [(x, t) | (x, t, _) <- bs]
   withVars binds $ traverse_ (\ (_, t, e') -> check e' t) bs
   withVars binds $ infer e
@@ -153,4 +165,5 @@ eqType' fw bw (TyArr arg1 ret1) (TyArr arg2 ret2) =
 eqType' _ _ (TyArr _ _) _ = False
 eqType' fw bw (TyAll x t) (TyAll y s) = eqType' (Map.insert x y fw) (Map.insert y x bw) t s
 eqType' _ _ (TyAll _ _) _ = False
-
+eqType' fw bw (TyList a) (TyList b) = eqType' fw bw a b
+eqType' _ _ (TyList _) _ = False

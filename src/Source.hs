@@ -24,8 +24,6 @@ module Source
 -- convert where possible)
 -- (See 'Making a Faster Curry with Extensional Types')
 
--- TODO: Implement lists
-
 -- | Term variables stand for values
 newtype TmVar = TmVar String
   deriving (Eq, Ord)

@@ -181,6 +181,17 @@ contDefType :: ContDef a -> TypeK
 contDefType (ContDef _ _ xs _) = ContK (map snd xs)
 
 
+-- Note: Failure modes of CPS
+-- Before CPS, the source program is type-checked. This also checks that all
+-- variables are properly scoped, and that letrec bindings have a lambda form
+-- as the RHS.
+--
+-- Therefore, it is redundant to try to detect and report such errors here.
+-- However, CPS does need to extract type information, which may fail.
+--
+-- Thus, such cases should be reported using `error` to halt the program, not
+-- `throwError`.
+
 -- | CPS-convert a term.
 -- Note: The types being passed to the continuation and returned overall are a
 -- bit confusing to me. It would be nice if I could write a precise
@@ -192,7 +203,7 @@ cps :: Term -> (TmVar -> S.Type -> CPS (TermK (), S.Type)) -> CPS (TermK (), S.T
 cps (TmVarOcc x) k = do
   env <- asks cpsEnvCtx
   case Map.lookup x env of
-    Nothing -> throwError (NotInScope x)
+    Nothing -> error "scope error"
     Just (x', t) -> k x' t
 cps TmNil k =
   freshTm "x" $ \x -> do
@@ -332,7 +343,7 @@ cps (TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
   cps e $ \z t -> do
     telem <- case t of
       S.TyList t' -> pure t'
-      _ -> throwError (BadListCase t)
+      _ -> error "type error"
     assertEqual telem thd
     assertEqual (S.TyList telem) ttl
     freshCo "j" $ \j ->
@@ -347,7 +358,7 @@ cps (TmApp e1 e2) k =
     cps e2 $ \v2 t2 -> do
       (argTy, retTy) <- case t1 of
         S.TyArr argTy retTy -> pure (argTy, retTy)
-        _ -> throwError (CannotApply t1)
+        _ -> error "type error"
       assertEqual argTy t2
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
@@ -358,7 +369,7 @@ cps (TmFst e) k =
   cps e $ \v t ->  do
     (ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
-      _ -> throwError (CannotProject t)
+      _ -> error "type error"
     freshTm "x" $ \x -> do
       (e', t') <- k x ta
       let res = LetFstK x (cpsType ta) v e'
@@ -367,7 +378,7 @@ cps (TmSnd e) k =
   cps e $ \v t -> do
     (ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
-      _ -> throwError (CannotProject t)
+      _ -> error "type error"
     freshTm "x" $ \x -> do
       (e', t') <- k x tb
       let res = LetSndK x (cpsType tb) v e'
@@ -379,7 +390,7 @@ cpsFun (TmFun f x t s e) =
     env <- asks cpsEnvCtx
     -- Recursive bindings already handled, outside of this.
     f' <- case Map.lookup f env of
-      Nothing -> error "cpsFun: function not in scope (unreachable?)"
+      Nothing -> error "cpsFun: function not in scope (unreachable)"
       Just (f', _) -> pure f'
     fun <- freshenVarBinds [(x, t)] $ \bs -> do
       (e', s') <- cpsTail e k
@@ -394,7 +405,7 @@ cpsTail :: Term -> CoVar -> CPS (TermK (), S.Type)
 cpsTail (TmVarOcc x) k = do
   env <- asks cpsEnvCtx
   case Map.lookup x env of
-    Nothing -> throwError (NotInScope x)
+    Nothing -> error "scope error"
     Just (x', t') -> pure (JumpK k [x'], t')
 cpsTail (TmLam x argTy e) k =
   freshTm "f" $ \ f ->
@@ -514,7 +525,7 @@ cpsTail (TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
   cps e $ \z t -> do
     telem <- case t of
       S.TyList t' -> pure t'
-      _ -> throwError (BadListCase t)
+      _ -> error "type error"
     assertEqual telem thd
     assertEqual (S.TyList telem) ttl
     res <- cpsCase z t k s [([], en), ([(y, thd), (ys, ttl)], ec)]
@@ -524,7 +535,7 @@ cpsTail (TmApp e1 e2) k =
     cps e2 $ \x t2 -> do
       (argTy, retTy) <- case t1 of
         S.TyArr argTy retTy -> pure (argTy, retTy)
-        _ -> throwError (CannotApply t1)
+        _ -> error "type error"
       assertEqual argTy t2
       let res = CallK f [x] [k]
       pure (res, retTy)
@@ -532,7 +543,7 @@ cpsTail (TmFst e) k =
   cps e $ \z t -> do
     (ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
-      _ -> throwError (CannotProject t)
+      _ -> error "type error"
     freshTm "x" $ \x -> do
       let res = LetFstK x (cpsType ta) z (JumpK k [x])
       pure (res, ta)
@@ -540,7 +551,7 @@ cpsTail (TmSnd e) k =
   cps e $ \z t -> do
     (ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
-      _ -> throwError (CannotProject t)
+      _ -> error "type error"
     freshTm "x" $ \x -> do
       let res = LetSndK x (cpsType tb) z (JumpK k [x])
       pure (res, tb)
@@ -618,7 +629,7 @@ deriving newtype instance MonadError TCError CPS
 
 assertEqual :: S.Type -> S.Type -> CPS ()
 assertEqual expected actual = when (not (eqType expected actual)) $
-  throwError (TypeMismatch expected actual)
+  error "type error"
 
 eqType :: S.Type -> S.Type -> Bool
 eqType = eqType' Map.empty Map.empty
@@ -717,7 +728,7 @@ freshenRecBinds fs k = do
       (S.TyArr t s, S.TmLam x t' body) -> do
         assertEqual t t'
         pure (TmFun f x t s body)
-      (_, _) -> throwError (InvalidLetRec f)
+      (_, _) -> error "letrec error"
   local extend (k fs')
 
 
