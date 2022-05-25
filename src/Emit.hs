@@ -34,21 +34,21 @@ emitProgram (ts, ps, cs, e) =
   concatMap emitClosureDecl cs ++
   emitEntryPoint e
 
-data DeclNames
-  = DeclNames {
-    declEnvName :: String
-  , declAllocName :: String
-  , declTraceName :: String
-  , declCodeName :: String
+data ClosureNames
+  = ClosureNames {
+    closureEnvName :: String
+  , closureAllocName :: String
+  , closureTraceName :: String
+  , closureCodeName :: String
   }
 
-namesForDecl :: DeclName -> DeclNames
+namesForDecl :: DeclName -> ClosureNames
 namesForDecl (DeclName f) =
-  DeclNames {
-    declEnvName = f ++ "_env"
-  , declAllocName = "allocate_" ++ f ++ "_env"
-  , declTraceName = "trace_" ++ f ++ "_env"
-  , declCodeName = f ++ "_code"
+  ClosureNames {
+    closureEnvName = f ++ "_env"
+  , closureAllocName = "allocate_" ++ f ++ "_env"
+  , closureTraceName = "trace_" ++ f ++ "_env"
+  , closureCodeName = f ++ "_code"
   }
 
 prologue :: [String]
@@ -96,7 +96,7 @@ typeForSort Value = "struct constant *"
 typeForSort Sum = "struct sum *"
 typeForSort Boolean = "struct bool_value *"
 typeForSort (Product ss) = "struct product *"
-typeForSort (List s) = "struct list *"
+typeForSort (List _) = "struct list *"
 
 infoForSort :: Sort -> String
 infoForSort Alloc = "any_info"
@@ -105,7 +105,7 @@ infoForSort Boolean = "bool_value_info"
 infoForSort Value = "constant_info"
 infoForSort (Product ss) = "product_" ++ tycode (Product ss) ++ "_info"
 infoForSort Closure = "closure_info"
-infoForSort (List s) = "list_info"
+infoForSort (List _) = "list_info"
 
 asSort :: Sort -> String -> String
 asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
@@ -114,7 +114,7 @@ asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
 asSort Boolean x = "AS_BOOL(" ++ x ++ ")"
 asSort (Product ss) x = "AS_PRODUCT(" ++ x ++ ")"
-asSort (List s) x = "AS_LIST(" ++ x ++ ")"
+asSort (List _s) x = "AS_LIST(" ++ x ++ ")"
 
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
@@ -238,23 +238,23 @@ emitClosureDecl (H.ClosureDecl d envd params e) =
   emitClosureCode ns params e
   where ns = namesForDecl d
 
-emitEnvDecl :: DeclNames -> EnvDecl -> [String]
+emitEnvDecl :: ClosureNames -> EnvDecl -> [String]
 emitEnvDecl ns (EnvDecl fs) =
-  ["struct " ++ declEnvName ns ++ " {"] ++
+  ["struct " ++ closureEnvName ns ++ " {"] ++
   map mkField fs ++
   ["};"]
   where
     mkField f = "    " ++ emitFieldDecl f ++ ";"
 
-emitEnvAlloc :: DeclNames -> EnvDecl -> [String]
+emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
 emitEnvAlloc ns (EnvDecl []) =
-  ["struct " ++ declEnvName ns ++ " *" ++ declAllocName ns ++ "(void) {"
+  ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(void) {"
   ,"    return NULL;"
   ,"}"]
 emitEnvAlloc ns (EnvDecl fs) =
   -- TODO: What if there is a parameter named 'env'?
-  ["struct " ++ declEnvName ns ++ " *" ++ declAllocName ns ++ "(" ++ params ++ ") {"] ++
-  ["    struct " ++ declEnvName ns ++ " *env = malloc(sizeof(struct " ++ declEnvName ns ++ "));"] ++
+  ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ params ++ ") {"] ++
+  ["    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"] ++
   map assignField fs ++
   ["    return env;"
   ,"}"]
@@ -267,10 +267,10 @@ emitEnvAlloc ns (EnvDecl fs) =
 -- | Emit a method to trace a closure environment.
 -- We do not need to worry about shadowing the name 'env' here because 'envp'
 -- and 'env' are the only local variables in this function.
-emitEnvTrace :: DeclNames -> EnvDecl -> [String]
+emitEnvTrace :: ClosureNames -> EnvDecl -> [String]
 emitEnvTrace ns (EnvDecl fs) =
-  ["void " ++ declTraceName ns ++ "(void *envp) {"
-  ,"    struct " ++ declEnvName ns ++ " *env = envp;"] ++
+  ["void " ++ closureTraceName ns ++ "(void *envp) {"
+  ,"    struct " ++ closureEnvName ns ++ " *env = envp;"] ++
   map traceField fs ++
   ["}"]
   where
@@ -280,10 +280,10 @@ emitEnvTrace ns (EnvDecl fs) =
 emitMarkGray :: String -> Sort -> String
 emitMarkGray x s = "mark_gray(" ++ asSort Alloc x ++ ", " ++ infoForSort s ++ ")"
 
-emitClosureCode :: DeclNames -> [PlaceName] -> TermH -> [String]
+emitClosureCode :: ClosureNames -> [PlaceName] -> TermH -> [String]
 emitClosureCode ns xs e =
-  ["void " ++ declCodeName ns ++ "(" ++ paramList ++ ") {"
-  ,"    struct " ++ declEnvName ns ++ " *" ++ envPointer ++ " = " ++ envParam ++ ";"] ++
+  ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"
+  ,"    struct " ++ closureEnvName ns ++ " *" ++ envPointer ++ " = " ++ envParam ++ ";"] ++
   emitClosureBody envPointer e ++
   ["}"]
   where
@@ -363,7 +363,7 @@ emitValueAlloc envp (InlH s y) =
   "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
 emitValueAlloc envp (InrH s y) =
   "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
-emitValueAlloc envp NilH = "allocate_nil()"
+emitValueAlloc _ NilH = "allocate_nil()"
 emitValueAlloc envp (ConsH s x xs) =
   "allocate_cons(" ++ asSort Alloc (emitName envp x) ++ ", " ++ infoForSort s ++ ", " ++ emitName envp xs ++ ")"
 
@@ -400,19 +400,19 @@ emitAlloc envp (ClosureAlloc p ty d (EnvAlloc free rec)) =
   where
     ns = namesForDecl d
     args = [envArg, traceArg, codeArg, enterArg]
-    envArg = declAllocName ns ++ "(" ++ intercalate ", " envAllocArgs ++ ")"
-    traceArg = declTraceName ns
-    codeArg = "(void (*)(void))" ++ declCodeName ns
+    envArg = closureAllocName ns ++ "(" ++ intercalate ", " envAllocArgs ++ ")"
+    traceArg = closureTraceName ns
+    codeArg = "(void (*)(void))" ++ closureCodeName ns
     enterArg = thunkEnterName (namesForThunk ty)
 
     -- Recursive/cyclic environment references are initialized to NULL, and
     -- then patched once all the closures have been allocated.
     envAllocArgs = map (emitName envp . snd) free ++ map (const "NULL") rec
 
-emitPatch :: DeclNames -> PlaceName -> EnvAlloc -> [String]
+emitPatch :: ClosureNames -> PlaceName -> EnvAlloc -> [String]
 emitPatch ns (PlaceName _ p) (EnvAlloc _free rec) =
   ["    " ++ env ++ "->" ++ f ++ " = " ++ x ++ ";" | (FieldName _ f, LocalName x) <- rec]
-  where env = "((struct " ++ declEnvName ns ++ " *)" ++ p ++ "->env)"
+  where env = "((struct " ++ closureEnvName ns ++ " *)" ++ p ++ "->env)"
 
 emitFieldDecl :: FieldName -> String
 emitFieldDecl (FieldName s x) = typeForSort s ++ x
