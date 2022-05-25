@@ -45,6 +45,10 @@ data ClosureNames
 namesForDecl :: DeclName -> ClosureNames
 namesForDecl (DeclName f) =
   ClosureNames {
+    -- These methods are very similar to declaring a product type, though the
+    -- trace method is not a proper type info.
+    -- (The env is not an alloc_header, and the trace method is not wrapped in
+    -- a 'type_info')
     closureEnvName = f ++ "_env"
   , closureAllocName = "allocate_" ++ f ++ "_env"
   , closureTraceName = "trace_" ++ f ++ "_env"

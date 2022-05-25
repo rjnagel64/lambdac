@@ -1,0 +1,18 @@
+
+letrec merge : list int -> list int -> list int =
+  \ (xs : list int) -> \ (ys : list int) ->
+    case uncons xs return list int of {
+      nil -> ys;
+      cons (x : int) (xs2 : list int) -> case uncons ys return list int of {
+        nil -> xs;
+        cons (y : int) (ys2 : list int) ->
+          if x <= y return list int then
+            cons x (merge xs2 ys)
+          else
+            cons y (merge xs ys2)
+      }
+    };
+in
+let l1 : list int = cons 2 (cons 4 (cons 5 (nil @int))) in
+let l2 : list int = cons 1 (cons 3 (cons 6 (cons 7 (nil @int)))) in
+merge l1 l2
