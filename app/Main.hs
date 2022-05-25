@@ -68,12 +68,8 @@ main = do
       putStrLn $ show err
       exitFailure
     Right () -> pure ()
-  srcK <- case K.cpsMain srcS of
-    Left err -> do
-      putStrLn "type error:"
-      putStrLn $ show err
-      exitFailure
-    Right (srcK, _t) -> pure srcK
+
+  let (srcK, _ty) = K.cpsMain srcS
   when (driverDumpCPS args) $ do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK

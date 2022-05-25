@@ -24,7 +24,6 @@ import Data.Traversable (mapAccumL, for)
 import Data.Bifunctor
 
 import Control.Monad.Reader
-import Control.Monad.Except
 
 import qualified Source as S
 import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
@@ -226,26 +225,21 @@ cps (TmBool b) k =
     let res = LetValK x BoolK (BoolValK b) e'
     pure (res, t')
 cps (TmArith e1 op e2) k =
-  cps e1 $ \x t1 -> do
-    assertEqual S.TyInt t1
-    cps e2 $ \y t2 -> do
-      assertEqual S.TyInt t2
+  cps e1 $ \x _t1 -> do
+    cps e2 $ \y _t2 -> do
       freshTm "z" $ \z -> do
         (e', t') <- k z S.TyInt
         let res = LetArithK z (makeArith op x y) e'
         pure (res, t')
 cps (TmNegate e) k =
-  cps e $ \x t -> do
-    assertEqual S.TyInt t
+  cps e $ \x _t -> do
     freshTm "z" $ \z -> do
       (e', t') <- k z S.TyInt
       let res = LetNegateK z x e'
       pure (res, t')
 cps (TmCmp e1 cmp e2) k =
-  cps e1 $ \x t1 -> do
-    assertEqual S.TyInt t1
-    cps e2 $ \y t2 -> do
-      assertEqual S.TyInt t2
+  cps e1 $ \x _t1 -> do
+    cps e2 $ \y _t2 -> do
       freshTm "z" $ \z -> do
         (e', t') <- k z S.TyBool
         let res = LetCompareK z (makeCompare cmp x y) e'
@@ -259,24 +253,21 @@ cps (TmPair e1 e2) k =
         let res = LetValK x (cpsType ty) (PairK v1 v2) e'
         pure (res, t')
 cps (TmCons e1 e2) k =
-  cps e1 $ \v1 t1 ->
+  cps e1 $ \v1 _t1 ->
     cps e2 $ \v2 t2 -> do
-      assertEqual (S.TyList t1) t2
       freshTm "x" $ \x -> do
         (e', t') <- k x t2
         let res = LetValK x (cpsType t2) (ConsK v1 v2) e'
         pure (res, t')
 cps (TmInl a b e) k =
-  cps e $ \z t -> do
-    assertEqual a t
+  cps e $ \z _t -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       (e', t') <- k x ty
       let res = LetValK x (cpsType ty) (InlK z) e'
       pure (res, t')
 cps (TmInr a b e) k =
-  cps e $ \z t -> do
-    assertEqual b t
+  cps e $ \z _t -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       (e', t') <- k x ty
@@ -298,8 +289,7 @@ cps (TmLet x t e1 e2) k = do
       (e2', t2') <- cps e2 k
       let kont = ContDef () j (map (second cpsType . snd) bs) e2'
       pure (kont, t2')
-    (e1', t1') <- cpsTail e1 j
-    assertEqual t t1'
+    (e1', _t1') <- cpsTail e1 j
     pure (LetContK [kont] e1', t2')
 cps (TmRecFun fs e) k = do
   (fs', e', t') <- freshenFunBinds fs $ do
@@ -317,17 +307,15 @@ cps (TmLetRec fs e) k = do
   pure (res, t')
 cps (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
-    assertEqual (S.TySum tl tr) t
     freshCo "j" $ \j ->
       freshTm "x" $ \x -> do
         let s' = cpsType s
         (e', _t') <- k x s
         let kont = ContDef () j [(x, s')] e'
-        res <- cpsCase z t j s [([(xl, tl)], el), ([(xr, tr)], er)]
+        res <- cpsCase z t j [([(xl, tl)], el), ([(xr, tr)], er)]
         pure (LetContK [kont] res, s)
 cps (TmIf e s et ef) k =
   cps e $ \z t -> do
-    assertEqual S.TyBool t
     freshCo "j" $ \j ->
       freshTm "x" $ \x -> do
         let s' = cpsType s
@@ -337,29 +325,23 @@ cps (TmIf e s et ef) k =
         -- This is because case branches are laid out in order of discriminant.
         -- false = 0, true = 1, so the branches should be laid
         -- out as false, true as opposed to the source order true, false.
-        res <- cpsCase z t j s [([], ef), ([], et)]
+        res <- cpsCase z t j [([], ef), ([], et)]
         pure (LetContK [kont] res, s)
 cps (TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
   cps e $ \z t -> do
-    telem <- case t of
-      S.TyList t' -> pure t'
-      _ -> error "type error"
-    assertEqual telem thd
-    assertEqual (S.TyList telem) ttl
     freshCo "j" $ \j ->
       freshTm "x" $ \x -> do
         let s' = cpsType s
         (e', _t') <- k x s
         let kont = ContDef () j [(x, s')] e'
-        res <- cpsCase z t j s [([], en), ([(y, thd), (ys, ttl)], ec)]
+        res <- cpsCase z t j [([], en), ([(y, thd), (ys, ttl)], ec)]
         pure (LetContK [kont] res, s)
 cps (TmApp e1 e2) k =
   cps e1 $ \v1 t1 -> do
-    cps e2 $ \v2 t2 -> do
-      (argTy, retTy) <- case t1 of
-        S.TyArr argTy retTy -> pure (argTy, retTy)
+    cps e2 $ \v2 _t2 -> do
+      retTy <- case t1 of
+        S.TyArr _argTy retTy -> pure retTy
         _ -> error "type error"
-      assertEqual argTy t2
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
           (e', t') <- k xv retTy
@@ -367,7 +349,7 @@ cps (TmApp e1 e2) k =
           pure (res, t')
 cps (TmFst e) k =
   cps e $ \v t ->  do
-    (ta, tb) <- case t of
+    (ta, _tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
@@ -376,7 +358,7 @@ cps (TmFst e) k =
       pure (res, t')
 cps (TmSnd e) k =
   cps e $ \v t -> do
-    (ta, tb) <- case t of
+    (_ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
@@ -393,8 +375,7 @@ cpsFun (TmFun f x t s e) =
       Nothing -> error "cpsFun: function not in scope (unreachable)"
       Just (f', _) -> pure f'
     fun <- freshenVarBinds [(x, t)] $ \bs -> do
-      (e', s') <- cpsTail e k
-      assertEqual s s'
+      (e', _s') <- cpsTail e k
       pure (FunDef () f' (map (second cpsType . snd) bs) [(k, ContK [cpsType s])] e')
     pure fun
 
@@ -424,8 +405,7 @@ cpsTail (TmLet x t e1 e2) k =
   -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
   freshCo "j" $ \j -> do
     (kont, t2') <- cpsBranch j [(x, t)] e2 k
-    (e1', t1') <- cpsTail e1 j
-    assertEqual t t1'
+    (e1', _t1') <- cpsTail e1 j
     pure (LetContK [kont] e1', t2')
 cpsTail (TmRecFun fs e) k = do
   (fs', e', t') <- freshenFunBinds fs $ do
@@ -457,24 +437,19 @@ cpsTail (TmBool b) k =
   freshTm "x" $ \x ->
     pure (LetValK x BoolK (BoolValK b) (JumpK k [x]), S.TyBool)
 cpsTail (TmArith e1 op e2) k =
-  cps e1 $ \x t1 -> do
-    assertEqual S.TyInt t1
-    cps e2 $ \y t2 -> do
-      assertEqual S.TyInt t2
+  cps e1 $ \x _t1 -> do
+    cps e2 $ \y _t2 -> do
       freshTm "z" $ \z -> do
         let res = LetArithK z (makeArith op x y) (JumpK k [z])
         pure (res, S.TyInt)
 cpsTail (TmNegate e) k =
-  cps e $ \x t -> do
-    assertEqual S.TyInt t
+  cps e $ \x _t -> do
     freshTm "z" $ \z -> do
       let res = LetNegateK z x (JumpK k [z])
       pure (res, S.TyInt)
 cpsTail (TmCmp e1 cmp e2) k =
-  cps e1 $ \x t1 -> do
-    assertEqual S.TyInt t1
-    cps e2 $ \y t2 -> do
-      assertEqual S.TyInt t2
+  cps e1 $ \x _t1 -> do
+    cps e2 $ \y _t2 -> do
       freshTm "z" $ \z -> do
         let res = LetCompareK z (makeCompare cmp x y) (JumpK k [z])
         pure (res, S.TyBool)
@@ -488,60 +463,49 @@ cpsTail (TmPair e1 e2) k =
 cpsTail (TmCons e1 e2) k =
   cps e1 $ \v1 t1 ->
     cps e2 $ \v2 t2 -> do
-      assertEqual (S.TyList t1) t2
       freshTm "x" $ \x -> do
         let res = LetValK x (ListK (cpsType t1)) (ConsK v1 v2) (JumpK k [x])
         pure (res, t2)
 cpsTail (TmInl a b e) k =
-  cps e $ \z t -> do
-    assertEqual a t
+  cps e $ \z _ -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       let res = LetValK x (cpsType ty) (InlK z) (JumpK k [x])
       pure (res, ty)
 cpsTail (TmInr a b e) k =
-  cps e $ \z t -> do
-    assertEqual b t
+  cps e $ \z _ -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       let res = LetValK x (cpsType ty) (InrK z) (JumpK k [x])
       pure (res, ty)
 cpsTail (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
-    assertEqual (S.TySum tl tr) t
-    res <- cpsCase z t k s [([(xl, tl)], el), ([(xr, tr)], er)]
+    res <- cpsCase z t k [([(xl, tl)], el), ([(xr, tr)], er)]
     pure (res, s)
 cpsTail (TmIf e s et ef) k =
   cps e $ \z t -> do
-    assertEqual S.TyBool t
     -- NOTE: ef, et is the correct order here.
     -- This is because case branches are laid out in order of discriminant.
     -- false = 0, true = 1, so the branches should be laid
     -- out as false, true as oppose to the source order true,
     -- false.
-    res <- cpsCase z t k s [([], ef), ([], et)]
+    res <- cpsCase z t k [([], ef), ([], et)]
     pure (res, s)
 cpsTail (TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
   cps e $ \z t -> do
-    telem <- case t of
-      S.TyList t' -> pure t'
-      _ -> error "type error"
-    assertEqual telem thd
-    assertEqual (S.TyList telem) ttl
-    res <- cpsCase z t k s [([], en), ([(y, thd), (ys, ttl)], ec)]
+    res <- cpsCase z t k [([], en), ([(y, thd), (ys, ttl)], ec)]
     pure (res, s)
 cpsTail (TmApp e1 e2) k =
   cps e1 $ \f t1 ->
-    cps e2 $ \x t2 -> do
-      (argTy, retTy) <- case t1 of
-        S.TyArr argTy retTy -> pure (argTy, retTy)
+    cps e2 $ \x _t2 -> do
+      retTy <- case t1 of
+        S.TyArr _argTy retTy -> pure retTy
         _ -> error "type error"
-      assertEqual argTy t2
       let res = CallK f [x] [k]
       pure (res, retTy)
 cpsTail (TmFst e) k =
   cps e $ \z t -> do
-    (ta, tb) <- case t of
+    (ta, _tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
@@ -549,15 +513,15 @@ cpsTail (TmFst e) k =
       pure (res, ta)
 cpsTail (TmSnd e) k =
   cps e $ \z t -> do
-    (ta, tb) <- case t of
+    (_ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
       let res = LetSndK x (cpsType tb) z (JumpK k [x])
       pure (res, tb)
 
-cpsMain :: Term -> Either TCError (TermK (), S.Type)
-cpsMain e = runExcept . flip runReaderT emptyEnv . runCPS $
+cpsMain :: Term -> (TermK (), S.Type)
+cpsMain e = flip runReader emptyEnv . runCPS $
   cps e (\z t -> pure (HaltK z, t))
 
 
@@ -570,10 +534,10 @@ cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
   (e', s') <- cpsTail e j
   pure (ContDef () k (map (second cpsType . snd) xs') e', s')
 
--- | CPS-transform a case analysis, given a scrutinee, a continuation variable
--- and its expected type, and a list of branches with bound variables.
-cpsCase :: TmVar -> S.Type -> CoVar -> S.Type -> [([(S.TmVar, S.Type)], Term)] -> CPS (TermK ())
-cpsCase z t j s bs = do
+-- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
+-- and a list of branches with bound variables.
+cpsCase :: TmVar -> S.Type -> CoVar -> [([(S.TmVar, S.Type)], Term)] -> CPS (TermK ())
+cpsCase z t j bs = do
   -- Pick names for each branch continuation
   scope <- asks cpsEnvScope
   let
@@ -585,8 +549,7 @@ cpsCase z t j s bs = do
   let extend (CPSEnv _sc ctx) = CPSEnv sc' ctx
   -- CPS each branch
   konts <- local extend $ for bs' $ \ (k, (xs, e)) -> do
-    (kont, s') <- cpsBranch k xs e j
-    assertEqual s s'
+    (kont, _s') <- cpsBranch k xs e j
     pure (k, kont)
   -- Assemble the result term
   let alts = map (second contDefType) konts
@@ -619,47 +582,12 @@ instance Show TCError where
 emptyEnv :: CPSEnv
 emptyEnv = CPSEnv Map.empty Map.empty
 
-newtype CPS a = CPS { runCPS :: ReaderT CPSEnv (Except TCError) a }
+newtype CPS a = CPS { runCPS :: Reader CPSEnv a }
 
 deriving newtype instance Functor CPS
 deriving newtype instance Applicative CPS
 deriving newtype instance Monad CPS
 deriving newtype instance MonadReader CPSEnv CPS
-deriving newtype instance MonadError TCError CPS
-
-assertEqual :: S.Type -> S.Type -> CPS ()
-assertEqual expected actual = when (not (eqType expected actual)) $
-  error "type error"
-
-eqType :: S.Type -> S.Type -> Bool
-eqType = eqType' Map.empty Map.empty
-
-eqType' :: Map S.TyVar S.TyVar -> Map S.TyVar S.TyVar -> S.Type -> S.Type -> Bool
-eqType' fw bw (S.TyVarOcc x) (S.TyVarOcc y) = case (Map.lookup x fw, Map.lookup y bw) of
-  -- Both bound: check that bijection holds
-  (Just y', Just x') -> y' == y && x' == x
-  -- Both free: require exact equality
-  (Nothing, Nothing) -> x == y
-  -- Cannot be equal if one free but the other is bound
-  _ -> False
-eqType' _ _ (S.TyVarOcc _) _ = False
-eqType' _ _ S.TyUnit S.TyUnit = True
-eqType' _ _ S.TyUnit _ = False
-eqType' _ _ S.TyBool S.TyBool = True
-eqType' _ _ S.TyBool _ = False
-eqType' _ _ S.TyInt S.TyInt = True
-eqType' _ _ S.TyInt _ = False
-eqType' fw bw (S.TyProd t1 t2) (S.TyProd t3 t4) = eqType' fw bw t1 t3 && eqType' fw bw t2 t4
-eqType' _ _ (S.TyProd _ _) _ = False
-eqType' fw bw (S.TySum t1 t2) (S.TySum t3 t4) = eqType' fw bw t1 t3 && eqType' fw bw t2 t4
-eqType' _ _ (S.TySum _ _) _ = False
-eqType' fw bw (S.TyArr arg1 ret1) (S.TyArr arg2 ret2) =
-  eqType' fw bw arg1 arg2 && eqType' fw bw ret1 ret2
-eqType' _ _ (S.TyArr _ _) _ = False
-eqType' fw bw (S.TyAll x t) (S.TyAll y s) = eqType' (Map.insert x y fw) (Map.insert y x bw) t s
-eqType' _ _ (S.TyAll _ _) _ = False
-eqType' fw bw (S.TyList a) (S.TyList b) = eqType' fw bw a b
-eqType' _ _ (S.TyList _) _ = False
 
 freshTm :: String -> (TmVar -> CPS a) -> CPS a
 freshTm x k = do
@@ -725,9 +653,8 @@ freshenRecBinds fs k = do
   let extend (CPSEnv _sc ctx) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds)
   fs' <- for fs $ \ (f, ty, rhs) -> do
     case (ty, rhs) of
-      (S.TyArr t s, S.TmLam x t' body) -> do
-        assertEqual t t'
-        pure (TmFun f x t s body)
+      (S.TyArr _t s, S.TmLam x t' body) -> do
+        pure (TmFun f x t' s body)
       (_, _) -> error "letrec error"
   local extend (k fs')
 
