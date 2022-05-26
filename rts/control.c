@@ -8,8 +8,8 @@ void mark_root(void) {
     next_step->trace();
 }
 
-void halt_with(struct alloc_header *x) {
+void halt_with(struct alloc_header *x, type_info info) {
     result_value = x;
-    result_info = any_info;
+    result_info = info;
 }
 

@@ -96,7 +96,7 @@ data TermH
   | LetPrimH PlaceName PrimOp TermH
   -- 'let value x = y #2 in e'
   | LetProjectH PlaceName Name ProductType Int TermH
-  | HaltH Name
+  | HaltH Name Sort
   | OpenH Name [(Name, Sort)] -- Open a closure, by providing a list of arguments and their sorts.
   | CaseH Name CaseKind [(Name, ThunkType)]
   -- Closures may be mutually recursive, so are allocated as a group.
@@ -175,7 +175,7 @@ tellClosures cs = tell (ClosureDecls cs)
 -- be lifted to the top level. Additionally, map value, continuation, and
 -- function names to C names.
 hoist :: TermC -> HoistM TermH
-hoist (HaltC x) = HaltH <$> hoistVarOcc x
+hoist (HaltC x) = uncurry HaltH <$> hoistVarOcc' x
 hoist (JumpC k xs) = OpenH <$> hoistVarOcc k <*> traverse hoistVarOcc' xs
 hoist (CallC f xs ks) = OpenH <$> hoistVarOcc f <*> traverse hoistVarOcc' (xs ++ ks)
 hoist (CaseC x t ks) = do
@@ -382,7 +382,7 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintTerm :: Int -> TermH -> String
-pprintTerm n (HaltH x) = indent n $ "HALT " ++ show x ++ ";\n"
+pprintTerm n (HaltH x _) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (OpenH c xs) = indent n $ show c ++ " " ++ intercalate " " (map (show . fst) xs) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
   let branches = intercalate " | " (map (show . fst) ks) in

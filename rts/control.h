@@ -14,6 +14,6 @@ void mark_root(void);
 
 struct alloc_header *result_value;
 type_info result_info;
-void halt_with(struct alloc_header *x);
+void halt_with(struct alloc_header *x, type_info info);
 
 #endif

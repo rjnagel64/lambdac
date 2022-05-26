@@ -223,7 +223,7 @@ emitProductTrace (ProductType ss) =
 
 emitProductDisplay :: ProductType -> [String]
 emitProductDisplay (ProductType ss) =
-  ["void display_" ++ ty ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
+  ["void display_product_" ++ ty ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
   ,"    struct product *v = AS_PRODUCT(alloc);"
   ,"    string_buf_push(sb, \"(\");"] ++
   intersperse "    string_buf_push(sb, \", \");" (map displayField (zip [0..] ss)) ++
@@ -236,9 +236,11 @@ emitProductDisplay (ProductType ss) =
 
 emitProductInfo :: ProductType -> [String]
 emitProductInfo (ProductType ss) =
-  ["type_info product_" ++ ty ++ "_info = { trace_product_" ++ ty ++ " };"]
+  ["type_info product_" ++ ty ++ "_info = { " ++ trace ++ ", " ++ display ++ " };"]
   where
     ty = tycode (Product ss)
+    trace = "trace_product_" ++ ty
+    display = "display_product_" ++ ty
 
 emitProductProjection :: ProductType -> (Int, Sort) -> [String]
 emitProductProjection (ProductType ss) (i, s) =
@@ -322,7 +324,7 @@ emitClosureCode ns xs e =
     go2 (LetPrimH p _ e') = Set.insert (placeName p) (go2 e')
     go2 (LetProjectH p _ _ _ e') = Set.insert (placeName p) (go2 e')
     go2 (AllocClosure cs e') = foldr (Set.insert . placeName) (go2 e') (map closurePlace cs)
-    go2 (HaltH _) = Set.empty
+    go2 (HaltH _ _) = Set.empty
     go2 (OpenH _ _) = Set.empty
     go2 (CaseH _ _ _) = Set.empty
 
@@ -340,8 +342,8 @@ emitClosureBody envp (LetPrimH x p e) =
 emitClosureBody envp (AllocClosure cs e) =
   emitAllocGroup envp cs ++
   emitClosureBody envp e
-emitClosureBody envp (HaltH x) =
-  ["    halt_with(" ++ asSort Alloc (emitName envp x) ++ ");"]
+emitClosureBody envp (HaltH x s) =
+  ["    halt_with(" ++ asSort Alloc (emitName envp x) ++ ", " ++ infoForSort s ++ ");"]
 emitClosureBody envp (OpenH c xs) =
   [emitSuspend envp c xs]
 emitClosureBody envp (CaseH x kind ks) =
