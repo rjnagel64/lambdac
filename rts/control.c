@@ -10,5 +10,6 @@ void mark_root(void) {
 
 void halt_with(struct alloc_header *x) {
     result_value = x;
+    result_info = any_info;
 }
 

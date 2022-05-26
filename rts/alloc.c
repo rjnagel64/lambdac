@@ -2,6 +2,8 @@
 #include "alloc.h"
 #include "panic.h"
 
+#include <stdio.h> // sprintf
+
 // All allocations.
 static struct alloc_header *first_allocation;
 static uint64_t num_allocs = 0;
@@ -71,26 +73,62 @@ void mark_gray(struct alloc_header *alloc, type_info info) {
 void trace_constant(struct alloc_header *alloc) {
 }
 
-type_info constant_info = { trace_constant };
+void display_constant(struct alloc_header *alloc, struct string_buf *sb) {
+    // int64_t can have ~20 decimal digits, plus sign, so use a 32-byte buffer.
+    static char buf[32];
+    struct constant *v = AS_CONST(alloc);
+    int64_t value = (int64_t)v->value;
+    sprintf(buf, "%lld", value);
+    string_buf_push(sb, buf);
+}
+
+type_info constant_info = { trace_constant, display_constant };
 
 void trace_sum(struct alloc_header *alloc) {
     struct sum *v = AS_SUM(alloc);
     mark_gray(v->payload, v->info);
 }
 
-type_info sum_info = { trace_sum };
+void display_sum(struct alloc_header *alloc, struct string_buf *sb) {
+    struct sum *v = AS_SUM(alloc);
+    switch (v->discriminant) {
+    case 0:
+        string_buf_push(sb, "inl ");
+        v->info.display(v->payload, sb);
+        break;
+    case 1:
+        string_buf_push(sb, "inr ");
+        v->info.display(v->payload, sb);
+        break;
+    }
+}
+
+type_info sum_info = { trace_sum, display_sum };
 
 void trace_bool_value(struct alloc_header *alloc) {
 }
 
-type_info bool_value_info = { trace_bool_value };
+void display_bool_value(struct alloc_header *alloc, struct string_buf *sb) {
+    struct bool_value *v = AS_BOOL(alloc);
+    if (v->discriminant) {
+        string_buf_push(sb, "true");
+    } else {
+        string_buf_push(sb, "false");
+    }
+}
+
+type_info bool_value_info = { trace_bool_value, display_bool_value };
 
 void trace_closure(struct alloc_header *alloc) {
     struct closure *cl = AS_CLOSURE(alloc);
     cl->trace(cl->env);
 }
 
-type_info closure_info = { trace_closure };
+void display_closure(struct alloc_header *alloc, struct string_buf *sb) {
+    string_buf_push(sb, "<closure>");
+}
+
+type_info closure_info = { trace_closure, display_closure };
 
 void trace_list(struct alloc_header *alloc) {
     struct list *l = AS_LIST(alloc);
@@ -112,7 +150,25 @@ void trace_list(struct alloc_header *alloc) {
     }
 }
 
-type_info list_info = { trace_list };
+void display_list(struct alloc_header *alloc, struct string_buf *sb) {
+    struct list *l = AS_LIST(alloc);
+    switch (l->discriminant) {
+    case 0:
+        string_buf_push(sb, "nil");
+        break;
+    case 1:
+        {
+        struct cons *c = AS_LIST_CONS(l);
+        string_buf_push(sb, "cons ");
+        c->head_info.display(c->head, sb);
+        string_buf_push(sb, " ");
+        list_info.display(AS_ALLOC(c->tail), sb);
+        }
+        break;
+    }
+}
+
+type_info list_info = { trace_list, display_list };
 
 
 
@@ -146,7 +202,43 @@ void trace_alloc(struct alloc_header *alloc) {
     }
 }
 
-type_info any_info = { trace_alloc };
+// Render any value as a string.
+// Once I have a functioning IO system, this should probably be replaced with
+// whatever->string primops.
+void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
+    switch (alloc->type) {
+    case ALLOC_CLOSURE:
+        closure_info.display(alloc, sb);
+        break;
+    case ALLOC_CONST:
+        constant_info.display(alloc, sb);
+        break;
+    case ALLOC_BOOL:
+        bool_value_info.display(alloc, sb);
+        break;
+    case ALLOC_LIST:
+        list_info.display(alloc, sb);
+        break;
+    case ALLOC_SUM:
+        sum_info.display(alloc, sb);
+        break;
+    case ALLOC_PROD:
+        {
+        struct product *v = AS_PRODUCT(alloc);
+        string_buf_push(sb, "(");
+        for (uint32_t i = 0; i < v->num_fields; i++) {
+            if (i > 0) {
+                string_buf_push(sb, ", ");
+            }
+            display_alloc(AS_ALLOC(v->words[i]), sb);
+        }
+        string_buf_push(sb, ")");
+        }
+        break;
+    }
+}
+
+type_info any_info = { trace_alloc, display_alloc };
 
 
 void collect(void) {

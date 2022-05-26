@@ -4,7 +4,7 @@ module Emit (emitProgram) where
 import qualified Data.Set as Set
 import Data.Set (Set)
 
-import Data.List (intercalate)
+import Data.List (intercalate, intersperse)
 
 import qualified Hoist as H
 import Hoist
@@ -187,6 +187,7 @@ emitThunkSuspend (ThunkType ss) =
 emitProductDecl :: ProductType -> [String]
 emitProductDecl (ProductType ss) =
   emitProductTrace (ProductType ss) ++
+  emitProductDisplay (ProductType ss) ++
   emitProductInfo (ProductType ss) ++
   emitProductAlloc (ProductType ss) ++
   concatMap (emitProductProjection (ProductType ss)) (zip [0..] ss)
@@ -219,6 +220,19 @@ emitProductTrace (ProductType ss) =
     ty = tycode (Product ss)
     traceField :: (Int, Sort) -> String
     traceField (i, s) = "    " ++ emitMarkGray ("v->words[" ++ show i ++ "]") s ++ ";"
+
+emitProductDisplay :: ProductType -> [String]
+emitProductDisplay (ProductType ss) =
+  ["void display_" ++ ty ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
+  ,"    struct product *v = AS_PRODUCT(alloc);"
+  ,"    string_buf_push(sb, \"(\");"] ++
+  intersperse "    string_buf_push(sb, \", \");" (map displayField (zip [0..] ss)) ++
+  ["    string_buf_push(sb, \")\");"
+  ,"}"]
+  where
+    ty = tycode (Product ss)
+    displayField :: (Int, Sort) -> String
+    displayField (i, s) = "    " ++ infoForSort s ++ ".display(" ++ asSort Alloc ("v->words[" ++ show i ++ "]") ++ ", sb);"
 
 emitProductInfo :: ProductType -> [String]
 emitProductInfo (ProductType ss) =

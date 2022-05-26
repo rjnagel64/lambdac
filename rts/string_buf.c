@@ -1,5 +1,5 @@
 
-#include "string.h"
+#include "string_buf.h"
 
 #include <stdlib.h>
 #include <string.h>

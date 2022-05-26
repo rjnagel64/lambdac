@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "string_buf.h"
+
 // Hmm. What if ALLOC_INFORMED, for things that have had their fields traced
 // already (through some external type info, such as a closure environment)
 //
@@ -25,6 +27,7 @@ struct alloc_header {
 
 struct _type_info {
     void (*trace)(struct alloc_header *alloc);
+    void (*display)(struct alloc_header *alloc, struct string_buf *sb);
 };
 typedef struct _type_info type_info;
 
@@ -34,7 +37,7 @@ type_info any_info;
 
 struct constant {
     struct alloc_header header;
-    uintptr_t value;
+    uintptr_t value; // TODO: struct constant; -> struct int64_value;
 };
 
 type_info constant_info;
