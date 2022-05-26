@@ -238,6 +238,7 @@ void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
     }
 }
 
+// TODO: Eliminate the last use of any_info (in 'infoForSort Alloc')
 type_info any_info = { trace_alloc, display_alloc };
 
 

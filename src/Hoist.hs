@@ -223,7 +223,7 @@ hoist (LetFunC fs e) = do
 
   tellClosures ds'
 
-  placesForClosureAllocs C.funClosureName fdecls $ \fplaces -> do
+  placesForClosureAllocs C.funClosureName C.funClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f env xs ks _e) -> do
       env' <- hoistEnvDef env
       let ty = ThunkType ([s | (_x, s) <- xs] ++ [s | (_k, s) <- ks])
@@ -236,7 +236,7 @@ hoist (LetContC ks e) = do
 
   tellClosures ds'
 
-  placesForClosureAllocs C.contClosureName kdecls $ \kplaces -> do
+  placesForClosureAllocs C.contClosureName C.contClosureSort kdecls $ \kplaces -> do
     ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k env xs _e) -> do
       env' <- hoistEnvDef env
       let ty = ThunkType [s | (_x, s) <- xs]
@@ -255,15 +255,17 @@ envAllocField (x, s) = do
   pure (field, x')
 
 
-placesForClosureAllocs :: (a -> C.Name) -> [(DeclName, a)] -> ([(PlaceName, DeclName, a)] -> HoistM r) -> HoistM r
-placesForClosureAllocs closureName cdecls kont = do
+placesForClosureAllocs :: (a -> C.Name) -> (a -> Sort) -> [(DeclName, a)] -> ([(PlaceName, DeclName, a)] -> HoistM r) -> HoistM r
+placesForClosureAllocs closureName closureSort cdecls kont = do
   HoistEnv scope _ <- ask
   let
     pickPlace sc (d, def) =
-      let cname = closureName def in
-      let p = go sc cname in (Map.insert cname p sc, (p, d, def))
+      let (cname, csort) = (closureName def, closureSort def) in
+      let c = go sc cname in
+      let p = asPlaceName csort c in
+      (Map.insert cname p sc, (p, d, def))
     go sc c = case Map.lookup c sc of
-      Nothing -> asPlaceName Closure c
+      Nothing -> c
       Just _ -> go sc (C.prime c)
   let (scope', cplaces) = mapAccumL pickPlace scope cdecls
   let extend (HoistEnv _ fields) = HoistEnv scope' fields

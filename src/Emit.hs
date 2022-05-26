@@ -75,7 +75,7 @@ data ThunkNames
 
 -- This scheme will almost certainly break down as types get fancier.
 tycode :: Sort -> String
-tycode Closure = "C"
+tycode (Closure ss) = 'C' : show (length ss) ++ concatMap tycode ss
 tycode Value = "V"
 tycode Alloc = "A"
 tycode Sum = "S"
@@ -96,7 +96,7 @@ namesForThunk (ThunkType ss) =
 
 typeForSort :: Sort -> String
 typeForSort Alloc = "struct alloc_header *"
-typeForSort Closure = "struct closure *"
+typeForSort (Closure ss) = "struct closure *"
 typeForSort Value = "struct constant *"
 typeForSort Sum = "struct sum *"
 typeForSort Boolean = "struct bool_value *"
@@ -109,13 +109,13 @@ infoForSort Sum = "sum_info"
 infoForSort Boolean = "bool_value_info"
 infoForSort Value = "constant_info"
 infoForSort (Product ss) = "product_" ++ tycode (Product ss) ++ "_info"
-infoForSort Closure = "closure_info"
+infoForSort (Closure ss) = "closure_info"
 infoForSort (List _) = "list_info"
 
 asSort :: Sort -> String -> String
 asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
 asSort Value x = "AS_CONST(" ++ x ++ ")"
-asSort Closure x = "AS_CLOSURE(" ++ x ++ ")"
+asSort (Closure ss) x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
 asSort Boolean x = "AS_BOOL(" ++ x ++ ")"
 asSort (Product ss) x = "AS_PRODUCT(" ++ x ++ ")"
@@ -144,7 +144,7 @@ emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    " ++ emitMarkGray "next->closure" Closure ++ ";"] ++
+  ,"    " ++ emitMarkGray "next->closure" (Closure ss) ++ ";"] ++
   map traceField ss' ++
   ["}"]
   where

@@ -9,7 +9,9 @@
 module CC
   ( TermC(..)
   , FunClosureDef(..)
+  , funClosureSort
   , ContClosureDef(..)
+  , contClosureSort
   , EnvDef(..)
   , Name(..)
   , prime
@@ -96,11 +98,11 @@ coVar (K.CoVar k i) = Name k i
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
 -- TODO: 'Sort.Alloc' should reference which type info it needs
-data Sort = Closure | Value | Alloc | Sum | Product [Sort] | Boolean | List Sort
+data Sort = Closure [Sort] | Value | Alloc | Sum | Product [Sort] | Boolean | List Sort
   deriving (Eq, Ord)
 
 instance Show Sort where
-  show Closure = "closure"
+  show (Closure ss) = "closure " ++ show ss
   show Value = "value"
   show Alloc = "alloc"
   show Sum = "sum"
@@ -109,7 +111,7 @@ instance Show Sort where
   show (List s) = "list " ++ show s
 
 sortOf :: K.TypeK -> Sort
-sortOf (K.ContK _) = Closure
+sortOf (K.ContK ts) = Closure (map sortOf ts)
 sortOf (K.SumK _ _) = Sum
 sortOf K.BoolK = Boolean
 sortOf (K.ProdK t1 t2) = Product [sortOf t1, sortOf t2]
@@ -124,6 +126,7 @@ sortOf (K.ListK t) = List (sortOf t)
 newtype ThunkType = ThunkType { thunkArgSorts :: [Sort] }
   deriving (Eq, Ord)
 
+-- TODO: thunkTypeOf needs to be recursive and return Set ThunkType
 thunkTypeOf :: K.TypeK -> Maybe ThunkType
 thunkTypeOf (K.ContK ss) = Just (ThunkType (map sortOf ss))
 thunkTypeOf _ = Nothing
@@ -181,6 +184,9 @@ data FunClosureDef
   , funClosureBody :: TermC
   }
 
+funClosureSort :: FunClosureDef -> Sort
+funClosureSort (FunClosureDef _ _ params conts _) = Closure (map snd params ++ map snd conts)
+
 -- | @k {x+} y+ = e@
 -- Closures capture two sets of names: those from outer scopes, and those from
 -- the same recursive bind group.
@@ -191,6 +197,9 @@ data ContClosureDef
   , contClosureParams :: [(Name, Sort)]
   , contClosureBody :: TermC
   }
+
+contClosureSort :: ContClosureDef -> Sort
+contClosureSort (ContClosureDef _ _ params _) = Closure (map snd params)
 
 data EnvDef = EnvDef { envFreeNames :: [(Name, Sort)], envRecNames :: [(Name, Sort)] }
 
@@ -290,10 +299,10 @@ markRec :: Set Name -> [(Name, Sort)] -> ([(Name, Sort)], [(Name, Sort)])
 markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) xs
 
 funDefNames :: [FunDef a] -> [(Name, Sort)]
-funDefNames fs = [(tmVar f, Closure) | FunDef _ f _ _ _ <- fs]
+funDefNames fs = [(tmVar f, Closure (map (sortOf . snd) xs ++ map (sortOf . snd) ks)) | FunDef _ f xs ks _ <- fs]
 
 contDefNames :: [ContDef a] -> [(Name, Sort)]
-contDefNames ks = [(coVar k, Closure) | ContDef _ k _ _ <- ks]
+contDefNames ks = [(coVar k, Closure (map (sortOf . snd) xs)) | ContDef _ k xs _ <- ks]
 
 newtype TypeDecls = TypeDecls { getTypeDecls :: (Set ThunkType, Set ProductType) }
 
