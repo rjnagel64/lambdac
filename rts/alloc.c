@@ -54,6 +54,11 @@ static struct gray_entry *gray_list = NULL;
 static uint64_t num_gray = 0;
 static uint64_t gray_capacity = 0;
 void mark_gray(struct alloc_header *alloc, type_info info) {
+    if (alloc == NULL) {
+        // Currently, I allocate empty closure environments as 'NULL'.
+        // Do not put NULLs in the gray list.
+        return;
+    }
     if (num_gray == gray_capacity) {
         gray_capacity *= 2;
         gray_list = realloc(gray_list, gray_capacity * sizeof(struct gray_entry));

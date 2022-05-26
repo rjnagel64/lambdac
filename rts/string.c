@@ -17,6 +17,10 @@ void string_buf_destroy(struct string_buf *sb) {
     free(sb);
 }
 
+char *string_buf_contents(struct string_buf *sb) {
+    return sb->data;
+}
+
 void string_buf_push(struct string_buf *sb, const char *s) {
     size_t len = strlen(s);
     size_t capacity = sb->capacity;
@@ -31,4 +35,3 @@ void string_buf_push(struct string_buf *sb, const char *s) {
     sb->len += len;
     sb->data[sb->len] = '\0';
 }
-
