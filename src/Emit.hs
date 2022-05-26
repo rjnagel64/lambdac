@@ -97,7 +97,7 @@ namesForThunk (ThunkType ss) =
 typeForSort :: Sort -> String
 typeForSort Alloc = "struct alloc_header *"
 typeForSort (Closure ss) = "struct closure *"
-typeForSort Value = "struct constant *"
+typeForSort Value = "struct int64_value *"
 typeForSort Sum = "struct sum *"
 typeForSort Boolean = "struct bool_value *"
 typeForSort (Product ss) = "struct product *"
@@ -107,14 +107,14 @@ infoForSort :: Sort -> String
 infoForSort Alloc = "any_info"
 infoForSort Sum = "sum_info"
 infoForSort Boolean = "bool_value_info"
-infoForSort Value = "constant_info"
+infoForSort Value = "int64_value_info"
 infoForSort (Product ss) = "product_" ++ tycode (Product ss) ++ "_info"
 infoForSort (Closure ss) = "closure_info"
 infoForSort (List _) = "list_info"
 
 asSort :: Sort -> String -> String
 asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
-asSort Value x = "AS_CONST(" ++ x ++ ")"
+asSort Value x = "AS_INT64(" ++ x ++ ")"
 asSort (Closure ss) x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
 asSort Boolean x = "AS_BOOL(" ++ x ++ ")"

@@ -35,14 +35,14 @@ type_info any_info;
 
 #define AS_ALLOC(v) ((struct alloc_header *)(v))
 
-struct constant {
+struct int64_value {
     struct alloc_header header;
-    uintptr_t value; // TODO: struct constant; -> struct int64_value;
+    int64_t value;
 };
 
-type_info constant_info;
+type_info int64_value_info;
 
-#define AS_CONST(v) ((struct constant *)(v))
+#define AS_INT64(v) ((struct int64_value *)(v))
 
 struct closure {
     struct alloc_header header;
@@ -133,13 +133,11 @@ struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*cod
 struct sum *allocate_inl(struct alloc_header *v, type_info info);
 struct sum *allocate_inr(struct alloc_header *v, type_info info);
 // Corresponds to Int64# constructor? No discriminant, though.
-struct constant *allocate_int64(int64_t x);
+struct int64_value *allocate_int64(int64_t x);
 struct bool_value *allocate_true(void);
 struct bool_value *allocate_false(void);
 struct list *allocate_nil(void);
 struct list *allocate_cons(struct alloc_header *x, type_info info, struct list *xs);
-
-int64_t int64_value(struct constant *v);
 
 
 #endif

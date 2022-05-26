@@ -70,19 +70,19 @@ void mark_gray(struct alloc_header *alloc, type_info info) {
     num_gray++;
 }
 
-void trace_constant(struct alloc_header *alloc) {
+void trace_int64_value(struct alloc_header *alloc) {
 }
 
-void display_constant(struct alloc_header *alloc, struct string_buf *sb) {
+void display_int64_value(struct alloc_header *alloc, struct string_buf *sb) {
     // int64_t can have ~20 decimal digits, plus sign, so use a 32-byte buffer.
     static char buf[32];
-    struct constant *v = AS_CONST(alloc);
+    struct int64_value *v = AS_INT64(alloc);
     int64_t value = (int64_t)v->value;
     sprintf(buf, "%lld", value);
     string_buf_push(sb, buf);
 }
 
-type_info constant_info = { trace_constant, display_constant };
+type_info int64_value_info = { trace_int64_value, display_int64_value };
 
 void trace_sum(struct alloc_header *alloc) {
     struct sum *v = AS_SUM(alloc);
@@ -185,7 +185,7 @@ void trace_alloc(struct alloc_header *alloc) {
         trace_closure(alloc);
         break;
     case ALLOC_CONST:
-        trace_constant(alloc);
+        trace_int64_value(alloc);
         break;
     case ALLOC_PROD:
         trace_product(alloc);
@@ -211,7 +211,7 @@ void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
         closure_info.display(alloc, sb);
         break;
     case ALLOC_CONST:
-        constant_info.display(alloc, sb);
+        int64_value_info.display(alloc, sb);
         break;
     case ALLOC_BOOL:
         bool_value_info.display(alloc, sb);
@@ -347,12 +347,12 @@ struct closure *allocate_closure(
     return cl;
 }
 
-struct constant *allocate_int64(int64_t x) {
-    struct constant *v = malloc(sizeof(struct constant));
+struct int64_value *allocate_int64(int64_t x) {
+    struct int64_value *v = malloc(sizeof(struct int64_value));
     v->header.type = ALLOC_CONST;
     v->value = (uintptr_t)x;
 
-    cons_new_alloc(AS_ALLOC(v), constant_info);
+    cons_new_alloc(AS_ALLOC(v), int64_value_info);
     return v;
 }
 
@@ -417,8 +417,4 @@ struct list *allocate_cons(struct alloc_header *x, type_info info, struct list *
     return AS_LIST(c);
 }
 
-
-int64_t int64_value(struct constant *v) {
-    return (int64_t)v->value;
-}
 
