@@ -245,7 +245,7 @@ fieldsFor (CallK f xs ks) =
   unitTm f <>
   foldMap unitTm xs <>
   foldMap unitCo ks
-fieldsFor (CaseK x _ ks) = unitTm x <> foldMap (unitCo . fst) ks
+fieldsFor (CaseK x _ ks) = unitTm x <> foldMap unitCo ks
 fieldsFor (LetFstK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetSndK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
@@ -337,13 +337,14 @@ cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
 cconv (CaseK x t ks) = do
-  let
-    annThunkType :: (K.CoVar, K.TypeK) -> Maybe (Name, ThunkType)
-    annThunkType (k, s) = (,) <$> pure (coVar k) <*> thunkTypeOf s
-  ks' <- case traverse annThunkType ks of
-    Just ks' -> pure ks'
-    Nothing -> error "cconv: some branch of case is not a closure"
   tell (TypeDecls (mempty, productTypesOf t))
+  -- The type of each thunk/branch is determined by the type of the scrutinee.
+  let
+    ks' = case t of
+      K.SumK a b -> zip (map coVar ks) [ThunkType [sortOf a], ThunkType [sortOf b]]
+      K.BoolK -> zip (map coVar ks) [ThunkType [], ThunkType []]
+      K.ListK a -> zip (map coVar ks) [ThunkType [], ThunkType [sortOf a, sortOf t]]
+      _ -> error "cannot case on this type"
   pure $ CaseC (tmVar x) (sortOf t) ks'
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)
   where

@@ -97,9 +97,8 @@ data TermK a
   | JumpK CoVar [TmVar]
   -- f x k, call f(x, k)
   | CallK TmVar [TmVar] [CoVar]
-  -- case x of k1 : s1 | k2 : s2 | ..., branch
-  -- TODO: Derive type of case branches from scrutinee type
-  | CaseK TmVar TypeK [(CoVar, TypeK)]
+  -- case x of k1 | k2 | ..., branch
+  | CaseK TmVar TypeK [CoVar]
   -- halt x
   | HaltK TmVar
 
@@ -175,9 +174,6 @@ cpsType (S.TyArr argTy retTy) = ContK [cpsType argTy, ContK [cpsType retTy]]
 cpsType (S.TyVarOcc _) = error "not implemented: polymorphic cpsType"
 cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
 cpsType (S.TyList a) = ListK (cpsType a)
-
-contDefType :: ContDef a -> TypeK
-contDefType (ContDef _ _ xs _) = ContK (map snd xs)
 
 
 -- Note: Failure modes of CPS
@@ -548,12 +544,11 @@ cpsCase z t j bs = do
     (sc', bs') = mapAccumL pick scope bs
   let extend (CPSEnv _sc ctx) = CPSEnv sc' ctx
   -- CPS each branch
-  konts <- local extend $ for bs' $ \ (k, (xs, e)) -> do
+  (ks, konts) <- fmap unzip $ local extend $ for bs' $ \ (k, (xs, e)) -> do
     (kont, _s') <- cpsBranch k xs e j
     pure (k, kont)
   -- Assemble the result term
-  let alts = map (second contDefType) konts
-  let res = foldr (LetContK . (:[]) . snd) (CaseK z (cpsType t) alts) konts
+  let res = foldr (LetContK . (:[])) (CaseK z (cpsType t) ks) konts
   pure res
 
 
@@ -669,7 +664,7 @@ pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
 pprintTerm n (CallK f xs ks) = indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
 pprintTerm n (CaseK x t ks) =
-  let branches = intercalate " | " (map (show . fst) ks) in
+  let branches = intercalate " | " (map show ks) in
   indent n $ "case " ++ show x ++ " : " ++ pprintType t  ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValK x t v e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
