@@ -37,7 +37,6 @@ import Control.Monad.Reader
 import Control.Monad.Writer hiding (Sum, Product)
 
 import Data.List (intercalate, partition)
-import Data.Maybe (mapMaybe)
 import Data.Bifunctor
 
 import qualified CPS as K
@@ -126,10 +125,14 @@ sortOf (K.ListK t) = List (sortOf t)
 newtype ThunkType = ThunkType { thunkArgSorts :: [Sort] }
   deriving (Eq, Ord)
 
--- TODO: thunkTypeOf needs to be recursive and return Set ThunkType
-thunkTypeOf :: K.TypeK -> Maybe ThunkType
-thunkTypeOf (K.ContK ss) = Just (ThunkType (map sortOf ss))
-thunkTypeOf _ = Nothing
+thunkTypesOf :: K.TypeK -> Set ThunkType
+thunkTypesOf (K.ContK ts) = Set.insert (ThunkType (map sortOf ts)) $ Set.unions (map thunkTypesOf ts)
+thunkTypesOf (K.ProdK t s) = thunkTypesOf t <> thunkTypesOf s
+thunkTypesOf (K.SumK t s) = thunkTypesOf t <> thunkTypesOf s
+thunkTypesOf (K.ListK t) = thunkTypesOf t
+thunkTypesOf K.UnitK = Set.empty
+thunkTypesOf K.IntK = Set.empty
+thunkTypesOf K.BoolK = Set.empty
 
 productTypesOf :: K.TypeK -> Set ProductType
 productTypesOf K.UnitK = Set.singleton (ProductType [])
@@ -378,9 +381,9 @@ cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
 cconvFunDef fs fun@(FunDef _ f xs ks e) = do
   let
     funThunk = ThunkType (map (sortOf . snd) xs ++ map (sortOf . snd) ks)
-    thunks = funThunk : mapMaybe thunkTypeOf (map snd xs ++ map snd ks)
-    products = Set.unions (map productTypesOf (map snd xs ++ map snd ks))
-  tell (TypeDecls (Set.fromList thunks, products))
+    thunks = Set.insert funThunk $ foldMap thunkTypesOf (map snd xs ++ map snd ks)
+    products = foldMap productTypesOf (map snd xs ++ map snd ks)
+  tell (TypeDecls (thunks, products))
   let tmbinds = map (bimap tmVar sortOf) xs
   let cobinds = map (bimap coVar sortOf) ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
@@ -393,9 +396,9 @@ cconvContDef :: Set Name -> ContDef a -> ConvM ContClosureDef
 cconvContDef ks kont@(ContDef _ k xs e) = do
   let
     contThunk = ThunkType (map (sortOf . snd) xs)
-    thunks = contThunk : mapMaybe thunkTypeOf (map snd xs)
-    products = Set.unions (map productTypesOf (map snd xs))
-  tell (TypeDecls (Set.fromList thunks, products))
+    thunks = Set.insert contThunk $ foldMap thunkTypesOf (map snd xs)
+    products = foldMap productTypesOf (map snd xs)
+  tell (TypeDecls (thunks, products))
   let binds = map (bimap tmVar sortOf) xs
   let extend ctx' = foldr (uncurry Map.insert) ctx' binds
   fields <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
