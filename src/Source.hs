@@ -130,7 +130,7 @@ pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ ppr
 pprintType p (TySum t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " + " ++ pprintType 6 t2
 pprintType _ (TyVarOcc x) = show x
 pprintType p (TyAll x t) = parensIf (p > 0) $ "forall " ++ show x ++ "." ++ pprintType 0 t
-pprintType p (TyList t) = parensIf (p > 7) $ "List " ++ pprintType 8 t
+pprintType p (TyList t) = parensIf (p > 7) $ "list " ++ pprintType 8 t
 
 parensIf :: Bool -> String -> String
 parensIf True x = "(" ++ x ++ ")"

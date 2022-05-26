@@ -26,6 +26,7 @@ import Hoist
 -- text s = Emit $ \_ -> B.fromText (T.pack s)
 
 -- TODO: Ensure declarations (esp. product type declarations) are emitted in topological order
+-- TODO: Generate code to pretty-print result value (replace main.c:display_alloc)
 emitProgram :: (Set ThunkType, Set ProductType, [ClosureDecl], TermH) -> [String]
 emitProgram (ts, ps, cs, e) =
   prologue ++
@@ -234,6 +235,10 @@ emitProductProjection (ProductType ss) (i, s) =
     ty = tycode (Product ss)
     fnName = "project_" ++ ty ++ "_" ++ show i
 
+-- TODO: Make closure environments ordinary GC types
+-- (They should basically be named product types.)
+-- (ALLOC_ENV, maybe? The environment should never need to be printed, as
+-- closures are just "<closure>")
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d envd params e) =
   emitEnvDecl ns envd ++
