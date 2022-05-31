@@ -121,7 +121,7 @@ type_info bool_value_info = { trace_bool_value, display_bool_value };
 
 void trace_closure(struct alloc_header *alloc) {
     struct closure *cl = AS_CLOSURE(alloc);
-    cl->trace(cl->env);
+    mark_gray(AS_ALLOC(cl->env), cl->env_info);
 }
 
 void display_closure(struct alloc_header *alloc, struct string_buf *sb) {
@@ -129,6 +129,10 @@ void display_closure(struct alloc_header *alloc, struct string_buf *sb) {
 }
 
 type_info closure_info = { trace_closure, display_closure };
+
+void display_env(struct alloc_header *alloc, struct string_buf *sb) {
+    string_buf_push(sb, "<env>");
+}
 
 void trace_list(struct alloc_header *alloc) {
     struct list *l = AS_LIST(alloc);
@@ -172,23 +176,24 @@ type_info list_info = { trace_list, display_list };
 
 
 
-void trace_product(struct alloc_header *alloc) {
-    struct product *v = AS_PRODUCT(alloc);
-    for (uint32_t i = 0; i < v->num_fields; i++) {
-        mark_gray(AS_ALLOC(v->words[i]), any_info);
-    }
-}
-
 void trace_alloc(struct alloc_header *alloc) {
     switch (alloc->type) {
     case ALLOC_CLOSURE:
         trace_closure(alloc);
         break;
+    case ALLOC_ENV:
+        panic("Should not be dynamically tracing an environment");
+        break;
     case ALLOC_CONST:
         trace_int64_value(alloc);
         break;
     case ALLOC_PROD:
-        trace_product(alloc);
+        {
+        struct product *v = AS_PRODUCT(alloc);
+        for (uint32_t i = 0; i < v->num_fields; i++) {
+            mark_gray(AS_ALLOC(v->words[i]), any_info);
+        }
+        }
         break;
     case ALLOC_SUM:
         trace_sum(alloc);
@@ -209,6 +214,9 @@ void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
     switch (alloc->type) {
     case ALLOC_CLOSURE:
         closure_info.display(alloc, sb);
+        break;
+    case ALLOC_ENV:
+        display_env(alloc, sb);
         break;
     case ALLOC_CONST:
         int64_value_info.display(alloc, sb);
@@ -302,20 +310,8 @@ void collect(void) {
 void sweep_all_allocations(void) {
     for (struct alloc_header *alloc = first_allocation; alloc != NULL;) {
         struct alloc_header *next = alloc->next;
-        switch (alloc->type) {
-        case ALLOC_CLOSURE:
-            free(AS_CLOSURE(alloc)->env);
-            free(alloc);
-            break;
-        case ALLOC_CONST:
-        case ALLOC_BOOL:
-        case ALLOC_PROD:
-        case ALLOC_SUM:
-        case ALLOC_LIST:
-            // All fields are managed by GC.
-            free(alloc);
-            break;
-        }
+        // All fields are managed by GC.
+        free(alloc);
         alloc = next;
     }
 }
@@ -332,14 +328,14 @@ void cons_new_alloc(struct alloc_header *alloc, type_info info) {
 }
 
 struct closure *allocate_closure(
-        void *env,
-        void (*trace)(void *env),
+        struct alloc_header *env,
+        type_info env_info,
         void (*code)(void),
         void (*enter)(void)) {
     struct closure *cl = malloc(sizeof(struct closure));
     cl->header.type = ALLOC_CLOSURE;
     cl->env = env;
-    cl->trace = trace;
+    cl->env_info = env_info;
     cl->code = code;
     cl->enter = enter;
 

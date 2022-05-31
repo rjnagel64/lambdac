@@ -122,6 +122,9 @@ sortOf (K.ListK t) = List (sortOf t)
 -- one continuation, etc.) requires a different type of thunk when that closure
 -- is opened. A thunk type specifies what arguments have been provided to the
 -- closure.
+--
+-- 'Thunk' probably isn't the best name for this concept, as there is no
+-- memoization/updating that occurs.
 newtype ThunkType = ThunkType { thunkArgSorts :: [Sort] }
   deriving (Eq, Ord)
 

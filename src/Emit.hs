@@ -38,6 +38,7 @@ emitProgram (ts, ps, cs, e) =
 data ClosureNames
   = ClosureNames {
     closureEnvName :: String
+  , closureEnvInfo :: String
   , closureAllocName :: String
   , closureTraceName :: String
   , closureCodeName :: String
@@ -46,11 +47,12 @@ data ClosureNames
 namesForDecl :: DeclName -> ClosureNames
 namesForDecl (DeclName f) =
   ClosureNames {
-    -- These methods are very similar to declaring a product type, though the
-    -- trace method is not a proper type info.
+    -- These methods (except closureCodeName) are very similar to declaring a
+    -- product type, though the trace method is not a proper type info.
     -- (The env is not an alloc_header, and the trace method is not wrapped in
     -- a 'type_info')
     closureEnvName = f ++ "_env"
+  , closureEnvInfo = f ++ "_env_info"
   , closureAllocName = "allocate_" ++ f ++ "_env"
   , closureTraceName = "trace_" ++ f ++ "_env"
   , closureCodeName = f ++ "_code"
@@ -121,6 +123,9 @@ asSort Boolean x = "AS_BOOL(" ++ x ++ ")"
 asSort (Product ss) x = "AS_PRODUCT(" ++ x ++ ")"
 asSort (List _s) x = "AS_LIST(" ++ x ++ ")"
 
+mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
+mapWithIndex f = zipWith f [0..]
+
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
   emitThunkType t ++
@@ -133,24 +138,22 @@ emitThunkType (ThunkType ss) =
   ["struct " ++ thunkTypeName ns ++ " {"
   ,"    struct thunk header;"
   ,"    struct closure *closure;"] ++
-  map mkField ss' ++
+  mapWithIndex mkField ss ++
   ["};"]
   where
     ns = namesForThunk (ThunkType ss)
-    ss' = zip [0..] ss :: [(Int, Sort)]
-    mkField (i, s) = "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
+    mkField i s = "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
 
 emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
   ,"    " ++ emitMarkGray "next->closure" (Closure ss) ++ ";"] ++
-  map traceField ss' ++
+  mapWithIndex traceField ss ++
   ["}"]
   where
     ns = namesForThunk (ThunkType ss)
-    ss' = zip [0..] ss :: [(Int, Sort)]
-    traceField (i, s) = "    " ++ emitMarkGray ("next->arg" ++ show i) s ++ ";"
+    traceField i s = "    " ++ emitMarkGray ("next->arg" ++ show i) s ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
 emitThunkEnter (ThunkType ss) =
@@ -161,11 +164,10 @@ emitThunkEnter (ThunkType ss) =
   ,"}"]
   where
     ns = namesForThunk (ThunkType ss)
-    ss' = zip [0..] ss :: [(Int, Sort)]
-    paramList = intercalate ", " ("void *env" : map makeParam ss')
-    makeParam (i, s) = emitPlace (PlaceName s ("arg" ++ show i))
-    argList = intercalate ", " ("next->closure->env" : map makeArgument ss')
-    makeArgument (i, _) = "next->arg" ++ show i
+    paramList = intercalate ", " ("void *env" : mapWithIndex makeParam ss)
+    makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
+    argList = intercalate ", " ("next->closure->env" : mapWithIndex makeArgument ss)
+    makeArgument i _ = "next->arg" ++ show i
 
 emitThunkSuspend :: ThunkType -> [String]
 emitThunkSuspend (ThunkType ss) =
@@ -174,15 +176,14 @@ emitThunkSuspend (ThunkType ss) =
   ,"    next->header.enter = closure->enter;"
   ,"    next->header.trace = " ++ thunkTraceName ns ++ ";"
   ,"    next->closure = closure;"] ++
-  map assignField ss' ++
+  mapWithIndex assignField ss ++
   ["    next_step = (struct thunk *)next;"
   ,"}"]
   where
     ns = namesForThunk (ThunkType ss)
-    ss' = zip [0..] ss :: [(Int, Sort)]
-    paramList = intercalate ", " ("struct closure *closure" : map makeParam ss')
-    makeParam (i, s) = emitPlace (PlaceName s ("arg" ++ show i))
-    assignField (i, _) = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
+    paramList = intercalate ", " ("struct closure *closure" : mapWithIndex makeParam ss)
+    makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
+    assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
 
 emitProductDecl :: ProductType -> [String]
 emitProductDecl (ProductType ss) =
@@ -190,7 +191,7 @@ emitProductDecl (ProductType ss) =
   emitProductDisplay (ProductType ss) ++
   emitProductInfo (ProductType ss) ++
   emitProductAlloc (ProductType ss) ++
-  concatMap (emitProductProjection (ProductType ss)) (zip [0..] ss)
+  concat (mapWithIndex (emitProductProjection (ProductType ss)) ss)
 
 -- TODO: Code generation for product types with polymorphic fields
 emitProductAlloc :: ProductType -> [String]
@@ -199,40 +200,41 @@ emitProductAlloc (ProductType ss) =
   ,"    struct product *v = malloc(sizeof(struct product) + " ++ numFields ++ " * sizeof(uintptr_t));"
   ,"    v->header.type = ALLOC_PROD;"
   ,"    v->num_fields = " ++ numFields ++ ";"] ++
-  map assignField iss ++
+  mapWithIndex assignField ss ++
   ["    cons_new_alloc(AS_ALLOC(v), " ++ infoForSort (Product ss) ++ ");"
   ,"    return v;"
   ,"}"]
   where
     numFields = show (length ss)
     ty = tycode (Product ss)
-    iss = zip [0..] ss :: [(Int, Sort)]
-    args = if null ss then ["void"] else map emitPlace [PlaceName s ("arg" ++ show i) | (i, s) <- iss]
-    assignField (i, s) = "    v->words[" ++ show i ++ "] = (uintptr_t)arg" ++ show i ++ ";"
+    args =
+      if null ss then
+        ["void"]
+      else
+        mapWithIndex (\i s -> emitPlace (PlaceName s ("arg" ++ show i))) ss
+    assignField i s = "    v->words[" ++ show i ++ "] = (uintptr_t)arg" ++ show i ++ ";"
 
 emitProductTrace :: ProductType -> [String]
 emitProductTrace (ProductType ss) =
   ["void trace_product_" ++ ty ++ "(struct alloc_header *alloc) {"
   ,"    struct product *v = AS_PRODUCT(alloc);"] ++
-  map traceField (zip [0..] ss) ++
+  mapWithIndex traceField ss ++
   ["}"]
   where
     ty = tycode (Product ss)
-    traceField :: (Int, Sort) -> String
-    traceField (i, s) = "    " ++ emitMarkGray ("v->words[" ++ show i ++ "]") s ++ ";"
+    traceField i s = "    " ++ emitMarkGray ("v->words[" ++ show i ++ "]") s ++ ";"
 
 emitProductDisplay :: ProductType -> [String]
 emitProductDisplay (ProductType ss) =
   ["void display_product_" ++ ty ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
   ,"    struct product *v = AS_PRODUCT(alloc);"
   ,"    string_buf_push(sb, \"(\");"] ++
-  intersperse "    string_buf_push(sb, \", \");" (map displayField (zip [0..] ss)) ++
+  intersperse "    string_buf_push(sb, \", \");" (mapWithIndex displayField ss) ++
   ["    string_buf_push(sb, \")\");"
   ,"}"]
   where
     ty = tycode (Product ss)
-    displayField :: (Int, Sort) -> String
-    displayField (i, s) = "    " ++ infoForSort s ++ ".display(" ++ asSort Alloc ("v->words[" ++ show i ++ "]") ++ ", sb);"
+    displayField i s = "    " ++ infoForSort s ++ ".display(" ++ asSort Alloc ("v->words[" ++ show i ++ "]") ++ ", sb);"
 
 emitProductInfo :: ProductType -> [String]
 emitProductInfo (ProductType ss) =
@@ -242,8 +244,8 @@ emitProductInfo (ProductType ss) =
     trace = "trace_product_" ++ ty
     display = "display_product_" ++ ty
 
-emitProductProjection :: ProductType -> (Int, Sort) -> [String]
-emitProductProjection (ProductType ss) (i, s) =
+emitProductProjection :: ProductType -> Int -> Sort -> [String]
+emitProductProjection (ProductType ss) i s =
   [typeForSort s ++ fnName ++ "(struct product *p) {"
   ,"    return " ++ asSort s ("p->words[" ++ show i ++ "]") ++ ";"
   ,"}"]
@@ -258,47 +260,47 @@ emitProductProjection (ProductType ss) (i, s) =
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d envd params e) =
   emitEnvDecl ns envd ++
-  emitEnvAlloc ns envd ++
   emitEnvTrace ns envd ++
+  emitEnvAlloc ns envd ++
   emitClosureCode ns params e
   where ns = namesForDecl d
 
 emitEnvDecl :: ClosureNames -> EnvDecl -> [String]
 emitEnvDecl ns (EnvDecl fs) =
-  ["struct " ++ closureEnvName ns ++ " {"] ++
+  ["struct " ++ closureEnvName ns ++ " {"
+  ,"    struct alloc_header header;"] ++
   map mkField fs ++
   ["};"]
   where
     mkField f = "    " ++ emitFieldDecl f ++ ";"
 
 emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
-emitEnvAlloc ns (EnvDecl []) =
-  ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(void) {"
-  ,"    return NULL;"
-  ,"}"]
+-- TODO: What if there is a parameter named 'env'?
 emitEnvAlloc ns (EnvDecl fs) =
-  -- TODO: What if there is a parameter named 'env'?
-  ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ params ++ ") {"] ++
-  ["    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"] ++
+  ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ params ++ ") {"
+  ,"    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"
+  ,"    env->header.type = ALLOC_ENV;"] ++
   map assignField fs ++
-  ["    return env;"
+  ["    cons_new_alloc(AS_ALLOC(env), " ++ closureEnvInfo ns ++ ");"
+  ,"    return env;"
   ,"}"]
   where
-    params = intercalate ", " (map emitFieldDecl fs)
+    params = if null fs then "void" else intercalate ", " (map emitFieldDecl fs)
 
     assignField :: FieldName -> String
     assignField (FieldName _ x) = "    env->" ++ x ++ " = " ++ x ++ ";"
 
 -- | Emit a method to trace a closure environment.
--- We do not need to worry about shadowing the name 'env' here because 'envp'
--- and 'env' are the only local variables in this function.
+-- (Emit type info for the environment types)
 emitEnvTrace :: ClosureNames -> EnvDecl -> [String]
 emitEnvTrace ns (EnvDecl fs) =
-  ["void " ++ closureTraceName ns ++ "(void *envp) {"
-  ,"    struct " ++ closureEnvName ns ++ " *env = envp;"] ++
+  ["void " ++ closureTraceName ns ++ "(struct alloc_header *alloc) {"
+  ,"    " ++ closureType ++ "env = (" ++ closureType ++ ")alloc;"] ++
   map traceField fs ++
-  ["}"]
+  ["}"
+  ,"type_info " ++ closureEnvName ns ++ "_info = { " ++ closureTraceName ns ++ ", display_env };"]
   where
+    closureType = "struct " ++ closureEnvName ns ++ " *"
     traceField :: FieldName -> String
     traceField (FieldName s x) = "    " ++ emitMarkGray ("env->" ++ x) s ++ ";"
 
@@ -367,8 +369,8 @@ emitCase kind envp x ks =
     emitCaseBranch (i, (ctorCast, argNames), (k, t)) =
       let
         method = thunkSuspendName (namesForThunk t)
-        args = emitName envp k : zipWith mkArg2 argNames (thunkArgSorts t)
-        mkArg2 argName argSort = asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
+        args = emitName envp k : zipWith mkArg argNames (thunkArgSorts t)
+        mkArg argName argSort = asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
@@ -407,13 +409,6 @@ emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
 emitPrimCall :: String -> String -> [Name] -> String
 emitPrimCall envp f xs = f ++ "(" ++ intercalate ", " (map (emitName envp) xs) ++ ")"
 
--- TODO: Generalize emitAllocGroup and merge it with emitValueAlloc, to support
--- allocating mutually-recursive values, of which closures are merely one
--- example. (Eventually, I believe this will let me generalize 'let fun' to
--- 'let rec x1 = e1; ...'.)
--- (I probably need to restrict this to having an outermost ctor, so that there
--- are fields to update. 'let x = x + 1; in x' doesn't make much sense, and
--- can't really be implemented.)
 emitAllocGroup :: String -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
   map (emitAlloc envp) closures ++
@@ -425,8 +420,8 @@ emitAlloc envp (ClosureAlloc p ty d (EnvAlloc free rec)) =
   where
     ns = namesForDecl d
     args = [envArg, traceArg, codeArg, enterArg]
-    envArg = closureAllocName ns ++ "(" ++ intercalate ", " envAllocArgs ++ ")"
-    traceArg = closureTraceName ns
+    envArg = asSort Alloc (closureAllocName ns ++ "(" ++ intercalate ", " envAllocArgs ++ ")")
+    traceArg = closureEnvInfo ns
     codeArg = "(void (*)(void))" ++ closureCodeName ns
     enterArg = thunkEnterName (namesForThunk ty)
 

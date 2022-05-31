@@ -6,12 +6,9 @@
 
 #include "string_buf.h"
 
-// Hmm. What if ALLOC_INFORMED, for things that have had their fields traced
-// already (through some external type info, such as a closure environment)
-//
-// Then, pair this with 'void mark_gray_with_info(type_info info, void *alloc)'?
 enum allocation_type {
     ALLOC_CLOSURE,
+    ALLOC_ENV,
     ALLOC_CONST,
     ALLOC_BOOL,
     ALLOC_PROD,
@@ -46,20 +43,15 @@ type_info int64_value_info;
 
 struct closure {
     struct alloc_header header;
-    // Note: 'void *env' and 'void (*trace)(void *env)' is effectively the
-    // proposed type_info formulation of this stuff.
-    // The 'trace_const' methods in alloc.c are almost type_info, but need to
-    // take 'void *' as argument.
-    //
-    // Hmm. Can't quite just have 'type_info env_info', because the environment
-    // is not managed by the GC, even though we trace through it.
-    void *env;
-    void (*trace)(void *env);
+    struct alloc_header *env;
+    type_info env_info;
     void (*code)(void);
     void (*enter)(void);
 };
 
 type_info closure_info;
+
+void display_env(struct alloc_header *alloc, struct string_buf *sb);
 
 #define AS_CLOSURE(v) ((struct closure *)(v))
 
@@ -129,7 +121,8 @@ void mark_gray(struct alloc_header *alloc, type_info info);
 void sweep_all_allocations(void);
 void cons_new_alloc(struct alloc_header *alloc, type_info info);
 
-struct closure *allocate_closure(void *env, void (*trace)(void *env), void (*code)(void), void (*enter)(void));
+// TODO: Generate per-sort allocate_closure methods
+struct closure *allocate_closure(struct alloc_header *env, type_info env_info, void (*code)(void), void (*enter)(void));
 struct sum *allocate_inl(struct alloc_header *v, type_info info);
 struct sum *allocate_inr(struct alloc_header *v, type_info info);
 // Corresponds to Int64# constructor? No discriminant, though.

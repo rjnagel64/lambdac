@@ -43,6 +43,7 @@ data DriverArgs
   , driverDumpCC :: Bool
   , driverDumpHoist :: Bool
   , driverDumpEmit :: Bool
+  , driverNoExe :: Bool
   }
 
 driver :: Parser DriverArgs
@@ -53,6 +54,7 @@ driver = DriverArgs
   <*> switch (long "dump-cc" <> help "whether to dump CC IR")
   <*> switch (long "dump-hoist" <> help "whether to dump Hoist IR")
   <*> switch (long "dump-emit" <> help "whether to dump Emit C output")
+  <*> switch (long "no-exe" <> help "do not invoke clang on the generated C output")
 
 opts :: ParserInfo DriverArgs
 opts = info (helper <*> driver) (fullDesc <> progDesc "Compile LambdaC")
@@ -97,9 +99,10 @@ main = do
       Just f -> (f <.> ".out.c", f)
   writeFile outputFile obj
 
-  let clangArgs = ["-I./rts/", "-L./rts/", "-lrts", outputFile, "-o", executableFile]
-  let compileProcess = proc "clang" clangArgs
-  exitCode <- runProcess compileProcess
-  case exitCode of
-    ExitSuccess -> pure ()
-    ExitFailure i -> putStrLn ("error: Compilation failed with exit code " ++ show i) >> exitFailure
+  when (not $ driverNoExe args) $ do
+    let clangArgs = ["-I./rts/", "-L./rts/", "-lrts", outputFile, "-o", executableFile]
+    let compileProcess = proc "clang" clangArgs
+    exitCode <- runProcess compileProcess
+    case exitCode of
+      ExitSuccess -> pure ()
+      ExitFailure i -> putStrLn ("error: Compilation failed with exit code " ++ show i) >> exitFailure
