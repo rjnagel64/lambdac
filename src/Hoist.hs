@@ -113,6 +113,7 @@ caseKind s = error ("cannot perform case analysis on sort " ++ show s)
 
 data ClosureAlloc
   = ClosureAlloc {
+    -- TODO: Make ClosureAlloc contain a PlaceName for the environment
     closurePlace :: PlaceName
   , closureType :: ThunkType
   , closureDecl :: DeclName

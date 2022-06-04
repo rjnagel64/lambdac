@@ -6,6 +6,7 @@
 
 #include "string_buf.h"
 
+// allocation_type is only really used by 'any_info'.
 enum allocation_type {
     ALLOC_CLOSURE,
     ALLOC_ENV,
@@ -79,6 +80,27 @@ type_info bool_value_info;
 #define AS_BOOL_FALSE(v) (v)
 #define AS_BOOL_TRUE(v) (v)
 
+// I almost wonder if these per-sort product types are too general for what I
+// need right now.
+//
+// I definitely need nullary products (for '() : unit'), and polymorphic binary
+// products (for '(e1, e2) : (t * s)'). As I did for sum types, I could quite
+// reasonably implement a special case just for those two types, and could
+// thereby simplify implementation and compilation elsewhere.
+//
+// I do want to have n-ary products eventually, for tuple literals and also
+// flattening product types, but I don't think I need them yet.
+//
+// Furthermore, having just binary/nullary products would let me get rid of the
+// 'any_info' in trace_alloc(ALLOC_PROD) because both fields of a polymorphic
+// pair have info stored alongside them.
+//
+// The downside is that 'fst' and 'snd' would become annoyingly polymorphic
+// again.  (==> projections store the sort, 'asSort' on the result of the
+// projection)
+//
+// I could probably reuse a decent chunk of the n-ary product code for named
+// record types.
 struct product {
     struct alloc_header header;
     uint32_t num_fields;

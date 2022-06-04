@@ -110,13 +110,16 @@ instance Show Sort where
   show (List s) = "list " ++ show s
 
 sortOf :: K.TypeK -> Sort
-sortOf (K.ContK ts) = Closure (map sortOf ts)
 sortOf (K.SumK _ _) = Sum
 sortOf K.BoolK = Boolean
 sortOf (K.ProdK t1 t2) = Product [sortOf t1, sortOf t2]
 sortOf K.UnitK = Product []
 sortOf K.IntK = Value
 sortOf (K.ListK t) = List (sortOf t)
+sortOf (K.FunK ts ss) = Closure (map sortOf ts ++ map coSortOf ss)
+
+coSortOf :: K.CoTypeK -> Sort
+coSortOf (K.ContK ss) = Closure (map sortOf ss)
 
 -- | Each type of closure (e.g., one boxed argument, one unboxed argument and
 -- one continuation, etc.) requires a different type of thunk when that closure
@@ -129,7 +132,10 @@ newtype ThunkType = ThunkType { thunkArgSorts :: [Sort] }
   deriving (Eq, Ord)
 
 thunkTypesOf :: K.TypeK -> Set ThunkType
-thunkTypesOf (K.ContK ts) = Set.insert (ThunkType (map sortOf ts)) $ Set.unions (map thunkTypesOf ts)
+thunkTypesOf (K.FunK ts ss) =
+  Set.insert (ThunkType (map sortOf ts ++ map coSortOf ss)) $
+    Set.unions (map thunkTypesOf ts) <>
+    Set.unions (map coThunkTypesOf ss)
 thunkTypesOf (K.ProdK t s) = thunkTypesOf t <> thunkTypesOf s
 thunkTypesOf (K.SumK t s) = thunkTypesOf t <> thunkTypesOf s
 thunkTypesOf (K.ListK t) = thunkTypesOf t
@@ -137,14 +143,23 @@ thunkTypesOf K.UnitK = Set.empty
 thunkTypesOf K.IntK = Set.empty
 thunkTypesOf K.BoolK = Set.empty
 
+coThunkTypesOf :: K.CoTypeK -> Set ThunkType
+coThunkTypesOf (K.ContK ss) =
+  Set.insert (ThunkType (map sortOf ss)) $ Set.unions (map thunkTypesOf ss)
+
 productTypesOf :: K.TypeK -> Set ProductType
 productTypesOf K.UnitK = Set.singleton (ProductType [])
-productTypesOf (K.ProdK t s) = Set.insert (ProductType [sortOf t, sortOf s]) (productTypesOf t <> productTypesOf s)
+productTypesOf (K.ProdK t s) =
+  Set.insert (ProductType [sortOf t, sortOf s]) (productTypesOf t <> productTypesOf s)
 productTypesOf (K.SumK t s) = productTypesOf t <> productTypesOf s
 productTypesOf K.IntK = Set.empty
 productTypesOf K.BoolK = Set.empty
-productTypesOf (K.ContK ss) = Set.unions (map productTypesOf ss)
 productTypesOf (K.ListK t) = productTypesOf t
+productTypesOf (K.FunK ts ss) =
+  Set.unions (map productTypesOf ts) <> Set.unions (map coProductTypesOf ss)
+
+coProductTypesOf :: K.CoTypeK -> Set ProductType
+coProductTypesOf (K.ContK ss) = Set.unions (map productTypesOf ss)
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -293,7 +308,7 @@ fieldsForValue (ConsK x y) = unitTm x <> unitTm y
 
 fieldsForFunDef :: FunDef a -> FieldsFor
 fieldsForFunDef (FunDef _ _f xs ks e) =
-  bindFields (map (bimap tmVar sortOf) xs ++ map (bimap coVar sortOf) ks) (fieldsFor e)
+  bindFields (map (bimap tmVar sortOf) xs ++ map (bimap coVar coSortOf) ks) (fieldsFor e)
 
 fieldsForContDef :: ContDef a -> FieldsFor
 fieldsForContDef (ContDef _ _k xs e) =
@@ -305,7 +320,7 @@ markRec :: Set Name -> [(Name, Sort)] -> ([(Name, Sort)], [(Name, Sort)])
 markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) xs
 
 funDefNames :: [FunDef a] -> [(Name, Sort)]
-funDefNames fs = [(tmVar f, Closure (map (sortOf . snd) xs ++ map (sortOf . snd) ks)) | FunDef _ f xs ks _ <- fs]
+funDefNames fs = [(tmVar f, Closure (map (sortOf . snd) xs ++ map (coSortOf . snd) ks)) | FunDef _ f xs ks _ <- fs]
 
 contDefNames :: [ContDef a] -> [(Name, Sort)]
 contDefNames ks = [(coVar k, Closure (map (sortOf . snd) xs)) | ContDef _ k xs _ <- ks]
@@ -383,14 +398,17 @@ cconv (LetCompareK x cmp e) = LetCompareC (tmVar x, Boolean) (cconvCmp cmp) <$> 
 cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
 cconvFunDef fs fun@(FunDef _ f xs ks e) = do
   let
-    funThunk = ThunkType (map (sortOf . snd) xs ++ map (sortOf . snd) ks)
-    thunks = Set.insert funThunk $ foldMap thunkTypesOf (map snd xs ++ map snd ks)
-    products = foldMap productTypesOf (map snd xs ++ map snd ks)
+    funThunk = ThunkType (map (sortOf . snd) xs ++ map (coSortOf . snd) ks)
+    thunks = Set.insert funThunk $ foldMap (thunkTypesOf . snd) xs <> foldMap (coThunkTypesOf . snd) ks
+    products = foldMap (productTypesOf . snd) xs <> foldMap (coProductTypesOf . snd) ks
   tell (TypeDecls (thunks, products))
   let tmbinds = map (bimap tmVar sortOf) xs
-  let cobinds = map (bimap coVar sortOf) ks
+  let cobinds = map (bimap coVar coSortOf) ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
   fields <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
+  -- Idea: Make closure environments be anonymous product types?
+  -- Hmm, maybe not. That would lead to anonymous polymorphic products, which
+  -- I'm not quite sure on implementing.
   let (free, rec) = markRec fs (Set.toList fields)
   e' <- local extend (cconv e)
   pure (FunClosureDef (tmVar f) (EnvDef free rec) tmbinds cobinds e')

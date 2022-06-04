@@ -36,6 +36,7 @@ library
       Source
       TypeCheck
       CPS
+      CPS.TypeCheck
       Opt
       CC
       Hoist

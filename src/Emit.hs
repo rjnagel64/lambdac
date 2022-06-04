@@ -26,7 +26,6 @@ import Hoist
 -- text s = Emit $ \_ -> B.fromText (T.pack s)
 
 -- TODO: Ensure declarations (esp. product type declarations) are emitted in topological order
--- TODO: Generate code to pretty-print result value (replace main.c:display_alloc)
 emitProgram :: (Set ThunkType, Set ProductType, [ClosureDecl], TermH) -> [String]
 emitProgram (ts, ps, cs, e) =
   prologue ++
@@ -126,6 +125,9 @@ asSort (List _s) x = "AS_LIST(" ++ x ++ ")"
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex f = zipWith f [0..]
 
+-- TODO: Emit per-sort allocate_closure methods
+-- (And then, per-sort allocate_closure types)
+-- (And then, remove struct closure?)
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
   emitThunkType t ++
@@ -253,10 +255,6 @@ emitProductProjection (ProductType ss) i s =
     ty = tycode (Product ss)
     fnName = "project_" ++ ty ++ "_" ++ show i
 
--- TODO: Make closure environments ordinary GC types
--- (They should basically be named product types.)
--- (ALLOC_ENV, maybe? The environment should never need to be printed, as
--- closures are just "<closure>")
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d envd params e) =
   emitEnvDecl ns envd ++
@@ -295,12 +293,12 @@ emitEnvAlloc ns (EnvDecl fs) =
 emitEnvTrace :: ClosureNames -> EnvDecl -> [String]
 emitEnvTrace ns (EnvDecl fs) =
   ["void " ++ closureTraceName ns ++ "(struct alloc_header *alloc) {"
-  ,"    " ++ closureType ++ "env = (" ++ closureType ++ ")alloc;"] ++
+  ,"    " ++ closureTy ++ "env = (" ++ closureTy ++ ")alloc;"] ++
   map traceField fs ++
   ["}"
   ,"type_info " ++ closureEnvName ns ++ "_info = { " ++ closureTraceName ns ++ ", display_env };"]
   where
-    closureType = "struct " ++ closureEnvName ns ++ " *"
+    closureTy = "struct " ++ closureEnvName ns ++ " *"
     traceField :: FieldName -> String
     traceField (FieldName s x) = "    " ++ emitMarkGray ("env->" ++ x) s ++ ";"
 

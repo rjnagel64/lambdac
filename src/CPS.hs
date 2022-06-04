@@ -10,6 +10,9 @@ module CPS
     , ValueK(..)
 
     , TypeK(..)
+    , eqTypeK
+    , CoTypeK(..)
+    , eqCoTypeK
 
     , cpsMain
     , pprintTerm
@@ -97,7 +100,7 @@ data TermK a
   | JumpK CoVar [TmVar]
   -- f x k, call f(x, k)
   | CallK TmVar [TmVar] [CoVar]
-  -- case x of k1 | k2 | ..., branch
+  -- case x : s of k1 | k2 | ..., branch
   | CaseK TmVar TypeK [CoVar]
   -- halt x
   | HaltK TmVar
@@ -108,7 +111,7 @@ data ContDef a = ContDef a CoVar [(TmVar, TypeK)] (TermK a)
 
 -- | Function definitions
 -- @f (x:τ) (k:σ) := e@
-data FunDef a = FunDef  a TmVar [(TmVar, TypeK)] [(CoVar, TypeK)] (TermK a)
+data FunDef a = FunDef  a TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK a)
 
 -- | Values require no evaluation.
 data ValueK
@@ -158,11 +161,37 @@ data TypeK
   | ProdK TypeK TypeK
   -- σ + τ
   | SumK TypeK TypeK
-  -- (σ1, ..., σn) -> 0
-  -- The type of a continuation
-  | ContK [TypeK]
+  | FunK [TypeK] [CoTypeK]
   -- List σ
   | ListK TypeK
+
+eqTypeK :: TypeK -> TypeK -> Bool
+eqTypeK UnitK UnitK = True
+eqTypeK UnitK _ = False
+eqTypeK IntK IntK = True
+eqTypeK IntK _ = False
+eqTypeK BoolK BoolK = True
+eqTypeK BoolK _ = False
+eqTypeK (ProdK t1 s1) (ProdK t2 s2) = eqTypeK t1 t2 && eqTypeK s1 s2
+eqTypeK (ProdK _ _) _ = False
+eqTypeK (SumK t1 s1) (SumK t2 s2) = eqTypeK t1 t2 && eqTypeK s1 s2
+eqTypeK (SumK _ _) _ = False
+eqTypeK (ListK t1) (ListK t2) = eqTypeK t1 t2
+eqTypeK (ListK _) _ = False
+eqTypeK (FunK ts1 ss1) (FunK ts2 ss2) = go1 ts1 ts2 && go2 ss1 ss2
+  where
+    go1 [] [] = True
+    go1 (a:as) (b:bs) = eqTypeK a b && go1 as bs
+    go1 _ _ = False
+    go2 [] [] = True
+    go2 (a:as) (b:bs) = eqCoTypeK a b && go2 as bs
+    go2 _ _ = False
+eqTypeK (FunK _ _) _ = False
+
+newtype CoTypeK = ContK [TypeK]
+
+eqCoTypeK :: CoTypeK -> CoTypeK -> Bool
+eqCoTypeK (ContK ts) (ContK ss) = and (zipWith eqTypeK ts ss)
 
 cpsType :: S.Type -> TypeK
 cpsType S.TyUnit = UnitK
@@ -170,10 +199,13 @@ cpsType S.TyInt = IntK
 cpsType S.TyBool = BoolK
 cpsType (S.TySum a b) = SumK (cpsType a) (cpsType b)
 cpsType (S.TyProd a b) = ProdK (cpsType a) (cpsType b)
-cpsType (S.TyArr argTy retTy) = ContK [cpsType argTy, ContK [cpsType retTy]]
+cpsType (S.TyArr argTy retTy) = FunK [cpsType argTy] [cpsCoType retTy]
 cpsType (S.TyVarOcc _) = error "not implemented: polymorphic cpsType"
 cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
 cpsType (S.TyList a) = ListK (cpsType a)
+
+cpsCoType :: S.Type -> CoTypeK
+cpsCoType s = ContK [cpsType s]
 
 
 -- Note: Failure modes of CPS
@@ -713,7 +745,7 @@ pprintFunDef n (FunDef _ f xs ks e) =
     -- One parameter list or two?
     params = "(" ++ intercalate ", " (map pprintTmParam xs ++ map pprintCoParam ks) ++ ")"
     pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
-    pprintCoParam (k, s) = show k ++ " : " ++ pprintType s
+    pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
 
 pprintContDef :: Int -> ContDef a -> String
 pprintContDef n (ContDef _ k xs e) =
@@ -724,11 +756,14 @@ pprintContDef n (ContDef _ k xs e) =
     pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
 
 pprintType :: TypeK -> String
-pprintType (ContK ts) = "(" ++ intercalate ", " params ++ ") -> 0"
-  where params = map pprintType ts
 pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s
 pprintType (SumK t s) = pprintAType t ++ " + " ++ pprintAType s
 pprintType (ListK t) = "list " ++ pprintAType t
+pprintType (FunK ts ss) =
+  "(" ++ intercalate ", " tmParams ++ ") -> (" ++ intercalate ", " coParams ++ ")"
+  where
+    tmParams = map pprintType ts
+    coParams = map pprintCoType ss
 pprintType IntK = "int"
 pprintType UnitK = "unit"
 pprintType BoolK = "bool"
@@ -738,3 +773,6 @@ pprintAType IntK = "int"
 pprintAType UnitK = "unit"
 pprintAType BoolK = "bool"
 pprintAType t = "(" ++ pprintType t ++ ")"
+
+pprintCoType :: CoTypeK -> String
+pprintCoType (ContK ss) = "(" ++ intercalate ", " (map pprintType ss) ++ ") -> 0"
