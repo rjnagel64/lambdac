@@ -1,6 +1,6 @@
 
 -- | Check that a CPS'ed program is well-typed.
-module CPS.TypeCheck (check, runM) where
+module CPS.TypeCheck (checkProgram, TypeError(..)) where
 
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -30,6 +30,27 @@ data TypeError
   | BadProjection TypeK
   | CannotCall TmVar TypeK
 
+instance Show TypeError where
+  show (TmNotInScope x) = "term variable " ++ show x ++ " not in scope"
+  show (CoNotInScope k) = "continuation variable " ++ show k ++ " not in scope"
+  show (TypeMismatch expected actual) = unlines
+    [ "type mismatch:"
+    , "expected type: " ++ pprintType expected
+    , "actual type:   " ++ pprintType actual
+    ]
+  show (CoTypeMismatch expected actual) = unlines
+    [ "type mismatch:"
+    , "expected type: " ++ pprintCoType expected
+    , "actual type:   " ++ pprintCoType actual
+    ]
+  show (BadCaseAnalysis x s) = "cannot analyze cases for " ++ show x ++ " of type " ++ pprintType s
+  show ArityMismatch = "incorrect arity"
+  show (BadValue v t) = "value " ++ pprintValue v ++ " does not have expected type " ++ pprintType t
+  show (BadProjection t) = "cannot project a field from value of type " ++ pprintType t
+  show (CannotCall f t) = 
+    "variable " ++ show f ++ " is applied to arguments but it's type is not a function: "
+    ++ pprintType t
+
 newtype M a = M { getM :: ReaderT Context (Except TypeError) a }
 
 deriving newtype instance Functor M
@@ -40,6 +61,9 @@ deriving newtype instance MonadError TypeError M
 
 runM :: M a -> Either TypeError a
 runM = runExcept . flip runReaderT emptyContext . getM
+
+checkProgram :: TermK () -> Either TypeError ()
+checkProgram e = runM (check e)
 
 withTmVars :: [(TmVar, TypeK)] -> M a -> M a
 withTmVars xs = local extend

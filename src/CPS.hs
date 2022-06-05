@@ -17,6 +17,8 @@ module CPS
     , cpsMain
     , pprintTerm
     , pprintType
+    , pprintCoType
+    , pprintValue
     ) where
 
 import qualified Data.Map as Map

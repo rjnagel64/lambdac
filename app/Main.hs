@@ -13,6 +13,7 @@ import qualified Parser as P
 import qualified Source as S
 import qualified TypeCheck as T
 import qualified CPS as K
+import qualified CPS.TypeCheck as KT
 import qualified CC as C
 import qualified Hoist as H
 import qualified Emit as E
@@ -44,6 +45,7 @@ data DriverArgs
   , driverDumpHoist :: Bool
   , driverDumpEmit :: Bool
   , driverNoExe :: Bool
+  , driverCheckCPS :: Bool
   }
 
 driver :: Parser DriverArgs
@@ -55,6 +57,7 @@ driver = DriverArgs
   <*> switch (long "dump-hoist" <> help "whether to dump Hoist IR")
   <*> switch (long "dump-emit" <> help "whether to dump Emit C output")
   <*> switch (long "no-exe" <> help "do not invoke clang on the generated C output")
+  <*> switch (long "check-cps" <> help "whether to run the typechecker on CPS IR")
 
 opts :: ParserInfo DriverArgs
 opts = info (helper <*> driver) (fullDesc <> progDesc "Compile LambdaC")
@@ -72,6 +75,13 @@ main = do
     Right () -> pure ()
 
   let (srcK, _ty) = K.cpsMain srcS
+  when (driverCheckCPS args) $ do
+    case KT.checkProgram srcK of
+      Left err -> do
+        putStrLn "CPS type error:"
+        putStrLn $ show err
+        exitFailure
+      Right () -> pure ()
   when (driverDumpCPS args) $ do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK
