@@ -336,6 +336,10 @@ deriving newtype instance Monoid TypeDecls
 newtype ProductType = ProductType [Sort]
   deriving (Eq, Ord)
 
+-- TODO: Collecting type declarations should be done in Hoist, I think.
+-- Idea: map anonymous record/closure types to numerically-named ones
+-- 'product_17', 'closure_32', etc. Just makes the type names shorter and
+-- potentially more uniform with named types.
 newtype ConvM a = ConvM { runConvM :: ReaderT (Map Name Sort) (Writer TypeDecls) a }
 
 deriving newtype instance Functor ConvM

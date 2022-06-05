@@ -78,10 +78,11 @@ main = do
   when (driverCheckCPS args) $ do
     case KT.checkProgram srcK of
       Left err -> do
-        putStrLn "CPS type error:"
+        putStrLn "CPS: typecheck error:"
         putStrLn $ show err
         exitFailure
-      Right () -> pure ()
+      Right () -> do
+        putStrLn "CPS: typecheck OK"
   when (driverDumpCPS args) $ do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK

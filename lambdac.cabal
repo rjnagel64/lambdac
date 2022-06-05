@@ -30,6 +30,7 @@ library
       Experiments.Runtime
       -- Experiments.F
       -- Experiments.Monomorphise
+      Experiments.Inference
       Lexer
       Loc
       Parser
