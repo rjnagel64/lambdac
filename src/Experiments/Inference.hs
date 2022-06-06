@@ -59,7 +59,8 @@ data Type
 -- | Replace the uvar @α@ with the evar @α'@.
 -- Used when removing the top-level forall of a type
 open :: Type -> UVar -> EVar -> Type
-open TyUnit aa a' = TyUnit
+open TyUnit _ _ = TyUnit
+open (TyArr a b) aa a' = TyArr (open a aa a') (open b aa a')
 
 -- | Monotypes are types that do not include 'TyForall' anywhere in their
 -- structure.
@@ -106,21 +107,22 @@ type Complete = Context
 
 -- | Apply a context as a substitution on 'EVar's.
 substCtx :: Context -> Type -> Type
-substCtx g TyUnit = TyUnit
-substCtx g (TyUVar aa) = TyUVar aa
+substCtx _ TyUnit = TyUnit
+substCtx _ (TyUVar aa) = TyUVar aa
 substCtx g (TyArr a b) = TyArr (substCtx g a) (substCtx g b)
 substCtx g (TyEVar a') = case focus a' g of
   Nothing -> error "evar not in substitution"
-  Just (_, EntryEVar _, _) -> error "unsolved evar in substitution"
-  Just (_, EntrySolved _ t, _) -> substCtx g (fromMono t)
+  Just (_, FocusUnsolved _, _) -> error "unsolved evar in substitution"
+  Just (_, FocusSolved _ t, _) -> substCtx g (fromMono t)
 -- This is surprising, that no scope management needs to be done.
 -- I guess it's because the substitution is only on 'EVar's, and there are no
 -- 'EVar' binders to worry about.
 substCtx g (TyForall aa a) = TyForall aa (substCtx g a)
 
--- | Given @Δ, β, Δ'@, return @Δ@.
+-- | Discard the tail of a context, up to and including the first entry that
+-- satisfies a predicate.
 discardTail :: Context -> (Entry -> Bool) -> Context
-discardTail Empty p = Empty
+discardTail Empty _ = Empty
 discardTail (g :>: e) p = if p e then g else discardTail g p
 
 discardVar :: Context -> Var -> Context
@@ -138,48 +140,48 @@ discardMarker g a' = discardTail g $ \case
   EntryMarker b' -> a' == b'
   _ -> False
 
-type Focus = (Context, Entry, Context)
+data FocusItem = FocusUnsolved EVar | FocusSolved EVar Mono
+type Focus = (Context, FocusItem, Context)
 
--- | Decompose a context into a left context, a focused item, and a right
+-- | Decompose a context into a left context, a focused 'EVar', and a right
 -- context.
 -- 
 -- Returns 'Nothing' if @a'@ is not present in the context.
 focus :: EVar -> Context -> Maybe Focus
-focus a' Empty = Nothing
+focus _ Empty = Nothing
 focus a' (g :>: EntryEVar b') =
   if a' == b' then
-    Just (g, EntryEVar b', Empty)
+    Just (g, FocusUnsolved b', Empty)
   else
-    (\ (g, x, g') -> (g, x, g' :>: EntryEVar b')) <$> focus a' g
+    (\ (gl, x, gr) -> (gl, x, gr :>: EntryEVar b')) <$> focus a' g
 focus a' (g :>: EntrySolved b' t) =
   if a' == b' then
-    Just (g, EntrySolved b' t, Empty)
+    Just (g, FocusSolved b' t, Empty)
   else
-    (\ (g, x, g') -> (g, x, g' :>: EntrySolved b' t)) <$> focus a' g
+    (\ (gl, x, gr) -> (gl, x, gr :>: EntrySolved b' t)) <$> focus a' g
+focus a' (g :>: e) =
+  (\ (gl, x, gr) -> (gl, x, gr :>: e)) <$> focus a' g
+
+unfocus :: Focus -> Context
+unfocus (gl, FocusUnsolved a', gr) = gl :>: EntryEVar a' >:> gr
+unfocus (gl, FocusSolved a' t, gr) = gl :>: EntrySolved a' t >:> gr
 
 splice :: Focus -> Context -> Context
-splice (g, _, g') h = g >:> h >:> g'
+splice (gl, _, gr) h = gl >:> h >:> gr
 
 -- | Turn @Γ[α']@, @α' = τ@ into @Γ[α := τ]@.
 solve :: EVar -> Mono -> Context -> Maybe Context
-solve a' t Empty = Nothing -- Should not occur, if well-scoped.
-solve a' t (g :>: EntryEVar b') =
-  if a' == b' then
-    pure (g :>: EntrySolved a' t)
-  else
-    fmap (:>: EntryEVar b') (solve a' t g)
-solve a' t (g :>: EntrySolved b' s) =
-  if a' == b' then
-    Nothing -- duplicate solve
-  else
-    fmap (:>: EntrySolved b' s) (solve a' t g)
+solve a' t g = case focus a' g of
+  Nothing -> Nothing
+  Just (gl, FocusUnsolved b', gr) -> Just (unfocus (gl, FocusSolved b' t, gr))
+  Just (_, FocusSolved _ _, _) -> error "duplicate solve"
 
 -- | Turn @Γ[α'][β']@ into @Γ[α'][β' = α']@
 reach :: Context -> EVar -> EVar -> Maybe Context
 reach g a' b' = case focus b' g of
   Nothing -> Nothing
-  Just (_, EntrySolved _ _, _) -> Nothing
-  Just (g', EntryEVar _, gr) -> Just (g' :>: EntrySolved b' (MonoEVar a') >:> gr)
+  Just (_, FocusSolved _ _, _) -> Nothing -- Duplicate solve?
+  Just (g', FocusUnsolved _, gr) -> Just (g' :>: EntrySolved b' (MonoEVar a') >:> gr)
 
 
 newtype M a = M { runM :: StateT Int (Except String) a }
@@ -200,9 +202,10 @@ newEVar = do
 -- This is necessary to avoid infinite substitutions, such as @a' ~ a' -> Unit@.
 occurs :: EVar -> Type -> Bool
 occurs a' (TyEVar b') = a' == b'
-occurs a' TyUnit = False
+occurs _ TyUnit = False
+occurs _ (TyUVar _) = False -- EVar cannot be UVar
 occurs a' (TyArr a b) = occurs a' a || occurs a' b
-occurs a' (TyForall bb a) = occurs a' a -- bb is a UVar, and cannot bind a'.
+occurs a' (TyForall _ a) = occurs a' a -- bound variable is a UVar, and cannot bind/shadow a'.
 
 occursM :: EVar -> Type -> M ()
 occursM a' a = when (occurs a' a) $ throwError "occurs check failed"
@@ -220,7 +223,7 @@ articulate g a' = do
   pure (a1', a2', g')
 
 lookupVar :: Context -> Var -> M Type
-lookupVar Empty x = throwError "variable not in scope"
+lookupVar Empty _ = throwError "variable not in scope"
 lookupVar (g :>: EntryVar y t) x =
   if x == y then
     pure t
@@ -229,7 +232,7 @@ lookupVar (g :>: EntryVar y t) x =
 lookupVar (g :>: _) x = lookupVar g x
 
 lookupEVar :: Context -> EVar -> M (Maybe Mono)
-lookupEVar Empty a' = throwError "existential variable not in scope"
+lookupEVar Empty _ = throwError "existential variable not in scope"
 lookupEVar (g :>: EntryEVar b') a' =
   if a' == b' then
     pure Nothing
@@ -240,6 +243,8 @@ lookupEVar (g :>: EntrySolved b' t) a' =
     pure (Just t)
   else
     lookupEVar g a'
+lookupEVar (g :>: _) a' = lookupEVar g a'
+
 
 subtype :: Context -> Type -> Type -> M Context
 -- Reflexive cases
