@@ -3,10 +3,7 @@
 
 module Experiments.Inference where
 
-import Data.Maybe
-
 import Control.Monad.State
-import Control.Monad.Reader
 import Control.Monad.Except
 
 -- Complete and Easy Bidirectional Type Checking for Higher-Rank Polymorphism
@@ -59,8 +56,11 @@ data Type
 -- | Replace the uvar @α@ with the evar @α'@.
 -- Used when removing the top-level forall of a type
 open :: Type -> UVar -> EVar -> Type
+open (TyUVar bb) aa a' = if bb == aa then TyEVar a' else TyUVar bb
+open (TyEVar b') _ _ = TyEVar b'
 open TyUnit _ _ = TyUnit
 open (TyArr a b) aa a' = TyArr (open a aa a') (open b aa a')
+open (TyForall bb a) aa a' = if bb == aa then TyForall bb a else TyForall bb (open a aa a')
 
 -- | Monotypes are types that do not include 'TyForall' anywhere in their
 -- structure.
