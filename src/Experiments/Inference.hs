@@ -1,6 +1,5 @@
 {-# LANGUAGE StandaloneDeriving, DerivingStrategies, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, LambdaCase #-}
-{-# OPTIONS_GHC -Wincomplete-patterns #-}
 
 module Experiments.Inference where
 
@@ -72,8 +71,10 @@ data Mono
 
 isMonoType :: Type -> Maybe Mono
 isMonoType (TyForall _ _) = Nothing
+isMonoType (TyUVar aa) = Just (MonoUVar aa)
+isMonoType (TyEVar a') = Just (MonoEVar a')
+isMonoType TyUnit = Just MonoUnit
 isMonoType (TyArr t s) = MonoArr <$> isMonoType t <*> isMonoType s
-isMonoType TyUnit = pure MonoUnit
 
 fromMono :: Mono -> Type
 fromMono MonoUnit = TyUnit
@@ -122,11 +123,19 @@ discardTail :: Context -> (Entry -> Bool) -> Context
 discardTail Empty p = Empty
 discardTail (g :>: e) p = if p e then g else discardTail g p
 
+discardVar :: Context -> Var -> Context
 discardVar g x = discardTail g $ \case
   EntryVar y _ -> x == y
   _ -> False
+
+discardUVar :: Context -> UVar -> Context
 discardUVar g aa = discardTail g $ \case
   EntryUVar bb -> aa == bb
+  _ -> False
+
+discardMarker :: Context -> EVar -> Context
+discardMarker g a' = discardTail g $ \case
+  EntryMarker b' -> a' == b'
   _ -> False
 
 type Focus = (Context, Entry, Context)
@@ -233,23 +242,33 @@ lookupEVar (g :>: EntrySolved b' t) a' =
     lookupEVar g a'
 
 subtype :: Context -> Type -> Type -> M Context
+-- Reflexive cases
+subtype g (TyEVar a') (TyEVar b') | a' == b' = pure g
 subtype g TyUnit TyUnit = pure g
-subtype _ TyUnit _ = throwError "'unit' is not a subtype of $other"
+subtype g (TyUVar aa) (TyUVar bb) | aa == bb = pure g
+-- Arrow types
 subtype g (TyArr a1 a2) (TyArr b1 b2) = do
   h <- subtype g b1 a1
   d <- subtype h (substCtx h a2) (substCtx h b2)
   pure d
--- TODO: Reflexive case, a' <: a', before delegating to instantiate[LR]
+-- Universal quantification
+subtype g a (TyForall aa b) = do
+  dh <- subtype (g :>: EntryUVar aa) a b
+  let d = discardUVar dh aa
+  pure d
+subtype g (TyForall aa a) b = do
+  a' <- newEVar
+  dh <- subtype (g :>: EntryMarker a') (open a aa a') b
+  let d = discardMarker dh a'
+  pure d
+-- instantiation
 subtype g (TyEVar a') a = do
   occursM a' a
   instantiateL g a' a
 subtype g a (TyEVar a') = do
   occursM a' a
   instantiateR g a a'
-subtype g a (TyForall aa b) = do
-  dh <- subtype (g :>: EntryUVar aa) a b
-  let d = discardUVar dh aa
-  pure d
+
 
 instantiateL :: Context -> EVar -> Type -> M Context
 -- Annoying: the pattern-match coverage check isn't smart enough here:
@@ -270,6 +289,10 @@ instantiateL g a' (TyArr a1 a2) = do
 instantiateL g a' (TyEVar b') = do
   g' <- maybe (throwError "reach failed") pure (reach g a' b')
   pure g'
+instantiateL g a' (TyForall bb b) = do
+  dh <- instantiateL (g :>: EntryUVar bb) a' b
+  let d = discardUVar dh bb
+  pure d
 
 instantiateR :: Context -> Type -> EVar -> M Context
 instantiateR g a a' | Just t <- isMonoType a = do
@@ -284,22 +307,23 @@ instantiateR g (TyArr a1 a2) a' = do
 instantiateR g (TyEVar b') a' = do
   g' <- maybe (throwError "reach failed") pure (reach g a' b')
   pure g'
+-- instantiateR g (TyForall bb b) a' = _
 
 
 check :: Context -> Term -> Type -> M Context
-check g (TmLam x e) (TyArr a b) = do
-  dh <- check (g :>: EntryVar x a) e b
-  let d = discardVar dh x
-  pure d
-check g TmUnit TyUnit = pure g
 check g e (TyForall aa a) = do
   dh <- check (g :>: EntryUVar aa) e a
   let d = discardUVar dh aa
   pure d
--- check g e b = do
---   (a, h) <- infer g e
---   d <- subtype h (substCtx h a) (substCtx h b)
---   pure d
+check g TmUnit TyUnit = pure g
+check g (TmLam x e) (TyArr a b) = do
+  dh <- check (g :>: EntryVar x a) e b
+  let d = discardVar dh x
+  pure d
+check g e b = do
+  (a, h) <- infer g e
+  d <- subtype h (substCtx h a) (substCtx h b)
+  pure d
 
 infer :: Context -> Term -> M (Type, Context)
 infer g (TmVar x) = do
@@ -332,7 +356,8 @@ app g (TyEVar a') e = do
   (a2', a1', g') <- articulate g a'
   d <- check g' e (TyEVar a1')
   pure (TyEVar a2', d)
-app g TyUnit e = throwError "'unit' cannot have argument applied to it"
+app _ TyUnit _ = throwError "'unit' cannot have argument applied to it"
+app _ (TyUVar _) _ = throwError "rigid type variable cannot have argument applied to it"
 
 
 -- | Assert that a monotype is well-formed w.r.t. a context.
