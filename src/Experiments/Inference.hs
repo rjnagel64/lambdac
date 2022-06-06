@@ -149,16 +149,10 @@ type Focus = (Context, FocusItem, Context)
 -- Returns 'Nothing' if @a'@ is not present in the context.
 focus :: EVar -> Context -> Maybe Focus
 focus _ Empty = Nothing
-focus a' (g :>: EntryEVar b') =
-  if a' == b' then
-    Just (g, FocusUnsolved b', Empty)
-  else
-    (\ (gl, x, gr) -> (gl, x, gr :>: EntryEVar b')) <$> focus a' g
-focus a' (g :>: EntrySolved b' t) =
-  if a' == b' then
-    Just (g, FocusSolved b' t, Empty)
-  else
-    (\ (gl, x, gr) -> (gl, x, gr :>: EntrySolved b' t)) <$> focus a' g
+focus a' (g :>: EntryEVar b')
+  | a' == b' = Just (g, FocusUnsolved b', Empty)
+focus a' (g :>: EntrySolved b' t)
+  | a' == b' = Just (g, FocusSolved b' t, Empty)
 focus a' (g :>: e) =
   (\ (gl, x, gr) -> (gl, x, gr :>: e)) <$> focus a' g
 
@@ -173,14 +167,14 @@ splice (gl, _, gr) h = gl >:> h >:> gr
 solve :: EVar -> Mono -> Context -> Maybe Context
 solve a' t g = case focus a' g of
   Nothing -> Nothing
-  Just (gl, FocusUnsolved b', gr) -> Just (unfocus (gl, FocusSolved b' t, gr))
   Just (_, FocusSolved _ _, _) -> error "duplicate solve"
+  Just (gl, FocusUnsolved b', gr) -> Just (unfocus (gl, FocusSolved b' t, gr))
 
 -- | Turn @Γ[α'][β']@ into @Γ[α'][β' = α']@
 reach :: Context -> EVar -> EVar -> Maybe Context
 reach g a' b' = case focus b' g of
   Nothing -> Nothing
-  Just (_, FocusSolved _ _, _) -> Nothing -- Duplicate solve?
+  Just (_, FocusSolved _ _, _) -> error "reach: duplicate solve"
   Just (g', FocusUnsolved _, gr) -> Just (g' :>: EntrySolved b' (MonoEVar a') >:> gr)
 
 
@@ -233,24 +227,20 @@ lookupVar (g :>: _) x = lookupVar g x
 
 lookupEVar :: Context -> EVar -> M (Maybe Mono)
 lookupEVar Empty _ = throwError "existential variable not in scope"
-lookupEVar (g :>: EntryEVar b') a' =
-  if a' == b' then
-    pure Nothing
-  else
-    lookupEVar g a'
-lookupEVar (g :>: EntrySolved b' t) a' =
-  if a' == b' then
-    pure (Just t)
-  else
-    lookupEVar g a'
+lookupEVar (_ :>: EntryEVar b') a'
+  | a' == b' = pure Nothing
+lookupEVar (_ :>: EntrySolved b' t) a' 
+  | a' == b' = pure (Just t)
 lookupEVar (g :>: _) a' = lookupEVar g a'
 
 
 subtype :: Context -> Type -> Type -> M Context
 -- Reflexive cases
 subtype g (TyEVar a') (TyEVar b') | a' == b' = pure g
+subtype g (TyUVar aa) (TyUVar bb)
+  | aa == bb = pure g
+  | otherwise = throwError "distinct rigid type variables cannot unify"
 subtype g TyUnit TyUnit = pure g
-subtype g (TyUVar aa) (TyUVar bb) | aa == bb = pure g
 -- Arrow types
 subtype g (TyArr a1 a2) (TyArr b1 b2) = do
   h <- subtype g b1 a1
@@ -273,6 +263,13 @@ subtype g (TyEVar a') a = do
 subtype g a (TyEVar a') = do
   occursM a' a
   instantiateR g a a'
+-- error cases
+subtype _ TyUnit (TyUVar _) = throwError "'unit' is not a subtype of rigid type variable"
+subtype _ TyUnit (TyArr _ _) = throwError "'unit' is not a subtype of function type"
+subtype _ (TyUVar _) TyUnit = throwError "rigid type variable is not a subtype of 'unit'"
+subtype _ (TyUVar _) (TyArr _ _) = throwError "rigid type variable is not a subtype of function type"
+subtype _ (TyArr _ _) TyUnit = throwError "function type is not a subtype of 'unit'"
+subtype _ (TyArr _ _) (TyUVar _) = throwError "function type is not a subtype of rigid type variable"
 
 
 instantiateL :: Context -> EVar -> Type -> M Context
