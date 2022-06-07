@@ -112,7 +112,7 @@ substCtx _ (TyUVar aa) = TyUVar aa
 substCtx g (TyArr a b) = TyArr (substCtx g a) (substCtx g b)
 substCtx g (TyEVar a') = case focus a' g of
   Nothing -> error "evar not in substitution"
-  Just (_, FocusUnsolved _, _) -> error "unsolved evar in substitution"
+  Just (_, FocusUnsolved _, _) -> TyEVar a'
   Just (_, FocusSolved _ t, _) -> substCtx g (fromMono t)
 -- This is surprising, that no scope management needs to be done.
 -- I guess it's because the substitution is only on 'EVar's, and there are no
@@ -214,7 +214,7 @@ articulate g a' = do
   let ty = (MonoArr (MonoEVar a1') (MonoEVar a2'))
   let h = (Empty :>: EntryEVar a2' :>: EntryEVar a1' :>: EntrySolved a' ty)
   let g' = splice f h
-  pure (a1', a2', g')
+  pure (a2', a1', g')
 
 lookupVar :: Context -> Var -> M Type
 lookupVar Empty _ = throwError "variable not in scope"
@@ -273,21 +273,6 @@ subtype _ (TyArr _ _) (TyUVar _) = throwError "function type is not a subtype of
 
 
 instantiateL :: Context -> EVar -> Type -> M Context
--- Annoying: the pattern-match coverage check isn't smart enough here:
--- Subsequent branches will only be taken for polytypes, but it doesn't
--- recognize that fact.
---
--- Find a way to appease the coverage check, I guess. Preferably without
--- duplicating the 'solve' logic in every case.
-instantiateL g a' a | Just t <- isMonoType a = do
-  wfMono g t
-  g' <- maybe (throwError "solve failed") pure (solve a' t g)
-  pure g'
-instantiateL g a' (TyArr a1 a2) = do
-  (a2', a1', g') <- articulate g a'
-  h <- instantiateR g' a1 a1'
-  d <- instantiateL h a2' (substCtx h a2)
-  pure d
 instantiateL g a' (TyEVar b') = do
   g' <- maybe (throwError "reach failed") pure (reach g a' b')
   pure g'
@@ -295,21 +280,38 @@ instantiateL g a' (TyForall bb b) = do
   dh <- instantiateL (g :>: EntryUVar bb) a' b
   let d = discardUVar dh bb
   pure d
+instantiateL g a' (TyArr a1 a2) = do
+  (a2', a1', g') <- articulate g a'
+  h <- instantiateR g' a1 a1'
+  d <- instantiateL h a2' (substCtx h a2)
+  pure d
+instantiateL g a' a = case isMonoType a of
+  Just t -> do
+    wfMono g t
+    g' <- maybe (throwError "solve failed") pure (solve a' t g)
+    pure g'
+  Nothing -> error "unreachable: non-monotypes and monotypes both covered"
 
 instantiateR :: Context -> Type -> EVar -> M Context
-instantiateR g a a' | Just t <- isMonoType a = do
-  wfMono g t
-  g' <- maybe (throwError "solve failed") pure (solve a' t g)
+instantiateR g (TyEVar b') a' = do
+  g' <- maybe (throwError "reach failed") pure (reach g a' b')
   pure g'
+instantiateR g (TyForall bb b) a' = do
+  b' <- newEVar
+  dh <- instantiateR (g :>: EntryMarker b' :>: EntryEVar b') (open b bb b') a'
+  let d = discardMarker dh b'
+  pure d
 instantiateR g (TyArr a1 a2) a' = do
   (a2', a1', g') <- articulate g a'
   h <- instantiateL g' a1' a1
   d <- instantiateR h (substCtx h a2) a2'
   pure d
-instantiateR g (TyEVar b') a' = do
-  g' <- maybe (throwError "reach failed") pure (reach g a' b')
-  pure g'
--- instantiateR g (TyForall bb b) a' = _
+instantiateR g a a' = case isMonoType a of
+  Just t -> do
+    wfMono g t
+    g' <- maybe (throwError "solve failed") pure (solve a' t g)
+    pure g'
+  Nothing -> error "unreachable: non-monotypes and monotypes both covered"
 
 
 check :: Context -> Term -> Type -> M Context
@@ -372,3 +374,60 @@ wfMono g t = pure ()
 --
 -- type Arr a b = (Context, a) -> E (Context, b) ? (thread context through)
 -- type Arr a b = a -> E b ? (Just kliesli)
+
+
+inferProgram :: Term -> Either String (Type, Context)
+inferProgram e = runExcept $ flip evalStateT 0 $ runM $ infer Empty e
+
+-- Debug purposes, mostly.
+main :: IO ()
+main = do
+  -- \x -> \f -> f x
+  -- - : forall a. forall b. a -> (a -> b) -> b
+  -- (No generalization done, though)
+  let e :: Term; e = (TmLam (Var "x") (TmLam (Var "f") (TmApp (TmVar (Var "f")) (TmVar (Var "x")))))
+  case inferProgram e of
+    Left err -> do
+      putStrLn "error:"
+      print err
+    Right (t, d) -> do
+      putStrLn "ok:"
+      putStrLn $ pprintContext d ++ " |- " ++ pprintType 0 t
+      putStrLn $ pprintType 0 (substCtx d t)
+
+pprintContext :: Context -> String
+pprintContext Empty = "."
+pprintContext (g :>: e) = pprintContext g ++ ", " ++ pprintEntry e
+
+pprintEntry :: Entry -> String
+pprintEntry (EntryEVar a') = show a'
+pprintEntry (EntryUVar aa) = show aa
+pprintEntry (EntrySolved a' t) = show a' ++ " = " ++ pprintMono 0 t
+pprintEntry (EntryMarker a') = "|> " ++ show a'
+pprintEntry (EntryVar x a) = show x ++ " : " ++ pprintType 0 a
+
+pprintType :: Int -> Type -> String
+pprintType p TyUnit = "unit"
+pprintType p (TyArr a b) = parensIf (p > 5) $ pprintType 6 a ++ " -> " ++ pprintType 5 b
+pprintType p (TyForall aa a) = parensIf (p > 0) $ "forall " ++ show aa ++ ". " ++ pprintType 0 a
+pprintType p (TyUVar aa) = show aa
+pprintType p (TyEVar a') = show a'
+
+pprintMono :: Int -> Mono -> String
+pprintMono p MonoUnit = "unit"
+pprintMono p (MonoArr a b) = parensIf (p > 5) $ pprintMono 6 a ++ " -> " ++ pprintMono 5 b
+pprintMono p (MonoUVar aa) = show aa
+pprintMono p (MonoEVar a') = show a'
+
+instance Show Var where
+  show (Var x) = x
+
+instance Show UVar where
+  show (UVar aa) = aa
+
+instance Show EVar where
+  show (EVar i) = "#" ++ show i
+
+parensIf :: Bool -> String -> String
+parensIf False s = s
+parensIf True s = "(" ++ s ++ ")"
