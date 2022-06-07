@@ -261,6 +261,12 @@ bindFields xs fs = FieldsFor $ \ctx ->
   let fields = runFieldsFor fs ctx' in
   fields Set.\\ Set.fromList xs
 
+bindTm :: (K.TmVar, K.TypeK) -> (Name, Sort)
+bindTm = bimap tmVar sortOf
+
+bindCo :: (K.CoVar, K.CoTypeK) -> (Name, Sort)
+bindCo = bimap coVar coSortOf
+
 
 fieldsFor :: TermK a -> FieldsFor
 fieldsFor (LetFunK fs e) =
@@ -308,11 +314,11 @@ fieldsForValue (ConsK x y) = unitTm x <> unitTm y
 
 fieldsForFunDef :: FunDef a -> FieldsFor
 fieldsForFunDef (FunDef _ _f xs ks e) =
-  bindFields (map (bimap tmVar sortOf) xs ++ map (bimap coVar coSortOf) ks) (fieldsFor e)
+  bindFields (map bindTm xs ++ map bindCo ks) (fieldsFor e)
 
 fieldsForContDef :: ContDef a -> FieldsFor
 fieldsForContDef (ContDef _ _k xs e) =
-  bindFields (map (bimap tmVar sortOf) xs) (fieldsFor e)
+  bindFields (map bindTm xs) (fieldsFor e)
 
 -- | Split occurrences into free variables and recursive calls.
 -- Return @(free, rec)@.
@@ -406,8 +412,8 @@ cconvFunDef fs fun@(FunDef _ f xs ks e) = do
     thunks = Set.insert funThunk $ foldMap (thunkTypesOf . snd) xs <> foldMap (coThunkTypesOf . snd) ks
     products = foldMap (productTypesOf . snd) xs <> foldMap (coProductTypesOf . snd) ks
   tell (TypeDecls (thunks, products))
-  let tmbinds = map (bimap tmVar sortOf) xs
-  let cobinds = map (bimap coVar coSortOf) ks
+  let tmbinds = map bindTm xs
+  let cobinds = map bindCo ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
   fields <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
   -- Idea: Make closure environments be anonymous product types?
@@ -424,7 +430,7 @@ cconvContDef ks kont@(ContDef _ k xs e) = do
     thunks = Set.insert contThunk $ foldMap thunkTypesOf (map snd xs)
     products = foldMap productTypesOf (map snd xs)
   tell (TypeDecls (thunks, products))
-  let binds = map (bimap tmVar sortOf) xs
+  let binds = map bindTm xs
   let extend ctx' = foldr (uncurry Map.insert) ctx' binds
   fields <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
   let (free, rec) = markRec ks (Set.toList fields)
