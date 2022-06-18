@@ -88,6 +88,9 @@ tmVar (K.TmVar x i) = Name x i
 coVar :: K.CoVar -> Name
 coVar (K.CoVar k i) = Name k i
 
+data TyVar = TyVar String
+  deriving (Eq, Ord)
+
 -- | 'Sort' is really a simplified form of type information.
 -- Value = int
 -- Sum = bool | t1 + t2
@@ -96,14 +99,22 @@ coVar (K.CoVar k i) = Name k i
 -- Alloc = a : *
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
--- TODO: 'Sort.Alloc' should reference which type info it needs
-data Sort = Closure [Sort] | Value | Alloc | Sum | Product [Sort] | Boolean | List Sort
+data Sort
+  = Closure [Sort]
+  -- TODO: Rename Sort.Value to Sort.Integer
+  | Value
+  | Alloc TyVar
+  | Sum
+  | Product [Sort]
+  | Pair Sort Sort
+  | Boolean
+  | List Sort
   deriving (Eq, Ord)
 
 instance Show Sort where
   show (Closure ss) = "closure " ++ show ss
   show Value = "value"
-  show Alloc = "alloc"
+  show (Alloc aa) = "alloc"
   show Sum = "sum"
   show Boolean = "bool"
   show (Product ss) = "product " ++ show ss
@@ -112,7 +123,7 @@ instance Show Sort where
 sortOf :: K.TypeK -> Sort
 sortOf (K.SumK _ _) = Sum
 sortOf K.BoolK = Boolean
-sortOf (K.ProdK t1 t2) = Product [sortOf t1, sortOf t2]
+sortOf (K.ProdK t1 t2) = Pair (sortOf t1) (sortOf t2)
 sortOf K.UnitK = Product []
 sortOf K.IntK = Value
 sortOf (K.ListK t) = List (sortOf t)
@@ -226,9 +237,9 @@ data EnvDef = EnvDef { envFreeNames :: [(Name, Sort)], envRecNames :: [(Name, So
 
 data ValueC
   = PairC Name Name
+  | NilC
   | InlC Name
   | InrC Name
-  | NilC
   | IntC Int
   | BoolC Bool
   | EmptyC
@@ -236,18 +247,25 @@ data ValueC
 
 
 -- TODO: Closure conversion should record free type variables as well.
-newtype FieldsFor = FieldsFor { runFieldsFor :: Map Name Sort -> Set (Name, Sort) }
+-- I'm not entirely satisfied with the existence of 'FieldsFor'. It should be a
+-- bottom-up traversal, just like the 'cconv' pass, but I end up separating it
+-- out and repeatedly invoking it. (the time complexity is not correct.)
+--
+-- I think that the "proper" way to do it is with a Writer monad, and using
+-- 'censor' to implement 'bindFields'? I might just keep it as part of the
+-- return value, though.
+newtype FieldsFor = FieldsFor { runFieldsFor :: Map Name Sort -> (Set (Name, Sort), Set TyVar) }
 
 instance Semigroup FieldsFor where
   fs <> fs' = FieldsFor $ \ctx -> runFieldsFor fs ctx <> runFieldsFor fs' ctx
 
 instance Monoid FieldsFor where
-  mempty = FieldsFor $ \_ -> Set.empty
+  mempty = FieldsFor $ \_ -> (Set.empty, Set.empty)
 
 unitField :: Name -> FieldsFor
 unitField x = FieldsFor $ \ctx -> case Map.lookup x ctx of
   Nothing -> error ("unbound variable occurrence: " ++ show x ++ " not in " ++ show ctx)
-  Just s -> Set.singleton (x, s)
+  Just s -> (Set.singleton (x, s), Set.empty)
 
 unitTm :: K.TmVar -> FieldsFor
 unitTm = unitField . tmVar
@@ -255,11 +273,15 @@ unitTm = unitField . tmVar
 unitCo :: K.CoVar -> FieldsFor
 unitCo = unitField . coVar
 
+-- TODO: Implement 'unitTy'
+unitTy :: () -> FieldsFor
+unitTy () = mempty
+
 bindFields :: [(Name, Sort)] -> FieldsFor -> FieldsFor
 bindFields xs fs = FieldsFor $ \ctx ->
   let ctx' = foldr (uncurry Map.insert) ctx xs in
-  let fields = runFieldsFor fs ctx' in
-  fields Set.\\ Set.fromList xs
+  let (fields, tys) = runFieldsFor fs ctx' in
+  (fields Set.\\ Set.fromList xs, tys)
 
 bindTm :: (K.TmVar, K.TypeK) -> (Name, Sort)
 bindTm = bimap tmVar sortOf
@@ -277,14 +299,14 @@ fieldsFor (LetContK ks e) =
   where ks' = contDefNames ks
 fieldsFor (HaltK x) = unitTm x
 fieldsFor (JumpK k xs) = unitCo k <> foldMap unitTm xs
-fieldsFor (CallK f xs ks) =
-  unitTm f <>
-  foldMap unitTm xs <>
-  foldMap unitCo ks
+fieldsFor (CallK f xs ks) = unitTm f <> foldMap unitTm xs <> foldMap unitCo ks
 fieldsFor (CaseK x _ ks) = unitTm x <> foldMap unitCo ks
-fieldsFor (LetFstK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
-fieldsFor (LetSndK x t y e) = unitTm y <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
-fieldsFor (LetValK x t v e) = fieldsForValue v <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
+fieldsFor (LetFstK x t y e) =
+  unitTm y <> fieldsForTy t <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
+fieldsFor (LetSndK x t y e) =
+  unitTm y <> fieldsForTy t <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
+fieldsFor (LetValK x t v e) =
+  fieldsForValue v <> fieldsForTy t <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetNegateK x y e) = unitTm y <> bindFields [(tmVar x, Value)] (fieldsFor e)
 fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Boolean)] (fieldsFor e)
@@ -319,6 +341,18 @@ fieldsForFunDef (FunDef _ _f xs ks e) =
 fieldsForContDef :: ContDef a -> FieldsFor
 fieldsForContDef (ContDef _ _k xs e) =
   bindFields (map bindTm xs) (fieldsFor e)
+
+fieldsForTy :: K.TypeK -> FieldsFor
+fieldsForTy K.UnitK = mempty
+fieldsForTy K.IntK = mempty
+fieldsForTy K.BoolK = mempty
+fieldsForTy (K.ProdK t s) = fieldsForTy t <> fieldsForTy s
+fieldsForTy (K.SumK t s) = fieldsForTy t <> fieldsForTy s
+fieldsForTy (K.ListK t) = fieldsForTy t
+fieldsForTy (K.FunK ts ss) = foldMap fieldsForTy ts <> foldMap fieldsForCoTy ss
+
+fieldsForCoTy :: K.CoTypeK -> FieldsFor
+fieldsForCoTy (K.ContK ss) = foldMap fieldsForTy ss
 
 -- | Split occurrences into free variables and recursive calls.
 -- Return @(free, rec)@.
@@ -415,7 +449,7 @@ cconvFunDef fs fun@(FunDef _ f xs ks e) = do
   let tmbinds = map bindTm xs
   let cobinds = map bindCo ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
-  fields <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
+  (fields, tyfields) <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
   -- Idea: Make closure environments be anonymous product types?
   -- Hmm, maybe not. That would lead to anonymous polymorphic products, which
   -- I'm not quite sure on implementing.
@@ -432,7 +466,7 @@ cconvContDef ks kont@(ContDef _ k xs e) = do
   tell (TypeDecls (thunks, products))
   let binds = map bindTm xs
   let extend ctx' = foldr (uncurry Map.insert) ctx' binds
-  fields <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
+  (fields, tyfields) <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
   let (free, rec) = markRec ks (Set.toList fields)
   e' <- local extend (cconv e)
   pure (ContClosureDef (coVar k) (EnvDef free rec) binds e')

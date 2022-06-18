@@ -9,6 +9,7 @@
 module Hoist
     ( TermH(..)
     , CaseKind(..)
+    , Projection(..)
     , ValueH(..)
     , PrimOp(..)
     , Sort(..)
@@ -94,8 +95,8 @@ newtype EnvDecl = EnvDecl [FieldName]
 data TermH
   = LetValH PlaceName ValueH TermH
   | LetPrimH PlaceName PrimOp TermH
-  -- 'let value x = y #2 in e'
-  | LetProjectH PlaceName Name ProductType Int TermH
+  -- 'let value x = fst y in e'
+  | LetProjectH PlaceName Name Projection TermH
   | HaltH Name Sort
   | OpenH Name [(Name, Sort)] -- Open a closure, by providing a list of arguments and their sorts.
   | CaseH Name CaseKind [(Name, ThunkType)]
@@ -104,6 +105,8 @@ data TermH
 
 -- TODO(eventually): bring back generic case expressions
 data CaseKind = CaseBool | CaseSum | CaseList
+
+data Projection = ProjectFst | ProjectSnd
 
 caseKind :: Sort -> CaseKind
 caseKind Boolean = CaseBool
@@ -127,6 +130,7 @@ data ValueH
   = IntH Int64
   | BoolH Bool
   | ProdH [Sort] [Name]
+  | PairH (Name, Sort) (Name, Sort)
   | InlH Sort Name
   | InrH Sort Name
   | NilH
@@ -191,21 +195,13 @@ hoist (LetValC (x, s) v e) = do
   (x', e') <- withPlace x s $ hoist e
   pure $ LetValH x' v' e'
 hoist (LetFstC (x, s) y e) = do
-  (y', sy) <- hoistVarOcc' y
-  let
-    p = case sy of
-      Product ss -> ProductType ss
-      _ -> error "can only project field of product value"
+  y' <- hoistVarOcc y
   (x', e') <- withPlace x s $ hoist e
-  pure (LetProjectH x' y' p 0 e')
+  pure (LetProjectH x' y' ProjectFst e')
 hoist (LetSndC (x, s) y e) = do
-  (y', sy) <- hoistVarOcc' y
-  let
-    p = case sy of
-      Product ss -> ProductType ss
-      _ -> error "can only project field of product value"
+  y' <- hoistVarOcc y
   (x', e') <- withPlace x s $ hoist e
-  pure (LetProjectH x' y' p 1 e')
+  pure (LetProjectH x' y' ProjectSnd e')
 hoist (LetArithC (x, s) op e) = do
   op' <- hoistArith op
   (x', e') <- withPlace x s $ hoist e
@@ -288,9 +284,7 @@ declareClosureNames closureName cs =
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
-hoistValue (PairC x y) = do
-  (xs, ss) <- unzip <$> traverse hoistVarOcc' [x, y]
-  pure (ProdH ss xs)
+hoistValue (PairC x y) = PairH <$> hoistVarOcc' x <*> hoistVarOcc' y
 hoistValue NilC = pure (ProdH [] [])
 hoistValue (InlC x) = uncurry (flip InlH) <$> hoistVarOcc' x
 hoistValue (InrC x) = uncurry (flip InrH) <$> hoistVarOcc' x
@@ -392,8 +386,11 @@ pprintTerm n (CaseH x _kind ks) =
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetProjectH x y _p i e) =
-  indent n ("let " ++ pprintPlace x ++ " = " ++ show y ++ " #" ++ show i ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetProjectH x y p e) =
+  indent n ("let " ++ pprintPlace x ++ " = " ++ proj p ++ " " ++ show y ++ ";\n") ++ pprintTerm n e
+  where
+    proj ProjectFst = "fst"
+    proj ProjectSnd = "snd"
 pprintTerm n (LetPrimH x p e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintPrim p ++ ";\n") ++ pprintTerm n e
 pprintTerm n (AllocClosure cs e) =
@@ -401,6 +398,7 @@ pprintTerm n (AllocClosure cs e) =
 
 pprintValue :: ValueH -> String
 pprintValue (ProdH _ xs) = "(" ++ intercalate ", " (map show xs) ++ ")"
+pprintValue (PairH (x, _) (y, _)) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (InlH _ x) = "inl " ++ show x

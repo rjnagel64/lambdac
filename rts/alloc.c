@@ -174,6 +174,23 @@ void display_list(struct alloc_header *alloc, struct string_buf *sb) {
 
 type_info list_info = { trace_list, display_list };
 
+void trace_pair(struct alloc_header *alloc) {
+    struct pair *p = AS_PAIR(alloc);
+    mark_gray(p->fst, p->fst_info);
+    mark_gray(p->snd, p->snd_info);
+}
+
+void display_pair(struct alloc_header *alloc, struct string_buf *sb) {
+    struct pair *p = AS_PAIR(alloc);
+    string_buf_push(sb, "(");
+    p->fst_info.display(p->fst, sb);
+    string_buf_push(sb, ", ");
+    p->snd_info.display(p->snd, sb);
+    string_buf_push(sb, ")");
+}
+
+type_info pair_info = { trace_pair, display_pair };
+
 
 
 void trace_alloc(struct alloc_header *alloc) {
@@ -204,6 +221,9 @@ void trace_alloc(struct alloc_header *alloc) {
     case ALLOC_LIST:
         trace_list(alloc);
         break;
+    case ALLOC_PAIR:
+        trace_pair(alloc);
+        break;
     }
 }
 
@@ -229,6 +249,9 @@ void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
         break;
     case ALLOC_SUM:
         sum_info.display(alloc, sb);
+        break;
+    case ALLOC_PAIR:
+        pair_info.display(alloc, sb);
         break;
     case ALLOC_PROD:
         {
@@ -413,4 +436,14 @@ struct list *allocate_cons(struct alloc_header *x, type_info info, struct list *
     return AS_LIST(c);
 }
 
+struct pair *allocate_pair(type_info a_info, type_info b_info, struct alloc_header *x, struct alloc_header *y) {
+    struct pair *p = malloc(sizeof(struct pair));
+    p->header.type = ALLOC_PAIR;
+    p->fst_info = a_info;
+    p->snd_info = b_info;
+    p->fst = x;
+    p->snd = y;
+    cons_new_alloc(AS_ALLOC(p), pair_info);
+    return p;
+}
 

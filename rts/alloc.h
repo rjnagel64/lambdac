@@ -15,6 +15,7 @@ enum allocation_type {
     ALLOC_PROD,
     ALLOC_SUM,
     ALLOC_LIST,
+    ALLOC_PAIR,
 };
 
 struct alloc_header {
@@ -109,6 +110,18 @@ struct product {
 
 #define AS_PRODUCT(v) ((struct product *)(v))
 
+struct pair {
+    struct alloc_header header;
+    type_info fst_info;
+    type_info snd_info;
+    struct alloc_header *fst;
+    struct alloc_header *snd;
+};
+
+type_info pair_info;
+
+#define AS_PAIR(v) ((struct pair *)(v))
+
 struct list {
     struct alloc_header header;
     uint32_t discriminant;
@@ -153,6 +166,8 @@ struct bool_value *allocate_true(void);
 struct bool_value *allocate_false(void);
 struct list *allocate_nil(void);
 struct list *allocate_cons(struct alloc_header *x, type_info info, struct list *xs);
+
+struct pair *allocate_pair(type_info a_info, type_info b_info, struct alloc_header *x, struct alloc_header *y);
 
 
 #endif

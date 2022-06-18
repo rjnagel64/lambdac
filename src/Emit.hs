@@ -75,13 +75,18 @@ data ThunkNames
   }
 
 -- This scheme will almost certainly break down as types get fancier.
+-- For example, polymorphic pair with distinct types vs. polymorphic pair with
+-- one type for both arguments.
+--
+-- (e.g., (a, a) and (a, b) are both P2AA)
 tycode :: Sort -> String
 tycode (Closure ss) = 'C' : show (length ss) ++ concatMap tycode ss
 tycode Value = "V"
-tycode Alloc = "A"
+tycode (Alloc aa) = error "tycode: schema not expressive enough"
 tycode Sum = "S"
 tycode Boolean = "B"
 tycode (Product ss) = 'P' : show (length ss) ++ concatMap tycode ss
+tycode (Pair s t) = 'Q' : tycode s ++ tycode t
 tycode (List s) = 'L' : tycode s
 
 namesForThunk :: ThunkType -> ThunkNames
@@ -96,31 +101,37 @@ namesForThunk (ThunkType ss) =
     ty = concatMap tycode ss
 
 typeForSort :: Sort -> String
-typeForSort Alloc = "struct alloc_header *"
+typeForSort (Alloc aa) = "struct alloc_header *"
 typeForSort (Closure ss) = "struct closure *"
 typeForSort Value = "struct int64_value *"
 typeForSort Sum = "struct sum *"
 typeForSort Boolean = "struct bool_value *"
 typeForSort (Product ss) = "struct product *"
+typeForSort (Pair _ _) = "struct pair *"
 typeForSort (List _) = "struct list *"
 
 infoForSort :: Sort -> String
-infoForSort Alloc = "any_info"
+infoForSort (Alloc aa) = "any_info"
 infoForSort Sum = "sum_info"
 infoForSort Boolean = "bool_value_info"
 infoForSort Value = "int64_value_info"
 infoForSort (Product ss) = "product_" ++ tycode (Product ss) ++ "_info"
+infoForSort (Pair _ _) = "pair_info"
 infoForSort (Closure ss) = "closure_info"
 infoForSort (List _) = "list_info"
 
 asSort :: Sort -> String -> String
-asSort Alloc x = "AS_ALLOC(" ++ x ++ ")"
+asSort (Alloc _) x = asAlloc x
 asSort Value x = "AS_INT64(" ++ x ++ ")"
 asSort (Closure ss) x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
 asSort Boolean x = "AS_BOOL(" ++ x ++ ")"
 asSort (Product ss) x = "AS_PRODUCT(" ++ x ++ ")"
+asSort (Pair _ _) x = "AS_PAIR(" ++ x ++ ")"
 asSort (List _s) x = "AS_LIST(" ++ x ++ ")"
+
+asAlloc :: String -> String
+asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex f = zipWith f [0..]
@@ -236,7 +247,7 @@ emitProductDisplay (ProductType ss) =
   ,"}"]
   where
     ty = tycode (Product ss)
-    displayField i s = "    " ++ infoForSort s ++ ".display(" ++ asSort Alloc ("v->words[" ++ show i ++ "]") ++ ", sb);"
+    displayField i s = "    " ++ infoForSort s ++ ".display(" ++ asAlloc ("v->words[" ++ show i ++ "]") ++ ", sb);"
 
 emitProductInfo :: ProductType -> [String]
 emitProductInfo (ProductType ss) =
@@ -303,7 +314,7 @@ emitEnvTrace ns (EnvDecl fs) =
     traceField (FieldName s x) = "    " ++ emitMarkGray ("env->" ++ x) s ++ ";"
 
 emitMarkGray :: String -> Sort -> String
-emitMarkGray x s = "mark_gray(" ++ asSort Alloc x ++ ", " ++ infoForSort s ++ ")"
+emitMarkGray x s = "mark_gray(" ++ asAlloc x ++ ", " ++ infoForSort s ++ ")"
 
 emitClosureCode :: ClosureNames -> [PlaceName] -> TermH -> [String]
 emitClosureCode ns xs e =
@@ -322,7 +333,7 @@ emitClosureCode ns xs e =
     -- Find the set of temporaries used by this function.
     go2 (LetValH p _ e') = Set.insert (placeName p) (go2 e')
     go2 (LetPrimH p _ e') = Set.insert (placeName p) (go2 e')
-    go2 (LetProjectH p _ _ _ e') = Set.insert (placeName p) (go2 e')
+    go2 (LetProjectH p _ _ e') = Set.insert (placeName p) (go2 e')
     go2 (AllocClosure cs e') = foldr (Set.insert . placeName) (go2 e') (map closurePlace cs)
     go2 (HaltH _ _) = Set.empty
     go2 (OpenH _ _) = Set.empty
@@ -332,10 +343,12 @@ emitClosureBody :: String -> TermH -> [String]
 emitClosureBody envp (LetValH x v e) =
   ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc envp v ++ ";"] ++
   emitClosureBody envp e
-emitClosureBody envp (LetProjectH x y (ProductType ss) i e) =
-  ["    " ++ emitPlace x ++ " = " ++ emitPrimCall envp projection [y] ++ ";"] ++
+emitClosureBody envp (LetProjectH x y ProjectFst e) =
+  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->fst") ++ ";"] ++
   emitClosureBody envp e
-  where projection = "project_" ++ tycode (Product ss) ++ "_" ++ show i
+emitClosureBody envp (LetProjectH x y ProjectSnd e) =
+  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->snd") ++ ";"] ++
+  emitClosureBody envp e
 emitClosureBody envp (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp envp p ++ ";"] ++
   emitClosureBody envp e
@@ -343,7 +356,7 @@ emitClosureBody envp (AllocClosure cs e) =
   emitAllocGroup envp cs ++
   emitClosureBody envp e
 emitClosureBody envp (HaltH x s) =
-  ["    halt_with(" ++ asSort Alloc (emitName envp x) ++ ", " ++ infoForSort s ++ ");"]
+  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort s ++ ");"]
 emitClosureBody envp (OpenH c xs) =
   [emitSuspend envp c xs]
 emitClosureBody envp (CaseH x kind ks) =
@@ -384,13 +397,15 @@ emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
 emitValueAlloc envp (ProdH ss xs) = emitPrimCall envp ("allocate_" ++ ty) xs
   where ty = tycode (Product ss)
+emitValueAlloc envp (PairH (x, s1) (y, s2)) =
+  "allocate_pair(" ++ infoForSort s1 ++ ", " ++ infoForSort s2 ++ ", " ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc envp (InlH s y) =
-  "allocate_inl(" ++ asSort Alloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
+  "allocate_inl(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
 emitValueAlloc envp (InrH s y) =
-  "allocate_inr(" ++ asSort Alloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
+  "allocate_inr(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
 emitValueAlloc _ NilH = "allocate_nil()"
 emitValueAlloc envp (ConsH s x xs) =
-  "allocate_cons(" ++ asSort Alloc (emitName envp x) ++ ", " ++ infoForSort s ++ ", " ++ emitName envp xs ++ ")"
+  "allocate_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort s ++ ", " ++ emitName envp xs ++ ")"
 
 emitPrimOp :: String -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
@@ -418,7 +433,7 @@ emitAlloc envp (ClosureAlloc p ty d (EnvAlloc free rec)) =
   where
     ns = namesForDecl d
     args = [envArg, traceArg, codeArg, enterArg]
-    envArg = asSort Alloc (closureAllocName ns ++ "(" ++ intercalate ", " envAllocArgs ++ ")")
+    envArg = asAlloc (closureAllocName ns ++ "(" ++ intercalate ", " envAllocArgs ++ ")")
     traceArg = closureEnvInfo ns
     codeArg = "(void (*)(void))" ++ closureCodeName ns
     enterArg = thunkEnterName (namesForThunk ty)
