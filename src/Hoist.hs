@@ -129,11 +129,11 @@ data EnvAlloc
 data ValueH
   = IntH Int64
   | BoolH Bool
-  | ProdH [Sort] [Name]
   | PairH (Name, Sort) (Name, Sort)
+  | NilH
   | InlH Sort Name
   | InrH Sort Name
-  | NilH
+  | ListNilH
   | ConsH Sort Name Name
 
 data PrimOp
@@ -285,10 +285,10 @@ hoistValue :: ValueC -> HoistM ValueH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
 hoistValue (PairC x y) = PairH <$> hoistVarOcc' x <*> hoistVarOcc' y
-hoistValue NilC = pure (ProdH [] [])
+hoistValue NilC = pure NilH
 hoistValue (InlC x) = uncurry (flip InlH) <$> hoistVarOcc' x
 hoistValue (InrC x) = uncurry (flip InrH) <$> hoistVarOcc' x
-hoistValue EmptyC = pure NilH
+hoistValue EmptyC = pure ListNilH
 hoistValue (ConsC x xs) = uncurry (flip ConsH) <$> hoistVarOcc' x <*> hoistVarOcc xs
 
 hoistArith :: ArithC -> HoistM PrimOp
@@ -397,13 +397,12 @@ pprintTerm n (AllocClosure cs e) =
   indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
 
 pprintValue :: ValueH -> String
-pprintValue (ProdH _ xs) = "(" ++ intercalate ", " (map show xs) ++ ")"
 pprintValue (PairH (x, _) (y, _)) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (InlH _ x) = "inl " ++ show x
 pprintValue (InrH _ y) = "inr " ++ show y
-pprintValue NilH = "nil"
+pprintValue ListNilH = "nil"
 pprintValue (ConsH _ x xs) = "cons " ++ show x ++ " " ++ show xs
 
 pprintPrim :: PrimOp -> String

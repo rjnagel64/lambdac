@@ -29,7 +29,7 @@ import Hoist
 emitProgram :: (Set ThunkType, Set ProductType, [ClosureDecl], TermH) -> [String]
 emitProgram (ts, ps, cs, e) =
   prologue ++
-  concatMap emitProductDecl ps ++
+  concatMap emitProductDecl [] ++
   concatMap emitThunkDecl ts ++
   concatMap emitClosureDecl cs ++
   emitEntryPoint e
@@ -87,6 +87,7 @@ tycode Sum = "S"
 tycode Boolean = "B"
 tycode (Product ss) = 'P' : show (length ss) ++ concatMap tycode ss
 tycode (Pair s t) = 'Q' : tycode s ++ tycode t
+tycode Unit = "U"
 tycode (List s) = 'L' : tycode s
 
 namesForThunk :: ThunkType -> ThunkNames
@@ -108,6 +109,7 @@ typeForSort Sum = "struct sum *"
 typeForSort Boolean = "struct bool_value *"
 typeForSort (Product ss) = "struct product *"
 typeForSort (Pair _ _) = "struct pair *"
+typeForSort Unit = "struct nil *"
 typeForSort (List _) = "struct list *"
 
 infoForSort :: Sort -> String
@@ -117,6 +119,7 @@ infoForSort Boolean = "bool_value_info"
 infoForSort Value = "int64_value_info"
 infoForSort (Product ss) = "product_" ++ tycode (Product ss) ++ "_info"
 infoForSort (Pair _ _) = "pair_info"
+infoForSort Unit = "nil_info"
 infoForSort (Closure ss) = "closure_info"
 infoForSort (List _) = "list_info"
 
@@ -128,6 +131,7 @@ asSort Sum x = "AS_SUM(" ++ x ++ ")"
 asSort Boolean x = "AS_BOOL(" ++ x ++ ")"
 asSort (Product ss) x = "AS_PRODUCT(" ++ x ++ ")"
 asSort (Pair _ _) x = "AS_PAIR(" ++ x ++ ")"
+asSort Unit x = "AS_NIL(" ++ x ++ ")"
 asSort (List _s) x = "AS_LIST(" ++ x ++ ")"
 
 asAlloc :: String -> String
@@ -206,39 +210,44 @@ emitProductDecl (ProductType ss) =
   emitProductAlloc (ProductType ss) ++
   concat (mapWithIndex (emitProductProjection (ProductType ss)) ss)
 
+productInfo :: ProductType -> String
+productInfo p = "product_" ++ productTyCode p ++ "_info"
+
+productTyCode :: ProductType -> String
+productTyCode (ProductType ss) = 'P' : show (length ss) ++ concatMap tycode ss
+
 -- TODO: Code generation for product types with polymorphic fields
 emitProductAlloc :: ProductType -> [String]
-emitProductAlloc (ProductType ss) =
-  ["struct product *allocate_" ++ ty ++ "(" ++ intercalate ", " args ++ ") {"
+emitProductAlloc p@(ProductType ss) =
+  ["struct product *allocate_" ++ productTyCode p ++ "(" ++ intercalate ", " args ++ ") {"
   ,"    struct product *v = malloc(sizeof(struct product) + " ++ numFields ++ " * sizeof(uintptr_t));"
   ,"    v->header.type = ALLOC_PROD;"
   ,"    v->num_fields = " ++ numFields ++ ";"] ++
   mapWithIndex assignField ss ++
-  ["    cons_new_alloc(AS_ALLOC(v), " ++ infoForSort (Product ss) ++ ");"
+  ["    cons_new_alloc(AS_ALLOC(v), " ++ productInfo p ++ ");"
   ,"    return v;"
   ,"}"]
   where
     numFields = show (length ss)
-    ty = tycode (Product ss)
     args =
       if null ss then
         ["void"]
       else
         mapWithIndex (\i s -> emitPlace (PlaceName s ("arg" ++ show i))) ss
-    assignField i s = "    v->words[" ++ show i ++ "] = (uintptr_t)arg" ++ show i ++ ";"
+    assignField i _s = "    v->words[" ++ show i ++ "] = (uintptr_t)arg" ++ show i ++ ";"
 
 emitProductTrace :: ProductType -> [String]
-emitProductTrace (ProductType ss) =
+emitProductTrace p@(ProductType ss) =
   ["void trace_product_" ++ ty ++ "(struct alloc_header *alloc) {"
   ,"    struct product *v = AS_PRODUCT(alloc);"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
-    ty = tycode (Product ss)
+    ty = productTyCode p
     traceField i s = "    " ++ emitMarkGray ("v->words[" ++ show i ++ "]") s ++ ";"
 
 emitProductDisplay :: ProductType -> [String]
-emitProductDisplay (ProductType ss) =
+emitProductDisplay p@(ProductType ss) =
   ["void display_product_" ++ ty ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
   ,"    struct product *v = AS_PRODUCT(alloc);"
   ,"    string_buf_push(sb, \"(\");"] ++
@@ -246,24 +255,24 @@ emitProductDisplay (ProductType ss) =
   ["    string_buf_push(sb, \")\");"
   ,"}"]
   where
-    ty = tycode (Product ss)
+    ty = productTyCode p
     displayField i s = "    " ++ infoForSort s ++ ".display(" ++ asAlloc ("v->words[" ++ show i ++ "]") ++ ", sb);"
 
 emitProductInfo :: ProductType -> [String]
-emitProductInfo (ProductType ss) =
+emitProductInfo p =
   ["type_info product_" ++ ty ++ "_info = { " ++ trace ++ ", " ++ display ++ " };"]
   where
-    ty = tycode (Product ss)
+    ty = productTyCode p
     trace = "trace_product_" ++ ty
     display = "display_product_" ++ ty
 
 emitProductProjection :: ProductType -> Int -> Sort -> [String]
-emitProductProjection (ProductType ss) i s =
+emitProductProjection p i s =
   [typeForSort s ++ fnName ++ "(struct product *p) {"
   ,"    return " ++ asSort s ("p->words[" ++ show i ++ "]") ++ ";"
   ,"}"]
   where
-    ty = tycode (Product ss)
+    ty = productTyCode p
     fnName = "project_" ++ ty ++ "_" ++ show i
 
 emitClosureDecl :: H.ClosureDecl -> [String]
@@ -395,17 +404,16 @@ emitValueAlloc :: String -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
-emitValueAlloc envp (ProdH ss xs) = emitPrimCall envp ("allocate_" ++ ty) xs
-  where ty = tycode (Product ss)
 emitValueAlloc envp (PairH (x, s1) (y, s2)) =
   "allocate_pair(" ++ infoForSort s1 ++ ", " ++ infoForSort s2 ++ ", " ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
+emitValueAlloc _ NilH = "allocate_nil()"
 emitValueAlloc envp (InlH s y) =
   "allocate_inl(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
 emitValueAlloc envp (InrH s y) =
   "allocate_inr(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
-emitValueAlloc _ NilH = "allocate_nil()"
+emitValueAlloc _ ListNilH = "allocate_list_nil()"
 emitValueAlloc envp (ConsH s x xs) =
-  "allocate_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort s ++ ", " ++ emitName envp xs ++ ")"
+  "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort s ++ ", " ++ emitName envp xs ++ ")"
 
 emitPrimOp :: String -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
@@ -419,6 +427,7 @@ emitPrimOp envp (PrimLeInt64 x y) = emitPrimCall envp "prim_leint64" [x, y]
 emitPrimOp envp (PrimGtInt64 x y) = emitPrimCall envp "prim_gtint64" [x, y]
 emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
 
+-- TODO: emitPrimCall could take a list of type/info arguments
 emitPrimCall :: String -> String -> [Name] -> String
 emitPrimCall envp f xs = f ++ "(" ++ intercalate ", " (map (emitName envp) xs) ++ ")"
 

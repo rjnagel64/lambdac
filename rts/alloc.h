@@ -16,6 +16,7 @@ enum allocation_type {
     ALLOC_SUM,
     ALLOC_LIST,
     ALLOC_PAIR,
+    ALLOC_NIL,
 };
 
 struct alloc_header {
@@ -122,16 +123,25 @@ type_info pair_info;
 
 #define AS_PAIR(v) ((struct pair *)(v))
 
+// TODO: struct nil -> struct unit
+struct nil {
+    struct alloc_header header;
+};
+
+type_info nil_info;
+
+#define AS_NIL(v) ((struct nil *)(v))
+
 struct list {
     struct alloc_header header;
     uint32_t discriminant;
 };
 
-struct nil {
+struct list_nil {
     struct list header;
 };
 
-struct cons {
+struct list_cons {
     struct list header;
     // Hmm. I guess I need to have info for every element.
     // Annoying, but manageable.
@@ -143,8 +153,8 @@ struct cons {
 type_info list_info;
 
 #define AS_LIST(v) ((struct list *)(v))
-#define AS_LIST_NIL(v) ((struct nil *)(v))
-#define AS_LIST_CONS(v) ((struct cons *)(v))
+#define AS_LIST_NIL(v) ((struct list_nil *)(v))
+#define AS_LIST_CONS(v) ((struct list_cons *)(v))
 
 
 void init_locals(void);
@@ -164,10 +174,10 @@ struct sum *allocate_inr(struct alloc_header *v, type_info info);
 struct int64_value *allocate_int64(int64_t x);
 struct bool_value *allocate_true(void);
 struct bool_value *allocate_false(void);
-struct list *allocate_nil(void);
-struct list *allocate_cons(struct alloc_header *x, type_info info, struct list *xs);
+struct list *allocate_list_nil(void);
+struct list *allocate_list_cons(struct alloc_header *x, type_info info, struct list *xs);
 
 struct pair *allocate_pair(type_info a_info, type_info b_info, struct alloc_header *x, struct alloc_header *y);
-
+struct nil *allocate_nil(void);
 
 #endif

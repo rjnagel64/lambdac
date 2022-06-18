@@ -107,6 +107,7 @@ data Sort
   | Sum
   | Product [Sort]
   | Pair Sort Sort
+  | Unit
   | Boolean
   | List Sort
   deriving (Eq, Ord)
@@ -124,7 +125,7 @@ sortOf :: K.TypeK -> Sort
 sortOf (K.SumK _ _) = Sum
 sortOf K.BoolK = Boolean
 sortOf (K.ProdK t1 t2) = Pair (sortOf t1) (sortOf t2)
-sortOf K.UnitK = Product []
+sortOf K.UnitK = Unit
 sortOf K.IntK = Value
 sortOf (K.ListK t) = List (sortOf t)
 sortOf (K.FunK ts ss) = Closure (map sortOf ts ++ map coSortOf ss)

@@ -140,13 +140,13 @@ void trace_list(struct alloc_header *alloc) {
     case 0:
         // nil
         {
-        struct nil *n = AS_LIST_NIL(l);
+        struct list_nil *n = AS_LIST_NIL(l);
         }
         break;
     case 1:
         // cons
         {
-        struct cons *c = AS_LIST_CONS(l);
+        struct list_cons *c = AS_LIST_CONS(l);
         mark_gray(c->head, c->head_info);
         mark_gray(AS_ALLOC(c->tail), list_info);
         }
@@ -162,7 +162,7 @@ void display_list(struct alloc_header *alloc, struct string_buf *sb) {
         break;
     case 1:
         {
-        struct cons *c = AS_LIST_CONS(l);
+        struct list_cons *c = AS_LIST_CONS(l);
         string_buf_push(sb, "cons ");
         c->head_info.display(c->head, sb);
         string_buf_push(sb, " ");
@@ -190,6 +190,15 @@ void display_pair(struct alloc_header *alloc, struct string_buf *sb) {
 }
 
 type_info pair_info = { trace_pair, display_pair };
+
+void trace_nil(struct alloc_header *alloc) {
+}
+
+void display_nil(struct alloc_header *alloc, struct string_buf *sb) {
+    string_buf_push(sb, "()");
+}
+
+type_info nil_info = { trace_nil, display_nil };
 
 
 
@@ -224,6 +233,9 @@ void trace_alloc(struct alloc_header *alloc) {
     case ALLOC_PAIR:
         trace_pair(alloc);
         break;
+    case ALLOC_NIL:
+        trace_nil(alloc);
+        break;
     }
 }
 
@@ -252,6 +264,9 @@ void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
         break;
     case ALLOC_PAIR:
         pair_info.display(alloc, sb);
+        break;
+    case ALLOC_NIL:
+        nil_info.display(alloc, sb);
         break;
     case ALLOC_PROD:
         {
@@ -415,8 +430,8 @@ struct sum *allocate_inr(struct alloc_header *y, type_info y_info) {
     return v;
 }
 
-struct list *allocate_nil(void) {
-    struct nil *n = malloc(sizeof(struct nil));
+struct list *allocate_list_nil(void) {
+    struct list_nil *n = malloc(sizeof(struct list_nil));
     n->header.header.type = ALLOC_LIST;
     n->header.discriminant = 0;
 
@@ -424,8 +439,8 @@ struct list *allocate_nil(void) {
     return AS_LIST(n);
 }
 
-struct list *allocate_cons(struct alloc_header *x, type_info info, struct list *xs) {
-    struct cons *c = malloc(sizeof(struct cons));
+struct list *allocate_list_cons(struct alloc_header *x, type_info info, struct list *xs) {
+    struct list_cons *c = malloc(sizeof(struct list_cons));
     c->header.header.type = ALLOC_LIST;
     c->header.discriminant = 1;
     c->head_info = info;
@@ -445,5 +460,12 @@ struct pair *allocate_pair(type_info a_info, type_info b_info, struct alloc_head
     p->snd = y;
     cons_new_alloc(AS_ALLOC(p), pair_info);
     return p;
+}
+
+struct nil *allocate_nil(void) {
+    struct nil *n = malloc(sizeof(struct list_nil));
+    n->header.type = ALLOC_NIL;
+    cons_new_alloc(AS_ALLOC(n), nil_info);
+    return n;
 }
 
