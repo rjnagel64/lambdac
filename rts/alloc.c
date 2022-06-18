@@ -286,7 +286,6 @@ struct closure *allocate_closure(
         void (*code)(void),
         void (*enter)(void)) {
     struct closure *cl = malloc(sizeof(struct closure));
-    cl->header.type = ALLOC_CLOSURE;
     cl->env = env;
     cl->env_info = env_info;
     cl->code = code;
@@ -298,7 +297,6 @@ struct closure *allocate_closure(
 
 struct int64_value *allocate_int64(int64_t x) {
     struct int64_value *v = malloc(sizeof(struct int64_value));
-    v->header.type = ALLOC_CONST;
     v->value = (uintptr_t)x;
 
     cons_new_alloc(AS_ALLOC(v), int64_value_info);
@@ -307,7 +305,6 @@ struct int64_value *allocate_int64(int64_t x) {
 
 struct bool_value *allocate_true(void) {
     struct bool_value *v = malloc(sizeof(struct bool_value));
-    v->header.type = ALLOC_BOOL;
     v->discriminant = 1;
 
     cons_new_alloc(AS_ALLOC(v), bool_value_info);
@@ -316,7 +313,6 @@ struct bool_value *allocate_true(void) {
 
 struct bool_value *allocate_false(void) {
     struct bool_value *v = malloc(sizeof(struct bool_value));
-    v->header.type = ALLOC_BOOL;
     v->discriminant = 0;
 
     cons_new_alloc(AS_ALLOC(v), bool_value_info);
@@ -325,7 +321,6 @@ struct bool_value *allocate_false(void) {
 
 struct sum *allocate_inl(struct alloc_header *x, type_info x_info) {
     struct sum *v = malloc(sizeof(struct sum));
-    v->header.type = ALLOC_SUM;
     v->discriminant = 0;
     v->info = x_info;
     v->payload = x;
@@ -336,7 +331,6 @@ struct sum *allocate_inl(struct alloc_header *x, type_info x_info) {
 
 struct sum *allocate_inr(struct alloc_header *y, type_info y_info) {
     struct sum *v = malloc(sizeof(struct sum));
-    v->header.type = ALLOC_SUM;
     v->discriminant = 1;
     v->info = y_info;
     v->payload = y;
@@ -347,7 +341,6 @@ struct sum *allocate_inr(struct alloc_header *y, type_info y_info) {
 
 struct list *allocate_list_nil(void) {
     struct list_nil *n = malloc(sizeof(struct list_nil));
-    n->header.header.type = ALLOC_LIST;
     n->header.discriminant = 0;
 
     cons_new_alloc(AS_ALLOC(n), list_info);
@@ -356,7 +349,6 @@ struct list *allocate_list_nil(void) {
 
 struct list *allocate_list_cons(struct alloc_header *x, type_info info, struct list *xs) {
     struct list_cons *c = malloc(sizeof(struct list_cons));
-    c->header.header.type = ALLOC_LIST;
     c->header.discriminant = 1;
     c->head_info = info;
     c->head = x;
@@ -368,7 +360,6 @@ struct list *allocate_list_cons(struct alloc_header *x, type_info info, struct l
 
 struct pair *allocate_pair(type_info a_info, type_info b_info, struct alloc_header *x, struct alloc_header *y) {
     struct pair *p = malloc(sizeof(struct pair));
-    p->header.type = ALLOC_PAIR;
     p->fst_info = a_info;
     p->snd_info = b_info;
     p->fst = x;
@@ -379,7 +370,6 @@ struct pair *allocate_pair(type_info a_info, type_info b_info, struct alloc_head
 
 struct unit *allocate_unit(void) {
     struct unit *n = malloc(sizeof(struct unit));
-    n->header.type = ALLOC_UNIT;
     cons_new_alloc(AS_ALLOC(n), unit_info);
     return n;
 }

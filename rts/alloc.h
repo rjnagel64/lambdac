@@ -6,20 +6,7 @@
 
 #include "string_buf.h"
 
-// allocation_type is only really used by 'any_info'.
-enum allocation_type {
-    ALLOC_CLOSURE,
-    ALLOC_ENV,
-    ALLOC_CONST,
-    ALLOC_BOOL,
-    ALLOC_SUM,
-    ALLOC_LIST,
-    ALLOC_PAIR,
-    ALLOC_UNIT,
-};
-
 struct alloc_header {
-    enum allocation_type type;
     uint32_t mark;
     struct alloc_header *next;
 };

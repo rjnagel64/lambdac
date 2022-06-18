@@ -217,7 +217,6 @@ emitProductAlloc :: ProductType -> [String]
 emitProductAlloc p@(ProductType ss) =
   ["struct product *allocate_" ++ productTyCode p ++ "(" ++ intercalate ", " args ++ ") {"
   ,"    struct product *v = malloc(sizeof(struct product) + " ++ numFields ++ " * sizeof(uintptr_t));"
-  ,"    v->header.type = ALLOC_PROD;"
   ,"    v->num_fields = " ++ numFields ++ ";"] ++
   mapWithIndex assignField ss ++
   ["    cons_new_alloc(AS_ALLOC(v), " ++ productInfo p ++ ");"
@@ -292,8 +291,7 @@ emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
 -- TODO: What if there is a parameter named 'env'?
 emitEnvAlloc ns (EnvDecl fs) =
   ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ params ++ ") {"
-  ,"    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"
-  ,"    env->header.type = ALLOC_ENV;"] ++
+  ,"    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"]++
   map assignField fs ++
   ["    cons_new_alloc(AS_ALLOC(env), " ++ closureEnvInfo ns ++ ");"
   ,"    return env;"
