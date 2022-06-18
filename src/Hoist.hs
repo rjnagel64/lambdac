@@ -37,7 +37,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Control.Monad.Reader
-import Control.Monad.Writer hiding (Product, Sum)
+import Control.Monad.Writer hiding (Sum)
 import Control.Monad.State
 
 import Data.Int (Int64)

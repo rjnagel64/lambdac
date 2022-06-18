@@ -34,7 +34,7 @@ import Data.Set (Set)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Control.Monad.Reader
-import Control.Monad.Writer hiding (Sum, Product)
+import Control.Monad.Writer hiding (Sum)
 
 import Data.List (intercalate, partition)
 import Data.Bifunctor
@@ -105,7 +105,6 @@ data Sort
   | Value
   | Alloc TyVar
   | Sum
-  | Product [Sort]
   | Pair Sort Sort
   | Unit
   | Boolean
@@ -118,7 +117,6 @@ instance Show Sort where
   show (Alloc aa) = "alloc"
   show Sum = "sum"
   show Boolean = "bool"
-  show (Product ss) = "product " ++ show ss
   show (List s) = "list " ++ show s
 
 sortOf :: K.TypeK -> Sort
