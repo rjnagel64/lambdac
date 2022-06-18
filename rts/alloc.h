@@ -15,7 +15,7 @@ enum allocation_type {
     ALLOC_SUM,
     ALLOC_LIST,
     ALLOC_PAIR,
-    ALLOC_NIL,
+    ALLOC_UNIT,
 };
 
 struct alloc_header {
@@ -91,14 +91,13 @@ type_info pair_info;
 
 #define AS_PAIR(v) ((struct pair *)(v))
 
-// TODO: struct nil -> struct unit
-struct nil {
+struct unit {
     struct alloc_header header;
 };
 
-type_info nil_info;
+type_info unit_info;
 
-#define AS_NIL(v) ((struct nil *)(v))
+#define AS_UNIT(v) ((struct unit *)(v))
 
 struct list {
     struct alloc_header header;
@@ -146,6 +145,6 @@ struct list *allocate_list_nil(void);
 struct list *allocate_list_cons(struct alloc_header *x, type_info info, struct list *xs);
 
 struct pair *allocate_pair(type_info a_info, type_info b_info, struct alloc_header *x, struct alloc_header *y);
-struct nil *allocate_nil(void);
+struct unit *allocate_unit(void);
 
 #endif

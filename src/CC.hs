@@ -101,8 +101,7 @@ data TyVar = TyVar String
 -- types.
 data Sort
   = Closure [Sort]
-  -- TODO: Rename Sort.Value to Sort.Integer
-  | Value
+  | Integer
   | Alloc TyVar
   | Sum
   | Pair Sort Sort
@@ -113,7 +112,7 @@ data Sort
 
 instance Show Sort where
   show (Closure ss) = "closure " ++ show ss
-  show Value = "value"
+  show Integer = "value"
   show (Alloc aa) = "alloc"
   show Sum = "sum"
   show Boolean = "bool"
@@ -126,7 +125,7 @@ sortOf (K.SumK _ _) = Sum
 sortOf K.BoolK = Boolean
 sortOf (K.ProdK t1 t2) = Pair (sortOf t1) (sortOf t2)
 sortOf K.UnitK = Unit
-sortOf K.IntK = Value
+sortOf K.IntK = Integer
 sortOf (K.ListK t) = List (sortOf t)
 sortOf (K.FunK ts ss) = Closure (map sortOf ts ++ map coSortOf ss)
 
@@ -308,8 +307,8 @@ fieldsFor (LetSndK x t y e) =
   unitTm y <> fieldsForTy t <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) =
   fieldsForValue v <> fieldsForTy t <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
-fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Value)] (fieldsFor e)
-fieldsFor (LetNegateK x y e) = unitTm y <> bindFields [(tmVar x, Value)] (fieldsFor e)
+fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Integer)] (fieldsFor e)
+fieldsFor (LetNegateK x y e) = unitTm y <> bindFields [(tmVar x, Integer)] (fieldsFor e)
 fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Boolean)] (fieldsFor e)
 
 fieldsForArith :: ArithK -> FieldsFor
@@ -430,12 +429,12 @@ cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> local extend
 cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) <$> cconvValue v <*> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) (sortOf t) ctx
-cconv (LetArithK x op e) = LetArithC (tmVar x, Value) (cconvArith op) <$> local extend (cconv e)
+cconv (LetArithK x op e) = LetArithC (tmVar x, Integer) (cconvArith op) <$> local extend (cconv e)
   where
-    extend ctx = Map.insert (tmVar x) Value ctx
-cconv (LetNegateK x y e) = LetNegateC (tmVar x, Value) (tmVar y) <$> local extend (cconv e)
+    extend ctx = Map.insert (tmVar x) Integer ctx
+cconv (LetNegateK x y e) = LetNegateC (tmVar x, Integer) (tmVar y) <$> local extend (cconv e)
   where
-    extend ctx = Map.insert (tmVar x) Value ctx
+    extend ctx = Map.insert (tmVar x) Integer ctx
 cconv (LetCompareK x cmp e) = LetCompareC (tmVar x, Boolean) (cconvCmp cmp) <$> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) Boolean ctx

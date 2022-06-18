@@ -81,7 +81,7 @@ data ThunkNames
 -- (e.g., (a, a) and (a, b) are both P2AA)
 tycode :: Sort -> String
 tycode (Closure ss) = 'C' : show (length ss) ++ concatMap tycode ss
-tycode Value = "V"
+tycode Integer = "V"
 tycode (Alloc aa) = error "tycode: schema not expressive enough"
 tycode Sum = "S"
 tycode Boolean = "B"
@@ -103,31 +103,31 @@ namesForThunk (ThunkType ss) =
 typeForSort :: Sort -> String
 typeForSort (Alloc aa) = "struct alloc_header *"
 typeForSort (Closure ss) = "struct closure *"
-typeForSort Value = "struct int64_value *"
+typeForSort Integer = "struct int64_value *"
 typeForSort Sum = "struct sum *"
 typeForSort Boolean = "struct bool_value *"
 typeForSort (Pair _ _) = "struct pair *"
-typeForSort Unit = "struct nil *"
+typeForSort Unit = "struct unit *"
 typeForSort (List _) = "struct list *"
 
 infoForSort :: Sort -> String
-infoForSort (Alloc aa) = error "type-variable info not yet supported"
+infoForSort (Alloc aa) = error "infoForSort: type-variable info not yet supported"
 infoForSort Sum = "sum_info"
 infoForSort Boolean = "bool_value_info"
-infoForSort Value = "int64_value_info"
+infoForSort Integer = "int64_value_info"
 infoForSort (Pair _ _) = "pair_info"
-infoForSort Unit = "nil_info"
+infoForSort Unit = "unit_info"
 infoForSort (Closure ss) = "closure_info"
 infoForSort (List _) = "list_info"
 
 asSort :: Sort -> String -> String
 asSort (Alloc _) x = asAlloc x
-asSort Value x = "AS_INT64(" ++ x ++ ")"
+asSort Integer x = "AS_INT64(" ++ x ++ ")"
 asSort (Closure ss) x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
 asSort Boolean x = "AS_BOOL(" ++ x ++ ")"
 asSort (Pair _ _) x = "AS_PAIR(" ++ x ++ ")"
-asSort Unit x = "AS_NIL(" ++ x ++ ")"
+asSort Unit x = "AS_UNIT(" ++ x ++ ")"
 asSort (List _s) x = "AS_LIST(" ++ x ++ ")"
 
 asAlloc :: String -> String
@@ -402,7 +402,7 @@ emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
 emitValueAlloc envp (PairH (x, s1) (y, s2)) =
   "allocate_pair(" ++ infoForSort s1 ++ ", " ++ infoForSort s2 ++ ", " ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
-emitValueAlloc _ NilH = "allocate_nil()"
+emitValueAlloc _ NilH = "allocate_unit()"
 emitValueAlloc envp (InlH s y) =
   "allocate_inl(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
 emitValueAlloc envp (InrH s y) =

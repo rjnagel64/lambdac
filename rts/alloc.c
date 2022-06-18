@@ -191,14 +191,14 @@ void display_pair(struct alloc_header *alloc, struct string_buf *sb) {
 
 type_info pair_info = { trace_pair, display_pair };
 
-void trace_nil(struct alloc_header *alloc) {
+void trace_unit(struct alloc_header *alloc) {
 }
 
-void display_nil(struct alloc_header *alloc, struct string_buf *sb) {
+void display_unit(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push(sb, "()");
 }
 
-type_info nil_info = { trace_nil, display_nil };
+type_info unit_info = { trace_unit, display_unit };
 
 
 
@@ -377,10 +377,10 @@ struct pair *allocate_pair(type_info a_info, type_info b_info, struct alloc_head
     return p;
 }
 
-struct nil *allocate_nil(void) {
-    struct nil *n = malloc(sizeof(struct list_nil));
-    n->header.type = ALLOC_NIL;
-    cons_new_alloc(AS_ALLOC(n), nil_info);
+struct unit *allocate_unit(void) {
+    struct unit *n = malloc(sizeof(struct unit));
+    n->header.type = ALLOC_UNIT;
+    cons_new_alloc(AS_ALLOC(n), unit_info);
     return n;
 }
 
