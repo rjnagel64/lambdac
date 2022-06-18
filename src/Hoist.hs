@@ -398,6 +398,7 @@ pprintTerm n (AllocClosure cs e) =
 
 pprintValue :: ValueH -> String
 pprintValue (PairH (x, _) (y, _)) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue NilH = "()"
 pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (InlH _ x) = "inl " ++ show x

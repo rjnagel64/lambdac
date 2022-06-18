@@ -118,6 +118,8 @@ instance Show Sort where
   show Sum = "sum"
   show Boolean = "bool"
   show (List s) = "list " ++ show s
+  show (Pair s t) = "pair " ++ show s ++ " " ++ show t
+  show Unit = "unit"
 
 sortOf :: K.TypeK -> Sort
 sortOf (K.SumK _ _) = Sum

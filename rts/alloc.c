@@ -213,14 +213,6 @@ void trace_alloc(struct alloc_header *alloc) {
     case ALLOC_CONST:
         trace_int64_value(alloc);
         break;
-    case ALLOC_PROD:
-        {
-        struct product *v = AS_PRODUCT(alloc);
-        for (uint32_t i = 0; i < v->num_fields; i++) {
-            mark_gray(AS_ALLOC(v->words[i]), any_info);
-        }
-        }
-        break;
     case ALLOC_SUM:
         trace_sum(alloc);
         break;
@@ -267,19 +259,6 @@ void display_alloc(struct alloc_header *alloc, struct string_buf *sb) {
         break;
     case ALLOC_NIL:
         nil_info.display(alloc, sb);
-        break;
-    case ALLOC_PROD:
-        {
-        struct product *v = AS_PRODUCT(alloc);
-        string_buf_push(sb, "(");
-        for (uint32_t i = 0; i < v->num_fields; i++) {
-            if (i > 0) {
-                string_buf_push(sb, ", ");
-            }
-            display_alloc(AS_ALLOC(v->words[i]), sb);
-        }
-        string_buf_push(sb, ")");
-        }
         break;
     }
 }
