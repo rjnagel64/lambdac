@@ -30,8 +30,6 @@ struct _type_info {
 };
 typedef struct _type_info type_info;
 
-type_info any_info;
-
 #define AS_ALLOC(v) ((struct alloc_header *)(v))
 
 struct int64_value {

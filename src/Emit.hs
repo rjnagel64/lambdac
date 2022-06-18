@@ -111,7 +111,7 @@ typeForSort Unit = "struct nil *"
 typeForSort (List _) = "struct list *"
 
 infoForSort :: Sort -> String
-infoForSort (Alloc aa) = "any_info"
+infoForSort (Alloc aa) = error "type-variable info not yet supported"
 infoForSort Sum = "sum_info"
 infoForSort Boolean = "bool_value_info"
 infoForSort Value = "int64_value_info"
