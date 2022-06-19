@@ -19,6 +19,7 @@ module CC
   , ArithC(..)
   , CmpC(..)
   , Sort(..)
+  , TyVar(..)
   , ThunkType(..)
   , ProductType(..)
   , TypeDecls(..)
@@ -90,6 +91,9 @@ coVar (K.CoVar k i) = Name k i
 
 data TyVar = TyVar String
   deriving (Eq, Ord)
+
+instance Show TyVar where
+  show (TyVar aa) = aa
 
 -- | 'Sort' is really a simplified form of type information.
 -- Value = int

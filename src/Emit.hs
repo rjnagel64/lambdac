@@ -26,6 +26,7 @@ import Hoist
 -- text s = Emit $ \_ -> B.fromText (T.pack s)
 
 -- TODO: Ensure declarations (esp. product type declarations) are emitted in topological order
+-- TODO: Stop collecting ProductType.
 emitProgram :: (Set ThunkType, Set ProductType, [ClosureDecl], TermH) -> [String]
 emitProgram (ts, ps, cs, e) =
   prologue ++
@@ -110,15 +111,15 @@ typeForSort (Pair _ _) = "struct pair *"
 typeForSort Unit = "struct unit *"
 typeForSort (List _) = "struct list *"
 
-infoForSort :: Sort -> String
-infoForSort (Alloc aa) = error "infoForSort: type-variable info not yet supported"
-infoForSort Sum = "sum_info"
-infoForSort Boolean = "bool_value_info"
-infoForSort Integer = "int64_value_info"
-infoForSort (Pair _ _) = "pair_info"
-infoForSort Unit = "unit_info"
-infoForSort (Closure ss) = "closure_info"
-infoForSort (List _) = "list_info"
+infoForSort :: String -> Sort -> String
+infoForSort envp (Alloc aa) = envp ++ "->" ++ show aa
+infoForSort _ Sum = "sum_info"
+infoForSort _ Boolean = "bool_value_info"
+infoForSort _ Integer = "int64_value_info"
+infoForSort _ (Pair _ _) = "pair_info"
+infoForSort _ Unit = "unit_info"
+infoForSort _ (Closure ss) = "closure_info"
+infoForSort _ (List _) = "list_info"
 
 asSort :: Sort -> String -> String
 asSort (Alloc _) x = asAlloc x
@@ -136,9 +137,6 @@ asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex f = zipWith f [0..]
 
--- TODO: Emit per-sort allocate_closure methods
--- (And then, per-sort allocate_closure types)
--- (And then, remove struct closure?)
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
   emitThunkType t ++
@@ -251,7 +249,14 @@ emitProductDisplay p@(ProductType ss) =
   ,"}"]
   where
     ty = productTyCode p
-    displayField i s = "    " ++ infoForSort s ++ ".display(" ++ asAlloc ("v->words[" ++ show i ++ "]") ++ ", sb);"
+    -- TODO: Not the correct envp here.
+    -- I think it should be "direct references" (no ->).
+    -- Or possibly, 'struct product *v' since info fields are stored in the
+    -- product.
+    --
+    -- Anyway, it's a moot point, because these product types aren't connected
+    -- to anything.
+    displayField i s = "    " ++ infoForSort "NULL" s ++ ".display(" ++ asAlloc ("v->words[" ++ show i ++ "]") ++ ", sb);"
 
 emitProductInfo :: ProductType -> [String]
 emitProductInfo p =
@@ -279,19 +284,22 @@ emitClosureDecl (H.ClosureDecl d envd params e) =
   where ns = namesForDecl d
 
 emitEnvDecl :: ClosureNames -> EnvDecl -> [String]
-emitEnvDecl ns (EnvDecl fs) =
+emitEnvDecl ns (EnvDecl is fs) =
   ["struct " ++ closureEnvName ns ++ " {"
   ,"    struct alloc_header header;"] ++
+  map mkInfo is ++
   map mkField fs ++
   ["};"]
   where
+    mkInfo i = "    " ++ emitInfoDecl i ++ ";"
     mkField f = "    " ++ emitFieldDecl f ++ ";"
 
 emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
 -- TODO: What if there is a parameter named 'env'?
-emitEnvAlloc ns (EnvDecl fs) =
+emitEnvAlloc ns (EnvDecl is fs) =
   ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ params ++ ") {"
   ,"    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"]++
+  map assignInfo is ++
   map assignField fs ++
   ["    cons_new_alloc(AS_ALLOC(env), " ++ closureEnvInfo ns ++ ");"
   ,"    return env;"
@@ -299,13 +307,16 @@ emitEnvAlloc ns (EnvDecl fs) =
   where
     params = if null fs then "void" else intercalate ", " (map emitFieldDecl fs)
 
+    assignInfo :: InfoName -> String
+    assignInfo aa = "    env->" ++ infoName aa ++ " = " ++ infoName aa ++ ";"
+
     assignField :: FieldName -> String
     assignField (FieldName _ x) = "    env->" ++ x ++ " = " ++ x ++ ";"
 
 -- | Emit a method to trace a closure environment.
 -- (Emit type info for the environment types)
 emitEnvTrace :: ClosureNames -> EnvDecl -> [String]
-emitEnvTrace ns (EnvDecl fs) =
+emitEnvTrace ns (EnvDecl _is fs) =
   ["void " ++ closureTraceName ns ++ "(struct alloc_header *alloc) {"
   ,"    " ++ closureTy ++ "env = (" ++ closureTy ++ ")alloc;"] ++
   map traceField fs ++
@@ -315,9 +326,6 @@ emitEnvTrace ns (EnvDecl fs) =
     closureTy = "struct " ++ closureEnvName ns ++ " *"
     traceField :: FieldName -> String
     traceField (FieldName s x) = "    " ++ emitMarkGray ("env->" ++ x) s ++ ";"
-
-emitMarkGray :: String -> Sort -> String
-emitMarkGray x s = "mark_gray(" ++ asAlloc x ++ ", " ++ infoForSort s ++ ")"
 
 emitClosureCode :: ClosureNames -> [PlaceName] -> TermH -> [String]
 emitClosureCode ns xs e =
@@ -359,7 +367,7 @@ emitClosureBody envp (AllocClosure cs e) =
   emitAllocGroup envp cs ++
   emitClosureBody envp e
 emitClosureBody envp (HaltH x s) =
-  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort s ++ ");"]
+  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort envp s ++ ");"]
 emitClosureBody envp (OpenH c xs) =
   [emitSuspend envp c xs]
 emitClosureBody envp (CaseH x kind ks) =
@@ -399,15 +407,15 @@ emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
 emitValueAlloc envp (PairH (x, s1) (y, s2)) =
-  "allocate_pair(" ++ infoForSort s1 ++ ", " ++ infoForSort s2 ++ ", " ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
+  "allocate_pair(" ++ infoForSort envp s1 ++ ", " ++ infoForSort envp s2 ++ ", " ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ NilH = "allocate_unit()"
 emitValueAlloc envp (InlH s y) =
-  "allocate_inl(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
+  "allocate_inl(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort envp s ++ ")"
 emitValueAlloc envp (InrH s y) =
-  "allocate_inr(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort s ++ ")"
+  "allocate_inr(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort envp s ++ ")"
 emitValueAlloc _ ListNilH = "allocate_list_nil()"
 emitValueAlloc envp (ConsH s x xs) =
-  "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort s ++ ", " ++ emitName envp xs ++ ")"
+  "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort envp s ++ ", " ++ emitName envp xs ++ ")"
 
 emitPrimOp :: String -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
@@ -421,7 +429,7 @@ emitPrimOp envp (PrimLeInt64 x y) = emitPrimCall envp "prim_leint64" [x, y]
 emitPrimOp envp (PrimGtInt64 x y) = emitPrimCall envp "prim_gtint64" [x, y]
 emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
 
--- TODO: emitPrimCall could take a list of type/info arguments
+-- TODO: emitPrimCall could take a list of type/info arguments?
 emitPrimCall :: String -> String -> [Name] -> String
 emitPrimCall envp f xs = f ++ "(" ++ intercalate ", " (map (emitName envp) xs) ++ ")"
 
@@ -453,10 +461,18 @@ emitPatch ns (PlaceName _ p) (EnvAlloc _free rec) =
 emitFieldDecl :: FieldName -> String
 emitFieldDecl (FieldName s x) = typeForSort s ++ x
 
+emitInfoDecl :: InfoName -> String
+emitInfoDecl (InfoName i) = "struct type_info " ++ i
+
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName s x) = typeForSort s ++ x
 
 emitName :: String -> Name -> String
 emitName _ (LocalName x) = x
 emitName envp (EnvName x) = envp ++ "->" ++ x
+
+-- TODO: I think 'emitMarkGray' needs the environment pointer, so it can access
+-- type_info in the env.
+emitMarkGray :: String -> Sort -> String
+emitMarkGray x s = "mark_gray(" ++ asAlloc x ++ ", " ++ infoForSort "NULL" s ++ ")"
 

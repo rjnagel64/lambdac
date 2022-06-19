@@ -18,6 +18,7 @@ module Hoist
     , ProductType(..)
     , PlaceName(..)
     , FieldName(..)
+    , InfoName(..)
     , DeclName(..)
     , ClosureDecl(..)
     , EnvDecl(..)
@@ -73,6 +74,11 @@ asPlaceName s (C.Name x i) = PlaceName s (x ++ show i)
 asFieldName :: Sort -> C.Name -> FieldName
 asFieldName s (C.Name x i) = FieldName s (x ++ show i)
 
+data InfoName = InfoName { infoName :: String }
+
+asInfoName :: C.TyVar -> InfoName
+asInfoName (C.TyVar aa) = InfoName aa
+
 
 -- | 'DeclName's are used to refer to top-level functions and continuations.
 -- They are introduced by (hoisting) function/continuation closure bingings,
@@ -90,7 +96,7 @@ asDeclName (C.Name x i) = DeclName (x ++ show i)
 data ClosureDecl
   = ClosureDecl DeclName EnvDecl [PlaceName] TermH
 
-newtype EnvDecl = EnvDecl [FieldName]
+data EnvDecl = EnvDecl [InfoName] [FieldName]
 
 data TermH
   = LetValH PlaceName ValueH TermH
@@ -327,10 +333,10 @@ inClosure (C.EnvDef free rec) places m = do
   let fields = free ++ rec
   let fields' = map (\ (x, s) -> (x, asFieldName s x)) fields
   let places' = map (\ (x, s) -> (x, asPlaceName s x)) places
-  -- Preserve 'DeclName's?
   let replaceEnv (HoistEnv _ _) = HoistEnv (Map.fromList places') (Map.fromList fields')
   r <- local replaceEnv m
-  pure (EnvDecl (map snd fields'), map snd places', r)
+  -- TODO: Record type variables here
+  pure (EnvDecl [] (map snd fields'), map snd places', r)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
@@ -424,14 +430,17 @@ pprintPlace (PlaceName s x) = show s ++ " " ++ x
 pprintField :: FieldName -> String
 pprintField (FieldName s x) = show s ++ " " ++ x
 
+pprintInfo :: InfoName -> String
+pprintInfo (InfoName aa) = aa
+
 pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = "let {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
 
 pprintClosureDecl :: Int -> ClosureDecl -> String
-pprintClosureDecl n (ClosureDecl f (EnvDecl fs) params e) =
+pprintClosureDecl n (ClosureDecl f (EnvDecl is fs) params e) =
   indent n (show f ++ " " ++ env ++ " (" ++ intercalate ", " (map pprintPlace params) ++ ") =\n") ++
   pprintTerm (n+2) e
-  where env = "{" ++ intercalate ", " (map pprintField fs) ++ "}"
+  where env = "{" ++ intercalate ", " (map pprintInfo is) ++ "; " ++ intercalate ", " (map pprintField fs) ++ "}"
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p _t d (EnvAlloc free rec)) =
