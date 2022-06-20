@@ -55,6 +55,7 @@ standard_test("listcase", "34")
 standard_test("listsum", "15")
 standard_test("listmerge", "cons 1 cons 2 cons 3 cons 4 cons 5 cons 6 cons 7 nil")
 standard_test("mergesort", "cons 1 cons 2 cons 3 cons 4 cons 5 cons 6 cons 7 nil")
+standard_test("polyid", "<closure>")
 
 
 for (test, out, err) in failed_tests:

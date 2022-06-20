@@ -80,6 +80,7 @@ import Source
 Term :: { Term }
      : AppTerm { $1 }
      | '\\' '(' ID ':' Type ')' '->' Term { TmLam (var $3) $5 $8 }
+     | '\\' '@' ID '->' Term { TmTLam (tvar $3) $5 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
      | 'let' FunBinds 'in' Term { TmRecFun $2 $4 }
      | 'letrec' RecBinds 'in' Term { TmLetRec $2 $4 }
@@ -110,6 +111,7 @@ Term :: { Term }
 AppTerm :: { Term }
         : ATerm { $1 }
         | AppTerm ATerm { TmApp $1 $2 }
+        | AppTerm '@' AType { TmTApp $1 $3 }
 
 ATerm :: { Term }
      : '(' Term ')' { $2 }

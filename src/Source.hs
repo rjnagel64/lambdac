@@ -81,6 +81,8 @@ data Term
   | TmCons Term Term
   -- case uncons e return s of nil -> e1; cons (y : t1) (ys : t2) -> e2
   | TmCaseList Term Type Term ((TmVar, Type), (TmVar, Type), Term)
+  | TmTLam TyVar Term
+  | TmTApp Term Type
 
 data TmArith
   = TmArithAdd
