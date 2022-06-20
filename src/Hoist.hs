@@ -130,7 +130,11 @@ data ClosureAlloc
   }
 
 data EnvAlloc
-  = EnvAlloc { envAllocFreeArgs :: [(FieldName, Name)], envAllocRecArgs :: [(FieldName, Name)] }
+  = EnvAlloc {
+    envAllocInfoArgs :: [(InfoName, C.TyVar)]
+  , envAllocFreeArgs :: [(FieldName, Name)]
+  , envAllocRecArgs :: [(FieldName, Name)]
+  }
 
 data ValueH
   = IntH Int64
@@ -253,7 +257,7 @@ hoist (LetContC ks e) = do
 
 hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
 hoistEnvDef (C.EnvDef free rec) =
-  EnvAlloc <$> traverse envAllocField free <*> traverse envAllocField rec
+  EnvAlloc [] <$> traverse envAllocField free <*> traverse envAllocField rec
 
 envAllocField :: (C.Name, Sort) -> HoistM (FieldName, Name)
 envAllocField (x, s) = do
@@ -447,7 +451,7 @@ pprintClosureDecl n (ClosureDecl f (EnvDecl is fs) params e) =
   where env = "{" ++ intercalate ", " (map pprintInfo is) ++ "; " ++ intercalate ", " (map pprintField fs) ++ "}"
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
-pprintClosureAlloc n (ClosureAlloc p _t d (EnvAlloc free rec)) =
+pprintClosureAlloc n (ClosureAlloc p _t d (EnvAlloc _info free rec)) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ env'
   where env' = "{" ++ intercalate ", " (map pprintAllocArg (free ++ rec)) ++ "}\n"
 

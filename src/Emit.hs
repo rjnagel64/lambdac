@@ -363,7 +363,7 @@ emitAllocGroup envp closures =
   concatMap (\ (ClosureAlloc p _ty d env) -> emitPatch (namesForDecl d) p env) closures
 
 emitAlloc :: EnvPtr -> ClosureAlloc -> String
-emitAlloc envp (ClosureAlloc p ty d (EnvAlloc free rec)) =
+emitAlloc envp (ClosureAlloc p ty d (EnvAlloc info free rec)) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep args ++ ");"
   where
     ns = namesForDecl d
@@ -375,12 +375,16 @@ emitAlloc envp (ClosureAlloc p ty d (EnvAlloc free rec)) =
 
     -- Recursive/cyclic environment references are initialized to NULL, and
     -- then patched once all the closures have been allocated.
-    envAllocArgs = map (emitName envp . snd) free ++ map (const "NULL") rec
+    infoArgs = map (infoForSort envp . Alloc . snd) info
+    envAllocArgs = infoArgs ++ map (emitName envp . snd) free ++ map (const "NULL") rec
 
 emitPatch :: ClosureNames -> PlaceName -> EnvAlloc -> [String]
-emitPatch ns (PlaceName _ p) (EnvAlloc _free rec) =
-  ["    " ++ env ++ "->" ++ f ++ " = " ++ x ++ ";" | (FieldName _ f, LocalName x) <- rec]
-  where env = "((struct " ++ closureEnvName ns ++ " *)" ++ p ++ "->env)"
+emitPatch ns (PlaceName _ p) (EnvAlloc _info _free rec) =
+  concatMap patchField rec
+  where
+    env = "((struct " ++ closureEnvName ns ++ " *)" ++ p ++ "->env)"
+    patchField (FieldName _ f, LocalName x) = ["    " ++ env ++ "->" ++ f ++ " = " ++ x ++ ";"]
+    patchField (_, EnvName _) = [] -- Why ignore environment names?
 
 emitFieldDecl :: FieldName -> String
 emitFieldDecl (FieldName s x) = typeForSort s ++ x
