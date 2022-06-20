@@ -4,7 +4,7 @@ module Emit (emitProgram) where
 import qualified Data.Set as Set
 import Data.Set (Set)
 
-import Data.List (intercalate, intersperse)
+import Data.List (intercalate)
 
 import qualified Hoist as H
 import Hoist
@@ -32,10 +32,9 @@ type EnvPtr = String
 
 -- TODO: Ensure declarations (esp. product type declarations) are emitted in topological order
 -- TODO: Stop collecting ProductType.
-emitProgram :: (Set ThunkType, Set ProductType, [ClosureDecl], TermH) -> [String]
-emitProgram (ts, ps, cs, e) =
+emitProgram :: (Set ThunkType, [ClosureDecl], TermH) -> [String]
+emitProgram (ts, cs, e) =
   prologue ++
-  concatMap emitProductDecl [] ++
   concatMap emitThunkDecl ts ++
   concatMap emitClosureDecl cs ++
   emitEntryPoint e
@@ -200,85 +199,6 @@ emitThunkSuspend (ThunkType ss) =
     paramList = commaSep ("struct closure *closure" : mapWithIndex makeParam ss)
     makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
-
-emitProductDecl :: ProductType -> [String]
-emitProductDecl (ProductType ss) =
-  emitProductTrace (ProductType ss) ++
-  emitProductDisplay (ProductType ss) ++
-  emitProductInfo (ProductType ss) ++
-  emitProductAlloc (ProductType ss) ++
-  concat (mapWithIndex (emitProductProjection (ProductType ss)) ss)
-
-productInfo :: ProductType -> String
-productInfo p = "product_" ++ productTyCode p ++ "_info"
-
-productTyCode :: ProductType -> String
-productTyCode (ProductType ss) = 'P' : show (length ss) ++ concatMap tycode ss
-
--- TODO: Code generation for product types with polymorphic fields
-emitProductAlloc :: ProductType -> [String]
-emitProductAlloc p@(ProductType ss) =
-  ["struct product *allocate_" ++ productTyCode p ++ "(" ++ commaSep args ++ ") {"
-  ,"    struct product *v = malloc(sizeof(struct product) + " ++ numFields ++ " * sizeof(uintptr_t));"
-  ,"    v->num_fields = " ++ numFields ++ ";"] ++
-  mapWithIndex assignField ss ++
-  ["    cons_new_alloc(AS_ALLOC(v), " ++ productInfo p ++ ");"
-  ,"    return v;"
-  ,"}"]
-  where
-    numFields = show (length ss)
-    args =
-      if null ss then
-        ["void"]
-      else
-        mapWithIndex (\i s -> emitPlace (PlaceName s ("arg" ++ show i))) ss
-    assignField i _s = "    v->words[" ++ show i ++ "] = (uintptr_t)arg" ++ show i ++ ";"
-
-emitProductTrace :: ProductType -> [String]
-emitProductTrace p@(ProductType ss) =
-  ["void trace_product_" ++ ty ++ "(struct alloc_header *alloc) {"
-  ,"    struct product *v = AS_PRODUCT(alloc);"] ++
-  mapWithIndex traceField ss ++
-  ["}"]
-  where
-    ty = productTyCode p
-    traceField i s = "    " ++ emitMarkGray ("v->words[" ++ show i ++ "]") s ++ ";"
-
-emitProductDisplay :: ProductType -> [String]
-emitProductDisplay p@(ProductType ss) =
-  ["void display_product_" ++ ty ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
-  ,"    struct product *v = AS_PRODUCT(alloc);"
-  ,"    string_buf_push(sb, \"(\");"] ++
-  intersperse "    string_buf_push(sb, \", \");" (mapWithIndex displayField ss) ++
-  ["    string_buf_push(sb, \")\");"
-  ,"}"]
-  where
-    ty = productTyCode p
-    -- TODO: Not the correct envp here.
-    -- I think it should be "direct references" (no ->).
-    -- Or possibly, 'struct product *v' since info fields are stored in the
-    -- product.
-    --
-    -- Anyway, it's a moot point, because these product types aren't connected
-    -- to anything.
-    displayField i s = "    " ++ infoForSort "NULL" s ++ ".display(" ++ asAlloc ("v->words[" ++ show i ++ "]") ++ ", sb);"
-
-emitProductInfo :: ProductType -> [String]
-emitProductInfo p =
-  ["type_info product_" ++ ty ++ "_info = { " ++ trace ++ ", " ++ display ++ " };"]
-  where
-    ty = productTyCode p
-    trace = "trace_product_" ++ ty
-    display = "display_product_" ++ ty
-
-emitProductProjection :: ProductType -> Int -> Sort -> [String]
-emitProductProjection p i s =
-  [typeForSort s ++ fnName ++ "(struct product *p) {"
-  ,"    return " ++ asSort s ("p->words[" ++ show i ++ "]") ++ ";"
-  ,"}"]
-  where
-    ty = productTyCode p
-    fnName = "project_" ++ ty ++ "_" ++ show i
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d envd params e) =

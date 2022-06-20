@@ -97,7 +97,7 @@ main = do
     putStrLn $ "--- Hoisting ---"
     putStrLn $ H.pprintClosures closureDecls ++ H.pprintTerm 0 srcH
 
-  let obj = unlines $ E.emitProgram (thunkDecls, productDecls, closureDecls, srcH)
+  let obj = unlines $ E.emitProgram (thunkDecls, closureDecls, srcH)
   when (driverDumpEmit args) $ do
     putStrLn $ "--- Code Generation ---"
     putStrLn obj
