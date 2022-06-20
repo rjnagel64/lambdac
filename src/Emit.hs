@@ -25,6 +25,11 @@ import Hoist
 -- text :: String -> Emit
 -- text s = Emit $ \_ -> B.fromText (T.pack s)
 
+commaSep :: [String] -> String
+commaSep = intercalate ", "
+
+type EnvPtr = String
+
 -- TODO: Ensure declarations (esp. product type declarations) are emitted in topological order
 -- TODO: Stop collecting ProductType.
 emitProgram :: (Set ThunkType, Set ProductType, [ClosureDecl], TermH) -> [String]
@@ -111,7 +116,7 @@ typeForSort (Pair _ _) = "struct pair *"
 typeForSort Unit = "struct unit *"
 typeForSort (List _) = "struct list *"
 
-infoForSort :: String -> Sort -> String
+infoForSort :: EnvPtr -> Sort -> String
 infoForSort envp (Alloc aa) = envp ++ "->" ++ show aa
 infoForSort _ Sum = "sum_info"
 infoForSort _ Boolean = "bool_value_info"
@@ -175,9 +180,9 @@ emitThunkEnter (ThunkType ss) =
   ,"}"]
   where
     ns = namesForThunk (ThunkType ss)
-    paramList = intercalate ", " ("void *env" : mapWithIndex makeParam ss)
+    paramList = commaSep ("void *env" : mapWithIndex makeParam ss)
     makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
-    argList = intercalate ", " ("next->closure->env" : mapWithIndex makeArgument ss)
+    argList = commaSep ("next->closure->env" : mapWithIndex makeArgument ss)
     makeArgument i _ = "next->arg" ++ show i
 
 emitThunkSuspend :: ThunkType -> [String]
@@ -192,7 +197,7 @@ emitThunkSuspend (ThunkType ss) =
   ,"}"]
   where
     ns = namesForThunk (ThunkType ss)
-    paramList = intercalate ", " ("struct closure *closure" : mapWithIndex makeParam ss)
+    paramList = commaSep ("struct closure *closure" : mapWithIndex makeParam ss)
     makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
 
@@ -213,7 +218,7 @@ productTyCode (ProductType ss) = 'P' : show (length ss) ++ concatMap tycode ss
 -- TODO: Code generation for product types with polymorphic fields
 emitProductAlloc :: ProductType -> [String]
 emitProductAlloc p@(ProductType ss) =
-  ["struct product *allocate_" ++ productTyCode p ++ "(" ++ intercalate ", " args ++ ") {"
+  ["struct product *allocate_" ++ productTyCode p ++ "(" ++ commaSep args ++ ") {"
   ,"    struct product *v = malloc(sizeof(struct product) + " ++ numFields ++ " * sizeof(uintptr_t));"
   ,"    v->num_fields = " ++ numFields ++ ";"] ++
   mapWithIndex assignField ss ++
@@ -305,7 +310,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
   ,"    return env;"
   ,"}"]
   where
-    params = if null fs then "void" else intercalate ", " (map emitFieldDecl fs)
+    params = if null fs then "void" else commaSep (map emitFieldDecl fs)
 
     assignInfo :: InfoName -> String
     assignInfo aa = "    env->" ++ infoName aa ++ " = " ++ infoName aa ++ ";"
@@ -334,7 +339,7 @@ emitClosureCode ns xs e =
   emitClosureBody envPointer e ++
   ["}"]
   where
-    paramList = intercalate ", " (("void *"++envParam) : map emitPlace xs)
+    paramList = commaSep (("void *"++envParam) : map emitPlace xs)
     xs' = Set.fromList (map placeName xs) `Set.union` go2 e
     envParam = go "envp" xs'
     envPointer = go "env" (Set.insert envParam xs')
@@ -347,10 +352,10 @@ emitClosureCode ns xs e =
     go2 (LetProjectH p _ _ e') = Set.insert (placeName p) (go2 e')
     go2 (AllocClosure cs e') = foldr (Set.insert . placeName) (go2 e') (map closurePlace cs)
     go2 (HaltH _ _) = Set.empty
-    go2 (OpenH _ _) = Set.empty
+    go2 (OpenH _ _ _) = Set.empty
     go2 (CaseH _ _ _) = Set.empty
 
-emitClosureBody :: String -> TermH -> [String]
+emitClosureBody :: EnvPtr -> TermH -> [String]
 emitClosureBody envp (LetValH x v e) =
   ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc envp v ++ ";"] ++
   emitClosureBody envp e
@@ -368,18 +373,17 @@ emitClosureBody envp (AllocClosure cs e) =
   emitClosureBody envp e
 emitClosureBody envp (HaltH x s) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort envp s ++ ");"]
-emitClosureBody envp (OpenH c xs) =
-  [emitSuspend envp c xs]
+emitClosureBody envp (OpenH c ty xs) =
+  [emitSuspend envp c ty xs]
 emitClosureBody envp (CaseH x kind ks) =
   emitCase kind envp x ks
 
-emitSuspend :: String -> Name -> [(Name, Sort)] -> String
-emitSuspend envp cl xs = "    " ++ method ++ "(" ++ intercalate ", " args ++ ");"
+emitSuspend :: EnvPtr -> Name -> ThunkType -> [Name] -> String
+emitSuspend envp cl ty xs = "    " ++ emitPrimCall envp method (cl : xs) ++ ";"
   where
-    method = thunkSuspendName (namesForThunk (ThunkType (map snd xs)))
-    args = emitName envp cl : map (emitName envp . fst) xs
+    method = thunkSuspendName (namesForThunk ty)
 
-emitCase :: CaseKind -> String -> Name -> [(Name, ThunkType)] -> [String]
+emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]
 emitCase kind envp x ks =
   ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch (zip3 [0..] (branchArgNames kind) ks) ++
@@ -395,14 +399,14 @@ emitCase kind envp x ks =
         mkArg argName argSort = asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
-        ,"        " ++ method ++ "(" ++ intercalate ", " args ++ ");"
+        ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
 
     branchArgNames CaseBool = [("AS_BOOL_FALSE", []), ("AS_BOOL_TRUE", [])]
     branchArgNames CaseSum = [("AS_SUM_INL", ["payload"]), ("AS_SUM_INR", ["payload"])]
     branchArgNames CaseList = [("AS_LIST_NIL", []), ("AS_LIST_CONS", ["head", "tail"])]
 
-emitValueAlloc :: String -> ValueH -> String
+emitValueAlloc :: EnvPtr -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
@@ -417,7 +421,7 @@ emitValueAlloc _ ListNilH = "allocate_list_nil()"
 emitValueAlloc envp (ConsH s x xs) =
   "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort envp s ++ ", " ++ emitName envp xs ++ ")"
 
-emitPrimOp :: String -> PrimOp -> String
+emitPrimOp :: EnvPtr -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
 emitPrimOp envp (PrimSubInt64 x y) = emitPrimCall envp "prim_subint64" [x, y]
 emitPrimOp envp (PrimMulInt64 x y) = emitPrimCall envp "prim_mulint64" [x, y]
@@ -430,21 +434,21 @@ emitPrimOp envp (PrimGtInt64 x y) = emitPrimCall envp "prim_gtint64" [x, y]
 emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
 
 -- TODO: emitPrimCall could take a list of type/info arguments?
-emitPrimCall :: String -> String -> [Name] -> String
-emitPrimCall envp f xs = f ++ "(" ++ intercalate ", " (map (emitName envp) xs) ++ ")"
+emitPrimCall :: EnvPtr -> String -> [Name] -> String
+emitPrimCall envp fn xs = fn ++ "(" ++ commaSep (map (emitName envp) xs) ++ ")"
 
-emitAllocGroup :: String -> [ClosureAlloc] -> [String]
+emitAllocGroup :: EnvPtr -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
   map (emitAlloc envp) closures ++
   concatMap (\ (ClosureAlloc p _ty d env) -> emitPatch (namesForDecl d) p env) closures
 
-emitAlloc :: String -> ClosureAlloc -> String
+emitAlloc :: EnvPtr -> ClosureAlloc -> String
 emitAlloc envp (ClosureAlloc p ty d (EnvAlloc free rec)) =
-  "    " ++ emitPlace p ++ " = allocate_closure(" ++ intercalate ", " args ++ ");"
+  "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep args ++ ");"
   where
     ns = namesForDecl d
     args = [envArg, traceArg, codeArg, enterArg]
-    envArg = asAlloc (closureAllocName ns ++ "(" ++ intercalate ", " envAllocArgs ++ ")")
+    envArg = asAlloc (closureAllocName ns ++ "(" ++ commaSep envAllocArgs ++ ")")
     traceArg = closureEnvInfo ns
     codeArg = "(void (*)(void))" ++ closureCodeName ns
     enterArg = thunkEnterName (namesForThunk ty)
@@ -467,7 +471,7 @@ emitInfoDecl (InfoName i) = "struct type_info " ++ i
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName s x) = typeForSort s ++ x
 
-emitName :: String -> Name -> String
+emitName :: EnvPtr -> Name -> String
 emitName _ (LocalName x) = x
 emitName envp (EnvName x) = envp ++ "->" ++ x
 
