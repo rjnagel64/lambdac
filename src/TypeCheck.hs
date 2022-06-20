@@ -7,6 +7,8 @@ import Source
 
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Foldable (traverse_, for_)
 
 import Control.Monad.Except
@@ -18,6 +20,7 @@ data TCError
   | TypeMismatch Type Type -- expected, actual
   | CannotProject Type
   | CannotApply Type
+  | CannotInstantiate Type
   | InvalidLetRec TmVar
 
 instance Show TCError where
@@ -27,26 +30,32 @@ instance Show TCError where
     ,"actual:   " ++ pprintType 0 actual
     ]
   show (NotInScope x) = "variable not in scope: " ++ show x
-  show (CannotApply t) = "value of type " ++ pprintType 0 t ++ " cannot have an argument applied to it"
+  show (CannotApply t) = "value of type " ++ pprintType 0 t ++ " cannot have a value applied to it"
+  show (CannotInstantiate t) = "value of type " ++ pprintType 0 t ++ " cannot have a type applied to it"
   show (CannotProject t) = "cannot project field from value of type " ++ pprintType 0 t
   show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
 
-newtype TC a = TC { runTC :: ReaderT (Map TmVar Type) (Except TCError) a }
+newtype TC a = TC { runTC :: ReaderT (Map TmVar Type, Set TyVar) (Except TCError) a }
 
 deriving newtype instance Functor TC
 deriving newtype instance Applicative TC
 deriving newtype instance Monad TC
-deriving newtype instance MonadReader (Map TmVar Type) TC
+deriving newtype instance MonadReader (Map TmVar Type, Set TyVar) TC
 deriving newtype instance MonadError TCError TC
 
 withVars :: [(TmVar, Type)] -> TC a -> TC a
 withVars xs = local f
   where
-    f ctx = foldr (uncurry Map.insert) ctx xs
+    f (tms, tys) = (foldr (uncurry Map.insert) tms xs, tys)
+
+withTyVars :: [TyVar] -> TC a -> TC a
+withTyVars aas = local f
+  where
+    f (tms, tys) = (tms, foldr Set.insert tys aas)
 
 infer :: Term -> TC Type
 infer (TmVarOcc x) = do
-  env <- ask
+  (env, _) <- ask
   case Map.lookup x env of
     Just t -> pure t
     Nothing -> throwError (NotInScope x)
@@ -122,6 +131,13 @@ infer (TmLetRec bs e) = do
   let binds = [(x, t) | (x, t, _) <- bs]
   withVars binds $ traverse_ (\ (_, t, e') -> check e' t) bs
   withVars binds $ infer e
+infer (TmTLam aa e) = do
+  t <- withTyVars [aa] $ infer e
+  pure (TyAll aa t)
+infer (TmTApp e t) = do
+  infer e >>= \case
+    TyAll aa t' -> pure (subst aa t t')
+    t' -> throwError (CannotInstantiate t')
 
 check :: Term -> Type -> TC ()
 check e t = do
@@ -136,7 +152,7 @@ checkFun (TmFun _f x t s e) = do
 
 
 checkProgram :: Term -> Either TCError ()
-checkProgram e = runExcept . flip runReaderT Map.empty $ runTC $ infer e *> pure ()
+checkProgram e = runExcept . flip runReaderT (Map.empty, Set.empty) $ runTC $ infer e *> pure ()
 
 eqType :: Type -> Type -> Bool
 eqType = eqType' Map.empty Map.empty
@@ -167,3 +183,31 @@ eqType' fw bw (TyAll x t) (TyAll y s) = eqType' (Map.insert x y fw) (Map.insert 
 eqType' _ _ (TyAll _ _) _ = False
 eqType' fw bw (TyList a) (TyList b) = eqType' fw bw a b
 eqType' _ _ (TyList _) _ = False
+
+-- | Perform a substitution, @subst aa t t' === t'[aa := t]@.
+subst :: TyVar -> Type -> Type -> Type
+subst aa t (TyVarOcc bb) = if aa == bb then t else TyVarOcc bb
+subst aa t (TyAll bb t') =
+  if aa == bb then TyAll bb t' else TyAll bb' (subst aa t (subst bb (TyVarOcc bb') t'))
+  where
+    vs = ftv t' <> ftv t
+    bb' = let TyVar x = bb in go x
+    go x = if Set.member (TyVar x) vs then go (x ++ "'") else TyVar x
+subst aa t (TyList t') = TyList (subst aa t t')
+subst aa t (TySum t1 t2) = TySum (subst aa t t1) (subst aa t t2)
+subst aa t (TyProd t1 t2) = TyProd (subst aa t t1) (subst aa t t2)
+subst aa t (TyArr t1 t2) = TyArr (subst aa t t1) (subst aa t t2)
+subst _ _ TyUnit = TyUnit
+subst _ _ TyBool = TyBool
+subst _ _ TyInt = TyInt
+
+ftv :: Type -> Set TyVar
+ftv (TyVarOcc aa) = Set.singleton aa
+ftv (TyAll bb t) = Set.delete bb (ftv t)
+ftv (TySum t1 t2) = ftv t1 <> ftv t2
+ftv (TyProd t1 t2) = ftv t1 <> ftv t2
+ftv (TyArr t1 t2) = ftv t1 <> ftv t2
+ftv TyUnit = Set.empty
+ftv TyBool = Set.empty
+ftv TyInt = Set.empty
+ftv (TyList t) = ftv t
