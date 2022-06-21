@@ -1,0 +1,5 @@
+
+let self : forall a. forall b. ((a * a) -> b) -> a -> b =
+  \ @a -> \ @b -> \ (f : (a * a) -> b) -> \ (x : a) -> f (x, x)
+in
+self @int @bool (\ (p : int * int) -> fst p == snd p) 17

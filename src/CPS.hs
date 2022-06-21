@@ -23,6 +23,8 @@ module CPS
 
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
 import Data.Traversable (mapAccumL, for)
@@ -96,6 +98,7 @@ data TermK a
   | LetContK [ContDef a] (TermK a)
   -- let rec fs in e
   | LetFunK [FunDef a] (TermK a)
+  | LetAbsK [AbsDef a] (TermK a)
 
   -- Block terminators
   -- k x..., goto k(x...)
@@ -106,6 +109,8 @@ data TermK a
   | CaseK TmVar TypeK [CoVar]
   -- halt x
   | HaltK TmVar
+  -- f @t k
+  | InstK TmVar [TypeK] [CoVar]
 
 -- | Named basic blocks
 -- @k (x:τ)+ := e@
@@ -113,7 +118,11 @@ data ContDef a = ContDef a CoVar [(TmVar, TypeK)] (TermK a)
 
 -- | Function definitions
 -- @f (x:τ) (k:σ) := e@
-data FunDef a = FunDef  a TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK a)
+data FunDef a = FunDef a TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK a)
+
+-- | Type abstraction definitions
+-- @f \@a (k:σ) := e@
+data AbsDef a = AbsDef a TmVar [TyVar] [(CoVar, CoTypeK)] (TermK a)
 
 -- | Values require no evaluation.
 data ValueK
@@ -166,6 +175,8 @@ data TypeK
   | FunK [TypeK] [CoTypeK]
   -- List σ
   | ListK TypeK
+  | AllK [TyVar] [CoTypeK]
+  | TyVarOccK TyVar
 
 eqTypeK :: TypeK -> TypeK -> Bool
 eqTypeK UnitK UnitK = True
@@ -202,8 +213,8 @@ cpsType S.TyBool = BoolK
 cpsType (S.TySum a b) = SumK (cpsType a) (cpsType b)
 cpsType (S.TyProd a b) = ProdK (cpsType a) (cpsType b)
 cpsType (S.TyArr argTy retTy) = FunK [cpsType argTy] [cpsCoType retTy]
-cpsType (S.TyVarOcc _) = error "not implemented: polymorphic cpsType"
-cpsType (S.TyAll _ _) = error "not implemented: polymorphic cpsType"
+cpsType (S.TyVarOcc (S.TyVar aa)) = TyVarOccK (TyVar aa 0)
+cpsType (S.TyAll (S.TyVar aa) t) = AllK [TyVar aa 0] [cpsCoType t]
 cpsType (S.TyList a) = ListK (cpsType a)
 
 cpsCoType :: S.Type -> CoTypeK
@@ -313,6 +324,16 @@ cps (TmLam x argTy e) k =
         pure (fun, S.TyArr argTy retTy)
       (e'', t'') <- k f ty
       pure (LetFunK [fun] e'', t'')
+cps (TmTLam aa e) k =
+  freshTm "f" $ \f ->
+    freshCo "k" $ \k' -> do
+      (def, ty) <- freshenTyVarBinds [aa] $ \bs -> do
+        (e', retTy) <- cpsTail e k'
+        let s' = cpsType retTy
+        let def = AbsDef () f bs [(k', ContK [s'])] e'
+        pure (def, S.TyAll aa retTy)
+      (e'', t'') <- k f ty
+      pure (LetAbsK [def] e'', t'')
 cps (TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
     (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
@@ -377,6 +398,17 @@ cps (TmApp e1 e2) k =
           (e', t') <- k xv retTy
           let res = LetContK [ContDef () kv [(xv, cpsType retTy)] e'] (CallK v1 [v2] [kv])
           pure (res, t')
+cps (TmTApp e t) k =
+  cps e $ \v1 t1 -> do
+    (aa, t1') <- case t1 of
+      S.TyAll aa t1' -> pure (aa, t1')
+      _ -> error "type error"
+    freshCo "k" $ \kv ->
+      freshTm "f" $ \fv -> do
+        let instTy = S.subst aa t t1'
+        (e'', t'') <- k fv instTy
+        let res = LetContK [ContDef () kv [(fv, cpsType instTy)] e''] (InstK v1 [cpsType t] [kv])
+        pure (res, t'')
 cps (TmFst e) k =
   cps e $ \v t ->  do
     (ta, _tb) <- case t of
@@ -576,7 +608,7 @@ cpsCase z t j bs = do
       let k' = CoVar "k" i in
       (Map.insert "k" (i+1) sc, (k', b))
     (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx) = CPSEnv sc' ctx
+  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' ctx tys
   -- CPS each branch
   (ks, konts) <- fmap unzip $ local extend $ for bs' $ \ (k, (xs, e)) -> do
     (kont, _s') <- cpsBranch k xs e j
@@ -585,8 +617,6 @@ cpsCase z t j bs = do
   let res = foldr (LetContK . (:[])) (CaseK z (cpsType t) ks) konts
   pure res
 
-
-data CPSEnv = CPSEnv { cpsEnvScope :: Map String Int, cpsEnvCtx :: Map S.TmVar (TmVar, S.Type) }
 
 data TCError
   = NotInScope S.TmVar
@@ -608,8 +638,15 @@ instance Show TCError where
   show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
   show (BadListCase t) = "cannot perform list case analysis on type " ++ S.pprintType 0 t
 
+data CPSEnv
+  = CPSEnv {
+    cpsEnvScope :: Map String Int
+  , cpsEnvCtx :: Map S.TmVar (TmVar, S.Type)
+  , cpsEnvTyCtx :: Set S.TyVar -- TODO: This should probably be 'Map S.TyVar TyVar'
+  }
+
 emptyEnv :: CPSEnv
-emptyEnv = CPSEnv Map.empty Map.empty
+emptyEnv = CPSEnv Map.empty Map.empty Set.empty
 
 newtype CPS a = CPS { runCPS :: Reader CPSEnv a }
 
@@ -623,7 +660,7 @@ freshTm x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = TmVar x i
-  let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
+  let extend (CPSEnv sc ctx tys) = CPSEnv (Map.insert x (i+1) sc) ctx tys
   local extend (k x')
 
 freshCo :: String -> (CoVar -> CPS a) -> CPS a
@@ -631,7 +668,7 @@ freshCo x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = CoVar x i
-  let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
+  let extend (CPSEnv sc ctx tys) = CPSEnv (Map.insert x (i+1) sc) ctx tys
   local extend (k x')
 
 freshTy :: String -> (TyVar -> CPS a) -> CPS a
@@ -639,7 +676,7 @@ freshTy x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = TyVar x i
-  let extend (CPSEnv sc ctx) = CPSEnv (Map.insert x (i+1) sc) ctx
+  let extend (CPSEnv sc ctx tys) = CPSEnv (Map.insert x (i+1) sc) ctx tys
   local extend (k x')
 
 -- | Rename a sequence of variable bindings and bring them in to scope.
@@ -652,7 +689,7 @@ freshenVarBinds bs k = do
       let x' = TmVar x i in
       (Map.insert x (i+1) sc, (S.TmVar x, (x', t)))
     (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx) = CPSEnv sc' (foldr (uncurry Map.insert) ctx bs')
+  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (foldr (uncurry Map.insert) ctx bs') tys
   local extend (k bs')
 
 -- | Rename a sequence of function bindings and bring them in to scope.
@@ -666,7 +703,7 @@ freshenFunBinds fs m = do
       let f' = TmVar f i in
       (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyArr argTy retTy)))
     (sc', binds) = mapAccumL pick scope fs
-  let extend (CPSEnv _sc ctx) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds)
+  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds) tys
   local extend m
 
 freshenRecBinds :: [(S.TmVar, S.Type, S.Term)] -> ([TmFun] -> CPS a) -> CPS a
@@ -679,13 +716,26 @@ freshenRecBinds fs k = do
       let f' = TmVar f i in
       (Map.insert f (i+1) sc, (S.TmVar f, (f', ty)))
     (sc', binds) = mapAccumL pick scope fs
-  let extend (CPSEnv _sc ctx) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds)
+  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds) tys
   fs' <- for fs $ \ (f, ty, rhs) -> do
     case (ty, rhs) of
       (S.TyArr _t s, S.TmLam x t' body) -> do
         pure (TmFun f x t' s body)
       (_, _) -> error "letrec error"
   local extend (k fs')
+
+freshenTyVarBinds :: [S.TyVar] -> ([TyVar] -> CPS a) -> CPS a
+freshenTyVarBinds aas k = do
+  scope <- asks cpsEnvScope
+  let
+    pick :: Map String Int -> S.TyVar -> (Map String Int, TyVar)
+    pick sc (S.TyVar aa) =
+      let i = fromMaybe 0 (Map.lookup aa scope) in
+      let aa' = TyVar aa i in
+      (Map.insert aa (i+1) sc, aa')
+    (sc', binds) = mapAccumL pick scope aas
+  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' ctx (foldr Set.insert tys aas)
+  local extend (k binds)
 
 
 -- Pretty-printing

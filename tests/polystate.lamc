@@ -1,0 +1,31 @@
+-- trisum, using the state monad.
+let
+  bind : forall s. forall a. forall b. (s -> a * s) -> (a -> s -> b * s) -> (s -> b * s) =
+    \@s -> \@a -> \@b -> \ (m : s -> a * s) -> \ (k : a -> s -> b * s) ->
+    \ (st : s) -> let p : a * s = m st in k (fst p) (snd p)
+in
+let
+  get : forall s. s -> s * s =
+    \@s -> \ (st : s) -> (s, s)
+in
+let
+  modify : forall s. (s -> s) -> (s -> unit * s) =
+    \@s -> \ (f : s -> s) ->
+    \ (st : s) -> ((), f st)
+in
+let
+  runState : forall s. forall a. (s -> a * s) -> s -> a * s =
+    \@s -> \@a -> \ (m : s -> (a * s)) ->
+    \ (st : s) -> m st
+in
+letrec
+  trisum_state : int -> (int -> int * int) = \ (n : int) ->
+    if n == 0 return int -> (int * int) then
+      get @int
+    else
+      bind @int @unit @int
+        (modify @int (\ (acc : int) -> acc + n))
+        (\ (u : unit) -> trisum_state (n - 1));
+in
+let act : int -> int * int = trisum_state 10 in
+runState @int @int act 0
