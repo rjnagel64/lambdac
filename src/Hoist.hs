@@ -273,7 +273,8 @@ hoist (LetAbsC fs e) = do
 
 hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
 hoistEnvDef (C.EnvDef tys free rec) =
-  EnvAlloc [] <$> traverse envAllocField free <*> traverse envAllocField rec
+  let tys' = map (\aa -> (asInfoName aa, aa)) tys in
+  EnvAlloc tys' <$> traverse envAllocField free <*> traverse envAllocField rec
 
 envAllocField :: (C.Name, Sort) -> HoistM (FieldName, Name)
 envAllocField (x, s) = do
@@ -363,10 +364,10 @@ inClosure (C.EnvDef tys free rec) places m = do
   let fields = free ++ rec
   let fields' = map (\ (x, s) -> (x, asFieldName s x)) fields
   let places' = map (\ (x, s) -> (x, asPlaceName s x)) places
+  let tys' = map asInfoName tys
   let replaceEnv (HoistEnv _ _) = HoistEnv (Map.fromList places') (Map.fromList fields')
   r <- local replaceEnv m
-  -- TODO: Record type variables here
-  pure (EnvDecl [] (map snd fields'), map snd places', r)
+  pure (EnvDecl tys' (map snd fields'), map snd places', r)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.

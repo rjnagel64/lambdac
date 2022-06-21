@@ -225,7 +225,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
   ,"    return env;"
   ,"}"]
   where
-    params = if null fs then "void" else commaSep (map emitFieldDecl fs)
+    params = if null is && null fs then "void" else commaSep (map emitInfoDecl is ++ map emitFieldDecl fs)
 
     assignInfo :: InfoName -> String
     assignInfo aa = "    env->" ++ infoName aa ++ " = " ++ infoName aa ++ ";"
@@ -394,7 +394,7 @@ emitFieldDecl :: FieldName -> String
 emitFieldDecl (FieldName s x) = typeForSort s ++ x
 
 emitInfoDecl :: InfoName -> String
-emitInfoDecl (InfoName i) = "struct type_info " ++ i
+emitInfoDecl (InfoName i) = "type_info " ++ i
 
 emitPlace :: PlaceName -> String
 emitPlace (PlaceName s x) = typeForSort s ++ x
