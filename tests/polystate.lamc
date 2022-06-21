@@ -6,7 +6,7 @@ let
 in
 let
   get : forall s. s -> s * s =
-    \@s -> \ (st : s) -> (s, s)
+    \@s -> \ (st : s) -> (st, st)
 in
 let
   modify : forall s. (s -> s) -> (s -> unit * s) =

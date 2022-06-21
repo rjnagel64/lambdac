@@ -577,6 +577,14 @@ cpsTail (TmApp e1 e2) k =
         _ -> error "type error"
       let res = CallK f [x] [k]
       pure (res, retTy)
+cpsTail (TmTApp e t) k =
+  cps e $ \v1 t1 -> do
+    (aa, t1') <- case t1 of
+      S.TyAll aa t1' -> pure (aa, t1')
+      _ -> error "type error"
+    let instTy = S.subst aa t t1'
+    let res = InstK v1 [cpsType t] [k]
+    pure (res, instTy)
 cpsTail (TmFst e) k =
   cps e $ \z t -> do
     (ta, _tb) <- case t of
