@@ -12,6 +12,8 @@ module CC
   , funClosureSort
   , ContClosureDef(..)
   , contClosureSort
+  , AbsClosureDef(..)
+  , absClosureSort
   , EnvDef(..)
   , Name(..)
   , prime
@@ -135,6 +137,8 @@ sortOf K.UnitK = Unit
 sortOf K.IntK = Integer
 sortOf (K.ListK t) = List (sortOf t)
 sortOf (K.FunK ts ss) = Closure (map sortOf ts ++ map coSortOf ss)
+sortOf (K.TyVarOccK aa) = Alloc (tyVar aa)
+sortOf (K.AllK aas ss) = Closure (map coSortOf ss) -- TODO: 'Closure' is insufficient
 
 coSortOf :: K.CoTypeK -> Sort
 coSortOf (K.ContK ss) = Closure (map sortOf ss)
@@ -160,6 +164,8 @@ thunkTypesOf (K.ListK t) = thunkTypesOf t
 thunkTypesOf K.UnitK = Set.empty
 thunkTypesOf K.IntK = Set.empty
 thunkTypesOf K.BoolK = Set.empty
+thunkTypesOf (K.AllK aa t) = Set.unions (map coThunkTypesOf t)
+thunkTypesOf (K.TyVarOccK _) = Set.empty
 
 coThunkTypesOf :: K.CoTypeK -> Set ThunkType
 coThunkTypesOf (K.ContK ss) =
@@ -251,6 +257,9 @@ data AbsClosureDef
   , absClosureBody :: TermC
   }
 
+absClosureSort :: AbsClosureDef -> Sort
+absClosureSort (AbsClosureDef _ _ types conts _) = Closure (map snd conts)
+
 data EnvDef = EnvDef { envFreeNames :: [(Name, Sort)], envRecNames :: [(Name, Sort)] }
 
 data ValueC
@@ -292,14 +301,17 @@ unitCo :: K.CoVar -> FieldsFor
 unitCo = unitField . coVar
 
 -- TODO: Implement 'unitTy'
-unitTy :: () -> FieldsFor
-unitTy () = mempty
+unitTy :: K.TyVar -> FieldsFor
+unitTy aa = mempty
 
 bindFields :: [(Name, Sort)] -> FieldsFor -> FieldsFor
 bindFields xs fs = FieldsFor $ \ctx ->
   let ctx' = foldr (uncurry Map.insert) ctx xs in
   let (fields, tys) = runFieldsFor fs ctx' in
   (fields Set.\\ Set.fromList xs, tys)
+
+bindTyFields :: [TyVar] -> FieldsFor -> FieldsFor
+bindTyFields aas fs = fs
 
 bindTm :: (K.TmVar, K.TypeK) -> (Name, Sort)
 bindTm = bimap tmVar sortOf
@@ -318,10 +330,14 @@ fieldsFor (LetFunK fs e) =
 fieldsFor (LetContK ks e) =
   foldMap (bindFields ks' . fieldsForContDef) ks <> bindFields ks' (fieldsFor e)
   where ks' = contDefNames ks
+fieldsFor (LetAbsK fs e) =
+  foldMap (bindFields fs' . fieldsForAbsDef) fs <> bindFields fs' (fieldsFor e)
+  where fs' = absDefNames fs
 fieldsFor (HaltK x) = unitTm x
 fieldsFor (JumpK k xs) = unitCo k <> foldMap unitTm xs
 fieldsFor (CallK f xs ks) = unitTm f <> foldMap unitTm xs <> foldMap unitCo ks
 fieldsFor (CaseK x _ ks) = unitTm x <> foldMap unitCo ks
+fieldsFor (InstK f ts ks) = unitTm f <> foldMap fieldsForTy ts <> foldMap unitCo ks
 fieldsFor (LetFstK x t y e) =
   unitTm y <> fieldsForTy t <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
 fieldsFor (LetSndK x t y e) =
@@ -375,6 +391,8 @@ fieldsForTy (K.ProdK t s) = fieldsForTy t <> fieldsForTy s
 fieldsForTy (K.SumK t s) = fieldsForTy t <> fieldsForTy s
 fieldsForTy (K.ListK t) = fieldsForTy t
 fieldsForTy (K.FunK ts ss) = foldMap fieldsForTy ts <> foldMap fieldsForCoTy ss
+fieldsForTy (K.TyVarOccK aa) = unitTy aa
+fieldsForTy (K.AllK aas ss) = bindTyFields (map bindTy aas) (foldMap fieldsForCoTy ss)
 
 fieldsForCoTy :: K.CoTypeK -> FieldsFor
 fieldsForCoTy (K.ContK ss) = foldMap fieldsForTy ss

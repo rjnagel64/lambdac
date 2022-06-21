@@ -80,14 +80,10 @@ data ThunkNames
   }
 
 -- This scheme will almost certainly break down as types get fancier.
--- For example, polymorphic pair with distinct types vs. polymorphic pair with
--- one type for both arguments.
---
--- (e.g., (a, a) and (a, b) are both P2AA)
 tycode :: Sort -> String
 tycode (Closure ss) = 'C' : show (length ss) ++ concatMap tycode ss
 tycode Integer = "V"
-tycode (Alloc aa) = error "tycode: schema not expressive enough"
+tycode (Alloc aa) = "A" -- I don't know if this will work.
 tycode Sum = "S"
 tycode Boolean = "B"
 tycode (Pair s t) = 'Q' : tycode s ++ tycode t
@@ -274,6 +270,7 @@ emitClosureCode ns xs e =
     go2 (HaltH _ _) = Set.empty
     go2 (OpenH _ _ _) = Set.empty
     go2 (CaseH _ _ _) = Set.empty
+    go2 (InstH _ _ _ _) = Set.empty
 
 emitClosureBody :: EnvPtr -> TermH -> [String]
 emitClosureBody envp (LetValH x v e) =
@@ -297,9 +294,18 @@ emitClosureBody envp (OpenH c ty xs) =
   [emitSuspend envp c ty xs]
 emitClosureBody envp (CaseH x kind ks) =
   emitCase kind envp x ks
+emitClosureBody envp (InstH f ty ss ks) =
+  [emitSuspend' envp f ty ss ks]
 
 emitSuspend :: EnvPtr -> Name -> ThunkType -> [Name] -> String
 emitSuspend envp cl ty xs = "    " ++ emitPrimCall envp method (cl : xs) ++ ";"
+  where
+    method = thunkSuspendName (namesForThunk ty)
+
+emitSuspend' :: EnvPtr -> Name -> ThunkType -> [Sort] -> [Name] -> String
+emitSuspend' envp cl ty ss xs =
+  "    " ++ method ++ "(" ++ emitName envp cl ++ ", " ++ commaSep (map (infoForSort envp) ss) ++ ", " ++ commaSep (map (emitName envp) xs) ++ ");"
+  -- "    " ++ emitPrimCall envp method (cl : xs) ++ ";"
   where
     method = thunkSuspendName (namesForThunk ty)
 

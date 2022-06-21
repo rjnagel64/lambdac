@@ -106,6 +106,7 @@ data TermH
   | HaltH Name Sort
   | OpenH Name ThunkType [Name] -- Open a closure, by providing a list of arguments.
   | CaseH Name CaseKind [(Name, ThunkType)]
+  | InstH Name ThunkType [Sort] [Name]
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
@@ -204,6 +205,9 @@ hoist (CaseC x t ks) = do
     k' <- hoistVarOcc k
     pure (k', s)
   pure $ CaseH x' kind ks'
+hoist (InstC f ts ks) = do
+  (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
+  InstH <$> hoistVarOcc f <*> pure (ThunkType ss) <*> pure ts <*> pure ys
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -254,6 +258,19 @@ hoist (LetContC ks e) = do
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure ks' e')
+hoist (LetAbsC fs e) = do
+  fdecls <- declareClosureNames C.absClosureName fs
+  ds' <- traverse hoistAbsClosure fdecls
+
+  tellClosures ds'
+
+  placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
+    fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env as ks _e) -> do
+      env' <- hoistEnvDef env
+      let ty = ThunkType [s | (_k, s) <- ks] -- Incorrect, needs type arguments.
+      pure (ClosureAlloc p ty d env')
+    e' <- hoist e
+    pure (AllocClosure fs' e')
 
 hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
 hoistEnvDef (C.EnvDef free rec) =
@@ -330,6 +347,12 @@ hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
   (env', places', body') <- inClosure env xs $ hoist body
   let kd = ClosureDecl kdecl env' places' body'
   pure kd
+
+hoistAbsClosure :: (DeclName, C.AbsClosureDef) -> HoistM ClosureDecl
+hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
+  (env', places', body') <- inClosure env ks $ hoist body
+  let fd = ClosureDecl fdecl env' places' body'
+  pure fd
 
 -- | Replace the set of fields and places in the environment, while leaving the
 -- set of declaration names intact. This is because inside a closure, all names
