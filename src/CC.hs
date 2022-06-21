@@ -23,7 +23,6 @@ module CC
   , Sort(..)
   , TyVar(..)
   , ThunkType(..)
-  , ProductType(..)
   , TypeDecls(..)
 
   , cconv
@@ -172,20 +171,6 @@ thunkTypesOf (K.TyVarOccK _) = Set.empty
 coThunkTypesOf :: K.CoTypeK -> Set ThunkType
 coThunkTypesOf (K.ContK ss) =
   Set.insert (ThunkType (map sortOf ss)) $ Set.unions (map thunkTypesOf ss)
-
-productTypesOf :: K.TypeK -> Set ProductType
-productTypesOf K.UnitK = Set.singleton (ProductType [])
-productTypesOf (K.ProdK t s) =
-  Set.insert (ProductType [sortOf t, sortOf s]) (productTypesOf t <> productTypesOf s)
-productTypesOf (K.SumK t s) = productTypesOf t <> productTypesOf s
-productTypesOf K.IntK = Set.empty
-productTypesOf K.BoolK = Set.empty
-productTypesOf (K.ListK t) = productTypesOf t
-productTypesOf (K.FunK ts ss) =
-  Set.unions (map productTypesOf ts) <> Set.unions (map coProductTypesOf ss)
-
-coProductTypesOf :: K.CoTypeK -> Set ProductType
-coProductTypesOf (K.ContK ss) = Set.unions (map productTypesOf ss)
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -413,16 +398,10 @@ contDefNames ks = [(coVar k, Closure (map (sortOf . snd) xs)) | ContDef _ k xs _
 absDefNames :: [AbsDef a] -> [(Name, Sort)]
 absDefNames fs = [(tmVar f, Closure (map (coSortOf . snd) ks)) | AbsDef _ f as ks _ <- fs]
 
-newtype TypeDecls = TypeDecls { getTypeDecls :: (Set ThunkType, Set ProductType) }
+newtype TypeDecls = TypeDecls { getTypeDecls :: Set ThunkType }
 
 deriving newtype instance Semigroup TypeDecls
 deriving newtype instance Monoid TypeDecls
-
--- Note: Currently, ProductType only deals with tuple types, which do not have
--- named fields. In the future, if/when I have records (named or anonymous?), I
--- should probably have a second type that describes named product types.
-newtype ProductType = ProductType [Sort]
-  deriving (Eq, Ord)
 
 -- TODO: Collecting type declarations should be done in Hoist, I think.
 -- Idea: map anonymous record/closure types to numerically-named ones
@@ -464,7 +443,6 @@ cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
 cconv (CaseK x t ks) = do
-  tell (TypeDecls (mempty, productTypesOf t))
   -- The type of each thunk/branch is determined by the type of the scrutinee.
   let
     ks' = case t of
@@ -480,7 +458,7 @@ cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> local extend
 cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) (sortOf t) ctx
-cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) <$> cconvValue v <*> local extend (cconv e)
+cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) (sortOf t) ctx
 cconv (LetArithK x op e) = LetArithC (tmVar x, Integer) (cconvArith op) <$> local extend (cconv e)
@@ -498,8 +476,7 @@ cconvFunDef fs fun@(FunDef _ f xs ks e) = do
   let
     funThunk = ThunkType (map (sortOf . snd) xs ++ map (coSortOf . snd) ks)
     thunks = Set.insert funThunk $ foldMap (thunkTypesOf . snd) xs <> foldMap (coThunkTypesOf . snd) ks
-    products = foldMap (productTypesOf . snd) xs <> foldMap (coProductTypesOf . snd) ks
-  tell (TypeDecls (thunks, mempty))
+  tell (TypeDecls thunks)
   let tmbinds = map bindTm xs
   let cobinds = map bindCo ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
@@ -516,8 +493,7 @@ cconvContDef ks kont@(ContDef _ k xs e) = do
   let
     contThunk = ThunkType (map (sortOf . snd) xs)
     thunks = Set.insert contThunk $ foldMap thunkTypesOf (map snd xs)
-    products = foldMap productTypesOf (map snd xs)
-  tell (TypeDecls (thunks, mempty))
+  tell (TypeDecls thunks)
   let binds = map bindTm xs
   let extend ctx' = foldr (uncurry Map.insert) ctx' binds
   (fields, tyfields) <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
@@ -530,8 +506,7 @@ cconvAbsDef fs abs@(AbsDef _ f as ks e) = do
   let
     absThunk = ThunkType (map (coSortOf . snd) ks)
     thunks = Set.insert absThunk (foldMap coThunkTypesOf (map snd ks))
-    products = foldMap coProductTypesOf (map snd ks)
-  tell (TypeDecls (thunks, mempty))
+  tell (TypeDecls thunks)
   let tybinds = map bindTy as
   let cobinds = map bindCo ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' cobinds
@@ -540,22 +515,15 @@ cconvAbsDef fs abs@(AbsDef _ f as ks e) = do
   e' <- local extend (cconv e)
   pure (AbsClosureDef (tmVar f) (EnvDef free rec) tybinds cobinds e')
 
-cconvValue :: ValueK -> ConvM ValueC
-cconvValue NilK = do
-  tell (TypeDecls (mempty, Set.singleton (ProductType [])))
-  pure NilC
-cconvValue (PairK x y) = do
-  ctx <- ask
-  let sx = ctx Map.! (tmVar x)
-  let sy = ctx Map.! (tmVar y)
-  tell (TypeDecls (mempty, Set.singleton (ProductType [sx, sy])))
-  pure (PairC (tmVar x) (tmVar y))
-cconvValue (IntValK i) = pure (IntC i)
-cconvValue (BoolValK b) = pure (BoolC b)
-cconvValue (InlK x) = pure (InlC (tmVar x))
-cconvValue (InrK y) = pure (InrC (tmVar y))
-cconvValue EmptyK = pure EmptyC
-cconvValue (ConsK x y) = pure (ConsC (tmVar x) (tmVar y))
+cconvValue :: ValueK -> ValueC
+cconvValue NilK = NilC
+cconvValue (PairK x y) = (PairC (tmVar x) (tmVar y))
+cconvValue (IntValK i) = (IntC i)
+cconvValue (BoolValK b) = (BoolC b)
+cconvValue (InlK x) = (InlC (tmVar x))
+cconvValue (InrK y) = (InrC (tmVar y))
+cconvValue EmptyK = EmptyC
+cconvValue (ConsK x y) = (ConsC (tmVar x) (tmVar y))
 
 cconvArith :: ArithK -> ArithC
 cconvArith (AddK x y) = AddC (tmVar x) (tmVar y)

@@ -87,7 +87,7 @@ main = do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK
 
-  let (srcC, C.TypeDecls (thunkDecls, productDecls)) = C.runConv $ C.cconv srcK
+  let (srcC, C.TypeDecls thunkDecls) = C.runConv $ C.cconv srcK
   when (driverDumpCC args) $ do
     putStrLn $ "--- Closure Conversion ---"
     putStrLn $ concatMap C.pprintThunkType thunkDecls ++ C.pprintTerm 0 srcC

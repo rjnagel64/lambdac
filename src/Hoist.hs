@@ -15,7 +15,6 @@ module Hoist
     , Sort(..)
     , Name(..)
     , ThunkType(..)
-    , ProductType(..)
     , PlaceName(..)
     , FieldName(..)
     , InfoName(..)
@@ -46,7 +45,7 @@ import Data.Traversable (for, mapAccumL)
 import Data.List (intercalate)
 
 import qualified CC as C
-import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..), ThunkType(..), ProductType(..))
+import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..), ThunkType(..))
 
 -- This is only for free occurrences? Binders use a different type for names? Yeah.
 -- LocalName is for 'x'

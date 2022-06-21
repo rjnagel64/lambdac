@@ -31,7 +31,6 @@ commaSep = intercalate ", "
 type EnvPtr = String
 
 -- TODO: Ensure declarations (esp. product type declarations) are emitted in topological order
--- TODO: Stop collecting ProductType.
 emitProgram :: (Set ThunkType, [ClosureDecl], TermH) -> [String]
 emitProgram (ts, cs, e) =
   prologue ++
