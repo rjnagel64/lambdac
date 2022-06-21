@@ -41,7 +41,7 @@ import Data.List (intercalate, partition)
 import Data.Bifunctor
 
 import qualified CPS as K
-import CPS (TermK(..), FunDef(..), ContDef(..), ValueK(..), ArithK(..), CmpK(..))
+import CPS (TermK(..), FunDef(..), ContDef(..), AbsDef(..), ValueK(..), ArithK(..), CmpK(..))
 
 -- Closure conversion:
 -- https://gist.github.com/jozefg/652f1d7407b7f0266ae9
@@ -94,6 +94,9 @@ data TyVar = TyVar String
 
 instance Show TyVar where
   show (TyVar aa) = aa
+
+tyVar :: K.TyVar -> TyVar
+tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
 
 -- | 'Sort' is really a simplified form of type information.
 -- Value = int
@@ -187,6 +190,7 @@ data TermC
   | LetCompareC (Name, Sort) CmpC TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
+  | LetAbsC [AbsClosureDef] TermC
   -- Invoke a closure by providing values for the remaining arguments.
   | JumpC Name [Name] -- k x...
   | CallC Name [Name] [Name] -- f x+ k+
@@ -236,6 +240,15 @@ data ContClosureDef
 
 contClosureSort :: ContClosureDef -> Sort
 contClosureSort (ContClosureDef _ _ params _) = Closure (map snd params)
+
+data AbsClosureDef
+  = AbsClosureDef {
+    absClosureName :: Name
+  , absEnvDef :: EnvDef
+  , absClosureTypes :: [TyVar]
+  , absClosureConts :: [(Name, Sort)]
+  , absClosureBody :: TermC
+  }
 
 data EnvDef = EnvDef { envFreeNames :: [(Name, Sort)], envRecNames :: [(Name, Sort)] }
 
@@ -293,6 +306,9 @@ bindTm = bimap tmVar sortOf
 bindCo :: (K.CoVar, K.CoTypeK) -> (Name, Sort)
 bindCo = bimap coVar coSortOf
 
+bindTy :: K.TyVar -> TyVar
+bindTy = tyVar
+
 
 fieldsFor :: TermK a -> FieldsFor
 fieldsFor (LetFunK fs e) =
@@ -346,6 +362,10 @@ fieldsForContDef :: ContDef a -> FieldsFor
 fieldsForContDef (ContDef _ _k xs e) =
   bindFields (map bindTm xs) (fieldsFor e)
 
+fieldsForAbsDef :: AbsDef a -> FieldsFor
+fieldsForAbsDef (AbsDef _ _f as ks e) =
+  bindFields (map bindCo ks) (fieldsFor e)
+
 fieldsForTy :: K.TypeK -> FieldsFor
 fieldsForTy K.UnitK = mempty
 fieldsForTy K.IntK = mempty
@@ -368,6 +388,10 @@ funDefNames fs = [(tmVar f, Closure (map (sortOf . snd) xs ++ map (coSortOf . sn
 
 contDefNames :: [ContDef a] -> [(Name, Sort)]
 contDefNames ks = [(coVar k, Closure (map (sortOf . snd) xs)) | ContDef _ k xs _ <- ks]
+
+-- TODO: What is the sort of a polymorphic function? 'Closure' is insufficient.
+absDefNames :: [AbsDef a] -> [(Name, Sort)]
+absDefNames fs = [(tmVar f, Closure (map (coSortOf . snd) ks)) | AbsDef _ f as ks _ <- fs]
 
 newtype TypeDecls = TypeDecls { getTypeDecls :: (Set ThunkType, Set ProductType) }
 
@@ -402,15 +426,20 @@ runConv = runWriter . flip runReaderT Map.empty . runConvM
 -- though.
 cconv :: TermK a -> ConvM TermC
 cconv (LetFunK fs e) =
+  let names = funDefNames fs in
+  let fs' = Set.fromList (fst <$> names) in
+  let extendGroup ctx = foldr (uncurry Map.insert) ctx names in
   LetFunC <$> local extendGroup (traverse (cconvFunDef fs') fs) <*> local extendGroup (cconv e)
-  where
-    fs' = Set.fromList (fst <$> funDefNames fs)
-    extendGroup ctx = foldr (uncurry Map.insert) ctx (funDefNames fs)
 cconv (LetContK ks e) =
-  LetContC <$> local extendGroup (traverse (cconvContDef ks') ks) <*> local extendGroup (cconv e)
-  where
-    ks' = Set.fromList (fst <$> contDefNames ks)
-    extendGroup ctx = foldr (uncurry Map.insert) ctx (contDefNames ks)
+  let names = contDefNames ks in
+  let ks' = Set.fromList (fst <$> names) in
+  let extend ctx = foldr (uncurry Map.insert) ctx names in
+  LetContC <$> local extend (traverse (cconvContDef ks') ks) <*> local extend (cconv e)
+cconv (LetAbsK fs e) =
+  let names = absDefNames fs in
+  let extend ctx = foldr (uncurry Map.insert) ctx names in
+  let fs' = Set.fromList (fst <$> names) in
+  LetAbsC <$> local extend (traverse (cconvAbsDef fs') fs) <*> local extend (cconv e)
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
@@ -474,6 +503,16 @@ cconvContDef ks kont@(ContDef _ k xs e) = do
   let (free, rec) = markRec ks (Set.toList fields)
   e' <- local extend (cconv e)
   pure (ContClosureDef (coVar k) (EnvDef free rec) binds e')
+
+cconvAbsDef :: Set Name -> AbsDef a -> ConvM AbsClosureDef
+cconvAbsDef fs abs@(AbsDef _ f as ks e) = do
+  let tybinds = map bindTy as
+  let cobinds = map bindCo ks
+  let extend ctx' = foldr (uncurry Map.insert) ctx' cobinds
+  (fields, tyfields) <- fmap (runFieldsFor (fieldsForAbsDef abs) . extend) ask
+  let (free, rec) = markRec fs (Set.toList fields)
+  e' <- local extend (cconv e)
+  pure (AbsClosureDef (tmVar f) (EnvDef free rec) tybinds cobinds e')
 
 cconvValue :: ValueK -> ConvM ValueC
 cconvValue NilK = do
