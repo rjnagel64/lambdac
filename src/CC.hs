@@ -196,6 +196,7 @@ data TermC
   | CallC Name [Name] [Name] -- f x+ k+
   | HaltC Name
   | CaseC Name Sort [(Name, ThunkType)] -- case x of k1 | k2 | ...
+  | InstC Name [Sort] [Name] -- f @t+ k+
 
 data ArithC
   = AddC Name Name
@@ -453,6 +454,7 @@ cconv (CaseK x t ks) = do
       K.ListK a -> zip (map coVar ks) [ThunkType [], ThunkType [sortOf a, sortOf t]]
       _ -> error "cannot case on this type"
   pure $ CaseC (tmVar x) (sortOf t) ks'
+cconv (InstK f ts ks) = pure $ InstC (tmVar f) (map sortOf ts) (map coVar ks)
 cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)
   where
     extend ctx = Map.insert (tmVar x) (sortOf t) ctx

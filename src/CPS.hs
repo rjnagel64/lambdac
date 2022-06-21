@@ -462,6 +462,16 @@ cpsTail (TmLam x argTy e) k =
         pure (fun, S.TyArr argTy retTy)
       let res = LetFunK [fun] (JumpK k [f])
       pure (res, ty)
+cpsTail (TmTLam aa e) k =
+  freshTm "f" $ \f ->
+    freshCo "k" $ \k' -> do
+      (def, ty) <- freshenTyVarBinds [aa] $ \bs -> do
+        (e', retTy) <- cpsTail e k'
+        let s' = cpsType retTy
+        let def = AbsDef () f bs [(k', ContK [s'])] e'
+        pure (def, S.TyAll aa retTy)
+      let res = LetAbsK [def] (JumpK k [f])
+      pure (res, ty)
 cpsTail (TmLet x t e1 e2) k =
   -- [[let x:t = e1 in e2]] k
   -- -->
