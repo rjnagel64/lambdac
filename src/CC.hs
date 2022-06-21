@@ -153,6 +153,8 @@ coSortOf (K.ContK ss) = Closure (map sortOf ss)
 newtype ThunkType = ThunkType { thunkArgSorts :: [Sort] }
   deriving (Eq, Ord)
 
+-- TODO: I think closures involving 'Alloc' are getting duplicated, because
+-- they have different bound variable names.
 thunkTypesOf :: K.TypeK -> Set ThunkType
 thunkTypesOf (K.FunK ts ss) =
   Set.insert (ThunkType (map sortOf ts ++ map coSortOf ss)) $
@@ -300,9 +302,8 @@ unitTm = unitField . tmVar
 unitCo :: K.CoVar -> FieldsFor
 unitCo = unitField . coVar
 
--- TODO: Implement 'unitTy'
 unitTy :: K.TyVar -> FieldsFor
-unitTy aa = mempty
+unitTy aa = let aa' = tyVar aa in FieldsFor $ \ctx -> (Set.empty, Set.singleton aa')
 
 bindFields :: [(Name, Sort)] -> FieldsFor -> FieldsFor
 bindFields xs fs = FieldsFor $ \ctx ->
@@ -498,7 +499,7 @@ cconvFunDef fs fun@(FunDef _ f xs ks e) = do
     funThunk = ThunkType (map (sortOf . snd) xs ++ map (coSortOf . snd) ks)
     thunks = Set.insert funThunk $ foldMap (thunkTypesOf . snd) xs <> foldMap (coThunkTypesOf . snd) ks
     products = foldMap (productTypesOf . snd) xs <> foldMap (coProductTypesOf . snd) ks
-  tell (TypeDecls (thunks, products))
+  tell (TypeDecls (thunks, mempty))
   let tmbinds = map bindTm xs
   let cobinds = map bindCo ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
@@ -516,7 +517,7 @@ cconvContDef ks kont@(ContDef _ k xs e) = do
     contThunk = ThunkType (map (sortOf . snd) xs)
     thunks = Set.insert contThunk $ foldMap thunkTypesOf (map snd xs)
     products = foldMap productTypesOf (map snd xs)
-  tell (TypeDecls (thunks, products))
+  tell (TypeDecls (thunks, mempty))
   let binds = map bindTm xs
   let extend ctx' = foldr (uncurry Map.insert) ctx' binds
   (fields, tyfields) <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
@@ -526,6 +527,11 @@ cconvContDef ks kont@(ContDef _ k xs e) = do
 
 cconvAbsDef :: Set Name -> AbsDef a -> ConvM AbsClosureDef
 cconvAbsDef fs abs@(AbsDef _ f as ks e) = do
+  let
+    absThunk = ThunkType (map (coSortOf . snd) ks)
+    thunks = Set.insert absThunk (foldMap coThunkTypesOf (map snd ks))
+    products = foldMap coProductTypesOf (map snd ks)
+  tell (TypeDecls (thunks, mempty))
   let tybinds = map bindTy as
   let cobinds = map bindCo ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' cobinds

@@ -165,8 +165,8 @@ subst aa t (TyAll bb t') =
   if aa == bb then TyAll bb t' else TyAll bb' (subst aa t (subst bb (TyVarOcc bb') t'))
   where
     vs = ftv t' <> ftv t
-    bb' = let TyVar x = bb in go x
-    go x = if Set.member (TyVar x) vs then go (x ++ "'") else TyVar x
+    bb' = let TyVar x = bb in go x (0 :: Int)
+    go x i = let cc = TyVar (x ++ show i) in if Set.member cc vs then go x (i+1) else cc
 subst aa t (TyList t') = TyList (subst aa t t')
 subst aa t (TySum t1 t2) = TySum (subst aa t t1) (subst aa t t2)
 subst aa t (TyProd t1 t2) = TyProd (subst aa t t1) (subst aa t t2)

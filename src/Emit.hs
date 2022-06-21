@@ -305,7 +305,6 @@ emitSuspend envp cl ty xs = "    " ++ emitPrimCall envp method (cl : xs) ++ ";"
 emitSuspend' :: EnvPtr -> Name -> ThunkType -> [Sort] -> [Name] -> String
 emitSuspend' envp cl ty ss xs =
   "    " ++ method ++ "(" ++ emitName envp cl ++ ", " ++ commaSep (map (infoForSort envp) ss) ++ ", " ++ commaSep (map (emitName envp) xs) ++ ");"
-  -- "    " ++ emitPrimCall envp method (cl : xs) ++ ";"
   where
     method = thunkSuspendName (namesForThunk ty)
 
