@@ -272,7 +272,7 @@ hoist (LetAbsC fs e) = do
     pure (AllocClosure fs' e')
 
 hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
-hoistEnvDef (C.EnvDef free rec) =
+hoistEnvDef (C.EnvDef tys free rec) =
   EnvAlloc [] <$> traverse envAllocField free <*> traverse envAllocField rec
 
 envAllocField :: (C.Name, Sort) -> HoistM (FieldName, Name)
@@ -358,7 +358,7 @@ hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
 inClosure :: C.EnvDef -> [(C.Name, Sort)] -> HoistM a -> HoistM (EnvDecl, [PlaceName], a)
-inClosure (C.EnvDef free rec) places m = do
+inClosure (C.EnvDef tys free rec) places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields = free ++ rec
   let fields' = map (\ (x, s) -> (x, asFieldName s x)) fields
