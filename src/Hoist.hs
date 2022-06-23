@@ -40,9 +40,10 @@ import Control.Monad.Reader
 import Control.Monad.Writer hiding (Sum)
 import Control.Monad.State
 
+import Data.Bifunctor
 import Data.Int (Int64)
 import Data.Traversable (for, mapAccumL)
-import Data.List (intercalate)
+import Data.List (intercalate, nub)
 
 import qualified CC as C
 import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..), ThunkType(..))
@@ -169,21 +170,75 @@ newtype ClosureDecls = ClosureDecls [ClosureDecl]
 deriving newtype instance Semigroup ClosureDecls
 deriving newtype instance Monoid ClosureDecls
 
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer ClosureDecls)) a }
+data ThunkType2 = ThunkType2 { thunkArgSorts :: [Sort] }
+
+eqThunkType :: ThunkType2 -> ThunkType2 -> Bool
+eqThunkType (ThunkType2 ts') (ThunkType2 ss') = go Map.empty Map.empty ts' ss'
+  where
+    go _ _ [] [] = True
+    go fw bw (Alloc aa:ts) (Alloc bb:ss) = case (Map.lookup aa fw, Map.lookup bb bw) of
+      (Nothing, Nothing) ->
+        go (Map.insert aa bb fw) (Map.insert bb aa bw) ts ss
+      (Just aa', Just bb') ->
+        (aa' == bb && bb' == aa) && go (Map.insert aa bb fw) (Map.insert bb aa bw) ts ss
+      (_, _) -> False
+    go fw bw (t:ts) (s:ss) = eqSort t s && go fw bw ts ss
+    go _ _ _ _ = False
+
+    -- Test that two 'Sort's have the same runtime representation
+    -- Basically, whether they have the same 'tycode'.
+    eqSort (Alloc _) (Alloc _) = True
+    eqSort (List t) (List s) = eqSort t s
+    eqSort (Pair t1 t2) (Pair s1 s2) = eqSort t1 s1 && eqSort t2 s2
+    eqSort (Closure xs) (Closure ys) = go2 xs ys
+      where
+        go2 [] [] = True
+        go2 (t:ts) (s:ss) = eqSort t s && go2 ts ss
+        go2 _ _ = False
+    eqSort Integer Integer = True
+    eqSort Unit Unit = True
+    eqSort Boolean Boolean = True
+    eqSort Sum Sum = True
+    eqSort _ _ = False
+
+instance Eq ThunkType2 where (==) = eqThunkType
+
+-- | A set data type, that only requires 'Eq' constraints. Implemented because
+-- I can't wrap my head around a sensible ordering for 'ThunkType' or
+-- 'ThunkType2'.
+newtype NubList a = NubList { getNubList :: [a] }
+
+nubList :: Eq a => [a] -> NubList a
+nubList xs = NubList (nub xs)
+
+instance Eq a => Semigroup (NubList a) where
+  NubList as <> NubList bs = NubList (merge as)
+    where
+      merge [] = bs
+      merge (x:xs) = if elem x bs then merge xs else x : merge xs
+
+instance Eq a => Monoid (NubList a) where
+  mempty = NubList []
+
+-- TODO: Collect thunk types here
+-- (Hopefully, this will allow me to fix the issues with polymorphic thunk types)
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer (ClosureDecls, NubList ThunkType2))) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
-deriving newtype instance MonadWriter ClosureDecls HoistM
+deriving newtype instance MonadWriter (ClosureDecls, NubList ThunkType2) HoistM
 deriving newtype instance MonadState (Set DeclName) HoistM
 
-runHoist :: HoistM a -> (a, ClosureDecls)
-runHoist = runWriter .  flip evalStateT Set.empty .  flip runReaderT emptyEnv .  runHoistM
+runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType2]))
+runHoist = second (second getNubList) . runWriter .  flip evalStateT Set.empty .  flip runReaderT emptyEnv .  runHoistM
   where emptyEnv = HoistEnv mempty mempty
 
 tellClosures :: [ClosureDecl] -> HoistM ()
-tellClosures cs = tell (ClosureDecls cs)
+tellClosures cs = tell (ClosureDecls cs, ts)
+  where
+    ts = nubList [ThunkType2 [placeSort p | p <- places] | ClosureDecl _ _ places _ <- cs]
 
 
 -- | After closure conversion, the code for each function and continuation can

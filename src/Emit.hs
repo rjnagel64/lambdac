@@ -153,6 +153,7 @@ emitThunkType (ThunkType ss) =
   where
     ns = namesForThunk (ThunkType ss)
     mkField i s = "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
+    -- TODO: `struct alloc_header` in a thunk should be accompanied by `type_info`
 
 emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace (ThunkType ss) =
