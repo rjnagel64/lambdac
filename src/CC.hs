@@ -38,6 +38,7 @@ import Data.Map (Map)
 import Control.Monad.Reader
 import Control.Monad.Writer hiding (Sum)
 
+import Data.Function (on)
 import Data.List (intercalate, partition)
 import Data.Bifunctor
 
@@ -265,6 +266,17 @@ data ValueC
   | ConsC Name Name
 
 
+data FreeOcc = FreeOcc { freeOccName :: Name, freeOccSort :: Sort }
+
+freeOcc :: FreeOcc -> (Name, Sort)
+freeOcc (FreeOcc x s) = (x, s)
+
+instance Eq FreeOcc where
+  (==) = (==) `on` freeOccName
+
+instance Ord FreeOcc where
+  compare = compare `on` freeOccName
+
 -- TODO: Closure conversion should record free type variables as well.
 -- I'm not entirely satisfied with the existence of 'FieldsFor'. It should be a
 -- bottom-up traversal, just like the 'cconv' pass, but I end up separating it
@@ -273,7 +285,7 @@ data ValueC
 -- I think that the "proper" way to do it is with a Writer monad, and using
 -- 'censor' to implement 'bindFields'? I might just keep it as part of the
 -- return value, though.
-newtype FieldsFor = FieldsFor { runFieldsFor :: Map Name Sort -> (Set (Name, Sort), Set TyVar) }
+newtype FieldsFor = FieldsFor { runFieldsFor :: Map Name Sort -> (Set FreeOcc, Set TyVar) }
 
 instance Semigroup FieldsFor where
   fs <> fs' = FieldsFor $ \ctx -> runFieldsFor fs ctx <> runFieldsFor fs' ctx
@@ -284,7 +296,7 @@ instance Monoid FieldsFor where
 unitField :: Name -> FieldsFor
 unitField x = FieldsFor $ \ctx -> case Map.lookup x ctx of
   Nothing -> error ("unbound variable occurrence: " ++ show x ++ " not in " ++ show ctx)
-  Just s -> (Set.singleton (x, s), Set.empty)
+  Just s -> (Set.singleton (FreeOcc x s), Set.empty)
 
 unitTm :: K.TmVar -> FieldsFor
 unitTm = unitField . tmVar
@@ -299,7 +311,7 @@ bindFields :: [(Name, Sort)] -> FieldsFor -> FieldsFor
 bindFields xs fs = FieldsFor $ \ctx ->
   let ctx' = foldr (uncurry Map.insert) ctx xs in
   let (fields, tys) = runFieldsFor fs ctx' in
-  (fields Set.\\ Set.fromList xs, tys)
+  (fields Set.\\ Set.fromList (uncurry FreeOcc <$> xs), tys)
 
 bindTyFields :: [TyVar] -> FieldsFor -> FieldsFor
 bindTyFields aas fs = fs
@@ -390,8 +402,8 @@ fieldsForCoTy (K.ContK ss) = foldMap fieldsForTy ss
 
 -- | Split occurrences into free variables and recursive calls.
 -- Return @(free, rec)@.
-markRec :: Set Name -> [(Name, Sort)] -> ([(Name, Sort)], [(Name, Sort)])
-markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) xs
+markRec :: Set Name -> [FreeOcc] -> ([(Name, Sort)], [(Name, Sort)])
+markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) (map freeOcc xs)
 
 funDefNames :: [FunDef a] -> [(Name, Sort)]
 funDefNames fs = [(tmVar f, Closure (map (sortOf . snd) xs ++ map (coSortOf . snd) ks)) | FunDef _ f xs ks _ <- fs]
