@@ -170,6 +170,7 @@ newtype ClosureDecls = ClosureDecls [ClosureDecl]
 deriving newtype instance Semigroup ClosureDecls
 deriving newtype instance Monoid ClosureDecls
 
+-- TODO: ThunkType2 should use deBruijn levels to refer to type variables
 data ThunkType2 = ThunkType2 { thunkArgSorts :: [Sort] }
 
 eqThunkType :: ThunkType2 -> ThunkType2 -> Bool

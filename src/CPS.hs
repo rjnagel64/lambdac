@@ -215,6 +215,13 @@ cpsType S.TyBool = BoolK
 cpsType (S.TySum a b) = SumK (cpsType a) (cpsType b)
 cpsType (S.TyProd a b) = ProdK (cpsType a) (cpsType b)
 cpsType (S.TyArr argTy retTy) = FunK [cpsType argTy] [cpsCoType retTy]
+-- TODO: cpsType should not directly inspect S.TyVar
+-- It should use the type variable  scope, but that would make this monadic.
+-- Unfortunately, the call sites for this really don't play well with monads.
+--
+-- I guess I could take a middle ground of passing in the current tyvar scope
+-- explicitly, but each of those sites would need an `asks cpsTyVarScope` and
+-- an extra variable binding.
 cpsType (S.TyVarOcc (S.TyVar aa)) = TyVarOccK (TyVar aa 0)
 cpsType (S.TyAll (S.TyVar aa) t) = AllK [TyVar aa 0] [cpsCoType t]
 cpsType (S.TyList a) = ListK (cpsType a)

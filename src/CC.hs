@@ -108,6 +108,7 @@ tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
 -- Alloc = a : *
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
+-- TODO: Parametrize 'Sort' by type of variable: 'Sort TyVar' and 'Sort DBLevel'
 data Sort
   = Closure [Sort]
   | Integer
