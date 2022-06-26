@@ -477,6 +477,8 @@ pprintTerm n (OpenH c _ xs) = indent n $ show c ++ " " ++ intercalate " " (map s
 pprintTerm n (CaseH x _kind ks) =
   let branches = intercalate " | " (map (show . fst) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
+pprintTerm n (InstH f _ty ss ks) =
+  indent n $ intercalate " @" (show f : map show ss) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetProjectH x y p e) =

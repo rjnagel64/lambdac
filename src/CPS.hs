@@ -773,7 +773,10 @@ indent n s = replicate n ' ' ++ s
 pprintTerm :: Int -> TermK a -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
-pprintTerm n (CallK f xs ks) = indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
+pprintTerm n (CallK f xs ks) =
+  indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
+pprintTerm n (InstK f ts ks) =
+  indent n $ intercalate " @" (show f : map pprintType ts) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
 pprintTerm n (CaseK x t ks) =
   let branches = intercalate " | " (map show ks) in
   indent n $ "case " ++ show x ++ " : " ++ pprintType t  ++ " of " ++ branches ++ ";\n"
@@ -783,6 +786,8 @@ pprintTerm n (LetFunK fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContK ks e) =
   indent n "letcont\n" ++ concatMap (pprintContDef (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
+pprintTerm n (LetAbsK fs e) =
+  indent n "letabs\n" ++ concatMap (pprintAbsDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetFstK x t y e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndK x t y e) =
@@ -834,6 +839,15 @@ pprintContDef n (ContDef _ k xs e) =
     pprintTmParam :: (TmVar, TypeK) -> String
     pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
 
+pprintAbsDef :: Int -> AbsDef a -> String
+pprintAbsDef n (AbsDef _ f as ks e) =
+  indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
+  where
+    -- One parameter list or two?
+    params = "(" ++ intercalate ", " (map pprintTyParam as ++ map pprintCoParam ks) ++ ")"
+    pprintTyParam aa = "@" ++ show aa
+    pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
+
 pprintType :: TypeK -> String
 pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s
 pprintType (SumK t s) = pprintAType t ++ " + " ++ pprintAType s
@@ -846,8 +860,12 @@ pprintType (FunK ts ss) =
 pprintType IntK = "int"
 pprintType UnitK = "unit"
 pprintType BoolK = "bool"
+pprintType (TyVarOccK aa) = show aa
+pprintType (AllK aas ss) =
+  "forall " ++ intercalate " " (map show aas) ++ ". (" ++ intercalate ", " (map pprintCoType ss) ++ ") -> 0"
 
 pprintAType :: TypeK -> String
+pprintAType (TyVarOccK aa) = show aa
 pprintAType IntK = "int"
 pprintAType UnitK = "unit"
 pprintAType BoolK = "bool"

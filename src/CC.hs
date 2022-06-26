@@ -41,6 +41,7 @@ import Control.Monad.Writer hiding (Sum)
 import Data.Function (on)
 import Data.List (intercalate, partition)
 import Data.Bifunctor
+import Prelude hiding (abs)
 
 import qualified CPS as K
 import CPS (TermK(..), FunDef(..), ContDef(..), AbsDef(..), ValueK(..), ArithK(..), CmpK(..))
@@ -575,11 +576,16 @@ pprintThunkType (ThunkType ss) = "thunk (" ++ intercalate ", " (map show ss) ++ 
 pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (JumpC k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
-pprintTerm n (CallC f xs ks) = indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
+pprintTerm n (CallC f xs ks) =
+  indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
+pprintTerm n (InstC f ss ks) =
+  indent n $ intercalate " @" (show f : map show ss) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
 pprintTerm n (LetFunC fs e) =
-  indent n "letfun\n" ++ concatMap (pprintClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
+  indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContC fs e) =
   indent n "letcont\n" ++ concatMap (pprintContClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
+pprintTerm n (LetAbsC fs e) =
+  indent n "letabs\n" ++ concatMap (pprintAbsClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e 
 pprintTerm n (LetValC x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFstC x y e) =
@@ -622,8 +628,8 @@ pprintCompare (LeC x y) = show x ++ " <= " ++ show y
 pprintCompare (GtC x y) = show x ++ " > " ++ show y
 pprintCompare (GeC x y) = show x ++ " >= " ++ show y
 
-pprintClosureDef :: Int -> FunClosureDef -> String
-pprintClosureDef n (FunClosureDef f env xs ks e) =
+pprintFunClosureDef :: Int -> FunClosureDef -> String
+pprintFunClosureDef n (FunClosureDef f env xs ks e) =
   pprintEnvDef n env ++ indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     params = "(" ++ intercalate ", " args ++ ")"
@@ -635,6 +641,13 @@ pprintContClosureDef n (ContClosureDef k env xs e) =
   where
     params = "(" ++ intercalate ", " args ++ ")"
     args = map pprintPlace xs
+
+pprintAbsClosureDef :: Int -> AbsClosureDef -> String
+pprintAbsClosureDef n (AbsClosureDef f env as ks e) =
+  pprintEnvDef n env ++ indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
+  where
+    params = "(" ++ intercalate ", " args ++ ")"
+    args = map show as ++ map pprintPlace ks
 
 pprintEnvDef :: Int -> EnvDef -> String
 pprintEnvDef n (EnvDef tys free rec) = indent n $ "{" ++ intercalate ", " vars ++ "}\n"
