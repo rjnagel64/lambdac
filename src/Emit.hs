@@ -133,6 +133,11 @@ asSort (List _s) x = "AS_LIST(" ++ x ++ ")"
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
+-- TODO: I think 'emitMarkGray' needs the environment pointer, so it can access
+-- type_info in the env.
+emitMarkGray :: EnvPtr -> String -> Sort -> String
+emitMarkGray envp x s = "mark_gray(" ++ asAlloc x ++ ", " ++ infoForSort envp s ++ ")"
+
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex f = zipWith f [0..]
 
@@ -159,12 +164,12 @@ emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    " ++ emitMarkGray "next->closure" (Closure ss) ++ ";"] ++
+  ,"    " ++ emitMarkGray "next" "next->closure" (Closure ss) ++ ";"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
     ns = namesForThunk (ThunkType ss)
-    traceField i s = "    " ++ emitMarkGray ("next->arg" ++ show i) s ++ ";"
+    traceField i s = "    " ++ emitMarkGray "next" ("next->arg" ++ show i) s ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
 emitThunkEnter (ThunkType ss) =
@@ -246,7 +251,7 @@ emitEnvTrace ns (EnvDecl _is fs) =
   where
     closureTy = "struct " ++ closureEnvName ns ++ " *"
     traceField :: FieldName -> String
-    traceField (FieldName s x) = "    " ++ emitMarkGray ("env->" ++ x) s ++ ";"
+    traceField (FieldName s x) = "    " ++ emitMarkGray "env" ("env->" ++ x) s ++ ";"
 
 emitClosureCode :: ClosureNames -> [PlaceName] -> TermH -> [String]
 emitClosureCode ns xs e =
@@ -403,9 +408,4 @@ emitPlace (PlaceName s x) = typeForSort s ++ x
 emitName :: EnvPtr -> Name -> String
 emitName _ (LocalName x) = x
 emitName envp (EnvName x) = envp ++ "->" ++ x
-
--- TODO: I think 'emitMarkGray' needs the environment pointer, so it can access
--- type_info in the env.
-emitMarkGray :: String -> Sort -> String
-emitMarkGray x s = "mark_gray(" ++ asAlloc x ++ ", " ++ infoForSort "NULL" s ++ ")"
 
