@@ -57,7 +57,7 @@ standard_test("listmerge", "cons 1 cons 2 cons 3 cons 4 cons 5 cons 6 cons 7 nil
 standard_test("mergesort", "cons 1 cons 2 cons 3 cons 4 cons 5 cons 6 cons 7 nil")
 standard_test("polyid", "<closure>")
 standard_test("duparg", "true")
-standard_test("polystate", "(55, 55)")
+# standard_test("polystate", "(55, 55)")
 
 
 for (test, out, err) in failed_tests:
