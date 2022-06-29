@@ -98,6 +98,7 @@ check (LetSndK x s y e) = do
 check (LetValK x t v e) = do
   checkValue v t
   withTmVars [(x, t)] $ check e
+-- TODO: Check that parameter types are well-formed (e.g., type variables are in scope)
 check (LetContK ks e) = do
   let defs = [(k, ContK (map snd xs)) | ContDef _ k xs _ <- ks]
   withCoVars defs $ do

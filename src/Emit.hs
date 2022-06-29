@@ -1,7 +1,6 @@
 
 module Emit (emitProgram) where
 
-import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Data.List (intercalate)
@@ -202,15 +201,15 @@ emitThunkSuspend (ThunkType ss) =
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
 
 emitClosureDecl :: H.ClosureDecl -> [String]
-emitClosureDecl (H.ClosureDecl d envd params e) =
+emitClosureDecl (H.ClosureDecl d envd@(EnvDecl envName _ _) params e) =
   emitEnvDecl ns envd ++
   emitEnvTrace ns envd ++
   emitEnvAlloc ns envd ++
-  emitClosureCode ns params e
+  emitClosureCode ns envName params e
   where ns = namesForDecl d
 
 emitEnvDecl :: ClosureNames -> EnvDecl -> [String]
-emitEnvDecl ns (EnvDecl is fs) =
+emitEnvDecl ns (EnvDecl name is fs) =
   ["struct " ++ closureEnvName ns ++ " {"
   ,"    struct alloc_header header;"] ++
   map mkInfo is ++
@@ -222,7 +221,7 @@ emitEnvDecl ns (EnvDecl is fs) =
 
 emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
 -- TODO: What if there is a parameter named 'env'?
-emitEnvAlloc ns (EnvDecl is fs) =
+emitEnvAlloc ns (EnvDecl name is fs) =
   ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ params ++ ") {"
   ,"    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"]++
   map assignInfo is ++
@@ -242,7 +241,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
 -- | Emit a method to trace a closure environment.
 -- (Emit type info for the environment types)
 emitEnvTrace :: ClosureNames -> EnvDecl -> [String]
-emitEnvTrace ns (EnvDecl _is fs) =
+emitEnvTrace ns (EnvDecl name _is fs) =
   ["void " ++ closureTraceName ns ++ "(struct alloc_header *alloc) {"
   ,"    " ++ closureTy ++ "env = (" ++ closureTy ++ ")alloc;"] ++
   map traceField fs ++
@@ -253,29 +252,16 @@ emitEnvTrace ns (EnvDecl _is fs) =
     traceField :: FieldName -> String
     traceField (FieldName s x) = "    " ++ emitMarkGray "env" ("env->" ++ x) s ++ ";"
 
-emitClosureCode :: ClosureNames -> [PlaceName] -> TermH -> [String]
-emitClosureCode ns xs e =
+emitClosureCode :: ClosureNames -> String -> [PlaceName] -> TermH -> [String]
+emitClosureCode ns envName xs e =
   ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"
-  ,"    struct " ++ closureEnvName ns ++ " *" ++ envPointer ++ " = " ++ envParam ++ ";"] ++
-  emitClosureBody envPointer e ++
+  ,"    struct " ++ closureEnvName ns ++ " *" ++ envName ++ " = __env;"] ++
+  emitClosureBody envName e ++
   ["}"]
   where
-    paramList = commaSep (("void *"++envParam) : map emitPlace xs)
-    xs' = Set.fromList (map placeName xs) `Set.union` go2 e
-    envParam = go "envp" xs'
-    envPointer = go "env" (Set.insert envParam xs')
-
-    go x vs = if Set.notMember x vs then x else go ('_':x) vs
-
-    -- Find the set of temporaries used by this function.
-    go2 (LetValH p _ e') = Set.insert (placeName p) (go2 e')
-    go2 (LetPrimH p _ e') = Set.insert (placeName p) (go2 e')
-    go2 (LetProjectH p _ _ e') = Set.insert (placeName p) (go2 e')
-    go2 (AllocClosure cs e') = foldr (Set.insert . placeName) (go2 e') (map closurePlace cs)
-    go2 (HaltH _ _) = Set.empty
-    go2 (OpenH _ _ _) = Set.empty
-    go2 (CaseH _ _ _) = Set.empty
-    go2 (InstH _ _ _ _) = Set.empty
+    -- User-provided names cannot start with _, so we use that for the
+    -- polymorphic environment parameter.
+    paramList = commaSep ("void *__env" : map emitPlace xs)
 
 emitClosureBody :: EnvPtr -> TermH -> [String]
 emitClosureBody envp (LetValH x v e) =

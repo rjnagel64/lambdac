@@ -48,6 +48,19 @@ import Data.List (intercalate, nub)
 import qualified CC as C
 import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..), ThunkType(..))
 
+-- TODO: The whole PlaceName/FieldName and LocalName/EnvName feels messy
+-- Especially because I need to add some form of name capable of referring to type_info.
+--
+-- * FieldName is not really that useful??
+-- * PlaceName gets used for lots of things: parameters, local variables, etc.
+-- * LocalName/EnvName: Could I generalize this to 'LocalName String | ProjectField Name String'?
+--   If 'ClosureDecl' gives a name to the environment pointer, environment accesses would look like
+--   'ProjectField (LocalName "envp") "x"'. I currently only need one level,
+--   but it probably would be useful to make "the thing being projected from" a
+--   name reference in its own right.
+--   Tracing a thunk declaration could also make use of such a type.
+--   (maybe I could even do something weird and add a 'CastField Name Sort' ctor to do stuff)
+
 -- This is only for free occurrences? Binders use a different type for names? Yeah.
 -- LocalName is for 'x'
 -- EnvName is for 'env->q'
@@ -93,10 +106,13 @@ asDeclName :: C.Name -> DeclName
 asDeclName (C.Name x i) = DeclName (x ++ show i)
 
 
+-- TODO: I think that by 'Hoist', type parameters and value parameters should
+-- be treated uniformly. E.G., 'ClosureDecl' should carry a '[ClosureParam]',
+-- where 'data ClosureParam = ValueParam PlaceName | TypeParam InfoName'
 data ClosureDecl
   = ClosureDecl DeclName EnvDecl [PlaceName] TermH
 
-data EnvDecl = EnvDecl [InfoName] [FieldName]
+data EnvDecl = EnvDecl String [InfoName] [FieldName]
 
 data TermH
   = LetValH PlaceName ValueH TermH
@@ -290,20 +306,19 @@ hoist (LetCompareC (x, s) cmp e) = do
 hoist (LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
   ds' <- traverse hoistFunClosure fdecls
-
   tellClosures ds'
 
   placesForClosureAllocs C.funClosureName C.funClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f env xs ks _e) -> do
       env' <- hoistEnvDef env
       let ty = ThunkType ([s | (_x, s) <- xs] ++ [s | (_k, s) <- ks])
+      -- TODO: Give name to environment allocations as well
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure fs' e')
 hoist (LetContC ks e) = do
   kdecls <- declareClosureNames C.contClosureName ks
   ds' <- traverse hoistContClosure kdecls
-
   tellClosures ds'
 
   placesForClosureAllocs C.contClosureName C.contClosureSort kdecls $ \kplaces -> do
@@ -316,7 +331,6 @@ hoist (LetContC ks e) = do
 hoist (LetAbsC fs e) = do
   fdecls <- declareClosureNames C.absClosureName fs
   ds' <- traverse hoistAbsClosure fdecls
-
   tellClosures ds'
 
   placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
@@ -392,6 +406,7 @@ hoistCmp (GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
+-- TODO: Pick name for environment parameter here.
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
   (env', places', body') <- inClosure env (xs ++ ks) $ hoist body
@@ -406,9 +421,19 @@ hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
 
 hoistAbsClosure :: (DeclName, C.AbsClosureDef) -> HoistM ClosureDecl
 hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
+  -- TODO: Shouldn't hoistAbsClosure create parameters for the sorts?
   (env', places', body') <- inClosure env ks $ hoist body
   let fd = ClosureDecl fdecl env' places' body'
   pure fd
+
+-- | Pick a name for the environment parameter, that will not clash with
+-- anything already in scope.
+pickEnvironmentName :: Set String -> String
+pickEnvironmentName sc = go (0 :: Int)
+  where
+    go i =
+      let envp = "env" ++ show i in
+      if Set.member envp sc then go (i+1) else envp
 
 -- | Replace the set of fields and places in the environment, while leaving the
 -- set of declaration names intact. This is because inside a closure, all names
@@ -423,7 +448,9 @@ inClosure (C.EnvDef tys free rec) places m = do
   let tys' = map asInfoName tys
   let replaceEnv (HoistEnv _ _) = HoistEnv (Map.fromList places') (Map.fromList fields')
   r <- local replaceEnv m
-  pure (EnvDecl tys' (map snd fields'), map snd places', r)
+  let inScopeNames = map (fieldName . snd) fields' ++ map (placeName . snd) places' ++ map infoName tys'
+  let name = pickEnvironmentName (Set.fromList inScopeNames)
+  pure (EnvDecl name tys' (map snd fields'), map snd places', r)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
@@ -526,10 +553,10 @@ pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = "let {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
 
 pprintClosureDecl :: Int -> ClosureDecl -> String
-pprintClosureDecl n (ClosureDecl f (EnvDecl is fs) params e) =
+pprintClosureDecl n (ClosureDecl f (EnvDecl name is fs) params e) =
   indent n (show f ++ " " ++ env ++ " (" ++ intercalate ", " (map pprintPlace params) ++ ") =\n") ++
   pprintTerm (n+2) e
-  where env = "{" ++ intercalate ", " (map pprintInfo is) ++ "; " ++ intercalate ", " (map pprintField fs) ++ "}"
+  where env = name ++ " : {" ++ intercalate ", " (map pprintInfo is) ++ "; " ++ intercalate ", " (map pprintField fs) ++ "}"
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p _t d (EnvAlloc _info free rec)) =
