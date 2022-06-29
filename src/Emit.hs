@@ -201,7 +201,7 @@ emitThunkSuspend (ThunkType ss) =
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
 
 emitClosureDecl :: H.ClosureDecl -> [String]
-emitClosureDecl (H.ClosureDecl d envd@(EnvDecl envName _ _) params e) =
+emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
   emitEnvDecl ns envd ++
   emitEnvTrace ns envd ++
   emitEnvAlloc ns envd ++
@@ -209,7 +209,7 @@ emitClosureDecl (H.ClosureDecl d envd@(EnvDecl envName _ _) params e) =
   where ns = namesForDecl d
 
 emitEnvDecl :: ClosureNames -> EnvDecl -> [String]
-emitEnvDecl ns (EnvDecl name is fs) =
+emitEnvDecl ns (EnvDecl is fs) =
   ["struct " ++ closureEnvName ns ++ " {"
   ,"    struct alloc_header header;"] ++
   map mkInfo is ++
@@ -221,7 +221,7 @@ emitEnvDecl ns (EnvDecl name is fs) =
 
 emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
 -- TODO: What if there is a parameter named 'env'?
-emitEnvAlloc ns (EnvDecl name is fs) =
+emitEnvAlloc ns (EnvDecl is fs) =
   ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ params ++ ") {"
   ,"    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"]++
   map assignInfo is ++
@@ -241,7 +241,7 @@ emitEnvAlloc ns (EnvDecl name is fs) =
 -- | Emit a method to trace a closure environment.
 -- (Emit type info for the environment types)
 emitEnvTrace :: ClosureNames -> EnvDecl -> [String]
-emitEnvTrace ns (EnvDecl name _is fs) =
+emitEnvTrace ns (EnvDecl _is fs) =
   ["void " ++ closureTraceName ns ++ "(struct alloc_header *alloc) {"
   ,"    " ++ closureTy ++ "env = (" ++ closureTy ++ ")alloc;"] ++
   map traceField fs ++

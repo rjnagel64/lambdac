@@ -110,9 +110,9 @@ asDeclName (C.Name x i) = DeclName (x ++ show i)
 -- be treated uniformly. E.G., 'ClosureDecl' should carry a '[ClosureParam]',
 -- where 'data ClosureParam = ValueParam PlaceName | TypeParam InfoName'
 data ClosureDecl
-  = ClosureDecl DeclName EnvDecl [PlaceName] TermH
+  = ClosureDecl DeclName (String, EnvDecl) [PlaceName] TermH
 
-data EnvDecl = EnvDecl String [InfoName] [FieldName]
+data EnvDecl = EnvDecl [InfoName] [FieldName]
 
 data TermH
   = LetValH PlaceName ValueH TermH
@@ -439,7 +439,7 @@ pickEnvironmentName sc = go (0 :: Int)
 -- set of declaration names intact. This is because inside a closure, all names
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: C.EnvDef -> [(C.Name, Sort)] -> HoistM a -> HoistM (EnvDecl, [PlaceName], a)
+inClosure :: C.EnvDef -> [(C.Name, Sort)] -> HoistM a -> HoistM ((String, EnvDecl), [PlaceName], a)
 inClosure (C.EnvDef tys free rec) places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields = free ++ rec
@@ -450,7 +450,7 @@ inClosure (C.EnvDef tys free rec) places m = do
   r <- local replaceEnv m
   let inScopeNames = map (fieldName . snd) fields' ++ map (placeName . snd) places' ++ map infoName tys'
   let name = pickEnvironmentName (Set.fromList inScopeNames)
-  pure (EnvDecl name tys' (map snd fields'), map snd places', r)
+  pure ((name, EnvDecl tys' (map snd fields')), map snd places', r)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
@@ -553,7 +553,7 @@ pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = "let {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
 
 pprintClosureDecl :: Int -> ClosureDecl -> String
-pprintClosureDecl n (ClosureDecl f (EnvDecl name is fs) params e) =
+pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
   indent n (show f ++ " " ++ env ++ " (" ++ intercalate ", " (map pprintPlace params) ++ ") =\n") ++
   pprintTerm (n+2) e
   where env = name ++ " : {" ++ intercalate ", " (map pprintInfo is) ++ "; " ++ intercalate ", " (map pprintField fs) ++ "}"
