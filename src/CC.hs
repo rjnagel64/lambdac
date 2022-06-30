@@ -213,8 +213,6 @@ data CmpC
 data FunClosureDef
   = FunClosureDef {
     funClosureName :: Name
-    -- TODO: Have a name for the environment parameter
-    -- (It makes things cleaner later on)
   , funEnvDef :: EnvDef
   , funClosureParams :: [(Name, Sort)]
   , funClosureConts :: [(Name, Sort)]

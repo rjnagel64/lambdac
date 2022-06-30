@@ -186,6 +186,13 @@ newtype ClosureDecls = ClosureDecls [ClosureDecl]
 deriving newtype instance Semigroup ClosureDecls
 deriving newtype instance Monoid ClosureDecls
 
+-- | A thunk type is basically a runtime layout for closure arguments.
+-- Each thunk type needs its own C code for suspending/entering/tracing
+-- closure, so we collect all the distinct thunk types that appear in the
+-- program.
+-- Note: all polymorphic values (things with sort @'Alloc' aa@) are passed as
+-- @struct alloc_header *@, so @Alloc aa@ and @Alloc bb@ are not considered to
+-- be distinct thunk types.
 -- TODO: ThunkType2 should use deBruijn levels to refer to type variables
 data ThunkType2 = ThunkType2 { thunkArgSorts :: [Sort] }
 
@@ -406,7 +413,6 @@ hoistCmp (GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
--- TODO: Pick name for environment parameter here.
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
   (env', places', body') <- inClosure env (xs ++ ks) $ hoist body
