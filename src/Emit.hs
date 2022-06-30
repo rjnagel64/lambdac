@@ -140,6 +140,11 @@ emitMarkGray envp x s = "mark_gray(" ++ asAlloc x ++ ", " ++ infoForSort envp s 
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex f = zipWith f [0..]
 
+-- TODO: Generate per-sort allocate_closure methods?
+-- I think I need to still maintain only one 'struct closure' (because
+-- pointer-casting and struct-casting issues), but I think I can make
+-- allocate_closure per-sort. This would move around the function pointer casts
+-- a bit, make them more encapsulated.
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
   emitThunkType t ++

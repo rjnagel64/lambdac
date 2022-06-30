@@ -120,7 +120,6 @@ void mark_gray(struct alloc_header *alloc, type_info info);
 void sweep_all_allocations(void);
 void cons_new_alloc(struct alloc_header *alloc, type_info info);
 
-// TODO: Generate per-sort allocate_closure methods
 struct closure *allocate_closure(struct alloc_header *env, type_info env_info, void (*code)(void), void (*enter)(void));
 struct sum *allocate_inl(struct alloc_header *v, type_info info);
 struct sum *allocate_inr(struct alloc_header *v, type_info info);
