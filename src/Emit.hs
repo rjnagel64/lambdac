@@ -230,7 +230,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
   ,"    return env;"
   ,"}"]
   where
-    params = if null (is ++ fs) then "void" else commaSep (map emitInfoDecl is ++ map emitFieldDecl fs)
+    params = if null is && null fs then "void" else commaSep (map emitInfoDecl is ++ map emitFieldDecl fs)
 
     assignInfo :: InfoName -> String
     assignInfo aa = "    env->" ++ infoName aa ++ " = " ++ infoName aa ++ ";"

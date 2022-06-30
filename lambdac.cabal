@@ -37,8 +37,8 @@ library
       Source
       TypeCheck
       CPS
+      CPS.Opt
       CPS.TypeCheck
-      Opt
       CC
       Hoist
       Emit

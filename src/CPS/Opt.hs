@@ -1,7 +1,7 @@
 {-# LANGUAGE StandaloneDeriving, DerivingVia, FlexibleInstances, MultiParamTypeClasses #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Opt where
+module CPS.Opt where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -30,9 +30,7 @@ import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..)
 -- contify is basically call-pattern specialization for continuation arguments?
 -- TODO: Implement Call Arity to be smarter about passing multiple arguments
 -- together.
--- TODO: Break Opt.hs into Opt/*.hs: split out specific optimizations
--- (Or, if I have optimizations for other phases (e.g., source, CC, etc.),
--- Phase/Opt.hs and Phase/Opt/*.hs)
+-- TODO: Break CPS/Opt.hs into CPS/Opt/*.hs: split out specific optimizations
 
 newtype InlineM a = InlineM { runInlineM :: Reader InlineEnv a }
 
