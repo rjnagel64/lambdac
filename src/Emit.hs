@@ -29,9 +29,8 @@ commaSep = intercalate ", "
 
 type EnvPtr = String
 
--- TODO: Ensure declarations (esp. product type declarations) are emitted in topological order
-emitProgram :: (Set ThunkType, [ClosureDecl], TermH) -> [String]
-emitProgram (ts, cs, e) =
+emitProgram :: (Set ThunkType, [ThunkType2], [ClosureDecl], TermH) -> [String]
+emitProgram (ts, ts2, cs, e) =
   prologue ++
   concatMap emitThunkDecl ts ++
   concatMap emitClosureDecl cs ++
@@ -132,8 +131,6 @@ asSort (List _s) x = "AS_LIST(" ++ x ++ ")"
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
--- TODO: I think 'emitMarkGray' needs the environment pointer, so it can access
--- type_info in the env.
 emitMarkGray :: EnvPtr -> String -> Sort -> String
 emitMarkGray envp x s = "mark_gray(" ++ asAlloc x ++ ", " ++ infoForSort envp s ++ ")"
 
