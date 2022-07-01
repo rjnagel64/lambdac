@@ -95,7 +95,7 @@ main = do
   let (srcH, (H.ClosureDecls closureDecls, thunkDecls2)) = H.runHoist $ H.hoist srcC
   when (driverDumpHoist args) $ do
     putStrLn $ "--- Hoisting ---"
-    putStrLn $ H.pprintClosures closureDecls ++ H.pprintTerm 0 srcH
+    putStrLn $ H.pprintThunkTypes thunkDecls2 ++ H.pprintClosures closureDecls ++ H.pprintTerm 0 srcH
 
   let obj = unlines $ E.emitProgram (thunkDecls, thunkDecls2, closureDecls, srcH)
   when (driverDumpEmit args) $ do

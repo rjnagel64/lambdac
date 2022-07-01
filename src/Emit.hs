@@ -32,7 +32,8 @@ type EnvPtr = String
 emitProgram :: (Set ThunkType, [ThunkType2], [ClosureDecl], TermH) -> [String]
 emitProgram (ts, ts2, cs, e) =
   prologue ++
-  concatMap emitThunkDecl ts ++
+  -- concatMap emitThunkDecl ts ++
+  concatMap emitThunkDecl (map (ThunkType . thunkArgSorts2) ts2) ++
   concatMap emitClosureDecl cs ++
   emitEntryPoint e
 
@@ -202,6 +203,11 @@ emitThunkSuspend (ThunkType ss) =
     makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
 
+emitThunkDecl2 :: ThunkType2 -> [String]
+emitThunkDecl2 t = []
+  -- emitThunkType2 t ++
+  -- emitThunkSuspend2 t
+
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
   emitEnvDecl ns envd ++
@@ -300,6 +306,11 @@ emitSuspend' envp cl ty ss xs =
   "    " ++ method ++ "(" ++ emitName envp cl ++ ", " ++ commaSep (map (infoForSort envp) ss) ++ ", " ++ commaSep (map (emitName envp) xs) ++ ");"
   where
     method = thunkSuspendName (namesForThunk ty)
+
+-- Every argument of sort 'Alloc aa' becomes two arguments: 'struct alloc_header *, type_info'.
+-- This is possibly redundant, if multiple arguments use the same 'type_info', but it's simpler.
+-- emitSuspend2 :: Name -> ThunkType2 -> [(Name, Sort)] -> String
+-- emitSuspend2 cl ty xs = _
 
 emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]
 emitCase kind envp x ks =

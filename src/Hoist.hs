@@ -15,6 +15,7 @@ module Hoist
     , Sort(..)
     , Name(..)
     , ThunkType(..)
+    , ThunkType2(..)
     , PlaceName(..)
     , FieldName(..)
     , InfoName(..)
@@ -27,6 +28,7 @@ module Hoist
     , runHoist
     , ClosureDecls(..)
     , hoist
+    , pprintThunkTypes
     , pprintClosures
     , pprintTerm
     ) where
@@ -194,9 +196,11 @@ deriving newtype instance Monoid ClosureDecls
 -- @struct alloc_header *@, so @Alloc aa@ and @Alloc bb@ are not considered to
 -- be distinct thunk types.
 -- TODO: ThunkType2 should use deBruijn levels to refer to type variables
-data ThunkType2 = ThunkType2 { thunkArgSorts :: [Sort] }
+--
+-- Question: At a call site to 'suspend', how do I know which type infos to provide?
+data ThunkType2 = ThunkType2 { thunkArgSorts2 :: [Sort] }
 
--- TODO: Emit.tycode should possibly be more directly associated with ThunkType[2]?
+-- TODO: Emit.tycode should possibly be more directly associated with ThunkType2?
 
 eqThunkType :: ThunkType2 -> ThunkType2 -> Bool
 eqThunkType (ThunkType2 ts') (ThunkType2 ss') = go Map.empty Map.empty ts' ss'
@@ -232,6 +236,8 @@ instance Eq ThunkType2 where (==) = eqThunkType
 -- | A set data type, that only requires 'Eq' constraints. Implemented because
 -- I can't wrap my head around a sensible ordering for 'ThunkType' or
 -- 'ThunkType2'.
+--
+-- (... Maybe map to 'tycode' and use the natural ordering on String?)
 newtype NubList a = NubList { getNubList :: [a] }
 
 nubList :: Eq a => [a] -> NubList a
@@ -264,7 +270,21 @@ runHoist = second (second getNubList) . runWriter .  flip evalStateT Set.empty .
 tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs, ts)
   where
-    ts = nubList [ThunkType2 [placeSort p | p <- places] | ClosureDecl _ _ places _ <- cs]
+    ts :: NubList ThunkType2
+    ts = nubList (concatMap closureThunkTypes cs)
+
+    closureThunkTypes :: ClosureDecl -> [ThunkType2]
+    closureThunkTypes (ClosureDecl _ _ places _) = thunkTypesOf (Closure [placeSort p | p <- places])
+
+    thunkTypesOf :: Sort -> [ThunkType2]
+    thunkTypesOf (Alloc _) = []
+    thunkTypesOf Integer = []
+    thunkTypesOf Boolean = []
+    thunkTypesOf Sum = []
+    thunkTypesOf Unit = []
+    thunkTypesOf (Closure ss) = ThunkType2 ss : concatMap thunkTypesOf ss
+    thunkTypesOf (Pair t1 t2) = thunkTypesOf t1 ++ thunkTypesOf t2
+    thunkTypesOf (List t) = thunkTypesOf t
 
 
 -- | After closure conversion, the code for each function and continuation can
@@ -573,3 +593,9 @@ pprintClosureAlloc n (ClosureAlloc p _t d (EnvAlloc _info free rec)) =
 
 pprintAllocArg :: (FieldName, Name) -> String
 pprintAllocArg (field, x) = pprintField field ++ " = " ++ show x
+
+pprintThunkTypes :: [ThunkType2] -> String
+pprintThunkTypes ts = unlines (map pprintThunkType ts)
+  where
+    pprintThunkType :: ThunkType2 -> String
+    pprintThunkType (ThunkType2 ss) = "thunk " ++ show ss ++ " -> !"
