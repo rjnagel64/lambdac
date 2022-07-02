@@ -23,7 +23,6 @@ module CC
   , Sort(..)
   , TyVar(..)
   , ThunkType(..)
-  , TypeDecls(..)
 
   , cconv
   , runConv
@@ -154,26 +153,6 @@ coSortOf (K.ContK ss) = Closure (map sortOf ss)
 -- memoization/updating that occurs.
 newtype ThunkType = ThunkType { thunkArgSorts :: [Sort] }
   deriving (Eq, Ord)
-
--- TODO: I think closures involving 'Alloc' are getting duplicated, because
--- they have different bound variable names.
-thunkTypesOf :: K.TypeK -> Set ThunkType
-thunkTypesOf (K.FunK ts ss) =
-  Set.insert (ThunkType (map sortOf ts ++ map coSortOf ss)) $
-    Set.unions (map thunkTypesOf ts) <>
-    Set.unions (map coThunkTypesOf ss)
-thunkTypesOf (K.ProdK t s) = thunkTypesOf t <> thunkTypesOf s
-thunkTypesOf (K.SumK t s) = thunkTypesOf t <> thunkTypesOf s
-thunkTypesOf (K.ListK t) = thunkTypesOf t
-thunkTypesOf K.UnitK = Set.empty
-thunkTypesOf K.IntK = Set.empty
-thunkTypesOf K.BoolK = Set.empty
-thunkTypesOf (K.AllK aa t) = Set.unions (map coThunkTypesOf t)
-thunkTypesOf (K.TyVarOccK _) = Set.empty
-
-coThunkTypesOf :: K.CoTypeK -> Set ThunkType
-coThunkTypesOf (K.ContK ss) =
-  Set.insert (ThunkType (map sortOf ss)) $ Set.unions (map thunkTypesOf ss)
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -415,25 +394,15 @@ contDefNames ks = [(coVar k, Closure (map (sortOf . snd) xs)) | ContDef _ k xs _
 absDefNames :: [AbsDef a] -> [(Name, Sort)]
 absDefNames fs = [(tmVar f, Closure (map (coSortOf . snd) ks)) | AbsDef _ f as ks _ <- fs]
 
-newtype TypeDecls = TypeDecls { getTypeDecls :: Set ThunkType }
-
-deriving newtype instance Semigroup TypeDecls
-deriving newtype instance Monoid TypeDecls
-
--- TODO: Collecting type declarations should be done in Hoist, I think.
--- Idea: map anonymous record/closure types to numerically-named ones
--- 'product_17', 'closure_32', etc. Just makes the type names shorter and
--- potentially more uniform with named types.
-newtype ConvM a = ConvM { runConvM :: ReaderT (Map Name Sort) (Writer TypeDecls) a }
+newtype ConvM a = ConvM { runConvM :: Reader (Map Name Sort) a }
 
 deriving newtype instance Functor ConvM
 deriving newtype instance Applicative ConvM
 deriving newtype instance Monad ConvM
 deriving newtype instance MonadReader (Map Name Sort) ConvM
-deriving newtype instance MonadWriter TypeDecls ConvM
 
-runConv :: ConvM a -> (a, TypeDecls)
-runConv = runWriter . flip runReaderT Map.empty . runConvM
+runConv :: ConvM a -> a
+runConv = flip runReader Map.empty . runConvM
 
 -- Idea: I could factor out the fieldsFor computation by doing a first
 -- annotation pass over the data, and then having
@@ -490,40 +459,25 @@ cconv (LetCompareK x cmp e) = LetCompareC (tmVar x, Boolean) (cconvCmp cmp) <$> 
 
 cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
 cconvFunDef fs fun@(FunDef _ f xs ks e) = do
-  let
-    funThunk = ThunkType (map (sortOf . snd) xs ++ map (coSortOf . snd) ks)
-    thunks = Set.insert funThunk $ foldMap (thunkTypesOf . snd) xs <> foldMap (coThunkTypesOf . snd) ks
-  tell (TypeDecls thunks)
   let tmbinds = map bindTm xs
   let cobinds = map bindCo ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
   (fields, tyfields) <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
-  -- Idea: Make closure environments be anonymous product types?
-  -- Hmm, maybe not. That would lead to anonymous polymorphic products, which
-  -- I'm not quite sure on implementing.
   let (free, rec) = markRec fs (Set.toList fields)
   e' <- local extend (cconv e)
   pure (FunClosureDef (tmVar f) (EnvDef (Set.toList tyfields) free rec) tmbinds cobinds e')
 
 cconvContDef :: Set Name -> ContDef a -> ConvM ContClosureDef
 cconvContDef ks kont@(ContDef _ k xs e) = do
-  let
-    contThunk = ThunkType (map (sortOf . snd) xs)
-    thunks = Set.insert contThunk $ foldMap thunkTypesOf (map snd xs)
-  tell (TypeDecls thunks)
-  let binds = map bindTm xs
-  let extend ctx' = foldr (uncurry Map.insert) ctx' binds
+  let tmbinds = map bindTm xs
+  let extend ctx' = foldr (uncurry Map.insert) ctx' tmbinds
   (fields, tyfields) <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
   let (free, rec) = markRec ks (Set.toList fields)
   e' <- local extend (cconv e)
-  pure (ContClosureDef (coVar k) (EnvDef (Set.toList tyfields) free rec) binds e')
+  pure (ContClosureDef (coVar k) (EnvDef (Set.toList tyfields) free rec) tmbinds e')
 
 cconvAbsDef :: Set Name -> AbsDef a -> ConvM AbsClosureDef
 cconvAbsDef fs abs@(AbsDef _ f as ks e) = do
-  let
-    absThunk = ThunkType (map (coSortOf . snd) ks)
-    thunks = Set.insert absThunk (foldMap coThunkTypesOf (map snd ks))
-  tell (TypeDecls thunks)
   let tybinds = map bindTy as
   let cobinds = map bindCo ks
   let extend ctx' = foldr (uncurry Map.insert) ctx' cobinds

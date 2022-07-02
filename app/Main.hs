@@ -87,10 +87,10 @@ main = do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK
 
-  let (srcC, C.TypeDecls thunkDecls) = C.runConv $ C.cconv srcK
+  let srcC = C.runConv $ C.cconv srcK
   when (driverDumpCC args) $ do
     putStrLn $ "--- Closure Conversion ---"
-    putStrLn $ concatMap C.pprintThunkType thunkDecls ++ C.pprintTerm 0 srcC
+    putStrLn $ C.pprintTerm 0 srcC
 
   let (srcH, (H.ClosureDecls closureDecls, thunkDecls2)) = H.runHoist $ H.hoist srcC
   when (driverDumpHoist args) $ do
