@@ -1,8 +1,6 @@
 
 module Emit (emitProgram) where
 
-import Data.Set (Set)
-
 import Data.List (intercalate)
 
 import qualified Hoist as H
@@ -30,10 +28,10 @@ commaSep = intercalate ", "
 type EnvPtr = String
 
 -- TODO: Rename ThunkType2 to ThunkType
-emitProgram :: (Set ThunkType, [ThunkType2], [ClosureDecl], TermH) -> [String]
-emitProgram (ts, ts2, cs, e) =
+emitProgram :: ([ThunkType2], [ClosureDecl], TermH) -> [String]
+emitProgram (ts, cs, e) =
   prologue ++
-  concatMap emitThunkDecl ts2 ++
+  concatMap emitThunkDecl ts ++
   concatMap emitClosureDecl cs ++
   emitEntryPoint e
 

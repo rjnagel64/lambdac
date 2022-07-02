@@ -14,7 +14,6 @@ module Hoist
     , PrimOp(..)
     , Sort(..)
     , Name(..)
-    , ThunkType(..)
     , ThunkType2(..)
     , PlaceName(..)
     , FieldName(..)
