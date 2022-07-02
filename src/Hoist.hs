@@ -122,9 +122,9 @@ data TermH
   -- 'let value x = fst y in e'
   | LetProjectH PlaceName Name Projection TermH
   | HaltH Name Sort
-  | OpenH Name ThunkType [Name] -- Open a closure, by providing a list of arguments.
-  | CaseH Name CaseKind [(Name, ThunkType)]
-  | InstH Name ThunkType [Sort] [Name]
+  | OpenH Name ThunkType2 [Name] -- Open a closure, by providing a list of arguments.
+  | CaseH Name CaseKind [(Name, ThunkType2)]
+  | InstH Name ThunkType2 [Sort] [Name]
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
@@ -143,7 +143,7 @@ data ClosureAlloc
   = ClosureAlloc {
     -- TODO: Make ClosureAlloc contain a PlaceName for the environment
     closurePlace :: PlaceName
-  , closureType :: ThunkType
+  , closureType :: ThunkType2
   , closureDecl :: DeclName
   , closureEnv :: EnvAlloc
   }
@@ -252,8 +252,6 @@ instance Eq a => Semigroup (NubList a) where
 instance Eq a => Monoid (NubList a) where
   mempty = NubList []
 
--- TODO: Collect thunk types here
--- (Hopefully, this will allow me to fix the issues with polymorphic thunk types)
 newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer (ClosureDecls, NubList ThunkType2))) a }
 
 deriving newtype instance Functor HoistM
@@ -294,20 +292,20 @@ hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = uncurry HaltH <$> hoistVarOcc' x
 hoist (JumpC k xs) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' xs
-  OpenH <$> hoistVarOcc k <*> pure (ThunkType ss) <*> pure ys
+  OpenH <$> hoistVarOcc k <*> pure (ThunkType2 ss) <*> pure ys
 hoist (CallC f xs ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' (xs ++ ks)
-  OpenH <$> hoistVarOcc f <*> pure (ThunkType ss) <*> pure ys
+  OpenH <$> hoistVarOcc f <*> pure (ThunkType2 ss) <*> pure ys
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
-  ks' <- for ks $ \ (k, s) -> do
+  ks' <- for ks $ \ (k, ThunkType ss) -> do
     k' <- hoistVarOcc k
-    pure (k', s)
+    pure (k', ThunkType2 ss)
   pure $ CaseH x' kind ks'
 hoist (InstC f ts ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
-  InstH <$> hoistVarOcc f <*> pure (ThunkType ss) <*> pure ts <*> pure ys
+  InstH <$> hoistVarOcc f <*> pure (ThunkType2 ss) <*> pure ts <*> pure ys
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -340,7 +338,7 @@ hoist (LetFunC fs e) = do
   placesForClosureAllocs C.funClosureName C.funClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f env xs ks _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType ([s | (_x, s) <- xs] ++ [s | (_k, s) <- ks])
+      let ty = ThunkType2 ([s | (_x, s) <- xs] ++ [s | (_k, s) <- ks])
       -- TODO: Give name to environment allocations as well
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
@@ -353,7 +351,7 @@ hoist (LetContC ks e) = do
   placesForClosureAllocs C.contClosureName C.contClosureSort kdecls $ \kplaces -> do
     ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k env xs _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType [s | (_x, s) <- xs]
+      let ty = ThunkType2 [s | (_x, s) <- xs]
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure ks' e')
@@ -365,7 +363,7 @@ hoist (LetAbsC fs e) = do
   placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env as ks _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType [s | (_k, s) <- ks] -- Incorrect, needs type arguments.
+      let ty = ThunkType2 [s | (_k, s) <- ks] -- Incorrect, needs type arguments.
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure fs' e')

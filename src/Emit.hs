@@ -29,11 +29,11 @@ commaSep = intercalate ", "
 
 type EnvPtr = String
 
+-- TODO: Rename ThunkType2 to ThunkType
 emitProgram :: (Set ThunkType, [ThunkType2], [ClosureDecl], TermH) -> [String]
 emitProgram (ts, ts2, cs, e) =
   prologue ++
-  -- concatMap emitThunkDecl ts ++
-  concatMap emitThunkDecl (map (ThunkType . thunkArgSorts2) ts2) ++
+  concatMap emitThunkDecl ts2 ++
   concatMap emitClosureDecl cs ++
   emitEntryPoint e
 
@@ -88,8 +88,8 @@ tycode (Pair s t) = 'Q' : tycode s ++ tycode t
 tycode Unit = "U"
 tycode (List s) = 'L' : tycode s
 
-namesForThunk :: ThunkType -> ThunkNames
-namesForThunk (ThunkType ss) =
+namesForThunk :: ThunkType2 -> ThunkNames
+namesForThunk (ThunkType2 ss) =
   ThunkNames {
     thunkTypeName = "thunk_" ++ ty
   , thunkEnterName = "enter_" ++ ty
@@ -143,52 +143,52 @@ mapWithIndex f = zipWith f [0..]
 -- pointer-casting and struct-casting issues), but I think I can make
 -- allocate_closure per-sort. This would move around the function pointer casts
 -- a bit, make them more encapsulated.
-emitThunkDecl :: ThunkType -> [String]
+emitThunkDecl :: ThunkType2 -> [String]
 emitThunkDecl t =
   emitThunkType t ++
   emitThunkEnter t ++
   emitThunkTrace t ++
   emitThunkSuspend t
 
-emitThunkType :: ThunkType -> [String]
-emitThunkType (ThunkType ss) =
+emitThunkType :: ThunkType2 -> [String]
+emitThunkType (ThunkType2 ss) =
   ["struct " ++ thunkTypeName ns ++ " {"
   ,"    struct thunk header;"
   ,"    struct closure *closure;"] ++
   mapWithIndex mkField ss ++
   ["};"]
   where
-    ns = namesForThunk (ThunkType ss)
+    ns = namesForThunk (ThunkType2 ss)
     mkField i s = "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
     -- TODO: `struct alloc_header` in a thunk should be accompanied by `type_info`
 
-emitThunkTrace :: ThunkType -> [String]
-emitThunkTrace (ThunkType ss) =
+emitThunkTrace :: ThunkType2 -> [String]
+emitThunkTrace (ThunkType2 ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
   ,"    " ++ emitMarkGray "next" "next->closure" (Closure ss) ++ ";"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
-    ns = namesForThunk (ThunkType ss)
+    ns = namesForThunk (ThunkType2 ss)
     traceField i s = "    " ++ emitMarkGray "next" ("next->arg" ++ show i) s ++ ";"
 
-emitThunkEnter :: ThunkType -> [String]
-emitThunkEnter (ThunkType ss) =
+emitThunkEnter :: ThunkType2 -> [String]
+emitThunkEnter (ThunkType2 ss) =
   ["void " ++ thunkEnterName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
   ,"    void (*code)(" ++ paramList ++ ") = (void (*)(" ++ paramList ++ "))next->closure->code;"
   ,"    code(" ++ argList ++ ");"
   ,"}"]
   where
-    ns = namesForThunk (ThunkType ss)
+    ns = namesForThunk (ThunkType2 ss)
     paramList = commaSep ("void *env" : mapWithIndex makeParam ss)
     makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
     argList = commaSep ("next->closure->env" : mapWithIndex makeArgument ss)
     makeArgument i _ = "next->arg" ++ show i
 
-emitThunkSuspend :: ThunkType -> [String]
-emitThunkSuspend (ThunkType ss) =
+emitThunkSuspend :: ThunkType2 -> [String]
+emitThunkSuspend (ThunkType2 ss) =
   ["void " ++ thunkSuspendName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = realloc(next_step, sizeof(struct " ++ thunkTypeName ns ++ "));"
   ,"    next->header.enter = closure->enter;"
@@ -198,15 +198,10 @@ emitThunkSuspend (ThunkType ss) =
   ["    next_step = (struct thunk *)next;"
   ,"}"]
   where
-    ns = namesForThunk (ThunkType ss)
+    ns = namesForThunk (ThunkType2 ss)
     paramList = commaSep ("struct closure *closure" : mapWithIndex makeParam ss)
     makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
-
-emitThunkDecl2 :: ThunkType2 -> [String]
-emitThunkDecl2 t = []
-  -- emitThunkType2 t ++
-  -- emitThunkSuspend2 t
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
@@ -296,23 +291,20 @@ emitClosureBody envp (CaseH x kind ks) =
 emitClosureBody envp (InstH f ty ss ks) =
   [emitSuspend' envp f ty ss ks]
 
-emitSuspend :: EnvPtr -> Name -> ThunkType -> [Name] -> String
+-- TODO: Every argument of sort 'Alloc aa' becomes two arguments: 'struct alloc_header *, type_info'.
+-- This is possibly redundant, if multiple arguments use the same 'type_info', but it's simpler.
+emitSuspend :: EnvPtr -> Name -> ThunkType2 -> [Name] -> String
 emitSuspend envp cl ty xs = "    " ++ emitPrimCall envp method (cl : xs) ++ ";"
   where
     method = thunkSuspendName (namesForThunk ty)
 
-emitSuspend' :: EnvPtr -> Name -> ThunkType -> [Sort] -> [Name] -> String
+emitSuspend' :: EnvPtr -> Name -> ThunkType2 -> [Sort] -> [Name] -> String
 emitSuspend' envp cl ty ss xs =
   "    " ++ method ++ "(" ++ emitName envp cl ++ ", " ++ commaSep (map (infoForSort envp) ss) ++ ", " ++ commaSep (map (emitName envp) xs) ++ ");"
   where
     method = thunkSuspendName (namesForThunk ty)
 
--- Every argument of sort 'Alloc aa' becomes two arguments: 'struct alloc_header *, type_info'.
--- This is possibly redundant, if multiple arguments use the same 'type_info', but it's simpler.
--- emitSuspend2 :: Name -> ThunkType2 -> [(Name, Sort)] -> String
--- emitSuspend2 cl ty xs = _
-
-emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]
+emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType2)] -> [String]
 emitCase kind envp x ks =
   ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch (zip3 [0..] (branchArgNames kind) ks) ++
@@ -320,11 +312,11 @@ emitCase kind envp x ks =
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    emitCaseBranch :: (Int, (String, [String]), (Name, ThunkType)) -> [String]
+    emitCaseBranch :: (Int, (String, [String]), (Name, ThunkType2)) -> [String]
     emitCaseBranch (i, (ctorCast, argNames), (k, t)) =
       let
         method = thunkSuspendName (namesForThunk t)
-        args = emitName envp k : zipWith mkArg argNames (thunkArgSorts t)
+        args = emitName envp k : zipWith mkArg argNames (thunkArgSorts2 t)
         mkArg argName argSort = asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
