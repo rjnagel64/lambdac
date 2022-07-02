@@ -20,13 +20,12 @@ module CC
   , ValueC(..)
   , ArithC(..)
   , CmpC(..)
+  , BranchType(..)
   , Sort(..)
   , TyVar(..)
-  , ThunkType(..)
 
   , cconv
   , runConv
-  , pprintThunkType
   , pprintTerm
   ) where
 
@@ -144,16 +143,6 @@ sortOf (K.AllK aas ss) = Closure (map coSortOf ss) -- TODO: 'Closure' is insuffi
 coSortOf :: K.CoTypeK -> Sort
 coSortOf (K.ContK ss) = Closure (map sortOf ss)
 
--- | Each type of closure (e.g., one boxed argument, one unboxed argument and
--- one continuation, etc.) requires a different type of thunk when that closure
--- is opened. A thunk type specifies what arguments have been provided to the
--- closure.
---
--- 'Thunk' probably isn't the best name for this concept, as there is no
--- memoization/updating that occurs.
-newtype ThunkType = ThunkType { thunkArgSorts :: [Sort] }
-  deriving (Eq, Ord)
-
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
 data TermC
@@ -170,8 +159,11 @@ data TermC
   | JumpC Name [Name] -- k x...
   | CallC Name [Name] [Name] -- f x+ k+
   | HaltC Name
-  | CaseC Name Sort [(Name, ThunkType)] -- case x of k1 | k2 | ...
+  | CaseC Name Sort [(Name, BranchType)] -- case x of k1 | k2 | ...
   | InstC Name [Sort] [Name] -- f @t+ k+
+
+-- | A 'BranchType' specifies the argument sorts expected by a case branch.
+newtype BranchType = BranchType [Sort]
 
 data ArithC
   = AddC Name Name
@@ -432,9 +424,9 @@ cconv (CaseK x t ks) = do
   -- The type of each thunk/branch is determined by the type of the scrutinee.
   let
     ks' = case t of
-      K.SumK a b -> zip (map coVar ks) [ThunkType [sortOf a], ThunkType [sortOf b]]
-      K.BoolK -> zip (map coVar ks) [ThunkType [], ThunkType []]
-      K.ListK a -> zip (map coVar ks) [ThunkType [], ThunkType [sortOf a, sortOf t]]
+      K.SumK a b -> zip (map coVar ks) [BranchType [sortOf a], BranchType [sortOf b]]
+      K.BoolK -> zip (map coVar ks) [BranchType [], BranchType []]
+      K.ListK a -> zip (map coVar ks) [BranchType [], BranchType [sortOf a, sortOf t]]
       _ -> error "cannot case on this type"
   pure $ CaseC (tmVar x) (sortOf t) ks'
 cconv (InstK f ts ks) = pure $ InstC (tmVar f) (map sortOf ts) (map coVar ks)
@@ -521,9 +513,6 @@ cconvCmp (CmpGeK x y) = GeC (tmVar x) (tmVar y)
 
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
-
-pprintThunkType :: ThunkType -> String
-pprintThunkType (ThunkType ss) = "thunk (" ++ intercalate ", " (map show ss) ++ ") -> !\n"
 
 pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"

@@ -47,7 +47,7 @@ import Data.Traversable (for, mapAccumL)
 import Data.List (intercalate, nub)
 
 import qualified CC as C
-import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..), ThunkType(..))
+import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..))
 
 -- TODO: The whole PlaceName/FieldName and LocalName/EnvName feels messy
 -- Especially because I need to add some form of name capable of referring to type_info.
@@ -298,7 +298,7 @@ hoist (CallC f xs ks) = do
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
-  ks' <- for ks $ \ (k, ThunkType ss) -> do
+  ks' <- for ks $ \ (k, C.BranchType ss) -> do
     k' <- hoistVarOcc k
     pure (k', ThunkType2 ss)
   pure $ CaseH x' kind ks'
