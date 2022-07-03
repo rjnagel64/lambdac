@@ -180,6 +180,7 @@ data TypeK
   | AllK [TyVar] [CoTypeK]
   | TyVarOccK TyVar
 
+-- TODO: 'eqTypeK' needs to handle alpha-equality, since AllK and TyVarOccK exist
 eqTypeK :: TypeK -> TypeK -> Bool
 eqTypeK UnitK UnitK = True
 eqTypeK UnitK _ = False
