@@ -43,6 +43,7 @@ deriving newtype instance Monad TC
 deriving newtype instance MonadReader (Map TmVar Type, Set TyVar) TC
 deriving newtype instance MonadError TCError TC
 
+-- TODO: Check that types are well-formed when extending the context
 withVars :: [(TmVar, Type)] -> TC a -> TC a
 withVars xs = local f
   where

@@ -39,10 +39,6 @@ newtype TmVar = TmVar String
 instance Show TmVar where
   show (TmVar x) = x
 
--- | Continuation variables name basic blocks and jump targets.
-newtype CoVar = CoVar String
-  deriving (Eq, Ord)
-
 
 data Term
   -- x
@@ -89,7 +85,9 @@ data Term
   | TmCons Term Term
   -- case uncons e return s of nil -> e1; cons (y : t1) (ys : t2) -> e2
   | TmCaseList Term Type Term ((TmVar, Type), (TmVar, Type), Term)
+  -- \ @a -> e
   | TmTLam TyVar Term
+  -- e @s
   | TmTApp Term Type
 
 data TmArith
@@ -104,7 +102,6 @@ data TmCmp
   | TmCmpLe
   | TmCmpGt
   | TmCmpGe
-
 
 -- @f (x : t) : t' = e@, used for recursion.
 data TmFun = TmFun TmVar TmVar Type Type Term
@@ -186,6 +183,7 @@ ftv TyUnit = Set.empty
 ftv TyBool = Set.empty
 ftv TyInt = Set.empty
 ftv (TyList t) = ftv t
+
 -- something something showsPrec
 pprintType :: Int -> Type -> String
 pprintType _ TyUnit = "unit"
