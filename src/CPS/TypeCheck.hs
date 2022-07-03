@@ -14,11 +14,6 @@ import CPS
 import Prelude hiding (cos)
 
 
-data Context = Context { tmContext :: Map TmVar TypeK, coContext :: Map CoVar CoTypeK }
-
-emptyContext :: Context
-emptyContext = Context Map.empty Map.empty
-
 data TypeError
   = TmNotInScope TmVar
   | CoNotInScope CoVar
@@ -62,9 +57,12 @@ deriving newtype instance MonadError TypeError M
 runM :: M a -> Either TypeError a
 runM = runExcept . flip runReaderT emptyContext . getM
 
-checkProgram :: TermK () -> Either TypeError ()
-checkProgram e = runM (check e)
+data Context = Context { tmContext :: Map TmVar TypeK, coContext :: Map CoVar CoTypeK }
 
+emptyContext :: Context
+emptyContext = Context Map.empty Map.empty
+
+-- TODO: Check that types are well-formed when extending the context
 withTmVars :: [(TmVar, TypeK)] -> M a -> M a
 withTmVars xs = local extend
   where
@@ -75,7 +73,56 @@ withCoVars ks = local extend
   where
     extend (Context tms cos) = Context tms (foldr (uncurry Map.insert) cos ks)
 
+lookupTmVar :: TmVar -> M TypeK
+lookupTmVar x = asks tmContext >>= maybe err pure . Map.lookup x
+  where err = throwError (TmNotInScope x)
+
+lookupCoVar :: CoVar -> M CoTypeK
+lookupCoVar x = asks coContext >>= pure . Map.lookup x >>= \case
+  Nothing -> throwError (CoNotInScope x)
+  Just s -> pure s
+
+
+
+checkProgram :: TermK () -> Either TypeError ()
+checkProgram e = runM (check e)
+
+
+-- TODO: Type-Checking for CPSed System F
 check :: TermK a -> M ()
+check (HaltK _) = pure ()
+check (JumpK k xs) = do
+  ContK ss <- lookupCoVar k
+  checkTmArgs xs ss
+check (CallK f xs ks) = do
+  (ts, ss) <- lookupTmVar f >>= \case
+    FunK ts ss -> pure (ts, ss)
+    t -> throwError (CannotCall f t)
+  checkTmArgs xs ts
+  checkCoArgs ks ss
+check (CaseK x s ks) = case (s, ks) of
+  (BoolK, [k1, k2]) ->
+    checkCoVar k1 (ContK []) *> checkCoVar k2 (ContK [])
+  (SumK t1 t2, [k1, k2]) ->
+    checkCoVar k1 (ContK [t1]) *> checkCoVar k2 (ContK [t2])
+  (ListK t, [k1, k2]) ->
+    checkCoVar k1 (ContK []) *> checkCoVar k2 (ContK [t, ListK t])
+  (_, _) -> throwError (BadCaseAnalysis x s)
+check (LetContK ks e) = do
+  let defs = [(k, ContK (map snd xs)) | ContDef _ k xs _ <- ks]
+  withCoVars defs $ do
+    for_ ks $ \ (ContDef _ _ xs e') -> do
+      withTmVars xs $ check e'
+    check e
+check (LetFunK fs e) = do
+  let defs = [(f, FunK (map snd xs) (map snd ks)) | FunDef _ f xs ks _ <- fs]
+  withTmVars defs $ do
+    for_ fs $ \ (FunDef _ _ xs ks e') -> do
+      withTmVars xs $ withCoVars ks $ check e'
+    check e
+check (LetValK x t v e) = do
+  checkValue v t
+  withTmVars [(x, t)] $ check e
 check (LetArithK z op e) = do
   checkArith op
   withTmVars [(z, IntK)] $ check e
@@ -95,40 +142,6 @@ check (LetSndK x s y e) = do
     ProdK _t s' -> when (not (eqTypeK s s')) $ throwError (TypeMismatch s s')
     t' -> throwError (BadProjection t')
   withTmVars [(x, s)] $ check e
-check (LetValK x t v e) = do
-  checkValue v t
-  withTmVars [(x, t)] $ check e
--- TODO: Check that parameter types are well-formed (e.g., type variables are in scope)
-check (LetContK ks e) = do
-  let defs = [(k, ContK (map snd xs)) | ContDef _ k xs _ <- ks]
-  withCoVars defs $ do
-    for_ ks $ \ (ContDef _ _ xs e') -> do
-      withTmVars xs $ check e'
-    check e
-check (LetFunK fs e) = do
-  let defs = [(f, FunK (map snd xs) (map snd ks)) | FunDef _ f xs ks _ <- fs]
-  withTmVars defs $ do
-    for_ fs $ \ (FunDef _ _ xs ks e') -> do
-      withTmVars xs $ withCoVars ks $ check e'
-    check e
-check (HaltK _) = pure ()
-check (JumpK k xs) = do
-  ContK ss <- lookupCoVar k
-  checkTmArgs xs ss
-check (CallK f xs ks) = do
-  (ts, ss) <- lookupTmVar f >>= \case
-    FunK ts ss -> pure (ts, ss)
-    t -> throwError (CannotCall f t)
-  checkTmArgs xs ts
-  checkCoArgs ks ss
-check (CaseK x s ks) = case (s, ks) of
-  (BoolK, [k1, k2]) ->
-    checkCoVar k1 (ContK []) *> checkCoVar k2 (ContK [])
-  (SumK t1 t2, [k1, k2]) ->
-    checkCoVar k1 (ContK [t1]) *> checkCoVar k2 (ContK [t2])
-  (ListK t, [k1, k2]) ->
-    checkCoVar k1 (ContK []) *> checkCoVar k2 (ContK [t, ListK t])
-  (_, _) -> throwError (BadCaseAnalysis x s)
 
 checkArith :: ArithK -> M ()
 checkArith (AddK x y) = checkIntBinOp x y
@@ -185,12 +198,3 @@ checkCoArgs [] [] = pure ()
 checkCoArgs (k:ks) (s:ss) = checkCoVar k s *> checkCoArgs ks ss
 checkCoArgs _ _ = throwError ArityMismatch
 
-
-lookupTmVar :: TmVar -> M TypeK
-lookupTmVar x = asks tmContext >>= maybe err pure . Map.lookup x
-  where err = throwError (TmNotInScope x)
-
-lookupCoVar :: CoVar -> M CoTypeK
-lookupCoVar x = asks coContext >>= pure . Map.lookup x >>= \case
-  Nothing -> throwError (CoNotInScope x)
-  Just s -> pure s
