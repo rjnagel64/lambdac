@@ -108,6 +108,7 @@ tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
 -- TODO: Parametrize 'Sort' by type of variable: 'Sort TyVar' and 'Sort DBLevel'
+-- TODO: I think I need a Sort 'Info aa', to represent passing type info
 data Sort
   = Closure [Sort]
   | Integer

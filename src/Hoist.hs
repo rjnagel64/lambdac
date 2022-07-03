@@ -271,7 +271,9 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     ts = nubList (concatMap closureThunkTypes cs)
 
     closureThunkTypes :: ClosureDecl -> [ThunkType2]
-    closureThunkTypes (ClosureDecl _ _ places _) = thunkTypesOf (Closure [placeSort p | p <- places])
+    closureThunkTypes (ClosureDecl _ _ places _) = ThunkType2 argSorts : concatMap thunkTypesOf argSorts
+      where
+        argSorts = map placeSort places
 
     thunkTypesOf :: Sort -> [ThunkType2]
     thunkTypesOf (Alloc _) = []
