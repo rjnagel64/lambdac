@@ -25,10 +25,10 @@ data SimplEnv
   , simplSubst :: Map TmVar TmVar
   }
 
-lookupValue :: TmVar -> SimplEnv -> Maybe ValueK
+lookupValue :: TmVar -> SimplEnv -> (TmVar, Maybe ValueK)
 lookupValue x env@(SimplEnv def sub) = let x' = rename env x in case Map.lookup x' def of
   Nothing -> error "lookupValue: variable not in environment"
-  Just v -> v
+  Just v -> (x', v)
 
 rename :: SimplEnv -> TmVar -> TmVar
 rename (SimplEnv _ sub) x = case Map.lookup x sub of
@@ -96,6 +96,11 @@ bind x (Census xs) = Census (Set.delete x xs)
 query :: TmVar -> Census -> SimplUsage
 query x (Census xs) = if Set.member x xs then SomeUses else NoUses
 
+ifLive :: TmVar -> (TermK a -> TermK a) -> (Census -> Census) -> (TermK a, Census) -> (TermK a, Census)
+ifLive x rebuildTm rebuildCensus (e, census) = case query x census of
+  NoUses -> (e, census)
+  SomeUses -> (rebuildTm e, rebuildCensus census)
+
 -- | Perform obvious beta-reductions, and then discard unused local bindings
 -- afterward.
 --
@@ -117,18 +122,15 @@ simplify env (CallK f xs ks) =
 simplify env (CaseK x t ks) = simplifyCase env x t ks
 -- If there is a binding y := (z, w), substitute x := z in e
 simplify env (LetFstK x t y e) = 
-  -- Apply substitution
-  let y' = rename env y in
   -- Check for redex
   case lookupValue y env of
     -- There is a redex: let x = fst (z1, z2) in e ~> e[x := z1]
-    Just (PairK z1 z2) ->
+    (y', Just (PairK z1 z2)) ->
       -- TODO: We are passing under the binder for 'x'. Wat do.
       -- I don't think *both* defineSubst and under should be used here.
       -- 'under' would be for passing under a variable that should not be touched;
       -- 'defineSubst' is used to eliminate occurrences of 'x'
       let env' = defineSubst x z1 (under x env) in
-      -- let env' = env { simplSubst = Map.insert x z1 (simplSubst env) } in
       let (e', census) = simplify env' e in
       case query x census of
         -- No uses of this variable. Discard it.
@@ -140,9 +142,9 @@ simplify env (LetFstK x t y e) =
           -- there is an occurrence of y'.
           let census' = record y' (bind x census) in
           (LetFstK x t y' e', census')
-    Just _ -> error "simplify: env contained invalid value for fst"
+    (_, Just _) -> error "simplify: env contained invalid value for fst"
     -- No redex
-    Nothing ->
+    (y', Nothing) ->
       let env' = under x env in
       let (e', census) = simplify env' e in
       let census' = record y' (bind x census) in
@@ -176,19 +178,20 @@ simplify env (LetArithK x op e) =
 -- if y := int, rewrite 'let x = -y in e' into 'let x = -int in e'.
 simplify env (LetNegateK x y e) =
   case lookupValue y env of
-    Just (IntValK i) ->
+    (_, Just (IntValK i)) ->
       let i' = negate i in
       let env' = defineValue x (IntValK i') (under x env) in
       let (e', census) = simplify env' e in
       case query x census of
         NoUses -> (e', census)
         SomeUses -> (LetValK x IntK (IntValK i') e', bind x census)
-    _ ->
+    (_, Just _) -> error "simplify: env contained invalid value for negate"
+    (y', Nothing) ->
       let env' = under x env in
       let (e', census) = simplify env' e in
       case query x census of
         NoUses -> (e', census)
-        SomeUses -> (LetNegateK x (rename env y) e', bind x census)
+        SomeUses -> (LetNegateK x y' e', record y' (bind x census))
 simplify env (LetContK ks e) =
   let f (kont, cen) (ks', census) = (kont : ks', cen <> census) in
   let (ks', census) = foldr f ([], mempty) (map (simplifyContDef env) ks) in
@@ -210,15 +213,15 @@ simplifyVal env (ConsK y ys) =
   let y' = rename env y; ys' = rename env ys in (ConsK y' ys', recordList [y', ys'])
 
 simplifyArith :: SimplEnv -> ArithK -> Either (ArithK, Census) Int
-simplifyArith env op = simpl (renameOp op)
+simplifyArith env op = arith (renameOp op)
   where
     renameOp (AddK x y) = (AddK, (+), x, y)
     renameOp (SubK x y) = (SubK, (-), x, y)
     renameOp (MulK x y) = (MulK, (*), x, y)
 
-    simpl (g, f, x, y) = case (lookupValue x env, lookupValue y env) of
-      (Just (IntValK i), Just (IntValK j)) -> Right (f i j)
-      (_, _) -> let x' = rename env x; y' = rename env y in Left (g x' y', recordList [x', y'])
+    arith (g, f, x, y) = case (lookupValue x env, lookupValue y env) of
+      ((_, Just (IntValK i)), (_, Just (IntValK j))) -> Right (f i j)
+      ((x', _), (y', _)) -> Left (g x' y', recordList [x', y'])
 
 simplifyContDef :: SimplEnv -> ContDef a -> (ContDef a, Census)
 simplifyContDef env (ContDef ann k xs e) =
@@ -231,28 +234,25 @@ simplifyContDef env (ContDef ann k xs e) =
 -- | Perform beta-reduction for a case expression
 simplifyCase :: SimplEnv -> TmVar -> TypeK -> [CoVar] -> (TermK a, Census)
 simplifyCase env x (SumK ta tb) [k1, k2] =
-  let x' = rename env x in
   case lookupValue x env of
-    Just (InlK y) -> (JumpK k1 [y], recordOne y)
-    Just (InrK z) -> (JumpK k2 [z], recordOne z)
-    Just _ -> error "simplifyCase: env contained invalid value for sum type"
-    Nothing -> (CaseK x' (SumK ta tb) [k1, k2], recordOne x')
+    (_, Just (InlK y)) -> (JumpK k1 [y], recordOne y)
+    (_, Just (InrK z)) -> (JumpK k2 [z], recordOne z)
+    (_, Just _) -> error "simplifyCase: env contained invalid value for sum type"
+    (x', Nothing) -> (CaseK x' (SumK ta tb) [k1, k2], recordOne x')
 simplifyCase _ _ (SumK _ _) _ = error "simplifyCase: incorrect number of branches for sum type"
 simplifyCase env x BoolK [k1, k2] =
-  let x' = rename env x in
   case lookupValue x env of
-    Just (BoolValK True) -> (JumpK k1 [], mempty)
-    Just (BoolValK False) -> (JumpK k2 [], mempty)
-    Just _ -> error "simplifyCase: env contained invalid value for bool type"
-    Nothing -> (CaseK x' BoolK [k1, k2], recordOne x')
+    (_, Just (BoolValK True)) -> (JumpK k1 [], mempty)
+    (_, Just (BoolValK False)) -> (JumpK k2 [], mempty)
+    (_, Just _) -> error "simplifyCase: env contained invalid value for bool type"
+    (x', Nothing) -> (CaseK x' BoolK [k1, k2], recordOne x')
 simplifyCase _ _ BoolK _ = error "simplifyCase: incorrect number of branches for bool type"
 simplifyCase env x (ListK t) [k1, k2] =
-  let x' = rename env x in
   case lookupValue x env of
-    Just EmptyK -> (JumpK k1 [], mempty)
-    Just (ConsK y ys) -> (JumpK k2 [y, ys], recordList [y, ys])
-    Just _ -> error "simplifyCase: env contained invalid value for list type"
-    Nothing -> (CaseK x' (ListK t) [k1, k2], recordOne x')
+    (_, Just EmptyK) -> (JumpK k1 [], mempty)
+    (_, Just (ConsK y ys)) -> (JumpK k2 [y, ys], recordList [y, ys])
+    (_, Just _) -> error "simplifyCase: env contained invalid value for list type"
+    (x', Nothing) -> (CaseK x' (ListK t) [k1, k2], recordOne x')
 simplifyCase _ _ (ListK _) _ = error "simplifyCase: incorrect number of branches for list type"
 simplifyCase _ _ _ _ = error "simplifyCase: cannot perform case analysis on this type"
 
