@@ -108,11 +108,12 @@ tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
 -- TODO: Parametrize 'Sort' by type of variable: 'Sort TyVar' and 'Sort DBLevel'
--- TODO: I think I need a Sort 'Info aa', to represent passing type info
+-- TODO: 'Sort.Info' is the odd one out, often times. Make it more uniform, somehow.
 data Sort
   = Closure [Sort]
   | Integer
   | Alloc TyVar
+  | Info TyVar
   | Sum
   | Pair Sort Sort
   | Unit
@@ -124,6 +125,7 @@ instance Show Sort where
   show (Closure ss) = "closure " ++ show ss
   show Integer = "value"
   show (Alloc aa) = "alloc"
+  show (Info aa) = "info"
   show Sum = "sum"
   show Boolean = "bool"
   show (List s) = "list " ++ show s

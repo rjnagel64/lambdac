@@ -276,6 +276,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
         argSorts = map placeSort places
 
     thunkTypesOf :: Sort -> [ThunkType2]
+    thunkTypesOf (Info _) = []
     thunkTypesOf (Alloc _) = []
     thunkTypesOf Integer = []
     thunkTypesOf Boolean = []
@@ -306,7 +307,10 @@ hoist (CaseC x t ks) = do
   pure $ CaseH x' kind ks'
 hoist (InstC f ts ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
-  InstH <$> hoistVarOcc f <*> pure (ThunkType2 ss) <*> pure ts <*> pure ys
+  -- TODO: It would be better if OpenH/InstH looked up the thunk type of the
+  -- head, rather than trying to reconstruct it.
+  let infoSorts = replicate (length ts) (Info (C.TyVar "dummy"))
+  InstH <$> hoistVarOcc f <*> pure (ThunkType2 (infoSorts ++ ss)) <*> pure ts <*> pure ys
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -364,7 +368,8 @@ hoist (LetAbsC fs e) = do
   placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env as ks _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType2 [s | (_k, s) <- ks] -- Incorrect, needs type arguments.
+      let infoSorts = [Info aa | aa <- as]
+      let ty = ThunkType2 (infoSorts ++ [s | (_k, s) <- ks])
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure fs' e')
@@ -450,7 +455,8 @@ hoistAbsClosure :: (DeclName, C.AbsClosureDef) -> HoistM ClosureDecl
 hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
   -- TODO: Shouldn't hoistAbsClosure create parameters for the sorts?
   (env', places', body') <- inClosure env ks $ hoist body
-  let fd = ClosureDecl fdecl env' places' body'
+  let infoPlaces = [PlaceName (Info aa) a | aa@(C.TyVar a) <- as]
+  let fd = ClosureDecl fdecl env' (infoPlaces ++ places') body'
   pure fd
 
 -- | Pick a name for the environment parameter, that will not clash with

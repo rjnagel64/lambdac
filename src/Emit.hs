@@ -79,7 +79,8 @@ data ThunkNames
 tycode :: Sort -> String
 tycode (Closure ss) = 'C' : show (length ss) ++ concatMap tycode ss
 tycode Integer = "V"
-tycode (Alloc aa) = "A" -- I don't know if this will work.
+tycode (Info aa) = "I"
+tycode (Alloc aa) = "A"
 tycode Sum = "S"
 tycode Boolean = "B"
 tycode (Pair s t) = 'Q' : tycode s ++ tycode t
@@ -99,6 +100,7 @@ namesForThunk (ThunkType2 ss) =
 
 typeForSort :: Sort -> String
 typeForSort (Alloc aa) = "struct alloc_header *"
+typeForSort (Info aa) = "type_info "
 typeForSort (Closure _) = "struct closure *"
 typeForSort Integer = "struct int64_value *"
 typeForSort Sum = "struct sum *"
@@ -108,6 +110,7 @@ typeForSort Unit = "struct unit *"
 typeForSort (List _) = "struct list *"
 
 infoForSort :: EnvPtr -> Sort -> String
+infoForSort _ (Info aa) = error "Info for type_info shouldn't be necessary? (unless it is?)"
 infoForSort envp (Alloc aa) = envp ++ "->" ++ show aa
 infoForSort _ Sum = "sum_info"
 infoForSort _ Boolean = "bool_value_info"
@@ -119,6 +122,7 @@ infoForSort _ (List _) = "list_info"
 
 asSort :: Sort -> String -> String
 asSort (Alloc _) x = asAlloc x
+asSort (Info _) x = error "we should not be casting to/from type_info"
 asSort Integer x = "AS_INT64(" ++ x ++ ")"
 asSort (Closure _) x = "AS_CLOSURE(" ++ x ++ ")"
 asSort Sum x = "AS_SUM(" ++ x ++ ")"
@@ -131,6 +135,7 @@ asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
 emitMarkGray :: EnvPtr -> String -> Sort -> String
+emitMarkGray envp x (Info _) = "" -- TODO: This produces extraneous blank lines
 emitMarkGray envp x s = "mark_gray(" ++ asAlloc x ++ ", " ++ infoForSort envp s ++ ")"
 
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
