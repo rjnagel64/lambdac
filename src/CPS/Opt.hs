@@ -5,16 +5,11 @@ module CPS.Opt where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
-
-import Data.Int
-import Data.Traversable (for)
 
 import Control.Monad.Reader
 import Control.Monad.Writer
 
-import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..), TypeK(..), ArithK(..))
+import CPS (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..), TypeK(..))
 
 -- [Compiling with Continuations, Continued] mostly.
 -- CPS transformation, Closure Conversion, hopefully C code generation.
