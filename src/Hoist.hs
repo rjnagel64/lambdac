@@ -14,7 +14,7 @@ module Hoist
     , PrimOp(..)
     , Sort(..)
     , Name(..)
-    , ThunkType2(..)
+    , ThunkType(..)
     , PlaceName(..)
     , FieldName(..)
     , InfoName(..)
@@ -121,9 +121,9 @@ data TermH
   -- 'let value x = fst y in e'
   | LetProjectH PlaceName Name Projection TermH
   | HaltH Name Sort
-  | OpenH Name ThunkType2 [Name] -- Open a closure, by providing a list of arguments.
-  | CaseH Name CaseKind [(Name, ThunkType2)]
-  | InstH Name ThunkType2 [Sort] [Name]
+  | OpenH Name ThunkType [Name] -- Open a closure, by providing a list of arguments.
+  | CaseH Name CaseKind [(Name, ThunkType)]
+  | InstH Name ThunkType [Sort] [Name]
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
@@ -142,7 +142,7 @@ data ClosureAlloc
   = ClosureAlloc {
     -- TODO: Make ClosureAlloc contain a PlaceName for the environment
     closurePlace :: PlaceName
-  , closureType :: ThunkType2
+  , closureType :: ThunkType
   , closureDecl :: DeclName
   , closureEnv :: EnvAlloc
   }
@@ -194,15 +194,15 @@ deriving newtype instance Monoid ClosureDecls
 -- Note: all polymorphic values (things with sort @'Alloc' aa@) are passed as
 -- @struct alloc_header *@, so @Alloc aa@ and @Alloc bb@ are not considered to
 -- be distinct thunk types.
--- TODO: ThunkType2 should use deBruijn levels to refer to type variables
+-- TODO: ThunkType should use deBruijn levels to refer to type variables
 --
 -- Question: At a call site to 'suspend', how do I know which type infos to provide?
-data ThunkType2 = ThunkType2 { thunkArgSorts2 :: [Sort] }
+data ThunkType = ThunkType { thunkArgSorts2 :: [Sort] }
 
--- TODO: Emit.tycode should possibly be more directly associated with ThunkType2?
+-- TODO: Emit.tycode should possibly be more directly associated with ThunkType?
 
-eqThunkType :: ThunkType2 -> ThunkType2 -> Bool
-eqThunkType (ThunkType2 ts') (ThunkType2 ss') = go Map.empty Map.empty ts' ss'
+eqThunkType :: ThunkType -> ThunkType -> Bool
+eqThunkType (ThunkType ts') (ThunkType ss') = go Map.empty Map.empty ts' ss'
   where
     go _ _ [] [] = True
     go fw bw (Alloc aa:ts) (Alloc bb:ss) = case (Map.lookup aa fw, Map.lookup bb bw) of
@@ -230,11 +230,11 @@ eqThunkType (ThunkType2 ts') (ThunkType2 ss') = go Map.empty Map.empty ts' ss'
     eqSort Sum Sum = True
     eqSort _ _ = False
 
-instance Eq ThunkType2 where (==) = eqThunkType
+instance Eq ThunkType where (==) = eqThunkType
 
 -- | A set data type, that only requires 'Eq' constraints. Implemented because
 -- I can't wrap my head around a sensible ordering for 'ThunkType' or
--- 'ThunkType2'.
+-- 'ThunkType'.
 --
 -- (... Maybe map to 'tycode' and use the natural ordering on String?)
 newtype NubList a = NubList { getNubList :: [a] }
@@ -251,38 +251,38 @@ instance Eq a => Semigroup (NubList a) where
 instance Eq a => Monoid (NubList a) where
   mempty = NubList []
 
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer (ClosureDecls, NubList ThunkType2))) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer (ClosureDecls, NubList ThunkType))) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
-deriving newtype instance MonadWriter (ClosureDecls, NubList ThunkType2) HoistM
+deriving newtype instance MonadWriter (ClosureDecls, NubList ThunkType) HoistM
 deriving newtype instance MonadState (Set DeclName) HoistM
 
-runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType2]))
+runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
 runHoist = second (second getNubList) . runWriter .  flip evalStateT Set.empty .  flip runReaderT emptyEnv .  runHoistM
   where emptyEnv = HoistEnv mempty mempty
 
 tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs, ts)
   where
-    ts :: NubList ThunkType2
+    ts :: NubList ThunkType
     ts = nubList (concatMap closureThunkTypes cs)
 
-    closureThunkTypes :: ClosureDecl -> [ThunkType2]
-    closureThunkTypes (ClosureDecl _ _ places _) = ThunkType2 argSorts : concatMap thunkTypesOf argSorts
+    closureThunkTypes :: ClosureDecl -> [ThunkType]
+    closureThunkTypes (ClosureDecl _ _ places _) = ThunkType argSorts : concatMap thunkTypesOf argSorts
       where
         argSorts = map placeSort places
 
-    thunkTypesOf :: Sort -> [ThunkType2]
+    thunkTypesOf :: Sort -> [ThunkType]
     thunkTypesOf (Info _) = []
     thunkTypesOf (Alloc _) = []
     thunkTypesOf Integer = []
     thunkTypesOf Boolean = []
     thunkTypesOf Sum = []
     thunkTypesOf Unit = []
-    thunkTypesOf (Closure ss) = ThunkType2 ss : concatMap thunkTypesOf ss
+    thunkTypesOf (Closure ss) = ThunkType ss : concatMap thunkTypesOf ss
     thunkTypesOf (Pair t1 t2) = thunkTypesOf t1 ++ thunkTypesOf t2
     thunkTypesOf (List t) = thunkTypesOf t
 
@@ -294,23 +294,23 @@ hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = uncurry HaltH <$> hoistVarOcc' x
 hoist (JumpC k xs) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' xs
-  OpenH <$> hoistVarOcc k <*> pure (ThunkType2 ss) <*> pure ys
+  OpenH <$> hoistVarOcc k <*> pure (ThunkType ss) <*> pure ys
 hoist (CallC f xs ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' (xs ++ ks)
-  OpenH <$> hoistVarOcc f <*> pure (ThunkType2 ss) <*> pure ys
+  OpenH <$> hoistVarOcc f <*> pure (ThunkType ss) <*> pure ys
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
   ks' <- for ks $ \ (k, C.BranchType ss) -> do
     k' <- hoistVarOcc k
-    pure (k', ThunkType2 ss)
+    pure (k', ThunkType ss)
   pure $ CaseH x' kind ks'
 hoist (InstC f ts ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
   -- TODO: It would be better if OpenH/InstH looked up the thunk type of the
   -- head, rather than trying to reconstruct it.
   let infoSorts = replicate (length ts) (Info (C.TyVar "dummy"))
-  InstH <$> hoistVarOcc f <*> pure (ThunkType2 (infoSorts ++ ss)) <*> pure ts <*> pure ys
+  InstH <$> hoistVarOcc f <*> pure (ThunkType (infoSorts ++ ss)) <*> pure ts <*> pure ys
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -343,7 +343,7 @@ hoist (LetFunC fs e) = do
   placesForClosureAllocs C.funClosureName C.funClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f env xs ks _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType2 ([s | (_x, s) <- xs] ++ [s | (_k, s) <- ks])
+      let ty = ThunkType ([s | (_x, s) <- xs] ++ [s | (_k, s) <- ks])
       -- TODO: Give name to environment allocations as well
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
@@ -356,7 +356,7 @@ hoist (LetContC ks e) = do
   placesForClosureAllocs C.contClosureName C.contClosureSort kdecls $ \kplaces -> do
     ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k env xs _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType2 [s | (_x, s) <- xs]
+      let ty = ThunkType [s | (_x, s) <- xs]
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure ks' e')
@@ -369,7 +369,7 @@ hoist (LetAbsC fs e) = do
     fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env as ks _e) -> do
       env' <- hoistEnvDef env
       let infoSorts = [Info aa | aa <- as]
-      let ty = ThunkType2 (infoSorts ++ [s | (_k, s) <- ks])
+      let ty = ThunkType (infoSorts ++ [s | (_k, s) <- ks])
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure fs' e')
@@ -599,8 +599,8 @@ pprintClosureAlloc n (ClosureAlloc p _t d (EnvAlloc _info free rec)) =
 pprintAllocArg :: (FieldName, Name) -> String
 pprintAllocArg (field, x) = pprintField field ++ " = " ++ show x
 
-pprintThunkTypes :: [ThunkType2] -> String
+pprintThunkTypes :: [ThunkType] -> String
 pprintThunkTypes ts = unlines (map pprintThunkType ts)
   where
-    pprintThunkType :: ThunkType2 -> String
-    pprintThunkType (ThunkType2 ss) = "thunk " ++ show ss ++ " -> !"
+    pprintThunkType :: ThunkType -> String
+    pprintThunkType (ThunkType ss) = "thunk " ++ show ss ++ " -> !"
