@@ -161,6 +161,7 @@ emitThunkType (ThunkType ss) =
   ["};"]
   where
     ns = namesForThunk (ThunkType ss)
+    mkField i (Alloc _) = "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
     mkField i s = "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
     -- TODO: `struct alloc_header` in a thunk should be accompanied by `type_info`
 
@@ -173,6 +174,7 @@ emitThunkTrace (ThunkType ss) =
   ["}"]
   where
     ns = namesForThunk (ThunkType ss)
+    traceField i (Alloc _) = "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
     traceField i s = "    " ++ emitMarkGray "next" ("next->arg" ++ show i) s ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
@@ -202,6 +204,7 @@ emitThunkSuspend (ThunkType ss) =
   where
     ns = namesForThunk (ThunkType ss)
     paramList = commaSep ("struct closure *closure" : mapWithIndex makeParam ss)
+    makeParam i (Alloc _) = "struct alloc_header *arg" ++ show i ++ ", type_info info" ++ show i
     makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
 
@@ -287,7 +290,7 @@ emitClosureBody envp (AllocClosure cs e) =
 emitClosureBody envp (HaltH x s) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort envp s ++ ");"]
 emitClosureBody envp (OpenH c ty xs) =
-  [emitSuspend envp c ty xs]
+  [emitSuspend3 envp c ty xs]
 emitClosureBody envp (CaseH x kind ks) =
   emitCase kind envp x ks
 emitClosureBody envp (InstH f ty ss ks) =
@@ -305,6 +308,17 @@ emitSuspend' envp cl ty ss xs =
   "    " ++ method ++ "(" ++ emitName envp cl ++ ", " ++ commaSep (map (infoForSort envp) ss) ++ ", " ++ commaSep (map (emitName envp) xs) ++ ");"
   where
     method = thunkSuspendName (namesForThunk ty)
+
+emitSuspend3 :: EnvPtr -> Name -> ThunkType -> [Name] -> String
+emitSuspend3 envp cl (ThunkType ss) xs = "    " ++ method ++ "(" ++ args ++ ");"
+  where
+    method = thunkSuspendName (namesForThunk (ThunkType ss))
+    args = commaSep (emitName envp cl : mapWithIndex makeArg (zip ss xs))
+    -- TODO: Emit proper info when suspending
+    -- I honestly think I need an analog of LocalName/EnvName for info.
+    -- Or this is more evidence that info should be folded into Name
+    makeArg i (Alloc aa, x) = emitName envp x ++ ", " ++ infoForSort envp (Alloc aa)
+    makeArg i (s, x) = emitName envp x
 
 emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]
 emitCase kind envp x ks =
