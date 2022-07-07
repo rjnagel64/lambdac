@@ -42,6 +42,7 @@ library
       CPS.TypeCheck
       CC
       Hoist
+      Hoist.TypeCheck
       Emit
     default-extensions:
       LambdaCase

@@ -49,6 +49,8 @@ import Data.List (intercalate, nub)
 import qualified CC as C
 import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..))
 
+-- TODO: Implement a type-checker for Hoist. I need better sanity checks here.
+
 -- TODO: The whole PlaceName/FieldName and LocalName/EnvName feels messy
 -- Especially because I need to add some form of name capable of referring to type_info.
 --

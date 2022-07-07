@@ -90,7 +90,7 @@ checkProgram e = runM (check e)
 
 -- TODO: Type-Checking for CPSed System F
 check :: TermK a -> M ()
-check (HaltK _) = pure ()
+check (HaltK _) = pure () -- TODO: Check 'HaltK x' has x in scope
 check (JumpK k xs) = do
   ContK ss <- lookupCoVar k
   checkTmArgs xs ss
