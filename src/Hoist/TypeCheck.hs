@@ -65,8 +65,16 @@ checkProgram cs e =
 -- (I think I need mapAccumL for this too, because tyvar bindings are in scope
 -- for subsequent 'Alloc' or 'Info')
 -- (... Hmm. Parameter lists should include tyvars, then.)
+-- (Hmm. Remember that 'Info aa' basically acts as a binder for 'aa')
+-- (Nonetheless, it would still be cleaner to have (erased) quantifiers, just
+-- as singletons still have implicit foralls)
 checkClosure :: Signature -> ClosureDecl -> Except TCError ()
 checkClosure sig (ClosureDecl cl (envp, envd) params body) = throwError (NotImplemented "checkClosure")
+
+-- | Closure parameters form a telescope, because info bindings bring type
+-- variables into scope for subsequent bindings.
+checkParams :: [ClosureParam] -> TC Context
+checkParams params = throwError (NotImplemented "checkParams")
 
 checkClosureBody :: TermH -> TC ()
 checkClosureBody (HaltH x s) = checkName x s

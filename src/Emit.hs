@@ -86,16 +86,19 @@ tycode (Pair s t) = 'Q' : tycode s ++ tycode t
 tycode Unit = "U"
 tycode (List s) = 'L' : tycode s
 
+thunkTypeCode :: ThunkType -> String
+thunkTypeCode (ThunkType ss) = concatMap tycode ss
+
 namesForThunk :: ThunkType -> ThunkNames
-namesForThunk (ThunkType ss) =
+namesForThunk ty =
   ThunkNames {
-    thunkTypeName = "thunk_" ++ ty
-  , thunkEnterName = "enter_" ++ ty
-  , thunkTraceName = "trace_" ++ ty
-  , thunkSuspendName = "suspend_" ++ ty
+    thunkTypeName = "thunk_" ++ code
+  , thunkEnterName = "enter_" ++ code
+  , thunkTraceName = "trace_" ++ code
+  , thunkSuspendName = "suspend_" ++ code
   }
   where
-    ty = concatMap tycode ss
+    code = thunkTypeCode ty
 
 typeForSort :: Sort -> String
 typeForSort (Alloc aa) = "struct alloc_header *"
@@ -260,7 +263,7 @@ emitEnvTrace ns (EnvDecl _is fs) =
     traceField :: FieldName -> String
     traceField (FieldName s x) = "    " ++ emitMarkGray "env" ("env->" ++ x) s ++ ";"
 
-emitClosureCode :: ClosureNames -> String -> [PlaceName] -> TermH -> [String]
+emitClosureCode :: ClosureNames -> String -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
   ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ closureEnvName ns ++ " *" ++ envName ++ " = __env;"] ++
@@ -269,7 +272,9 @@ emitClosureCode ns envName xs e =
   where
     -- User-provided names cannot start with _, so we use that for the
     -- polymorphic environment parameter.
-    paramList = commaSep ("void *__env" : map emitPlace xs)
+    paramList = commaSep ("void *__env" : map emitParam xs)
+    emitParam (TypeParam i) = emitInfoDecl i
+    emitParam (PlaceParam p) = emitPlace p
 
 emitClosureBody :: EnvPtr -> TermH -> [String]
 emitClosureBody envp (LetValH x v e) =

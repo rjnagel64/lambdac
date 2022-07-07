@@ -20,6 +20,7 @@ module Hoist
     , InfoName(..)
     , DeclName(..)
     , ClosureDecl(..)
+    , ClosureParam(..)
     , EnvDecl(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
@@ -48,8 +49,6 @@ import Data.List (intercalate, nub)
 
 import qualified CC as C
 import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..))
-
--- TODO: Implement a type-checker for Hoist. I need better sanity checks here.
 
 -- TODO: The whole PlaceName/FieldName and LocalName/EnvName feels messy
 -- Especially because I need to add some form of name capable of referring to type_info.
@@ -112,10 +111,19 @@ asDeclName (C.Name x i) = DeclName (x ++ show i)
 -- TODO: I think that by 'Hoist', type parameters and value parameters should
 -- be treated uniformly. E.G., 'ClosureDecl' should carry a '[ClosureParam]',
 -- where 'data ClosureParam = ValueParam PlaceName | TypeParam InfoName'
+--
+-- Note: 'params :: [ClosureParam]' is a telescope, because 'TypeParam' brings
+-- info into scope for subsequent bindings.
 data ClosureDecl
-  = ClosureDecl DeclName (String, EnvDecl) [PlaceName] TermH
+  = ClosureDecl DeclName (String, EnvDecl) [ClosureParam] TermH
 
 data EnvDecl = EnvDecl [InfoName] [FieldName]
+
+-- TODO: Use 'ClosureParam' for closure parameter list
+-- * Requires upgrading ThunkType to know about type parameters.
+-- * May ultimately lead to removing Sort.Info in favor of treating info
+--   separately.
+data ClosureParam = PlaceParam PlaceName | TypeParam InfoName
 
 data TermH
   = LetValH PlaceName ValueH TermH
@@ -273,9 +281,16 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     ts = nubList (concatMap closureThunkTypes cs)
 
     closureThunkTypes :: ClosureDecl -> [ThunkType]
-    closureThunkTypes (ClosureDecl _ _ places _) = ThunkType argSorts : concatMap thunkTypesOf argSorts
+    closureThunkTypes (ClosureDecl _ _ params _) = ThunkType argSorts : concatMap paramThunkTypes params
       where
-        argSorts = map placeSort places
+        -- TODO: I'm not terribly satisfied with this.
+        argSorts = map f params
+        f (TypeParam i) = Info (C.TyVar "dummy")
+        f (PlaceParam p) = placeSort p
+
+    paramThunkTypes :: ClosureParam -> [ThunkType]
+    paramThunkTypes (TypeParam _) = []
+    paramThunkTypes (PlaceParam p) = thunkTypesOf (placeSort p)
 
     thunkTypesOf :: Sort -> [ThunkType]
     thunkTypesOf (Info _) = []
@@ -444,21 +459,19 @@ hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
   (env', places', body') <- inClosure env (xs ++ ks) $ hoist body
-  let fd = ClosureDecl fdecl env' places' body'
+  let fd = ClosureDecl fdecl env' (map PlaceParam places') body'
   pure fd
 
 hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ClosureDecl
 hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
   (env', places', body') <- inClosure env xs $ hoist body
-  let kd = ClosureDecl kdecl env' places' body'
+  let kd = ClosureDecl kdecl env' (map PlaceParam places') body'
   pure kd
 
 hoistAbsClosure :: (DeclName, C.AbsClosureDef) -> HoistM ClosureDecl
 hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
-  -- TODO: Shouldn't hoistAbsClosure create parameters for the sorts?
   (env', places', body') <- inClosure env ks $ hoist body
-  let infoPlaces = [PlaceName (Info aa) a | aa@(C.TyVar a) <- as]
-  let fd = ClosureDecl fdecl env' (infoPlaces ++ places') body'
+  let fd = ClosureDecl fdecl env' (map (TypeParam . asInfoName) as ++ map PlaceParam places') body'
   pure fd
 
 -- | Pick a name for the environment parameter, that will not clash with
@@ -584,12 +597,16 @@ pprintField (FieldName s x) = show s ++ " " ++ x
 pprintInfo :: InfoName -> String
 pprintInfo (InfoName aa) = aa
 
+pprintParam :: ClosureParam -> String
+pprintParam (PlaceParam p) = pprintPlace p
+pprintParam (TypeParam i) = pprintInfo i
+
 pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = "let {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
 
 pprintClosureDecl :: Int -> ClosureDecl -> String
 pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
-  indent n (show f ++ " " ++ env ++ " (" ++ intercalate ", " (map pprintPlace params) ++ ") =\n") ++
+  indent n (show f ++ " " ++ env ++ " (" ++ intercalate ", " (map pprintParam params) ++ ") =\n") ++
   pprintTerm (n+2) e
   where env = name ++ " : {" ++ intercalate ", " (map pprintInfo is) ++ "; " ++ intercalate ", " (map pprintField fs) ++ "}"
 
