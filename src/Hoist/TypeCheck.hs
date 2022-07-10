@@ -25,6 +25,11 @@ deriving newtype instance Monad TC
 deriving newtype instance MonadReader Context TC
 deriving newtype instance MonadError TCError TC
 
+-- Hmm. 'Name' is used for occurrences, not bindings
+-- ...
+-- Or something.
+--
+-- Hmm. ctxNames should be split into 'env' and 'locals'
 data Context = Context { ctxNames :: Map Name Sort, ctxTyVars :: Set C.TyVar }
 
 newtype Signature = Signature (Map DeclName Sort)
@@ -76,8 +81,20 @@ checkClosure sig (ClosureDecl cl (envp, envd) params body) = throwError (NotImpl
 checkParams :: [ClosureParam] -> TC Context
 checkParams params = throwError (NotImplemented "checkParams")
 
+withParams :: [ClosureParam] -> TC a -> TC a
+withParams [] m = m
+-- withParams (PlaceParam (PlaceName s x) : params) m = checkSort s *> local extend (withParams params m)
+--   where extend (Context names tys) = Context (Map.insert x s names) tys
+-- withParams (TypeParam i : params) m = local extend (withParams params m)
+--   where extend (Context names tys) = Context names (Set.insert i tys)
+
 checkClosureBody :: TermH -> TC ()
 checkClosureBody (HaltH x s) = checkName x s
+-- TODO: Sort is not expressive enough to describe polymorphic closures
+-- 'ThunkType' will need to be upgraded to work on ClosureParam, not Sort
+-- newtype ThunkType = ThunkType [ThunkParam]
+-- data ThunkParam = ThunkInfo | ThunkValue Sort ?
+checkClosureBody (InstH f ty ss ks) = throwError (NotImplemented "checkClosureBody InstH")
 
 
 checkName :: Name -> Sort -> TC ()
@@ -97,3 +114,6 @@ checkSort Sum = pure ()
 checkSort (Pair t s) = checkSort t *> checkSort s
 checkSort (List t) = checkSort t
 checkSort (Closure ss) = traverse_ checkSort ss
+
+checkThunkType :: ThunkType -> TC ()
+checkThunkType (ThunkType ss) = throwError (NotImplemented "checkThunkType")

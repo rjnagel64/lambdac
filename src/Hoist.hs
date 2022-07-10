@@ -15,6 +15,7 @@ module Hoist
     , Sort(..)
     , Name(..)
     , ThunkType(..)
+    , thunkTypeCode
     , PlaceName(..)
     , FieldName(..)
     , InfoName(..)
@@ -46,6 +47,7 @@ import Data.Bifunctor
 import Data.Int (Int64)
 import Data.Traversable (for, mapAccumL)
 import Data.List (intercalate, nub)
+import Data.Function (on)
 
 import qualified CC as C
 import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..))
@@ -131,11 +133,15 @@ data TermH
   -- 'let value x = fst y in e'
   | LetProjectH PlaceName Name Projection TermH
   | HaltH Name Sort
-  | OpenH Name ThunkType [Name] -- Open a closure, by providing a list of arguments.
-  | CaseH Name CaseKind [(Name, ThunkType)]
+  -- TODO: Open a closure, by providing a telescope of arguments.
+  -- (Unify OpenH and InstH)
+  | OpenH Name ThunkType [Name]
   | InstH Name ThunkType [Sort] [Name]
+  | CaseH Name CaseKind [(Name, ThunkType)]
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
+
+data ClosureArg = ValueArg Name | TypeArg Sort
 
 -- TODO(eventually): bring back generic case expressions
 data CaseKind = CaseBool | CaseSum | CaseList
@@ -206,15 +212,31 @@ deriving newtype instance Monoid ClosureDecls
 -- be distinct thunk types.
 -- TODO: ThunkType should use deBruijn levels to refer to type variables
 --
--- Question: At a call site to 'suspend', how do I know which type infos to provide?
-data ThunkType = ThunkType { thunkArgSorts2 :: [Sort] }
+-- TODO: ThunkType should also be a telescope, of type parameters and sorts
+-- (Which at runtime become info and values)
+data ThunkType = ThunkType { thunkArgSorts :: [Sort] }
 
--- TODO: Emit.tycode should possibly be more directly associated with ThunkType?
+thunkTypeCode :: ThunkType -> String
+thunkTypeCode (ThunkType ss) = concatMap tycode ss
+  where
+    -- This scheme will almost certainly break down as types get fancier.
+    tycode :: Sort -> String
+    tycode (Closure ss) = 'C' : show (length ss) ++ concatMap tycode ss
+    tycode Integer = "V"
+    tycode (Info aa) = "I"
+    tycode (Alloc aa) = "A"
+    tycode Sum = "S"
+    tycode Boolean = "B"
+    tycode (Pair s t) = 'Q' : tycode s ++ tycode t
+    tycode Unit = "U"
+    tycode (List s) = 'L' : tycode s
 
 eqThunkType :: ThunkType -> ThunkType -> Bool
 eqThunkType (ThunkType ts') (ThunkType ss') = go Map.empty Map.empty ts' ss'
   where
     go _ _ [] [] = True
+    -- Hmm. It's kind of weird that 'alloc' sorts are treated as both
+    -- occurrences and implicit binders.
     go fw bw (Alloc aa:ts) (Alloc bb:ss) = case (Map.lookup aa fw, Map.lookup bb bw) of
       (Nothing, Nothing) ->
         go (Map.insert aa bb fw) (Map.insert bb aa bw) ts ss
@@ -240,7 +262,8 @@ eqThunkType (ThunkType ts') (ThunkType ss') = go Map.empty Map.empty ts' ss'
     eqSort Sum Sum = True
     eqSort _ _ = False
 
-instance Eq ThunkType where (==) = eqThunkType
+-- instance Eq ThunkType where (==) = eqThunkType
+instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 
 -- | A set data type, that only requires 'Eq' constraints. Implemented because
 -- I can't wrap my head around a sensible ordering for 'ThunkType' or

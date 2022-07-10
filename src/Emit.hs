@@ -74,20 +74,6 @@ data ThunkNames
   , thunkSuspendName :: String
   }
 
--- This scheme will almost certainly break down as types get fancier.
-tycode :: Sort -> String
-tycode (Closure ss) = 'C' : show (length ss) ++ concatMap tycode ss
-tycode Integer = "V"
-tycode (Info aa) = "I"
-tycode (Alloc aa) = "A"
-tycode Sum = "S"
-tycode Boolean = "B"
-tycode (Pair s t) = 'Q' : tycode s ++ tycode t
-tycode Unit = "U"
-tycode (List s) = 'L' : tycode s
-
-thunkTypeCode :: ThunkType -> String
-thunkTypeCode (ThunkType ss) = concatMap tycode ss
 
 namesForThunk :: ThunkType -> ThunkNames
 namesForThunk ty =
@@ -296,10 +282,10 @@ emitClosureBody envp (HaltH x s) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort envp s ++ ");"]
 emitClosureBody envp (OpenH c ty xs) =
   [emitSuspend3 envp c ty xs]
-emitClosureBody envp (CaseH x kind ks) =
-  emitCase kind envp x ks
 emitClosureBody envp (InstH f ty ss ks) =
   [emitSuspend' envp f ty ss ks]
+emitClosureBody envp (CaseH x kind ks) =
+  emitCase kind envp x ks
 
 -- TODO: Every argument of sort 'Alloc aa' becomes two arguments: 'struct alloc_header *, type_info'.
 -- This is possibly redundant, if multiple arguments use the same 'type_info', but it's simpler.
@@ -337,7 +323,7 @@ emitCase kind envp x ks =
     emitCaseBranch (i, (ctorCast, argNames), (k, t)) =
       let
         method = thunkSuspendName (namesForThunk t)
-        args = emitName envp k : zipWith mkArg argNames (thunkArgSorts2 t)
+        args = emitName envp k : zipWith mkArg argNames (thunkArgSorts t)
         mkArg argName argSort = asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
