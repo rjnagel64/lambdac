@@ -288,7 +288,9 @@ bindFields xs fs = FieldsFor $ \ctx ->
   (fields Set.\\ Set.fromList (uncurry FreeOcc <$> xs), tys)
 
 bindTyFields :: [TyVar] -> FieldsFor -> FieldsFor
-bindTyFields aas fs = fs
+bindTyFields aas fs = FieldsFor $ \ctx ->
+  let (fields, tys) = runFieldsFor fs ctx in
+  (fields, tys Set.\\ Set.fromList aas)
 
 bindTm :: (K.TmVar, K.TypeK) -> (Name, Sort)
 bindTm = bimap tmVar sortOf
@@ -350,15 +352,20 @@ fieldsForValue (ConsK x y) = unitTm x <> unitTm y
 
 fieldsForFunDef :: FunDef a -> FieldsFor
 fieldsForFunDef (FunDef _ _f xs ks e) =
-  bindFields (map bindTm xs ++ map bindCo ks) (fieldsFor e)
+  bindFields (map bindTm xs ++ map bindCo ks) (fieldsFor e) <>
+  foldMap (fieldsForTy . snd) xs <>
+  foldMap (fieldsForCoTy . snd) ks
 
 fieldsForContDef :: ContDef a -> FieldsFor
 fieldsForContDef (ContDef _ _k xs e) =
-  bindFields (map bindTm xs) (fieldsFor e)
+  bindFields (map bindTm xs) (fieldsFor e) <>
+  foldMap (fieldsForTy . snd) xs
 
 fieldsForAbsDef :: AbsDef a -> FieldsFor
 fieldsForAbsDef (AbsDef _ _f as ks e) =
-  bindFields (map bindCo ks) (fieldsFor e)
+  bindTyFields (map bindTy as) $
+    bindFields (map bindCo ks) $
+      fieldsFor e <> foldMap (fieldsForCoTy . snd) ks
 
 fieldsForTy :: K.TypeK -> FieldsFor
 fieldsForTy K.UnitK = mempty
@@ -591,7 +598,7 @@ pprintAbsClosureDef n (AbsClosureDef f env as ks e) =
   pprintEnvDef n env ++ indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     params = "(" ++ intercalate ", " args ++ ")"
-    args = map show as ++ map pprintPlace ks
+    args = map (\v -> "@" ++ show v) as ++ map pprintPlace ks
 
 pprintEnvDef :: Int -> EnvDef -> String
 pprintEnvDef n (EnvDef tys free rec) = indent n $ "{" ++ intercalate ", " vars ++ "}\n"
