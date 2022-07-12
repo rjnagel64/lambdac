@@ -142,46 +142,46 @@ emitThunkDecl t =
   emitThunkSuspend t
 
 emitThunkType :: ThunkType -> [String]
-emitThunkType (ThunkType ss) =
+emitThunkType ty@(ThunkType ss) =
   ["struct " ++ thunkTypeName ns ++ " {"
   ,"    struct thunk header;"
   ,"    struct closure *closure;"] ++
   mapWithIndex mkField ss ++
   ["};"]
   where
-    ns = namesForThunk (ThunkType ss)
+    ns = namesForThunk ty
     mkField i (Alloc _) = "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
     mkField i s = "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
     -- TODO: `struct alloc_header` in a thunk should be accompanied by `type_info`
 
 emitThunkTrace :: ThunkType -> [String]
-emitThunkTrace (ThunkType ss) =
+emitThunkTrace ty@(ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
   ,"    " ++ emitMarkGray "next" "next->closure" (Closure ss) ++ ";"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
-    ns = namesForThunk (ThunkType ss)
+    ns = namesForThunk ty
     traceField i (Alloc _) = "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
     traceField i s = "    " ++ emitMarkGray "next" ("next->arg" ++ show i) s ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
-emitThunkEnter (ThunkType ss) =
+emitThunkEnter ty@(ThunkType ss) =
   ["void " ++ thunkEnterName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
   ,"    void (*code)(" ++ paramList ++ ") = (void (*)(" ++ paramList ++ "))next->closure->code;"
   ,"    code(" ++ argList ++ ");"
   ,"}"]
   where
-    ns = namesForThunk (ThunkType ss)
+    ns = namesForThunk ty
     paramList = commaSep ("void *env" : mapWithIndex makeParam ss)
     makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
     argList = commaSep ("next->closure->env" : mapWithIndex makeArgument ss)
     makeArgument i _ = "next->arg" ++ show i
 
 emitThunkSuspend :: ThunkType -> [String]
-emitThunkSuspend (ThunkType ss) =
+emitThunkSuspend ty@(ThunkType ss) =
   ["void " ++ thunkSuspendName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = realloc(next_step, sizeof(struct " ++ thunkTypeName ns ++ "));"
   ,"    next->header.enter = closure->enter;"
@@ -191,7 +191,7 @@ emitThunkSuspend (ThunkType ss) =
   ["    next_step = (struct thunk *)next;"
   ,"}"]
   where
-    ns = namesForThunk (ThunkType ss)
+    ns = namesForThunk ty
     paramList = commaSep ("struct closure *closure" : mapWithIndex makeParam ss)
     makeParam i (Alloc _) = "struct alloc_header *arg" ++ show i ++ ", type_info info" ++ show i
     makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
@@ -301,9 +301,9 @@ emitSuspend' envp cl ty ss xs =
     method = thunkSuspendName (namesForThunk ty)
 
 emitSuspend3 :: EnvPtr -> Name -> ThunkType -> [Name] -> String
-emitSuspend3 envp cl (ThunkType ss) xs = "    " ++ method ++ "(" ++ args ++ ");"
+emitSuspend3 envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ args ++ ");"
   where
-    method = thunkSuspendName (namesForThunk (ThunkType ss))
+    method = thunkSuspendName (namesForThunk ty)
     args = commaSep (emitName envp cl : mapWithIndex makeArg (zip ss xs))
     -- TODO: Emit proper info when suspending
     -- I honestly think I need an analog of LocalName/EnvName for info.
@@ -320,10 +320,10 @@ emitCase kind envp x ks =
   ,"    }"]
   where
     emitCaseBranch :: (Int, (String, [String]), (Name, ThunkType)) -> [String]
-    emitCaseBranch (i, (ctorCast, argNames), (k, t)) =
+    emitCaseBranch (i, (ctorCast, argNames), (k, ty@(ThunkType ss))) =
       let
-        method = thunkSuspendName (namesForThunk t)
-        args = emitName envp k : zipWith mkArg argNames (thunkArgSorts t)
+        method = thunkSuspendName (namesForThunk ty)
+        args = emitName envp k : zipWith mkArg argNames ss
         mkArg argName argSort = asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
       in
         ["    case " ++ show i ++ ":"

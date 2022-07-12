@@ -114,6 +114,13 @@ data TermK a
   -- f @t k
   | InstK TmVar [TypeK] [CoVar]
 
+-- Hmm. Idle thought:
+-- (in the long run) I think I should merge FunDef and AbsDef, using a
+-- telescope of parameters for both.
+--
+-- Meanwhile, ContDef can/should have type parameters, then value parameters,
+-- akin to GHC's join points.
+
 -- | Named basic blocks
 -- @k (x:τ)+ := e@
 data ContDef a = ContDef a CoVar [(TmVar, TypeK)] (TermK a)

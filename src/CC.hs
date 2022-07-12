@@ -107,12 +107,13 @@ tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
 -- Alloc = a : *
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
--- TODO: Parametrize 'Sort' by type of variable: 'Sort TyVar' and 'Sort DBLevel'
+-- TODO: Parametrize 'Sort' by type of variable?: 'Sort TyVar' and 'Sort DBLevel'
 -- TODO: 'Sort.Info' is the odd one out, often times. Make it more uniform, somehow.
 data Sort
   = Closure [Sort]
   | Integer
   | Alloc TyVar
+  -- TODO: It doesn't make sense for Info to be a sort; you can't make a pair of info
   | Info TyVar
   | Sum
   | Pair Sort Sort
@@ -364,8 +365,8 @@ fieldsForContDef (ContDef _ _k xs e) =
 fieldsForAbsDef :: AbsDef a -> FieldsFor
 fieldsForAbsDef (AbsDef _ _f as ks e) =
   bindTyFields (map bindTy as) $
-    bindFields (map bindCo ks) $
-      fieldsFor e <> foldMap (fieldsForCoTy . snd) ks
+    foldMap (fieldsForCoTy . snd) ks <>
+    bindFields (map bindCo ks) (fieldsFor e)
 
 fieldsForTy :: K.TypeK -> FieldsFor
 fieldsForTy K.UnitK = mempty
