@@ -176,8 +176,8 @@ data ValueH
   | BoolH Bool
   | PairH Info Info Name Name
   | NilH
-  | InlH Sort Name
-  | InrH Sort Name
+  | InlH Info Name
+  | InrH Info Name
   | ListNilH
   | ListConsH Info Name Name
 
@@ -375,7 +375,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
 -- be lifted to the top level. Additionally, map value, continuation, and
 -- function names to C names.
 hoist :: TermC -> HoistM TermH
-hoist (HaltC x) = uncurry HaltH <$> hoistVarOcc' x
+hoist (HaltC x) = (\ (x', s) -> HaltH x' s) <$> hoistVarOcc' x
 hoist (JumpC k xs) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' xs
   OpenH <$> hoistVarOcc k <*> pure (ThunkType ss) <*> pure ys
@@ -505,8 +505,8 @@ hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
 hoistValue (PairC x y) = (\ (x', t) (y', s) -> PairH (infoForSort t) (infoForSort s) x' y') <$> hoistVarOcc' x <*> hoistVarOcc' y
 hoistValue NilC = pure NilH
-hoistValue (InlC x) = uncurry (flip InlH) <$> hoistVarOcc' x
-hoistValue (InrC x) = uncurry (flip InrH) <$> hoistVarOcc' x
+hoistValue (InlC x) = (\ (x', s) -> InlH (infoForSort s) x') <$> hoistVarOcc' x
+hoistValue (InrC x) = (\ (x', s) -> InrH (infoForSort s) x') <$> hoistVarOcc' x
 hoistValue EmptyC = pure ListNilH
 hoistValue (ConsC x xs) = (\ (x', s) xs' -> ListConsH (infoForSort s) x' xs') <$> hoistVarOcc' x <*> hoistVarOcc xs
 

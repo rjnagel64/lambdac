@@ -342,9 +342,9 @@ emitValueAlloc envp (PairH s1 s2 x y) =
   "allocate_pair(" ++ emitInfo envp s1 ++ ", " ++ emitInfo envp s2 ++ ", " ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ NilH = "allocate_unit()"
 emitValueAlloc envp (InlH s y) =
-  "allocate_inl(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort envp s ++ ")"
+  "allocate_inl(" ++ asAlloc (emitName envp y) ++ ", " ++ emitInfo envp s ++ ")"
 emitValueAlloc envp (InrH s y) =
-  "allocate_inr(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort envp s ++ ")"
+  "allocate_inr(" ++ asAlloc (emitName envp y) ++ ", " ++ emitInfo envp s ++ ")"
 emitValueAlloc _ ListNilH = "allocate_list_nil()"
 emitValueAlloc envp (ListConsH s x xs) =
   "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp s ++ ", " ++ emitName envp xs ++ ")"
