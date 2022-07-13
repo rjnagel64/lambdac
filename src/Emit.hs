@@ -87,43 +87,43 @@ namesForThunk ty =
     code = thunkTypeCode ty
 
 typeForSort :: Sort -> String
-typeForSort (Alloc aa) = "struct alloc_header *"
-typeForSort (Info aa) = "type_info "
-typeForSort (Closure _) = "struct closure *"
-typeForSort Integer = "struct int64_value *"
-typeForSort Sum = "struct sum *"
-typeForSort Boolean = "struct bool_value *"
-typeForSort (Pair _ _) = "struct pair *"
-typeForSort Unit = "struct unit *"
-typeForSort (List _) = "struct list *"
+typeForSort (AllocH aa) = "struct alloc_header *"
+typeForSort (InfoH aa) = "type_info "
+typeForSort (ClosureH _) = "struct closure *"
+typeForSort IntegerH = "struct int64_value *"
+typeForSort SumH = "struct sum *"
+typeForSort BooleanH = "struct bool_value *"
+typeForSort (ProductH _ _) = "struct pair *"
+typeForSort UnitH = "struct unit *"
+typeForSort (ListH _) = "struct list *"
 
 infoForSort :: EnvPtr -> Sort -> String
-infoForSort _ (Info aa) = error "Info for type_info shouldn't be necessary? (unless it is?)"
-infoForSort envp (Alloc aa) = envp ++ "->" ++ show aa
-infoForSort _ Sum = "sum_info"
-infoForSort _ Boolean = "bool_value_info"
-infoForSort _ Integer = "int64_value_info"
-infoForSort _ (Pair _ _) = "pair_info"
-infoForSort _ Unit = "unit_info"
-infoForSort _ (Closure _) = "closure_info"
-infoForSort _ (List _) = "list_info"
+infoForSort _ (InfoH aa) = error "Info for type_info shouldn't be necessary? (unless it is?)"
+infoForSort envp (AllocH aa) = envp ++ "->" ++ show aa
+infoForSort _ SumH = "sum_info"
+infoForSort _ BooleanH = "bool_value_info"
+infoForSort _ IntegerH = "int64_value_info"
+infoForSort _ (ProductH _ _) = "pair_info"
+infoForSort _ UnitH = "unit_info"
+infoForSort _ (ClosureH _) = "closure_info"
+infoForSort _ (ListH _) = "list_info"
 
 asSort :: Sort -> String -> String
-asSort (Alloc _) x = asAlloc x
-asSort (Info _) x = error "we should not be casting to/from type_info"
-asSort Integer x = "AS_INT64(" ++ x ++ ")"
-asSort (Closure _) x = "AS_CLOSURE(" ++ x ++ ")"
-asSort Sum x = "AS_SUM(" ++ x ++ ")"
-asSort Boolean x = "AS_BOOL(" ++ x ++ ")"
-asSort (Pair _ _) x = "AS_PAIR(" ++ x ++ ")"
-asSort Unit x = "AS_UNIT(" ++ x ++ ")"
-asSort (List _s) x = "AS_LIST(" ++ x ++ ")"
+asSort (AllocH _) x = asAlloc x
+asSort (InfoH _) x = error "we should not be casting to/from type_info"
+asSort IntegerH x = "AS_INT64(" ++ x ++ ")"
+asSort (ClosureH _) x = "AS_CLOSURE(" ++ x ++ ")"
+asSort SumH x = "AS_SUM(" ++ x ++ ")"
+asSort BooleanH x = "AS_BOOL(" ++ x ++ ")"
+asSort (ProductH _ _) x = "AS_PAIR(" ++ x ++ ")"
+asSort UnitH x = "AS_UNIT(" ++ x ++ ")"
+asSort (ListH _s) x = "AS_LIST(" ++ x ++ ")"
 
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
 emitMarkGray :: EnvPtr -> String -> Sort -> String
-emitMarkGray envp x (Info _) = "" -- TODO: This produces extraneous blank lines
+emitMarkGray envp x (InfoH _) = "" -- TODO: This produces extraneous blank lines
 emitMarkGray envp x s = "mark_gray(" ++ asAlloc x ++ ", " ++ infoForSort envp s ++ ")"
 
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
@@ -150,7 +150,7 @@ emitThunkType ty@(ThunkType ss) =
   ["};"]
   where
     ns = namesForThunk ty
-    mkField i (Alloc _) = "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
+    mkField i (AllocH _) = "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
     mkField i s = "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
     -- TODO: `struct alloc_header` in a thunk should be accompanied by `type_info`
 
@@ -158,12 +158,12 @@ emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace ty@(ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    " ++ emitMarkGray "next" "next->closure" (Closure ss) ++ ";"] ++
+  ,"    " ++ emitMarkGray "next" "next->closure" (ClosureH ss) ++ ";"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
     ns = namesForThunk ty
-    traceField i (Alloc _) = "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
+    traceField i (AllocH _) = "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
     traceField i s = "    " ++ emitMarkGray "next" ("next->arg" ++ show i) s ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
@@ -193,7 +193,7 @@ emitThunkSuspend ty@(ThunkType ss) =
   where
     ns = namesForThunk ty
     paramList = commaSep ("struct closure *closure" : mapWithIndex makeParam ss)
-    makeParam i (Alloc _) = "struct alloc_header *arg" ++ show i ++ ", type_info info" ++ show i
+    makeParam i (AllocH _) = "struct alloc_header *arg" ++ show i ++ ", type_info info" ++ show i
     makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
 
@@ -308,7 +308,7 @@ emitSuspend3 envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ args ++ "
     -- TODO: Emit proper info when suspending
     -- I honestly think I need an analog of LocalName/EnvName for info.
     -- Or this is more evidence that info should be folded into Name
-    makeArg i (Alloc aa, x) = emitName envp x ++ ", " ++ infoForSort envp (Alloc aa)
+    makeArg i (AllocH aa, x) = emitName envp x ++ ", " ++ infoForSort envp (AllocH aa)
     makeArg i (s, x) = emitName envp x
 
 emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]
@@ -383,7 +383,7 @@ emitAlloc envp (ClosureAlloc p ty d (EnvAlloc info free rec)) =
 
     -- Recursive/cyclic environment references are initialized to NULL, and
     -- then patched once all the closures have been allocated.
-    infoArgs = map (infoForSort envp . Alloc . snd) info
+    infoArgs = map (infoForSort envp . AllocH . snd) info
     envAllocArgs = infoArgs ++ map (emitName envp . snd) free ++ map (const "NULL") rec
 
 emitPatch :: ClosureNames -> PlaceName -> EnvAlloc -> [String]

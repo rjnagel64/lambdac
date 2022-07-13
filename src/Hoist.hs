@@ -50,7 +50,7 @@ import Data.List (intercalate, nub)
 import Data.Function (on)
 
 import qualified CC as C
-import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..), Sort(..))
+import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..))
 
 -- TODO: The whole PlaceName/FieldName and LocalName/EnvName feels messy
 -- Especially because I need to add some form of name capable of referring to type_info.
@@ -85,11 +85,11 @@ data PlaceName = PlaceName { placeSort :: Sort, placeName :: String }
 
 data FieldName = FieldName { fieldSort :: Sort, fieldName :: String }
 
-asPlaceName :: Sort -> C.Name -> PlaceName
-asPlaceName s (C.Name x i) = PlaceName s (x ++ show i)
+asPlaceName :: C.Sort -> C.Name -> PlaceName
+asPlaceName s (C.Name x i) = PlaceName (sortOf s) (x ++ show i)
 
-asFieldName :: Sort -> C.Name -> FieldName
-asFieldName s (C.Name x i) = FieldName s (x ++ show i)
+asFieldName :: C.Sort -> C.Name -> FieldName
+asFieldName s (C.Name x i) = FieldName (sortOf s) (x ++ show i)
 
 data InfoName = InfoName { infoName :: String }
 
@@ -148,10 +148,10 @@ data CaseKind = CaseBool | CaseSum | CaseList
 
 data Projection = ProjectFst | ProjectSnd
 
-caseKind :: Sort -> CaseKind
-caseKind Boolean = CaseBool
-caseKind Sum = CaseSum
-caseKind (List _) = CaseList
+caseKind :: C.Sort -> CaseKind
+caseKind C.Boolean = CaseBool
+caseKind C.Sum = CaseSum
+caseKind (C.List _) = CaseList
 caseKind s = error ("cannot perform case analysis on sort " ++ show s)
 
 data ClosureAlloc
@@ -192,6 +192,29 @@ data PrimOp
   | PrimGtInt64 Name Name
   | PrimGeInt64 Name Name
 
+data Sort
+  = IntegerH
+  | BooleanH
+  | UnitH
+  | SumH
+  | ProductH Sort Sort
+  | ListH Sort
+  | ClosureH [Sort]
+  | AllocH C.TyVar
+  | InfoH C.TyVar
+  deriving (Eq, Ord)
+
+sortOf :: C.Sort -> Sort
+sortOf C.Integer = IntegerH
+sortOf C.Boolean = BooleanH
+sortOf C.Unit = UnitH
+sortOf C.Sum = SumH
+sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
+sortOf (C.List t) = ListH (sortOf t)
+sortOf (C.Closure ss) = ClosureH (map sortOf ss)
+sortOf (C.Alloc aa) = AllocH aa
+sortOf (C.Info aa) = InfoH aa
+
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
 -- field references.
@@ -228,15 +251,15 @@ thunkTypeCode (ThunkType ss) = concatMap tycode ss
   where
     -- This scheme will almost certainly break down as types get fancier.
     tycode :: Sort -> String
-    tycode (Closure ss) = 'C' : show (length ss) ++ concatMap tycode ss
-    tycode Integer = "V"
-    tycode (Info aa) = "I"
-    tycode (Alloc aa) = "A"
-    tycode Sum = "S"
-    tycode Boolean = "B"
-    tycode (Pair s t) = 'Q' : tycode s ++ tycode t
-    tycode Unit = "U"
-    tycode (List s) = 'L' : tycode s
+    tycode (ClosureH ss) = 'C' : show (length ss) ++ concatMap tycode ss
+    tycode IntegerH = "V"
+    tycode (InfoH aa) = "I"
+    tycode (AllocH aa) = "A"
+    tycode SumH = "S"
+    tycode BooleanH = "B"
+    tycode (ProductH s t) = 'Q' : tycode s ++ tycode t
+    tycode UnitH = "U"
+    tycode (ListH s) = 'L' : tycode s
 
 eqThunkType :: ThunkType -> ThunkType -> Bool
 eqThunkType (ThunkType ts') (ThunkType ss') = go Map.empty Map.empty ts' ss'
@@ -244,7 +267,7 @@ eqThunkType (ThunkType ts') (ThunkType ss') = go Map.empty Map.empty ts' ss'
     go _ _ [] [] = True
     -- Hmm. It's kind of weird that 'alloc' sorts are treated as both
     -- occurrences and implicit binders.
-    go fw bw (Alloc aa:ts) (Alloc bb:ss) = case (Map.lookup aa fw, Map.lookup bb bw) of
+    go fw bw (AllocH aa:ts) (AllocH bb:ss) = case (Map.lookup aa fw, Map.lookup bb bw) of
       (Nothing, Nothing) ->
         go (Map.insert aa bb fw) (Map.insert bb aa bw) ts ss
       (Just aa', Just bb') ->
@@ -255,18 +278,18 @@ eqThunkType (ThunkType ts') (ThunkType ss') = go Map.empty Map.empty ts' ss'
 
     -- Test that two 'Sort's have the same runtime representation
     -- Basically, whether they have the same 'tycode'.
-    eqSort (Alloc _) (Alloc _) = True
-    eqSort (List t) (List s) = eqSort t s
-    eqSort (Pair t1 t2) (Pair s1 s2) = eqSort t1 s1 && eqSort t2 s2
-    eqSort (Closure xs) (Closure ys) = go2 xs ys
+    eqSort (AllocH _) (AllocH _) = True
+    eqSort (ListH t) (ListH s) = eqSort t s
+    eqSort (ProductH t1 t2) (ProductH s1 s2) = eqSort t1 s1 && eqSort t2 s2
+    eqSort (ClosureH xs) (ClosureH ys) = go2 xs ys
       where
         go2 [] [] = True
         go2 (t:ts) (s:ss) = eqSort t s && go2 ts ss
         go2 _ _ = False
-    eqSort Integer Integer = True
-    eqSort Unit Unit = True
-    eqSort Boolean Boolean = True
-    eqSort Sum Sum = True
+    eqSort IntegerH IntegerH = True
+    eqSort UnitH UnitH = True
+    eqSort BooleanH BooleanH = True
+    eqSort SumH SumH = True
     eqSort _ _ = False
 
 -- instance Eq ThunkType where (==) = eqThunkType
@@ -315,7 +338,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
       where
         -- TODO: I'm not terribly satisfied with this.
         argSorts = map f params
-        f (TypeParam i) = Info (C.TyVar "dummy")
+        f (TypeParam i) = InfoH (C.TyVar "dummy")
         f (PlaceParam p) = placeSort p
 
     paramThunkTypes :: ClosureParam -> [ThunkType]
@@ -323,15 +346,15 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     paramThunkTypes (PlaceParam p) = thunkTypesOf (placeSort p)
 
     thunkTypesOf :: Sort -> [ThunkType]
-    thunkTypesOf (Info _) = []
-    thunkTypesOf (Alloc _) = []
-    thunkTypesOf Integer = []
-    thunkTypesOf Boolean = []
-    thunkTypesOf Sum = []
-    thunkTypesOf Unit = []
-    thunkTypesOf (Closure ss) = ThunkType ss : concatMap thunkTypesOf ss
-    thunkTypesOf (Pair t1 t2) = thunkTypesOf t1 ++ thunkTypesOf t2
-    thunkTypesOf (List t) = thunkTypesOf t
+    thunkTypesOf (InfoH _) = []
+    thunkTypesOf (AllocH _) = []
+    thunkTypesOf IntegerH = []
+    thunkTypesOf BooleanH = []
+    thunkTypesOf SumH = []
+    thunkTypesOf UnitH = []
+    thunkTypesOf (ClosureH ss) = ThunkType ss : concatMap thunkTypesOf ss
+    thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 ++ thunkTypesOf t2
+    thunkTypesOf (ListH t) = thunkTypesOf t
 
 
 -- | After closure conversion, the code for each function and continuation can
@@ -350,14 +373,15 @@ hoist (CaseC x t ks) = do
   let kind = caseKind t
   ks' <- for ks $ \ (k, C.BranchType ss) -> do
     k' <- hoistVarOcc k
-    pure (k', ThunkType ss)
+    pure (k', ThunkType (map sortOf ss))
   pure $ CaseH x' kind ks'
 hoist (InstC f ts ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
   -- TODO: It would be better if OpenH/InstH looked up the thunk type of the
   -- head, rather than trying to reconstruct it.
-  let infoSorts = replicate (length ts) (Info (C.TyVar "dummy"))
-  InstH <$> hoistVarOcc f <*> pure (ThunkType (infoSorts ++ ss)) <*> pure ts <*> pure ys
+  let infoSorts = replicate (length ts) (InfoH (C.TyVar "dummy"))
+  let ty = ThunkType (infoSorts ++ ss)
+  InstH <$> hoistVarOcc f <*> pure ty <*> pure (map sortOf ts) <*> pure ys
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -390,7 +414,7 @@ hoist (LetFunC fs e) = do
   placesForClosureAllocs C.funClosureName C.funClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f env xs ks _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType ([s | (_x, s) <- xs] ++ [s | (_k, s) <- ks])
+      let ty = ThunkType ([sortOf s | (_x, s) <- xs] ++ [sortOf s | (_k, s) <- ks])
       -- TODO: Give name to environment allocations as well
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
@@ -403,7 +427,7 @@ hoist (LetContC ks e) = do
   placesForClosureAllocs C.contClosureName C.contClosureSort kdecls $ \kplaces -> do
     ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k env xs _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType [s | (_x, s) <- xs]
+      let ty = ThunkType [sortOf s | (_x, s) <- xs]
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure ks' e')
@@ -415,8 +439,8 @@ hoist (LetAbsC fs e) = do
   placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env as ks _e) -> do
       env' <- hoistEnvDef env
-      let infoSorts = [Info aa | aa <- as]
-      let ty = ThunkType (infoSorts ++ [s | (_k, s) <- ks])
+      let infoSorts = [InfoH aa | aa <- as]
+      let ty = ThunkType (infoSorts ++ [sortOf s | (_k, s) <- ks])
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure fs' e')
@@ -426,14 +450,14 @@ hoistEnvDef (C.EnvDef tys free rec) =
   let tys' = map (\aa -> (asInfoName aa, aa)) tys in
   EnvAlloc tys' <$> traverse envAllocField free <*> traverse envAllocField rec
 
-envAllocField :: (C.Name, Sort) -> HoistM (FieldName, Name)
+envAllocField :: (C.Name, C.Sort) -> HoistM (FieldName, Name)
 envAllocField (x, s) = do
   let field = asFieldName s x
   x' <- hoistVarOcc x
   pure (field, x')
 
 
-placesForClosureAllocs :: (a -> C.Name) -> (a -> Sort) -> [(DeclName, a)] -> ([(PlaceName, DeclName, a)] -> HoistM r) -> HoistM r
+placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(DeclName, a)] -> ([(PlaceName, DeclName, a)] -> HoistM r) -> HoistM r
 placesForClosureAllocs closureName closureSort cdecls kont = do
   HoistEnv scope _ <- ask
   let
@@ -517,7 +541,7 @@ pickEnvironmentName sc = go (0 :: Int)
 -- set of declaration names intact. This is because inside a closure, all names
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: C.EnvDef -> [(C.Name, Sort)] -> HoistM a -> HoistM ((String, EnvDecl), [PlaceName], a)
+inClosure :: C.EnvDef -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((String, EnvDecl), [PlaceName], a)
 inClosure (C.EnvDef tys free rec) places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields = free ++ rec
@@ -553,14 +577,14 @@ hoistVarOcc' x = do
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.
-withPlace :: C.Name -> Sort -> HoistM a -> HoistM (PlaceName, a)
+withPlace :: C.Name -> C.Sort -> HoistM a -> HoistM (PlaceName, a)
 withPlace x s m = do
   x' <- makePlace x s
   let f (HoistEnv places fields) = HoistEnv (Map.insert x x' places) fields
   a <- local f m
   pure (x', a)
 
-makePlace :: C.Name -> Sort -> HoistM PlaceName
+makePlace :: C.Name -> C.Sort -> HoistM PlaceName
 makePlace x s = do
   HoistEnv places _ <- ask
   go x places
@@ -583,7 +607,7 @@ pprintTerm n (CaseH x _kind ks) =
   let branches = intercalate " | " (map (show . fst) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (InstH f _ty ss ks) =
-  indent n $ intercalate " @" (show f : map show ss) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
+  indent n $ intercalate " @" (show f : map pprintSort ss) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetProjectH x y p e) =
@@ -619,10 +643,10 @@ pprintPrim (PrimGtInt64 x y) = "prim_gtint64(" ++ show x ++ ", " ++ show y ++ ")
 pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintPlace :: PlaceName -> String
-pprintPlace (PlaceName s x) = show s ++ " " ++ x
+pprintPlace (PlaceName s x) = pprintSort s ++ " " ++ x
 
 pprintField :: FieldName -> String
-pprintField (FieldName s x) = show s ++ " " ++ x
+pprintField (FieldName s x) = pprintSort s ++ " " ++ x
 
 pprintInfo :: InfoName -> String
 pprintInfo (InfoName aa) = aa
@@ -652,4 +676,15 @@ pprintThunkTypes :: [ThunkType] -> String
 pprintThunkTypes ts = unlines (map pprintThunkType ts)
   where
     pprintThunkType :: ThunkType -> String
-    pprintThunkType (ThunkType ss) = "thunk " ++ show ss ++ " -> !"
+    pprintThunkType (ThunkType ss) = "thunk (" ++ intercalate ", " (map pprintSort ss) ++ ") -> !"
+
+pprintSort :: Sort -> String
+pprintSort IntegerH = "int"
+pprintSort BooleanH = "bool"
+pprintSort UnitH = "unit"
+pprintSort SumH = "sum"
+pprintSort (ListH t) = "list " ++ pprintSort t
+pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
+pprintSort (ClosureH ss) = "closure(" ++ intercalate ", " (map pprintSort ss) ++ ")"
+pprintSort (AllocH aa) = "alloc(" ++ show aa ++ ")"
+pprintSort (InfoH aa) = "info(" ++ show aa ++ ")"

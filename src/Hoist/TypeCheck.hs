@@ -14,7 +14,6 @@ import Control.Monad.Except
 import Hoist
 
 import qualified CC as C
-import CC (Sort(..))
 
 
 newtype TC a = TC { getTC :: ReaderT Context (Except TCError) a }
@@ -124,21 +123,21 @@ checkClosureBody (LetValH p v e) = do
   withPlace p $ checkClosureBody e
 
 checkPrimOp :: PrimOp -> TC Sort
-checkPrimOp (PrimAddInt64 x y) = checkName x Integer *> checkName y Integer *> pure Integer
-checkPrimOp (PrimSubInt64 x y) = checkName x Integer *> checkName y Integer *> pure Integer
-checkPrimOp (PrimMulInt64 x y) = checkName x Integer *> checkName y Integer *> pure Integer
-checkPrimOp (PrimNegInt64 x) = checkName x Integer *> pure Integer
-checkPrimOp (PrimEqInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
-checkPrimOp (PrimNeInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
-checkPrimOp (PrimLtInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
-checkPrimOp (PrimLeInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
-checkPrimOp (PrimGtInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
-checkPrimOp (PrimGeInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
+checkPrimOp (PrimAddInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure IntegerH
+checkPrimOp (PrimSubInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure IntegerH
+checkPrimOp (PrimMulInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure IntegerH
+checkPrimOp (PrimNegInt64 x) = checkName x IntegerH *> pure IntegerH
+checkPrimOp (PrimEqInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
+checkPrimOp (PrimNeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
+checkPrimOp (PrimLtInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
+checkPrimOp (PrimLeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
+checkPrimOp (PrimGtInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
+checkPrimOp (PrimGeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
 
 checkValue :: ValueH -> Sort -> TC ()
-checkValue (IntH _) Integer = pure ()
-checkValue (BoolH _) Boolean = pure ()
-checkValue ListNilH (List _) = pure ()
+checkValue (IntH _) IntegerH = pure ()
+checkValue (BoolH _) BooleanH = pure ()
+checkValue ListNilH (ListH _) = pure ()
 
 
 checkName :: Name -> Sort -> TC ()
@@ -147,15 +146,15 @@ checkName x s = do
   equalSorts s s'
 
 checkSort :: Sort -> TC ()
-checkSort (Alloc aa) = lookupTyVar aa
-checkSort (Info aa) = lookupTyVar aa
-checkSort Unit = pure ()
-checkSort Integer = pure ()
-checkSort Boolean = pure ()
-checkSort Sum = pure ()
-checkSort (Pair t s) = checkSort t *> checkSort s
-checkSort (List t) = checkSort t
-checkSort (Closure ss) = traverse_ checkSort ss
+checkSort (AllocH aa) = lookupTyVar aa
+checkSort (InfoH aa) = lookupTyVar aa
+checkSort UnitH = pure ()
+checkSort IntegerH = pure ()
+checkSort BooleanH = pure ()
+checkSort SumH = pure ()
+checkSort (ProductH t s) = checkSort t *> checkSort s
+checkSort (ListH t) = checkSort t
+checkSort (ClosureH ss) = traverse_ checkSort ss
 
 checkThunkType :: ThunkType -> TC ()
 checkThunkType (ThunkType ss) = throwError (NotImplemented "checkThunkType")
