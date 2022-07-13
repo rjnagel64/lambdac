@@ -14,6 +14,7 @@ module Hoist
     , PrimOp(..)
     , Sort(..)
     , Name(..)
+    , Info(..)
     , ThunkType(..)
     , thunkTypeCode
     , PlaceName(..)
@@ -173,12 +174,12 @@ data EnvAlloc
 data ValueH
   = IntH Int64
   | BoolH Bool
-  | PairH (Name, Sort) (Name, Sort)
+  | PairH Info Info Name Name
   | NilH
   | InlH Sort Name
   | InrH Sort Name
   | ListNilH
-  | ListConsH Sort Name Name
+  | ListConsH Info Name Name
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -222,6 +223,11 @@ data Info
   -- int64_info
   | StaticInfo Sort
   -- Or maybe BoolInfo, UnitInfo, ClosureInfo, etc.
+
+infoForSort :: Sort -> Info
+infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
+infoForSort (InfoH aa) = error "shouldn't need infoForSort InfoH"
+infoForSort s = StaticInfo s
 
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
@@ -497,12 +503,12 @@ declareClosureNames closureName cs =
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
-hoistValue (PairC x y) = PairH <$> hoistVarOcc' x <*> hoistVarOcc' y
+hoistValue (PairC x y) = (\ (x', t) (y', s) -> PairH (infoForSort t) (infoForSort s) x' y') <$> hoistVarOcc' x <*> hoistVarOcc' y
 hoistValue NilC = pure NilH
 hoistValue (InlC x) = uncurry (flip InlH) <$> hoistVarOcc' x
 hoistValue (InrC x) = uncurry (flip InrH) <$> hoistVarOcc' x
 hoistValue EmptyC = pure ListNilH
-hoistValue (ConsC x xs) = uncurry (flip ListConsH) <$> hoistVarOcc' x <*> hoistVarOcc xs
+hoistValue (ConsC x xs) = (\ (x', s) xs' -> ListConsH (infoForSort s) x' xs') <$> hoistVarOcc' x <*> hoistVarOcc xs
 
 hoistArith :: ArithC -> HoistM PrimOp
 hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -629,7 +635,7 @@ pprintTerm n (AllocClosure cs e) =
   indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
 
 pprintValue :: ValueH -> String
-pprintValue (PairH (x, _) (y, _)) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (PairH _ _ x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue NilH = "()"
 pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"

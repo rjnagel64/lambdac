@@ -338,8 +338,8 @@ emitValueAlloc :: EnvPtr -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValueAlloc _ (BoolH True) = "allocate_true()"
 emitValueAlloc _ (BoolH False) = "allocate_false()"
-emitValueAlloc envp (PairH (x, s1) (y, s2)) =
-  "allocate_pair(" ++ infoForSort envp s1 ++ ", " ++ infoForSort envp s2 ++ ", " ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
+emitValueAlloc envp (PairH s1 s2 x y) =
+  "allocate_pair(" ++ emitInfo envp s1 ++ ", " ++ emitInfo envp s2 ++ ", " ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ NilH = "allocate_unit()"
 emitValueAlloc envp (InlH s y) =
   "allocate_inl(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort envp s ++ ")"
@@ -347,7 +347,7 @@ emitValueAlloc envp (InrH s y) =
   "allocate_inr(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort envp s ++ ")"
 emitValueAlloc _ ListNilH = "allocate_list_nil()"
 emitValueAlloc envp (ListConsH s x xs) =
-  "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort envp s ++ ", " ++ emitName envp xs ++ ")"
+  "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp s ++ ", " ++ emitName envp xs ++ ")"
 
 emitPrimOp :: EnvPtr -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
@@ -407,3 +407,7 @@ emitName :: EnvPtr -> Name -> String
 emitName _ (LocalName x) = x
 emitName envp (EnvName x) = envp ++ "->" ++ x
 
+emitInfo :: EnvPtr -> Info -> String
+emitInfo _ (LocalInfo aa) = aa
+emitInfo envp (EnvInfo aa) = envp ++ "->" ++ aa
+emitInfo envp (StaticInfo s) = infoForSort envp s
