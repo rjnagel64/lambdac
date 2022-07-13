@@ -133,7 +133,7 @@ data TermH
   -- 'let value x = fst y in e'
   | LetProjectH PlaceName Name Projection TermH
   | HaltH Name Sort
-  -- TODO: Open a closure, by providing a telescope of arguments.
+  -- TODO: Open a closure, by providing a spine of arguments.
   -- (Unify OpenH and InstH)
   | OpenH Name ThunkType [Name]
   | InstH Name ThunkType [Sort] [Name]
@@ -214,6 +214,13 @@ deriving newtype instance Monoid ClosureDecls
 --
 -- TODO: ThunkType should also be a telescope, of type parameters and sorts
 -- (Which at runtime become info and values)
+--
+-- A thunk type is a calling convention for closures: the set of arguments that
+-- must be provided to open it. This information is used to generate
+-- trampolined tail calls.
+--
+-- Because 'ThunkType' is mostly concerned with the call site, it does not have
+-- a binding structure. (Or does it?)
 data ThunkType = ThunkType { thunkArgSorts :: [Sort] }
 
 thunkTypeCode :: ThunkType -> String

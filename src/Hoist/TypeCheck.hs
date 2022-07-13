@@ -1,5 +1,5 @@
 
-module Hoist.TypeCheck (checkProgram) where
+module Hoist.TypeCheck (checkProgram, runTC) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -30,6 +30,8 @@ deriving newtype instance MonadError TCError TC
 -- Or something.
 --
 -- Hmm. ctxNames should be split into 'env' and 'locals'
+--
+-- Hmm. There should be a separate scope for closure names/types.
 data Context = Context { ctxNames :: Map Name Sort, ctxTyVars :: Set C.TyVar }
 
 newtype Signature = Signature (Map DeclName Sort)
@@ -48,6 +50,20 @@ lookupTyVar aa = do
     True -> pure ()
     False -> throwError $ TyVarNotInScope aa
 
+equalSorts :: Sort -> Sort -> TC ()
+equalSorts expected actual =
+  when (expected /= actual) $
+    throwError (TypeMismatch expected actual)
+
+withPlace :: PlaceName -> TC a -> TC a
+withPlace (PlaceName s x) m = do
+  checkSort s
+  throwError (NotImplemented "withPlace")
+  local extend m
+  where
+    -- Add new local name to context
+    extend (Context names tys) = Context names tys
+
 data TCError
   = TypeMismatch Sort Sort
   | NameNotInScope Name
@@ -59,11 +75,15 @@ runTC = runExcept . flip runReaderT ctx . getTC
   where ctx = Context { ctxNames = Map.empty, ctxTyVars = Set.empty }
 
 
-checkProgram :: [ClosureDecl] -> TermH -> Either TCError ()
+checkProgram :: [ClosureDecl] -> TermH -> TC ()
+checkProgram [] e = checkEntryPoint e
 checkProgram cs e = 
   -- State monad to build signatures
   -- mapAccumL, probably.
   throwError (NotImplemented "checkProgram")
+
+checkEntryPoint :: TermH -> TC ()
+checkEntryPoint e = checkClosureBody e
 
 -- checkClosure uses signature and params to populate local context
 -- Note: Check that parameters are well-formed
@@ -73,7 +93,7 @@ checkProgram cs e =
 -- (Hmm. Remember that 'Info aa' basically acts as a binder for 'aa')
 -- (Nonetheless, it would still be cleaner to have (erased) quantifiers, just
 -- as singletons still have implicit foralls)
-checkClosure :: Signature -> ClosureDecl -> Except TCError ()
+checkClosure :: Signature -> ClosureDecl -> TC ()
 checkClosure sig (ClosureDecl cl (envp, envd) params body) = throwError (NotImplemented "checkClosure")
 
 -- | Closure parameters form a telescope, because info bindings bring type
@@ -83,26 +103,48 @@ checkParams params = throwError (NotImplemented "checkParams")
 
 withParams :: [ClosureParam] -> TC a -> TC a
 withParams [] m = m
--- withParams (PlaceParam (PlaceName s x) : params) m = checkSort s *> local extend (withParams params m)
---   where extend (Context names tys) = Context (Map.insert x s names) tys
+withParams (PlaceParam p : params) m = withPlace p (withParams params m)
 -- withParams (TypeParam i : params) m = local extend (withParams params m)
 --   where extend (Context names tys) = Context names (Set.insert i tys)
 
 checkClosureBody :: TermH -> TC ()
-checkClosureBody (HaltH x s) = checkName x s
+checkClosureBody (HaltH x s) = checkSort s *> checkName x s
 -- TODO: Sort is not expressive enough to describe polymorphic closures
 -- 'ThunkType' will need to be upgraded to work on ClosureParam, not Sort
 -- newtype ThunkType = ThunkType [ThunkParam]
 -- data ThunkParam = ThunkInfo | ThunkValue Sort ?
 checkClosureBody (InstH f ty ss ks) = throwError (NotImplemented "checkClosureBody InstH")
+checkClosureBody (LetPrimH p prim e) = do
+  s <- checkPrimOp prim
+  equalSorts s (placeSort p)
+  withPlace p $ checkClosureBody e
+checkClosureBody (LetValH p v e) = do
+  checkSort (placeSort p)
+  checkValue v (placeSort p)
+  withPlace p $ checkClosureBody e
+
+checkPrimOp :: PrimOp -> TC Sort
+checkPrimOp (PrimAddInt64 x y) = checkName x Integer *> checkName y Integer *> pure Integer
+checkPrimOp (PrimSubInt64 x y) = checkName x Integer *> checkName y Integer *> pure Integer
+checkPrimOp (PrimMulInt64 x y) = checkName x Integer *> checkName y Integer *> pure Integer
+checkPrimOp (PrimNegInt64 x) = checkName x Integer *> pure Integer
+checkPrimOp (PrimEqInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
+checkPrimOp (PrimNeInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
+checkPrimOp (PrimLtInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
+checkPrimOp (PrimLeInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
+checkPrimOp (PrimGtInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
+checkPrimOp (PrimGeInt64 x y) = checkName x Integer *> checkName y Integer *> pure Boolean
+
+checkValue :: ValueH -> Sort -> TC ()
+checkValue (IntH _) Integer = pure ()
+checkValue (BoolH _) Boolean = pure ()
+checkValue ListNilH (List _) = pure ()
 
 
 checkName :: Name -> Sort -> TC ()
 checkName x s = do
-  checkSort s
   s' <- lookupName x
-  when (s' /= s) $
-    throwError $ TypeMismatch s s'
+  equalSorts s s'
 
 checkSort :: Sort -> TC ()
 checkSort (Alloc aa) = lookupTyVar aa

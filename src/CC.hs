@@ -109,6 +109,7 @@ tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
 -- types.
 -- TODO: Parametrize 'Sort' by type of variable?: 'Sort TyVar' and 'Sort DBLevel'
 -- TODO: 'Sort.Info' is the odd one out, often times. Make it more uniform, somehow.
+-- TODO: I think Sort should be split into CC.Sort and Hoist.Sort
 data Sort
   = Closure [Sort]
   | Integer
