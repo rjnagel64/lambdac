@@ -214,6 +214,15 @@ sortOf (C.List t) = ListH (sortOf t)
 sortOf (C.Closure ss) = ClosureH (map sortOf ss)
 sortOf (C.Alloc aa) = AllocH aa
 
+data Info
+  -- type_info a0
+  = LocalInfo String
+  -- env->b1
+  | EnvInfo String
+  -- int64_info
+  | StaticInfo Sort
+  -- Or maybe BoolInfo, UnitInfo, ClosureInfo, etc.
+
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
 -- field references.
