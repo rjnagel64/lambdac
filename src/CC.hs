@@ -107,15 +107,10 @@ tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
 -- Alloc = a : *
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
--- TODO: Parametrize 'Sort' by type of variable?: 'Sort TyVar' and 'Sort DBLevel'
--- TODO: 'Sort.Info' is the odd one out, often times. Make it more uniform, somehow.
--- TODO: I think Sort should be split into CC.Sort and Hoist.Sort
 data Sort
   = Closure [Sort]
   | Integer
   | Alloc TyVar
-  -- TODO: It doesn't make sense for Info to be a sort; you can't make a pair of info
-  | Info TyVar
   | Sum
   | Pair Sort Sort
   | Unit
@@ -127,7 +122,6 @@ instance Show Sort where
   show (Closure ss) = "closure " ++ show ss
   show Integer = "value"
   show (Alloc aa) = "alloc"
-  show (Info aa) = "info"
   show Sum = "sum"
   show Boolean = "bool"
   show (List s) = "list " ++ show s

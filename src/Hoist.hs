@@ -213,7 +213,6 @@ sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.List t) = ListH (sortOf t)
 sortOf (C.Closure ss) = ClosureH (map sortOf ss)
 sortOf (C.Alloc aa) = AllocH aa
-sortOf (C.Info aa) = InfoH aa
 
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
