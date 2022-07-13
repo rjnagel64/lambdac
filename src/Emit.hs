@@ -346,7 +346,7 @@ emitValueAlloc envp (InlH s y) =
 emitValueAlloc envp (InrH s y) =
   "allocate_inr(" ++ asAlloc (emitName envp y) ++ ", " ++ infoForSort envp s ++ ")"
 emitValueAlloc _ ListNilH = "allocate_list_nil()"
-emitValueAlloc envp (ConsH s x xs) =
+emitValueAlloc envp (ListConsH s x xs) =
   "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort envp s ++ ", " ++ emitName envp xs ++ ")"
 
 emitPrimOp :: EnvPtr -> PrimOp -> String

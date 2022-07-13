@@ -178,7 +178,7 @@ data ValueH
   | InlH Sort Name
   | InrH Sort Name
   | ListNilH
-  | ConsH Sort Name Name
+  | ListConsH Sort Name Name
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -502,7 +502,7 @@ hoistValue NilC = pure NilH
 hoistValue (InlC x) = uncurry (flip InlH) <$> hoistVarOcc' x
 hoistValue (InrC x) = uncurry (flip InrH) <$> hoistVarOcc' x
 hoistValue EmptyC = pure ListNilH
-hoistValue (ConsC x xs) = uncurry (flip ConsH) <$> hoistVarOcc' x <*> hoistVarOcc xs
+hoistValue (ConsC x xs) = uncurry (flip ListConsH) <$> hoistVarOcc' x <*> hoistVarOcc xs
 
 hoistArith :: ArithC -> HoistM PrimOp
 hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -636,7 +636,7 @@ pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (InlH _ x) = "inl " ++ show x
 pprintValue (InrH _ y) = "inr " ++ show y
 pprintValue ListNilH = "nil"
-pprintValue (ConsH _ x xs) = "cons " ++ show x ++ " " ++ show xs
+pprintValue (ListConsH _ x xs) = "cons " ++ show x ++ " " ++ show xs
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
