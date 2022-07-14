@@ -203,7 +203,7 @@ data Sort
   | ListH Sort
   | ClosureH [Sort]
   | AllocH C.TyVar
-  | InfoH C.TyVar
+  | InfoH
   deriving (Eq, Ord)
 
 sortOf :: C.Sort -> Sort
@@ -248,7 +248,7 @@ data Info
 
 infoForSort :: Sort -> Info
 infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
-infoForSort (InfoH aa) = error "shouldn't need infoForSort InfoH"
+infoForSort InfoH = error "shouldn't need infoForSort InfoH"
 infoForSort IntegerH = Int64Info
 infoForSort BooleanH = BoolInfo
 infoForSort UnitH = UnitInfo
@@ -297,7 +297,7 @@ thunkTypeCode (ThunkType ss) = concatMap tycode ss
     tycode :: Sort -> String
     tycode (ClosureH ss) = 'C' : show (length ss) ++ concatMap tycode ss
     tycode IntegerH = "V"
-    tycode (InfoH aa) = "I"
+    tycode InfoH = "I"
     tycode (AllocH aa) = "A"
     tycode SumH = "S"
     tycode BooleanH = "B"
@@ -382,7 +382,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
       where
         -- TODO: I'm not terribly satisfied with this.
         argSorts = map f params
-        f (TypeParam i) = InfoH (C.TyVar "dummy")
+        f (TypeParam i) = InfoH
         f (PlaceParam p) = placeSort p
 
     paramThunkTypes :: ClosureParam -> [ThunkType]
@@ -390,7 +390,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     paramThunkTypes (PlaceParam p) = thunkTypesOf (placeSort p)
 
     thunkTypesOf :: Sort -> [ThunkType]
-    thunkTypesOf (InfoH _) = []
+    thunkTypesOf InfoH = []
     thunkTypesOf (AllocH _) = []
     thunkTypesOf IntegerH = []
     thunkTypesOf BooleanH = []
@@ -423,7 +423,7 @@ hoist (InstC f ts ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
   -- TODO: It would be better if OpenH/InstH looked up the thunk type of the
   -- head, rather than trying to reconstruct it.
-  let infoSorts = replicate (length ts) (InfoH (C.TyVar "dummy"))
+  let infoSorts = replicate (length ts) InfoH
   let ty = ThunkType (infoSorts ++ ss)
   InstH <$> hoistVarOcc f <*> pure ty <*> pure (map sortOf ts) <*> pure ys
 hoist (LetValC (x, s) v e) = do
@@ -483,7 +483,7 @@ hoist (LetAbsC fs e) = do
   placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env as ks _e) -> do
       env' <- hoistEnvDef env
-      let infoSorts = [InfoH aa | aa <- as]
+      let infoSorts = [InfoH | _ <- as]
       let ty = ThunkType (infoSorts ++ [sortOf s | (_k, s) <- ks])
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
@@ -732,4 +732,4 @@ pprintSort (ListH t) = "list " ++ pprintSort t
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH ss) = "closure(" ++ intercalate ", " (map pprintSort ss) ++ ")"
 pprintSort (AllocH aa) = "alloc(" ++ show aa ++ ")"
-pprintSort (InfoH aa) = "info(" ++ show aa ++ ")"
+pprintSort InfoH = "info"

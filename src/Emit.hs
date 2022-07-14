@@ -88,7 +88,7 @@ namesForThunk ty =
 
 typeForSort :: Sort -> String
 typeForSort (AllocH aa) = "struct alloc_header *"
-typeForSort (InfoH aa) = "type_info "
+typeForSort InfoH = "type_info "
 typeForSort (ClosureH _) = "struct closure *"
 typeForSort IntegerH = "struct int64_value *"
 typeForSort SumH = "struct sum *"
@@ -99,7 +99,7 @@ typeForSort (ListH _) = "struct list *"
 
 asSort :: Sort -> String -> String
 asSort (AllocH _) x = asAlloc x
-asSort (InfoH _) x = error "we should not be casting to/from type_info"
+asSort InfoH x = error "we should not be casting to/from type_info"
 asSort IntegerH x = "AS_INT64(" ++ x ++ ")"
 asSort (ClosureH _) x = "AS_CLOSURE(" ++ x ++ ")"
 asSort SumH x = "AS_SUM(" ++ x ++ ")"
@@ -151,7 +151,7 @@ emitThunkTrace ty@(ThunkType ss) =
   where
     ns = namesForThunk ty
     traceField i (AllocH _) = "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
-    traceField i (InfoH _) = "" -- Eurgh.
+    traceField i InfoH = "" -- Eurgh.
     traceField i s = "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) (infoForSort s) ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
