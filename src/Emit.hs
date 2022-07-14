@@ -4,7 +4,7 @@ module Emit (emitProgram) where
 import Data.List (intercalate)
 
 import qualified Hoist as H
-import Hoist hiding (infoForSort)
+import Hoist
 
 -- TODO: Something smarter than string and list concatenation.
 -- builders? text? environment?
@@ -112,7 +112,6 @@ asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
 emitMarkGray :: EnvPtr -> Name -> Info -> String
-emitMarkGray _ _ (StaticInfo (InfoH _)) = error "cannot trace info value"
 emitMarkGray envp x s = "mark_gray(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp s ++ ")"
 
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
@@ -146,14 +145,14 @@ emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace ty@(ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    " ++ emitMarkGray "next" (EnvName "closure") (StaticInfo (ClosureH ss)) ++ ";"] ++
+  ,"    " ++ emitMarkGray "next" (EnvName "closure") ClosureInfo ++ ";"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
     ns = namesForThunk ty
     traceField i (AllocH _) = "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
     traceField i (InfoH _) = "" -- Eurgh.
-    traceField i s = "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) (StaticInfo s) ++ ";"
+    traceField i s = "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) (infoForSort s) ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
 emitThunkEnter ty@(ThunkType ss) =
@@ -236,7 +235,7 @@ emitEnvTrace ns (EnvDecl _is fs) =
   where
     closureTy = "struct " ++ closureEnvName ns ++ " *"
     traceField :: FieldName -> String
-    traceField (FieldName s x) = "    " ++ emitMarkGray "env" (EnvName x) (StaticInfo s) ++ ";"
+    traceField (FieldName s x) = "    " ++ emitMarkGray "env" (EnvName x) (infoForSort s) ++ ";"
 
 emitClosureCode :: ClosureNames -> String -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
@@ -268,11 +267,11 @@ emitClosureBody envp (AllocClosure cs e) =
   emitAllocGroup envp cs ++
   emitClosureBody envp e
 emitClosureBody envp (HaltH x s) =
-  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp (StaticInfo s) ++ ");"]
+  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp (infoForSort s) ++ ");"]
 emitClosureBody envp (OpenH c ty xs) =
   [emitSuspend3 envp c ty xs]
 emitClosureBody envp (InstH f ty ss ks) =
-  [emitSuspend' envp f ty (map StaticInfo ss) ks]
+  [emitSuspend' envp f ty (map infoForSort ss) ks]
 emitClosureBody envp (CaseH x kind ks) =
   emitCase kind envp x ks
 
@@ -296,7 +295,7 @@ emitSuspend3 envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ args ++ "
     method = thunkSuspendName (namesForThunk ty)
     args = commaSep (emitName envp cl : mapWithIndex makeArg (zip ss xs))
     -- TODO: Emit proper info when suspending
-    makeArg i (AllocH aa, x) = emitName envp x ++ ", " ++ emitInfo envp (H.infoForSort (AllocH aa))
+    makeArg i (AllocH aa, x) = emitName envp x ++ ", " ++ emitInfo envp (infoForSort (AllocH aa))
     makeArg i (s, x) = emitName envp x
 
 emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]
@@ -398,16 +397,11 @@ emitName envp (EnvName x) = envp ++ "->" ++ x
 emitInfo :: EnvPtr -> Info -> String
 emitInfo _ (LocalInfo aa) = aa
 emitInfo envp (EnvInfo aa) = envp ++ "->" ++ aa
-emitInfo envp (StaticInfo s) = infoForSort envp s
-
-infoForSort :: EnvPtr -> Sort -> String
-infoForSort _ (InfoH aa) = error "Info for type_info shouldn't be necessary? (unless it is?)"
-infoForSort envp (AllocH aa) = envp ++ "->" ++ show aa
-infoForSort _ SumH = "sum_info"
-infoForSort _ BooleanH = "bool_value_info"
-infoForSort _ IntegerH = "int64_value_info"
-infoForSort _ (ProductH _ _) = "pair_info"
-infoForSort _ UnitH = "unit_info"
-infoForSort _ (ClosureH _) = "closure_info"
-infoForSort _ (ListH _) = "list_info"
+emitInfo _ Int64Info = "int64_value_info"
+emitInfo _ BoolInfo = "bool_value_info"
+emitInfo _ UnitInfo = "unit_info"
+emitInfo _ SumInfo = "sum_info"
+emitInfo _ ProductInfo = "pair_info"
+emitInfo _ ClosureInfo = "closure_info"
+emitInfo _ ListInfo = "list_info"
 

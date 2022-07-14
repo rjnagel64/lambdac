@@ -232,12 +232,30 @@ data Info
   -- @env->b1@
   | EnvInfo String
   -- @int64_info@
-  | StaticInfo Sort
+  | Int64Info
+  -- @bool_info@
+  | BoolInfo
+  -- @unit_info@
+  | UnitInfo
+  -- @sum_info@
+  | SumInfo
+  -- @pair_info@
+  | ProductInfo
+  -- @closure_info@
+  | ClosureInfo
+  -- @list_info@
+  | ListInfo
 
 infoForSort :: Sort -> Info
 infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
 infoForSort (InfoH aa) = error "shouldn't need infoForSort InfoH"
-infoForSort s = StaticInfo s
+infoForSort IntegerH = Int64Info
+infoForSort BooleanH = BoolInfo
+infoForSort UnitH = UnitInfo
+infoForSort SumH = SumInfo
+infoForSort (ProductH _ _) = ProductInfo
+infoForSort (ListH _) = ListInfo
+infoForSort (ClosureH _) = ClosureInfo
 
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
