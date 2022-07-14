@@ -219,7 +219,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
     params = if null is && null fs then "void" else commaSep (map emitInfoDecl is ++ map emitFieldDecl fs)
 
     assignInfo :: InfoName -> String
-    assignInfo aa = "    env->" ++ infoName aa ++ " = " ++ infoName aa ++ ";"
+    assignInfo (InfoName aa) = "    env->" ++ aa ++ " = " ++ aa ++ ";"
 
     assignField :: FieldName -> String
     assignField (FieldName _ x) = "    env->" ++ x ++ " = " ++ x ++ ";"
@@ -373,7 +373,7 @@ emitAlloc envp (ClosureAlloc p ty d (EnvAlloc info free rec)) =
 
     -- Recursive/cyclic environment references are initialized to NULL, and
     -- then patched once all the closures have been allocated.
-    infoArgs = map (infoForSort envp . AllocH . snd) info
+    infoArgs = map (emitInfo envp . snd) info
     envAllocArgs = infoArgs ++ map (emitName envp . snd) free ++ map (const "NULL") rec
 
 emitPatch :: ClosureNames -> PlaceName -> EnvAlloc -> [String]

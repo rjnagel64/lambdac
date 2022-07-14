@@ -166,7 +166,7 @@ data ClosureAlloc
 
 data EnvAlloc
   = EnvAlloc {
-    envAllocInfoArgs :: [(InfoName, C.TyVar)]
+    envAllocInfoArgs :: [(InfoName, Info)]
   , envAllocFreeArgs :: [(FieldName, Name)]
   , envAllocRecArgs :: [(FieldName, Name)]
   }
@@ -215,14 +215,23 @@ sortOf (C.List t) = ListH (sortOf t)
 sortOf (C.Closure ss) = ClosureH (map sortOf ss)
 sortOf (C.Alloc aa) = AllocH aa
 
+-- | Refer to a @type_info@ that's in scope.
+-- Use 'LocalInfo' for something directly in scope, 'EnvInfo' for @type_info@
+-- stored in the closure environment. 'StaticInfo' is used for monomorphic
+-- types, such as @int64_info@ or @closure_info@.
+--
+-- Invariant: @StaticInfo s@, @s@ should probably not be 'AllocH' or 'InfoH'
+--
+-- TODO: Use specific constructors instead of a catch-all 'StaticInfo'
+-- (The invariant that certain 'Sort' constructors should not be used is
+-- annoying)
 data Info
-  -- type_info a0
+  -- @a0@
   = LocalInfo String
-  -- env->b1
+  -- @env->b1@
   | EnvInfo String
-  -- int64_info
+  -- @int64_info@
   | StaticInfo Sort
-  -- Or maybe BoolInfo, UnitInfo, ClosureInfo, etc.
 
 infoForSort :: Sort -> Info
 infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
@@ -232,6 +241,8 @@ infoForSort s = StaticInfo s
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
 -- field references.
+--
+-- TODO: HoistEnv should contain type variables
 data HoistEnv = HoistEnv (Map C.Name PlaceName) (Map C.Name FieldName)
 
 
@@ -461,7 +472,7 @@ hoist (LetAbsC fs e) = do
 
 hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
 hoistEnvDef (C.EnvDef tys free rec) =
-  let tys' = map (\aa -> (asInfoName aa, aa)) tys in
+  let tys' = map (\ (C.TyVar aa) -> (InfoName aa, LocalInfo aa)) tys in
   EnvAlloc tys' <$> traverse envAllocField free <*> traverse envAllocField rec
 
 envAllocField :: (C.Name, C.Sort) -> HoistM (FieldName, Name)
@@ -580,6 +591,7 @@ hoistVarOcc x = do
       Nothing -> error ("not in scope: " ++ show x)
 
 -- | Hoist a variable occurrence, and also retrieve its sort.
+-- TODO: Should hoistVarOcc' return Info instead?
 hoistVarOcc' :: C.Name -> HoistM (Name, Sort)
 hoistVarOcc' x = do
   HoistEnv ps fs <- ask
