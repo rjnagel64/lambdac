@@ -253,6 +253,7 @@ instance Show Info where
   show ListInfo = "$list"
 
 infoForSort :: Sort -> Info
+-- TODO: Use scope to determine if AllocH should become LocalInfo or EnvInfo
 infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
 infoForSort InfoH = error "shouldn't need infoForSort InfoH"
 infoForSort IntegerH = Int64Info
@@ -311,38 +312,6 @@ thunkTypeCode (ThunkType ss) = concatMap tycode ss
     tycode UnitH = "U"
     tycode (ListH s) = 'L' : tycode s
 
-eqThunkType :: ThunkType -> ThunkType -> Bool
-eqThunkType (ThunkType ts') (ThunkType ss') = go Map.empty Map.empty ts' ss'
-  where
-    go _ _ [] [] = True
-    -- Hmm. It's kind of weird that 'alloc' sorts are treated as both
-    -- occurrences and implicit binders.
-    go fw bw (AllocH aa:ts) (AllocH bb:ss) = case (Map.lookup aa fw, Map.lookup bb bw) of
-      (Nothing, Nothing) ->
-        go (Map.insert aa bb fw) (Map.insert bb aa bw) ts ss
-      (Just aa', Just bb') ->
-        (aa' == bb && bb' == aa) && go (Map.insert aa bb fw) (Map.insert bb aa bw) ts ss
-      (_, _) -> False
-    go fw bw (t:ts) (s:ss) = eqSort t s && go fw bw ts ss
-    go _ _ _ _ = False
-
-    -- Test that two 'Sort's have the same runtime representation
-    -- Basically, whether they have the same 'tycode'.
-    eqSort (AllocH _) (AllocH _) = True
-    eqSort (ListH t) (ListH s) = eqSort t s
-    eqSort (ProductH t1 t2) (ProductH s1 s2) = eqSort t1 s1 && eqSort t2 s2
-    eqSort (ClosureH xs) (ClosureH ys) = go2 xs ys
-      where
-        go2 [] [] = True
-        go2 (t:ts) (s:ss) = eqSort t s && go2 ts ss
-        go2 _ _ = False
-    eqSort IntegerH IntegerH = True
-    eqSort UnitH UnitH = True
-    eqSort BooleanH BooleanH = True
-    eqSort SumH SumH = True
-    eqSort _ _ = False
-
--- instance Eq ThunkType where (==) = eqThunkType
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 
 -- | A set data type, that only requires 'Eq' constraints. Implemented because
@@ -489,7 +458,7 @@ hoist (LetAbsC fs e) = do
   placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env as ks _e) -> do
       env' <- hoistEnvDef env
-      let infoSorts = [InfoH | _ <- as]
+      let infoSorts = replicate (length as) InfoH
       let ty = ThunkType (infoSorts ++ [sortOf s | (_k, s) <- ks])
       pure (ClosureAlloc p ty d env')
     e' <- hoist e

@@ -279,17 +279,15 @@ emitSuspend :: EnvPtr -> Name -> ThunkType -> [ClosureArg] -> String
 emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep args ++ ");"
   where
     method = thunkSuspendName (namesForThunk ty)
-    args = emitName envp cl : go ss xs
+    args = emitName envp cl : zipWith makeArg ss xs
 
-    -- This is kind of messy, but it works.
-    go [] [] = []
     -- The classifier for a TypeArg shouldn't really be a sort.
-    go (t:ts) (TypeArg i:ys) = emitInfo envp i : go ts ys
-    -- TODO: Emit proper type info for arguments of sort AllocH
-    go (AllocH aa:ts) (ValueArg y:ys) =
-      (emitName envp y ++ ", " ++ emitInfo envp (infoForSort (AllocH aa))) : go ts ys
-    go (t:ts) (ValueArg y:ys) = emitName envp y : go ts ys
-    go _ _ = error "incorrect number of arguments for thunk type"
+    makeArg t (TypeArg i) = emitInfo envp i
+    makeArg (AllocH aa) (ValueArg y) =
+      -- TODO: Emit proper type info for arguments of sort AllocH
+      emitName envp y ++ ", " ++ emitInfo envp (infoForSort (AllocH aa))
+    makeArg t (ValueArg y) = emitName envp y
+
 
 emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]
 emitCase kind envp x ks =
