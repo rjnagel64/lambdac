@@ -4,7 +4,7 @@ module Emit (emitProgram) where
 import Data.List (intercalate)
 
 import qualified Hoist as H
-import Hoist
+import Hoist hiding (infoForSort)
 
 -- TODO: Something smarter than string and list concatenation.
 -- builders? text? environment?
@@ -268,7 +268,7 @@ emitClosureBody envp (AllocClosure cs e) =
   emitAllocGroup envp cs ++
   emitClosureBody envp e
 emitClosureBody envp (HaltH x s) =
-  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ infoForSort envp s ++ ");"]
+  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp (StaticInfo s) ++ ");"]
 emitClosureBody envp (OpenH c ty xs) =
   [emitSuspend3 envp c ty xs]
 emitClosureBody envp (InstH f ty ss ks) =
@@ -296,9 +296,7 @@ emitSuspend3 envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ args ++ "
     method = thunkSuspendName (namesForThunk ty)
     args = commaSep (emitName envp cl : mapWithIndex makeArg (zip ss xs))
     -- TODO: Emit proper info when suspending
-    -- I honestly think I need an analog of LocalName/EnvName for info.
-    -- Or this is more evidence that info should be folded into Name
-    makeArg i (AllocH aa, x) = emitName envp x ++ ", " ++ infoForSort envp (AllocH aa)
+    makeArg i (AllocH aa, x) = emitName envp x ++ ", " ++ emitInfo envp (H.infoForSort (AllocH aa))
     makeArg i (s, x) = emitName envp x
 
 emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]

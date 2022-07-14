@@ -15,6 +15,7 @@ module Hoist
     , Sort(..)
     , Name(..)
     , Info(..)
+    , infoForSort
     , ThunkType(..)
     , thunkTypeCode
     , PlaceName(..)
