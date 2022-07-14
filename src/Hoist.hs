@@ -17,6 +17,7 @@ module Hoist
     , Info(..)
     , infoForSort
     , ThunkType(..)
+    , ThunkArg(..)
     , thunkTypeCode
     , PlaceName(..)
     , FieldName(..)
@@ -295,11 +296,17 @@ deriving newtype instance Monoid ClosureDecls
 --
 -- Because 'ThunkType' is mostly concerned with the call site, it does not have
 -- a binding structure. (Or does it?)
-data ThunkType = ThunkType [Sort]
+data ThunkType = ThunkType [ThunkArg]
+
+data ThunkArg
+  = ThunkValueArg Sort
+  | ThunkInfoArg
 
 thunkTypeCode :: ThunkType -> String
-thunkTypeCode (ThunkType ss) = concatMap tycode ss
+thunkTypeCode (ThunkType ss) = concatMap argcode ss
   where
+    argcode (ThunkValueArg s) = tycode s
+    argcode ThunkInfoArg = "J"
     -- This scheme will almost certainly break down as types get fancier.
     tycode :: Sort -> String
     tycode (ClosureH ss) = 'C' : show (length ss) ++ concatMap tycode ss
@@ -349,16 +356,14 @@ runHoist = second (second getNubList) . runWriter .  flip evalStateT Set.empty .
 tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs, ts)
   where
-    ts :: NubList ThunkType
     ts = nubList (concatMap closureThunkTypes cs)
 
     closureThunkTypes :: ClosureDecl -> [ThunkType]
     closureThunkTypes (ClosureDecl _ _ params _) = ThunkType argSorts : concatMap paramThunkTypes params
       where
-        -- TODO: I'm not terribly satisfied with this.
         argSorts = map f params
-        f (TypeParam i) = InfoH
-        f (PlaceParam p) = placeSort p
+        f (TypeParam i) = ThunkInfoArg
+        f (PlaceParam p) = ThunkValueArg (placeSort p)
 
     paramThunkTypes :: ClosureParam -> [ThunkType]
     paramThunkTypes (TypeParam _) = []
@@ -371,7 +376,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     thunkTypesOf BooleanH = []
     thunkTypesOf SumH = []
     thunkTypesOf UnitH = []
-    thunkTypesOf (ClosureH ss) = ThunkType ss : concatMap thunkTypesOf ss
+    thunkTypesOf (ClosureH ss) = ThunkType (map ThunkValueArg ss) : concatMap thunkTypesOf ss
     thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 ++ thunkTypesOf t2
     thunkTypesOf (ListH t) = thunkTypesOf t
 
@@ -383,23 +388,23 @@ hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = (\ (x', s) -> HaltH x' s) <$> hoistVarOcc' x
 hoist (JumpC k xs) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' xs
-  OpenH <$> hoistVarOcc k <*> pure (ThunkType ss) <*> pure ys
+  OpenH <$> hoistVarOcc k <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
 hoist (CallC f xs ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' (xs ++ ks)
-  OpenH <$> hoistVarOcc f <*> pure (ThunkType ss) <*> pure ys
+  OpenH <$> hoistVarOcc f <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
   ks' <- for ks $ \ (k, C.BranchType ss) -> do
     k' <- hoistVarOcc k
-    pure (k', ThunkType (map sortOf ss))
+    pure (k', ThunkType (map (ThunkValueArg . sortOf) ss))
   pure $ CaseH x' kind ks'
 hoist (InstC f ts ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
   -- TODO: It would be better if OpenH/InstH looked up the thunk type of the
   -- head, rather than trying to reconstruct it.
-  let infoSorts = replicate (length ts) InfoH
-  let ty = ThunkType (infoSorts ++ ss)
+  let infoSorts = replicate (length ts) ThunkInfoArg
+  let ty = ThunkType (infoSorts ++ map ThunkValueArg ss)
   InstH <$> hoistVarOcc f <*> pure ty <*> pure (map (infoForSort . sortOf) ts) <*> pure ys
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
@@ -433,7 +438,7 @@ hoist (LetFunC fs e) = do
   placesForClosureAllocs C.funClosureName C.funClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f env xs ks _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType ([sortOf s | (_x, s) <- xs] ++ [sortOf s | (_k, s) <- ks])
+      let ty = ThunkType ([ThunkValueArg (sortOf s) | (_x, s) <- xs] ++ [ThunkValueArg (sortOf s) | (_k, s) <- ks])
       -- TODO: Give name to environment allocations as well
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
@@ -446,7 +451,7 @@ hoist (LetContC ks e) = do
   placesForClosureAllocs C.contClosureName C.contClosureSort kdecls $ \kplaces -> do
     ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k env xs _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType [sortOf s | (_x, s) <- xs]
+      let ty = ThunkType [ThunkValueArg (sortOf s) | (_x, s) <- xs]
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure ks' e')
@@ -458,8 +463,8 @@ hoist (LetAbsC fs e) = do
   placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
     fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env as ks _e) -> do
       env' <- hoistEnvDef env
-      let infoSorts = replicate (length as) InfoH
-      let ty = ThunkType (infoSorts ++ [sortOf s | (_k, s) <- ks])
+      let infoSorts = replicate (length as) ThunkInfoArg
+      let ty = ThunkType (infoSorts ++ [ThunkValueArg (sortOf s) | (_k, s) <- ks])
       pure (ClosureAlloc p ty d env')
     e' <- hoist e
     pure (AllocClosure fs' e')
@@ -685,9 +690,12 @@ pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
   where env = name ++ " : {" ++ intercalate ", " (map pprintInfo is) ++ "; " ++ intercalate ", " (map pprintField fs) ++ "}"
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
-pprintClosureAlloc n (ClosureAlloc p _t d (EnvAlloc _info free rec)) =
-  indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ env'
-  where env' = "{" ++ intercalate ", " (map pprintAllocArg (free ++ rec)) ++ "}\n"
+pprintClosureAlloc n (ClosureAlloc p _t d env) =
+  indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ pprintEnvAlloc env ++ "\n"
+
+pprintEnvAlloc :: EnvAlloc -> String
+pprintEnvAlloc (EnvAlloc info free rec) =
+  "{" ++ intercalate ", " (map pprintAllocArg (free ++ rec)) ++ "}"
 
 pprintAllocArg :: (FieldName, Name) -> String
 pprintAllocArg (field, x) = pprintField field ++ " = " ++ show x
@@ -696,7 +704,10 @@ pprintThunkTypes :: [ThunkType] -> String
 pprintThunkTypes ts = unlines (map pprintThunkType ts)
   where
     pprintThunkType :: ThunkType -> String
-    pprintThunkType (ThunkType ss) = "thunk (" ++ intercalate ", " (map pprintSort ss) ++ ") -> !"
+    pprintThunkType (ThunkType ss) = "thunk (" ++ intercalate ", " (map pprintThunkArg ss) ++ ") -> !"
+
+    pprintThunkArg (ThunkValueArg s) = pprintSort s
+    pprintThunkArg ThunkInfoArg = "info"
 
 pprintSort :: Sort -> String
 pprintSort IntegerH = "int"

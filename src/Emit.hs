@@ -86,9 +86,12 @@ namesForThunk ty =
   where
     code = thunkTypeCode ty
 
--- TODO: Eliminate thunkArgSorts once thunk arguments are more complex than sorts
+-- TODO: Eliminate thunkArgSorts
 thunkArgSorts :: ThunkType -> [Sort]
-thunkArgSorts (ThunkType ss) = ss
+thunkArgSorts (ThunkType ss) = map f ss
+  where
+    f ThunkInfoArg = InfoH
+    f (ThunkValueArg s) = s
 
 typeForSort :: Sort -> String
 typeForSort (AllocH aa) = "struct alloc_header *"
