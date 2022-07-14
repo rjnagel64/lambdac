@@ -97,17 +97,6 @@ typeForSort (ProductH _ _) = "struct pair *"
 typeForSort UnitH = "struct unit *"
 typeForSort (ListH _) = "struct list *"
 
-infoForSort :: EnvPtr -> Sort -> String
-infoForSort _ (InfoH aa) = error "Info for type_info shouldn't be necessary? (unless it is?)"
-infoForSort envp (AllocH aa) = envp ++ "->" ++ show aa
-infoForSort _ SumH = "sum_info"
-infoForSort _ BooleanH = "bool_value_info"
-infoForSort _ IntegerH = "int64_value_info"
-infoForSort _ (ProductH _ _) = "pair_info"
-infoForSort _ UnitH = "unit_info"
-infoForSort _ (ClosureH _) = "closure_info"
-infoForSort _ (ListH _) = "list_info"
-
 asSort :: Sort -> String -> String
 asSort (AllocH _) x = asAlloc x
 asSort (InfoH _) x = error "we should not be casting to/from type_info"
@@ -122,9 +111,9 @@ asSort (ListH _s) x = "AS_LIST(" ++ x ++ ")"
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
-emitMarkGray :: EnvPtr -> String -> Sort -> String
-emitMarkGray envp x (InfoH _) = "" -- TODO: This produces extraneous blank lines
-emitMarkGray envp x s = "mark_gray(" ++ asAlloc x ++ ", " ++ infoForSort envp s ++ ")"
+emitMarkGray :: EnvPtr -> String -> Info -> String
+emitMarkGray _ _ (StaticInfo (InfoH _)) = error "cannot trace info value"
+emitMarkGray envp x s = "mark_gray(" ++ asAlloc x ++ ", " ++ emitInfo envp s ++ ")"
 
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex f = zipWith f [0..]
@@ -152,19 +141,19 @@ emitThunkType ty@(ThunkType ss) =
     ns = namesForThunk ty
     mkField i (AllocH _) = "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
     mkField i s = "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
-    -- TODO: `struct alloc_header` in a thunk should be accompanied by `type_info`
 
 emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace ty@(ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    " ++ emitMarkGray "next" "next->closure" (ClosureH ss) ++ ";"] ++
+  ,"    " ++ emitMarkGray "next" "next->closure" (StaticInfo (ClosureH ss)) ++ ";"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
     ns = namesForThunk ty
     traceField i (AllocH _) = "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
-    traceField i s = "    " ++ emitMarkGray "next" ("next->arg" ++ show i) s ++ ";"
+    traceField i (InfoH _) = "" -- Eurgh.
+    traceField i s = "    " ++ emitMarkGray "next" ("next->arg" ++ show i) (StaticInfo s) ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
 emitThunkEnter ty@(ThunkType ss) =
@@ -247,7 +236,7 @@ emitEnvTrace ns (EnvDecl _is fs) =
   where
     closureTy = "struct " ++ closureEnvName ns ++ " *"
     traceField :: FieldName -> String
-    traceField (FieldName s x) = "    " ++ emitMarkGray "env" ("env->" ++ x) s ++ ";"
+    traceField (FieldName s x) = "    " ++ emitMarkGray "env" ("env->" ++ x) (StaticInfo s) ++ ";"
 
 emitClosureCode :: ClosureNames -> String -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
@@ -283,7 +272,7 @@ emitClosureBody envp (HaltH x s) =
 emitClosureBody envp (OpenH c ty xs) =
   [emitSuspend3 envp c ty xs]
 emitClosureBody envp (InstH f ty ss ks) =
-  [emitSuspend' envp f ty ss ks]
+  [emitSuspend' envp f ty (map StaticInfo ss) ks]
 emitClosureBody envp (CaseH x kind ks) =
   emitCase kind envp x ks
 
@@ -294,11 +283,12 @@ emitSuspend envp cl ty xs = "    " ++ emitPrimCall envp method (cl : xs) ++ ";"
   where
     method = thunkSuspendName (namesForThunk ty)
 
-emitSuspend' :: EnvPtr -> Name -> ThunkType -> [Sort] -> [Name] -> String
+emitSuspend' :: EnvPtr -> Name -> ThunkType -> [Info] -> [Name] -> String
 emitSuspend' envp cl ty ss xs =
-  "    " ++ method ++ "(" ++ emitName envp cl ++ ", " ++ commaSep (map (infoForSort envp) ss) ++ ", " ++ commaSep (map (emitName envp) xs) ++ ");"
+  "    " ++ method ++ "(" ++ emitName envp cl ++ ", " ++ commaSep args ++ ");"
   where
     method = thunkSuspendName (namesForThunk ty)
+    args = map (emitInfo envp) ss ++ map (emitName envp) xs
 
 emitSuspend3 :: EnvPtr -> Name -> ThunkType -> [Name] -> String
 emitSuspend3 envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ args ++ ");"
@@ -411,3 +401,15 @@ emitInfo :: EnvPtr -> Info -> String
 emitInfo _ (LocalInfo aa) = aa
 emitInfo envp (EnvInfo aa) = envp ++ "->" ++ aa
 emitInfo envp (StaticInfo s) = infoForSort envp s
+
+infoForSort :: EnvPtr -> Sort -> String
+infoForSort _ (InfoH aa) = error "Info for type_info shouldn't be necessary? (unless it is?)"
+infoForSort envp (AllocH aa) = envp ++ "->" ++ show aa
+infoForSort _ SumH = "sum_info"
+infoForSort _ BooleanH = "bool_value_info"
+infoForSort _ IntegerH = "int64_value_info"
+infoForSort _ (ProductH _ _) = "pair_info"
+infoForSort _ UnitH = "unit_info"
+infoForSort _ (ClosureH _) = "closure_info"
+infoForSort _ (ListH _) = "list_info"
+

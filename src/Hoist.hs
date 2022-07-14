@@ -142,7 +142,7 @@ data TermH
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
-data ClosureArg = ValueArg Name | TypeArg Sort
+data ClosureArg = ValueArg Name | TypeArg Info
 
 -- TODO(eventually): bring back generic case expressions
 data CaseKind = CaseBool | CaseSum | CaseList
