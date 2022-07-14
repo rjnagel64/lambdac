@@ -111,9 +111,9 @@ asSort (ListH _s) x = "AS_LIST(" ++ x ++ ")"
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
-emitMarkGray :: EnvPtr -> String -> Info -> String
+emitMarkGray :: EnvPtr -> Name -> Info -> String
 emitMarkGray _ _ (StaticInfo (InfoH _)) = error "cannot trace info value"
-emitMarkGray envp x s = "mark_gray(" ++ asAlloc x ++ ", " ++ emitInfo envp s ++ ")"
+emitMarkGray envp x s = "mark_gray(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp s ++ ")"
 
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex f = zipWith f [0..]
@@ -146,14 +146,14 @@ emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace ty@(ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    " ++ emitMarkGray "next" "next->closure" (StaticInfo (ClosureH ss)) ++ ";"] ++
+  ,"    " ++ emitMarkGray "next" (EnvName "closure") (StaticInfo (ClosureH ss)) ++ ";"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
     ns = namesForThunk ty
     traceField i (AllocH _) = "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
     traceField i (InfoH _) = "" -- Eurgh.
-    traceField i s = "    " ++ emitMarkGray "next" ("next->arg" ++ show i) (StaticInfo s) ++ ";"
+    traceField i s = "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) (StaticInfo s) ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
 emitThunkEnter ty@(ThunkType ss) =
@@ -236,7 +236,7 @@ emitEnvTrace ns (EnvDecl _is fs) =
   where
     closureTy = "struct " ++ closureEnvName ns ++ " *"
     traceField :: FieldName -> String
-    traceField (FieldName s x) = "    " ++ emitMarkGray "env" ("env->" ++ x) (StaticInfo s) ++ ";"
+    traceField (FieldName s x) = "    " ++ emitMarkGray "env" (EnvName x) (StaticInfo s) ++ ";"
 
 emitClosureCode :: ClosureNames -> String -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
