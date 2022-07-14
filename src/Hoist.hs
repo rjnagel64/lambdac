@@ -295,7 +295,7 @@ deriving newtype instance Monoid ClosureDecls
 --
 -- Because 'ThunkType' is mostly concerned with the call site, it does not have
 -- a binding structure. (Or does it?)
-data ThunkType = ThunkType { thunkArgSorts :: [Sort] }
+data ThunkType = ThunkType [Sort]
 
 thunkTypeCode :: ThunkType -> String
 thunkTypeCode (ThunkType ss) = concatMap tycode ss
