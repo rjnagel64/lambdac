@@ -24,6 +24,7 @@ module Hoist
     , DeclName(..)
     , ClosureDecl(..)
     , ClosureParam(..)
+    , ClosureArg(..)
     , EnvDecl(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
@@ -83,6 +84,7 @@ instance Show Name where
 
 -- Place names declare a reference to an object: value, function, or continuation.
 -- They are used as parameters and also as local temporaries.
+-- TODO: Unify PlaceName and FieldName
 data PlaceName = PlaceName { placeSort :: Sort, placeName :: String }
 
 data FieldName = FieldName { fieldSort :: Sort, fieldName :: String }
@@ -138,7 +140,7 @@ data TermH
   -- TODO: Open a closure, by providing a spine of arguments.
   -- (Unify OpenH and InstH)
   | OpenH Name ThunkType [Name]
-  | InstH Name ThunkType [Sort] [Name]
+  | InstH Name ThunkType [Info] [Name]
   | CaseH Name CaseKind [(Name, ThunkType)]
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
@@ -194,6 +196,7 @@ data PrimOp
   | PrimGtInt64 Name Name
   | PrimGeInt64 Name Name
 
+-- | A 'Sort' describes the runtime layout of a value. It is static information.
 data Sort
   = IntegerH
   | BooleanH
@@ -216,16 +219,8 @@ sortOf (C.List t) = ListH (sortOf t)
 sortOf (C.Closure ss) = ClosureH (map sortOf ss)
 sortOf (C.Alloc aa) = AllocH aa
 
--- | Refer to a @type_info@ that's in scope.
--- Use 'LocalInfo' for something directly in scope, 'EnvInfo' for @type_info@
--- stored in the closure environment. 'StaticInfo' is used for monomorphic
--- types, such as @int64_info@ or @closure_info@.
---
--- Invariant: @StaticInfo s@, @s@ should probably not be 'AllocH' or 'InfoH'
---
--- TODO: Use specific constructors instead of a catch-all 'StaticInfo'
--- (The invariant that certain 'Sort' constructors should not be used is
--- annoying)
+-- | 'Info' is used to represent @type_info@ values that are passed at runtime.
+-- This is dynamic information.
 data Info
   -- @a0@
   = LocalInfo String
@@ -245,6 +240,17 @@ data Info
   | ClosureInfo
   -- @list_info@
   | ListInfo
+
+instance Show Info where
+  show (LocalInfo aa) = '$' : aa
+  show (EnvInfo aa) = "$@." ++ aa
+  show Int64Info = "$int64"
+  show BoolInfo = "$bool"
+  show UnitInfo = "$unit"
+  show SumInfo = "$sum"
+  show ProductInfo = "$pair"
+  show ClosureInfo = "$closure"
+  show ListInfo = "$list"
 
 infoForSort :: Sort -> Info
 infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
@@ -425,7 +431,7 @@ hoist (InstC f ts ks) = do
   -- head, rather than trying to reconstruct it.
   let infoSorts = replicate (length ts) InfoH
   let ty = ThunkType (infoSorts ++ ss)
-  InstH <$> hoistVarOcc f <*> pure ty <*> pure (map sortOf ts) <*> pure ys
+  InstH <$> hoistVarOcc f <*> pure ty <*> pure (map (infoForSort . sortOf) ts) <*> pure ys
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -651,8 +657,8 @@ pprintTerm n (OpenH c _ xs) = indent n $ show c ++ " " ++ intercalate " " (map s
 pprintTerm n (CaseH x _kind ks) =
   let branches = intercalate " | " (map (show . fst) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
-pprintTerm n (InstH f _ty ss ks) =
-  indent n $ intercalate " @" (show f : map pprintSort ss) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
+pprintTerm n (InstH f _ty is ks) =
+  indent n $ intercalate " @" (show f : map show is) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetProjectH x y p e) =

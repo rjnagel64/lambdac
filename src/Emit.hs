@@ -269,34 +269,27 @@ emitClosureBody envp (AllocClosure cs e) =
 emitClosureBody envp (HaltH x s) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp (infoForSort s) ++ ");"]
 emitClosureBody envp (OpenH c ty xs) =
-  [emitSuspend3 envp c ty xs]
-emitClosureBody envp (InstH f ty ss ks) =
-  [emitSuspend' envp f ty (map infoForSort ss) ks]
+  [emitSuspend envp c ty (map ValueArg xs)]
+emitClosureBody envp (InstH f ty is ks) =
+  [emitSuspend envp f ty (map TypeArg is ++ map ValueArg ks)]
 emitClosureBody envp (CaseH x kind ks) =
   emitCase kind envp x ks
 
--- TODO: Every argument of sort 'Alloc aa' becomes two arguments: 'struct alloc_header *, type_info'.
--- This is possibly redundant, if multiple arguments use the same 'type_info', but it's simpler.
-emitSuspend :: EnvPtr -> Name -> ThunkType -> [Name] -> String
-emitSuspend envp cl ty xs = "    " ++ emitPrimCall envp method (cl : xs) ++ ";"
+emitSuspend :: EnvPtr -> Name -> ThunkType -> [ClosureArg] -> String
+emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep args ++ ");"
   where
     method = thunkSuspendName (namesForThunk ty)
+    args = emitName envp cl : go ss xs
 
-emitSuspend' :: EnvPtr -> Name -> ThunkType -> [Info] -> [Name] -> String
-emitSuspend' envp cl ty ss xs =
-  "    " ++ method ++ "(" ++ emitName envp cl ++ ", " ++ commaSep args ++ ");"
-  where
-    method = thunkSuspendName (namesForThunk ty)
-    args = map (emitInfo envp) ss ++ map (emitName envp) xs
-
-emitSuspend3 :: EnvPtr -> Name -> ThunkType -> [Name] -> String
-emitSuspend3 envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ args ++ ");"
-  where
-    method = thunkSuspendName (namesForThunk ty)
-    args = commaSep (emitName envp cl : mapWithIndex makeArg (zip ss xs))
-    -- TODO: Emit proper info when suspending
-    makeArg i (AllocH aa, x) = emitName envp x ++ ", " ++ emitInfo envp (infoForSort (AllocH aa))
-    makeArg i (s, x) = emitName envp x
+    -- This is kind of messy, but it works.
+    go [] [] = []
+    -- The classifier for a TypeArg shouldn't really be a sort.
+    go (t:ts) (TypeArg i:ys) = emitInfo envp i : go ts ys
+    -- TODO: Emit proper type info for arguments of sort AllocH
+    go (AllocH aa:ts) (ValueArg y:ys) =
+      (emitName envp y ++ ", " ++ emitInfo envp (infoForSort (AllocH aa))) : go ts ys
+    go (t:ts) (ValueArg y:ys) = emitName envp y : go ts ys
+    go _ _ = error "incorrect number of arguments for thunk type"
 
 emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]
 emitCase kind envp x ks =
