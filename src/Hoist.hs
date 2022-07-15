@@ -685,7 +685,10 @@ pprintClosureAlloc n (ClosureAlloc p _t d env) =
 
 pprintEnvAlloc :: EnvAlloc -> String
 pprintEnvAlloc (EnvAlloc info free rec) =
-  "{" ++ intercalate ", " (map pprintAllocArg (free ++ rec)) ++ "}"
+  "{" ++ intercalate ", " (map pprintAllocInfo info ++ map pprintAllocArg (free ++ rec)) ++ "}"
+
+pprintAllocInfo :: (InfoName, Info) -> String
+pprintAllocInfo (info, i) = "@" ++ pprintInfo info ++ " = " ++ show i
 
 pprintAllocArg :: (FieldName, Name) -> String
 pprintAllocArg (field, x) = pprintField field ++ " = " ++ show x
