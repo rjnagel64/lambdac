@@ -243,7 +243,6 @@ instance Show Info where
   show ListInfo = "$list"
 
 infoForSort :: Sort -> Info
--- TODO: Use scope to determine if AllocH should become LocalInfo or EnvInfo
 infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
 infoForSort IntegerH = Int64Info
 infoForSort BooleanH = BoolInfo
@@ -359,7 +358,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
 -- be lifted to the top level. Additionally, map value, continuation, and
 -- function names to C names.
 hoist :: TermC -> HoistM TermH
-hoist (HaltC x) = (\ (x', s) -> HaltH x' (infoForSort s)) <$> hoistVarOcc' x
+hoist (HaltC x) = (\ (x', i) -> HaltH x' i) <$> hoistVarOcc'' x
 hoist (JumpC k xs) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' xs
   OpenH <$> hoistVarOcc k <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
@@ -487,12 +486,12 @@ declareClosureNames closureName cs =
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
-hoistValue (PairC x y) = (\ (x', t) (y', s) -> PairH (infoForSort t) (infoForSort s) x' y') <$> hoistVarOcc' x <*> hoistVarOcc' y
+hoistValue (PairC x y) = (\ (x', i) (y', j) -> PairH i j x' y') <$> hoistVarOcc'' x <*> hoistVarOcc'' y
 hoistValue NilC = pure NilH
-hoistValue (InlC x) = (\ (x', s) -> InlH (infoForSort s) x') <$> hoistVarOcc' x
-hoistValue (InrC x) = (\ (x', s) -> InrH (infoForSort s) x') <$> hoistVarOcc' x
+hoistValue (InlC x) = (\ (x', i) -> InlH i x') <$> hoistVarOcc'' x
+hoistValue (InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOcc'' x
 hoistValue EmptyC = pure ListNilH
-hoistValue (ConsC x xs) = (\ (x', s) xs' -> ListConsH (infoForSort s) x' xs') <$> hoistVarOcc' x <*> hoistVarOcc xs
+hoistValue (ConsC x xs) = (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOcc'' x <*> hoistVarOcc xs
 
 hoistArith :: ArithC -> HoistM PrimOp
 hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -567,7 +566,6 @@ hoistVarOcc x = do
       Nothing -> error ("not in scope: " ++ show x)
 
 -- | Hoist a variable occurrence, and also retrieve its sort.
--- TODO: Should hoistVarOcc' return Info instead?
 hoistVarOcc' :: C.Name -> HoistM (Name, Sort)
 hoistVarOcc' x = do
   HoistEnv ps fs <- ask
@@ -576,6 +574,18 @@ hoistVarOcc' x = do
     Nothing -> case Map.lookup x fs of
       Just (FieldName s x') -> pure (EnvName x', s)
       Nothing -> error ("not in scope: " ++ show x)
+
+-- | Hoist a variable occurrence, and also retrieve the @type_info@ that describes it.
+hoistVarOcc'' :: C.Name -> HoistM (Name, Info)
+hoistVarOcc'' x = do
+  (x', s) <- hoistVarOcc' x
+  s' <- infoForSort' s
+  pure (x', s')
+
+-- TODO: Use scope to determine if AllocH should become LocalInfo or EnvInfo
+infoForSort' :: Sort -> HoistM Info
+infoForSort' (AllocH (C.TyVar aa)) = pure (LocalInfo aa)
+infoForSort' s = pure (infoForSort s)
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.
