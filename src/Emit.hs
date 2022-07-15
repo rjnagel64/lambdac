@@ -86,15 +86,8 @@ namesForThunk ty =
   where
     code = thunkTypeCode ty
 
--- TODO: Eliminate thunkArgSorts
-thunkArgSorts :: ThunkType -> [Sort]
-thunkArgSorts (ThunkType ss) = map f ss
-  where
-    f ThunkInfoArg = InfoH
-    f (ThunkValueArg s) = s
-
 typeForSort :: Sort -> String
-typeForSort (AllocH aa) = "struct alloc_header *"
+typeForSort (AllocH _) = "struct alloc_header *"
 typeForSort InfoH = "type_info "
 typeForSort (ClosureH _) = "struct closure *"
 typeForSort IntegerH = "struct int64_value *"
@@ -137,49 +130,50 @@ emitThunkDecl t =
   emitThunkSuspend t
 
 emitThunkType :: ThunkType -> [String]
-emitThunkType ty =
+emitThunkType ty@(ThunkType ss) =
   ["struct " ++ thunkTypeName ns ++ " {"
   ,"    struct thunk header;"
   ,"    struct closure *closure;"] ++
   mapWithIndex mkField ss ++
   ["};"]
   where
-    ss = thunkArgSorts ty
     ns = namesForThunk ty
-    mkField i (AllocH _) = "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
-    mkField i s = "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
+    mkField i ThunkInfoArg = "    type_info arg" ++ show i ++ ";\n"
+    mkField i (ThunkValueArg s) = case s of
+      AllocH _ -> "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
+      _ -> "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
 
 emitThunkTrace :: ThunkType -> [String]
-emitThunkTrace ty =
+emitThunkTrace ty@(ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
   ,"    " ++ emitMarkGray "next" (EnvName "closure") ClosureInfo ++ ";"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
-    ss = thunkArgSorts ty
     ns = namesForThunk ty
-    traceField i (AllocH _) = "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
-    traceField i InfoH = "" -- Eurgh.
-    traceField i s = "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) (infoForSort s) ++ ";"
+    traceField i ThunkInfoArg = "" -- TODO: Avoid blank line here.
+    traceField i (ThunkValueArg s) = case s of
+      AllocH _ -> "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
+      _ -> "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) (infoForSort s) ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
-emitThunkEnter ty =
+emitThunkEnter ty@(ThunkType ss) =
   ["void " ++ thunkEnterName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
   ,"    void (*code)(" ++ paramList ++ ") = (void (*)(" ++ paramList ++ "))next->closure->code;"
   ,"    code(" ++ argList ++ ");"
   ,"}"]
   where
-    ss = thunkArgSorts ty
     ns = namesForThunk ty
     paramList = commaSep ("void *env" : mapWithIndex makeParam ss)
-    makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
-    argList = commaSep ("next->closure->env" : mapWithIndex makeArgument ss)
-    makeArgument i _ = "next->arg" ++ show i
+    makeParam i ThunkInfoArg = "type_info arg" ++ show i
+    makeParam i (ThunkValueArg s) = emitPlace (PlaceName s ("arg" ++ show i))
+    argList = commaSep ("next->closure->env" : mapWithIndex makeArg ss)
+    makeArg i _ = "next->arg" ++ show i
 
 emitThunkSuspend :: ThunkType -> [String]
-emitThunkSuspend ty =
+emitThunkSuspend ty@(ThunkType ss) =
   ["void " ++ thunkSuspendName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = realloc(next_step, sizeof(struct " ++ thunkTypeName ns ++ "));"
   ,"    next->header.enter = closure->enter;"
@@ -189,11 +183,12 @@ emitThunkSuspend ty =
   ["    next_step = (struct thunk *)next;"
   ,"}"]
   where
-    ss = thunkArgSorts ty
     ns = namesForThunk ty
     paramList = commaSep ("struct closure *closure" : mapWithIndex makeParam ss)
-    makeParam i (AllocH _) = "struct alloc_header *arg" ++ show i ++ ", type_info info" ++ show i
-    makeParam i s = emitPlace (PlaceName s ("arg" ++ show i))
+    makeParam i ThunkInfoArg = "type_info arg" ++ show i
+    makeParam i (ThunkValueArg s) = case s of
+      AllocH _ -> "struct alloc_header *arg" ++ show i ++ ", type_info info" ++ show i
+      _ -> emitPlace (PlaceName s ("arg" ++ show i))
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
 
 emitClosureDecl :: H.ClosureDecl -> [String]
@@ -287,18 +282,17 @@ emitClosureBody envp (CaseH x kind ks) =
   emitCase kind envp x ks
 
 emitSuspend :: EnvPtr -> Name -> ThunkType -> [ClosureArg] -> String
-emitSuspend envp cl ty xs = "    " ++ method ++ "(" ++ commaSep args ++ ");"
+emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep args ++ ");"
   where
-    ss = thunkArgSorts ty
     method = thunkSuspendName (namesForThunk ty)
     args = emitName envp cl : zipWith makeArg ss xs
 
-    -- The classifier for a TypeArg shouldn't really be a sort.
-    makeArg t (TypeArg i) = emitInfo envp i
-    makeArg (AllocH aa) (ValueArg y) =
+    makeArg ThunkInfoArg (TypeArg i) = emitInfo envp i
+    makeArg (ThunkValueArg s) (ValueArg y) = case s of
       -- TODO: Emit proper type info for arguments of sort AllocH
-      emitName envp y ++ ", " ++ emitInfo envp (infoForSort (AllocH aa))
-    makeArg t (ValueArg y) = emitName envp y
+      AllocH _ -> emitName envp y ++ ", " ++ emitInfo envp (infoForSort s)
+      _ -> emitName envp y
+    makeArg _ _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
 
 emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]
@@ -310,12 +304,13 @@ emitCase kind envp x ks =
   ,"    }"]
   where
     emitCaseBranch :: (Int, (String, [String]), (Name, ThunkType)) -> [String]
-    emitCaseBranch (i, (ctorCast, argNames), (k, ty)) =
+    emitCaseBranch (i, (ctorCast, argNames), (k, ty@(ThunkType ss))) =
       let
-        ss = thunkArgSorts ty
         method = thunkSuspendName (namesForThunk ty)
         args = emitName envp k : zipWith mkArg argNames ss
-        mkArg argName argSort = asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
+        mkArg _ ThunkInfoArg = error "info args in case (existential ADTs not supported)"
+        mkArg argName (ThunkValueArg argSort) =
+          asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"

@@ -115,21 +115,11 @@ asDeclName :: C.Name -> DeclName
 asDeclName (C.Name x i) = DeclName (x ++ show i)
 
 
--- TODO: I think that by 'Hoist', type parameters and value parameters should
--- be treated uniformly. E.G., 'ClosureDecl' should carry a '[ClosureParam]',
--- where 'data ClosureParam = ValueParam PlaceName | TypeParam InfoName'
---
--- Note: 'params :: [ClosureParam]' is a telescope, because 'TypeParam' brings
--- info into scope for subsequent bindings.
 data ClosureDecl
   = ClosureDecl DeclName (String, EnvDecl) [ClosureParam] TermH
 
 data EnvDecl = EnvDecl [InfoName] [FieldName]
 
--- TODO: Use 'ClosureParam' for closure parameter list
--- * Requires upgrading ThunkType to know about type parameters.
--- * May ultimately lead to removing Sort.Info in favor of treating info
---   separately.
 data ClosureParam = PlaceParam PlaceName | TypeParam InfoName
 
 data TermH
@@ -278,20 +268,8 @@ newtype ClosureDecls = ClosureDecls [ClosureDecl]
 deriving newtype instance Semigroup ClosureDecls
 deriving newtype instance Monoid ClosureDecls
 
--- | A thunk type is basically a runtime layout for closure arguments.
--- Each thunk type needs its own C code for suspending/entering/tracing
--- closure, so we collect all the distinct thunk types that appear in the
--- program.
--- Note: all polymorphic values (things with sort @'Alloc' aa@) are passed as
--- @struct alloc_header *@, so @Alloc aa@ and @Alloc bb@ are not considered to
--- be distinct thunk types.
--- TODO: ThunkType should use deBruijn levels to refer to type variables
---
--- TODO: ThunkType should also be a telescope, of type parameters and sorts
--- (Which at runtime become info and values)
---
--- A thunk type is a calling convention for closures: the set of arguments that
--- must be provided to open it. This information is used to generate
+-- | A thunk type is a calling convention for closures: the set of arguments
+-- that must be provided to open it. This information is used to generate
 -- trampolined tail calls.
 --
 -- Because 'ThunkType' is mostly concerned with the call site, it does not have
