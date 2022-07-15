@@ -152,7 +152,8 @@ emitThunkTrace ty@(ThunkType ss) =
     ns = namesForThunk ty
     traceField i ThunkInfoArg = "" -- TODO: Avoid blank line here.
     traceField i (ThunkValueArg s) = case s of
-      AllocH _ -> "    mark_gray(next->arg" ++ show i ++ ", next->info" ++ show i ++ ");"
+      AllocH _ ->
+        "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) (EnvInfo ("info" ++ show i)) ++ ";"
       _ -> "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) (infoForSort s) ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
@@ -206,12 +207,12 @@ emitEnvDecl ns (EnvDecl is fs) =
   ["};"]
   where
     mkInfo i = "    " ++ emitInfoDecl i ++ ";"
-    mkField f = "    " ++ emitFieldDecl f ++ ";"
+    mkField (f, _) = "    " ++ emitFieldDecl f ++ ";"
 
 emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
 -- TODO: What if there is a parameter named 'env'?
 emitEnvAlloc ns (EnvDecl is fs) =
-  ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ params ++ ") {"
+  ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"]++
   map assignInfo is ++
   map assignField fs ++
@@ -219,13 +220,11 @@ emitEnvAlloc ns (EnvDecl is fs) =
   ,"    return env;"
   ,"}"]
   where
-    params = if null is && null fs then "void" else commaSep (map emitInfoDecl is ++ map emitFieldDecl fs)
+    paramList = if null is && null fs then "void" else commaSep params
+    params = map emitInfoDecl is ++ map (emitFieldDecl . fst) fs
 
-    assignInfo :: InfoName -> String
     assignInfo (InfoName aa) = "    env->" ++ aa ++ " = " ++ aa ++ ";"
-
-    assignField :: FieldName -> String
-    assignField (FieldName _ x) = "    env->" ++ x ++ " = " ++ x ++ ";"
+    assignField (FieldName _ x, _) = "    env->" ++ x ++ " = " ++ x ++ ";"
 
 -- | Emit a method to trace a closure environment.
 -- (And also emit type info for the environment types)
@@ -238,8 +237,7 @@ emitEnvTrace ns (EnvDecl _is fs) =
   ,"type_info " ++ closureEnvName ns ++ "_info = { " ++ closureTraceName ns ++ ", display_env };"]
   where
     closureTy = "struct " ++ closureEnvName ns ++ " *"
-    traceField :: FieldName -> String
-    traceField (FieldName s x) = "    " ++ emitMarkGray "env" (EnvName x) (infoForSort s) ++ ";"
+    traceField (FieldName _ x, i) = "    " ++ emitMarkGray "env" (EnvName x) i ++ ";"
 
 emitClosureCode :: ClosureNames -> String -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
@@ -270,8 +268,8 @@ emitClosureBody envp (LetPrimH x p e) =
 emitClosureBody envp (AllocClosure cs e) =
   emitAllocGroup envp cs ++
   emitClosureBody envp e
-emitClosureBody envp (HaltH x s) =
-  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp (infoForSort s) ++ ");"]
+emitClosureBody envp (HaltH x i) =
+  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp i ++ ");"]
 emitClosureBody envp (OpenH c ty xs) =
   [emitSuspend envp c ty (map ValueArg xs)]
 emitClosureBody envp (InstH f ty is ks) =
@@ -288,7 +286,7 @@ emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep a
     makeArg ThunkInfoArg (TypeArg i) = emitInfo envp i
     makeArg (ThunkValueArg s) (ValueArg y) = case s of
       -- TODO: Emit proper type info for arguments of sort AllocH
-      AllocH _ -> emitName envp y ++ ", " ++ emitInfo envp (infoForSort s)
+      AllocH aa -> emitName envp y ++ ", " ++ emitInfo envp (infoForSort (AllocH aa))
       _ -> emitName envp y
     makeArg _ _ = error "calling convention mismatch: type/value param paired with value/type arg"
 

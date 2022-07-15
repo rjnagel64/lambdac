@@ -118,7 +118,7 @@ asDeclName (C.Name x i) = DeclName (x ++ show i)
 data ClosureDecl
   = ClosureDecl DeclName (String, EnvDecl) [ClosureParam] TermH
 
-data EnvDecl = EnvDecl [InfoName] [FieldName]
+data EnvDecl = EnvDecl [InfoName] [(FieldName, Info)]
 
 data ClosureParam = PlaceParam PlaceName | TypeParam InfoName
 
@@ -127,7 +127,7 @@ data TermH
   | LetPrimH PlaceName PrimOp TermH
   -- 'let value x = fst y in e'
   | LetProjectH PlaceName Name Projection TermH
-  | HaltH Name Sort
+  | HaltH Name Info
   -- TODO: Open a closure, by providing a spine of arguments.
   -- (Unify OpenH and InstH)
   | OpenH Name ThunkType [Name]
@@ -233,7 +233,7 @@ data Info
 
 instance Show Info where
   show (LocalInfo aa) = '$' : aa
-  show (EnvInfo aa) = "$@." ++ aa
+  show (EnvInfo aa) = "$." ++ aa
   show Int64Info = "$int64"
   show BoolInfo = "$bool"
   show UnitInfo = "$unit"
@@ -359,7 +359,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
 -- be lifted to the top level. Additionally, map value, continuation, and
 -- function names to C names.
 hoist :: TermC -> HoistM TermH
-hoist (HaltC x) = (\ (x', s) -> HaltH x' s) <$> hoistVarOcc' x
+hoist (HaltC x) = (\ (x', s) -> HaltH x' (infoForSort s)) <$> hoistVarOcc' x
 hoist (JumpC k xs) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' xs
   OpenH <$> hoistVarOcc k <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
@@ -550,7 +550,10 @@ inClosure (C.EnvDef tys free rec) places m = do
   r <- local replaceEnv m
   let inScopeNames = map (fieldName . snd) fields' ++ map (placeName . snd) places' ++ map infoName tys'
   let name = pickEnvironmentName (Set.fromList inScopeNames)
-  pure ((name, EnvDecl tys' (map snd fields')), map snd places', r)
+
+  let mkFieldInfo f = case fieldSort f of { AllocH (C.TyVar aa) -> EnvInfo aa; s -> infoForSort s }
+  let fieldsWithInfo = [(f, mkFieldInfo f) | (_, f) <- fields']
+  pure ((name, EnvDecl tys' fieldsWithInfo), map snd places', r)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
@@ -661,7 +664,10 @@ pprintClosureDecl :: Int -> ClosureDecl -> String
 pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
   indent n (show f ++ " " ++ env ++ " (" ++ intercalate ", " (map pprintParam params) ++ ") =\n") ++
   pprintTerm (n+2) e
-  where env = name ++ " : {" ++ intercalate ", " (map pprintInfo is) ++ "; " ++ intercalate ", " (map pprintField fs) ++ "}"
+  where
+    env = name ++ " : {" ++ envInfos ++ "; " ++ envFields ++ "}"
+    envInfos = intercalate ", " (map pprintInfo is)
+    envFields = intercalate ", " (map (pprintField . fst) fs)
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p _t d env) =

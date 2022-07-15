@@ -107,7 +107,7 @@ withParams (PlaceParam p : params) m = withPlace p (withParams params m)
 --   where extend (Context names tys) = Context names (Set.insert i tys)
 
 checkClosureBody :: TermH -> TC ()
-checkClosureBody (HaltH x s) = checkSort s *> checkName x s
+-- checkClosureBody (HaltH x s) = checkSort s *> checkName x s
 -- TODO: Sort is not expressive enough to describe polymorphic closures
 -- 'ThunkType' will need to be upgraded to work on ClosureParam, not Sort
 -- newtype ThunkType = ThunkType [ThunkParam]
