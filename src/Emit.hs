@@ -88,7 +88,6 @@ namesForThunk ty =
 
 typeForSort :: Sort -> String
 typeForSort (AllocH _) = "struct alloc_header *"
-typeForSort InfoH = "type_info "
 typeForSort (ClosureH _) = "struct closure *"
 typeForSort IntegerH = "struct int64_value *"
 typeForSort SumH = "struct sum *"
@@ -99,7 +98,6 @@ typeForSort (ListH _) = "struct list *"
 
 asSort :: Sort -> String -> String
 asSort (AllocH _) x = asAlloc x
-asSort InfoH x = error "we should not be casting to/from type_info"
 asSort IntegerH x = "AS_INT64(" ++ x ++ ")"
 asSort (ClosureH _) x = "AS_CLOSURE(" ++ x ++ ")"
 asSort SumH x = "AS_SUM(" ++ x ++ ")"

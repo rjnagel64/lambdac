@@ -197,7 +197,6 @@ data Sort
   | ListH Sort
   | ClosureH [Sort]
   | AllocH C.TyVar
-  | InfoH
   deriving (Eq, Ord)
 
 sortOf :: C.Sort -> Sort
@@ -246,7 +245,6 @@ instance Show Info where
 infoForSort :: Sort -> Info
 -- TODO: Use scope to determine if AllocH should become LocalInfo or EnvInfo
 infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
-infoForSort InfoH = error "shouldn't need infoForSort InfoH"
 infoForSort IntegerH = Int64Info
 infoForSort BooleanH = BoolInfo
 infoForSort UnitH = UnitInfo
@@ -283,13 +281,12 @@ data ThunkArg
 thunkTypeCode :: ThunkType -> String
 thunkTypeCode (ThunkType ss) = concatMap argcode ss
   where
+    argcode ThunkInfoArg = "I"
     argcode (ThunkValueArg s) = tycode s
-    argcode ThunkInfoArg = "J"
     -- This scheme will almost certainly break down as types get fancier.
     tycode :: Sort -> String
     tycode (ClosureH ss) = 'C' : show (length ss) ++ concatMap tycode ss
     tycode IntegerH = "V"
-    tycode InfoH = "I"
     tycode (AllocH aa) = "A"
     tycode SumH = "S"
     tycode BooleanH = "B"
@@ -348,7 +345,6 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     paramThunkTypes (PlaceParam p) = thunkTypesOf (placeSort p)
 
     thunkTypesOf :: Sort -> [ThunkType]
-    thunkTypesOf InfoH = []
     thunkTypesOf (AllocH _) = []
     thunkTypesOf IntegerH = []
     thunkTypesOf BooleanH = []
@@ -696,4 +692,3 @@ pprintSort (ListH t) = "list " ++ pprintSort t
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH ss) = "closure(" ++ intercalate ", " (map pprintSort ss) ++ ")"
 pprintSort (AllocH aa) = "alloc(" ++ show aa ++ ")"
-pprintSort InfoH = "info"

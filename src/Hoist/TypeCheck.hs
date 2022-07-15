@@ -147,7 +147,6 @@ checkName x s = do
 
 checkSort :: Sort -> TC ()
 checkSort (AllocH aa) = lookupTyVar aa
-checkSort InfoH = pure ()
 checkSort UnitH = pure ()
 checkSort IntegerH = pure ()
 checkSort BooleanH = pure ()
