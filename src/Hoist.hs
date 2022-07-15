@@ -50,7 +50,7 @@ import Control.Monad.State
 import Data.Bifunctor
 import Data.Int (Int64)
 import Data.Traversable (for, mapAccumL)
-import Data.List (intercalate, nub)
+import Data.List (intercalate)
 import Data.Function (on)
 
 import qualified CC as C
@@ -294,43 +294,26 @@ thunkTypeCode (ThunkType ss) = concatMap argcode ss
     tycode (ListH s) = 'L' : tycode s
 
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
+instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
--- | A set data type, that only requires 'Eq' constraints. Implemented because
--- I can't wrap my head around a sensible ordering for 'ThunkType' or
--- 'ThunkType'.
---
--- (... Maybe map to 'tycode' and use the natural ordering on String?)
-newtype NubList a = NubList { getNubList :: [a] }
-
-nubList :: Eq a => [a] -> NubList a
-nubList xs = NubList (nub xs)
-
-instance Eq a => Semigroup (NubList a) where
-  NubList as <> NubList bs = NubList (merge as)
-    where
-      merge [] = bs
-      merge (x:xs) = if elem x bs then merge xs else x : merge xs
-
-instance Eq a => Monoid (NubList a) where
-  mempty = NubList []
-
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer (ClosureDecls, NubList ThunkType))) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer (ClosureDecls, Set ThunkType))) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
-deriving newtype instance MonadWriter (ClosureDecls, NubList ThunkType) HoistM
+deriving newtype instance MonadWriter (ClosureDecls, Set ThunkType) HoistM
 deriving newtype instance MonadState (Set DeclName) HoistM
 
 runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
-runHoist = second (second getNubList) . runWriter .  flip evalStateT Set.empty .  flip runReaderT emptyEnv .  runHoistM
+runHoist = second (second Set.toList) . runWriter .  flip evalStateT Set.empty .  flip runReaderT emptyEnv .  runHoistM
   where emptyEnv = HoistEnv mempty mempty
 
 tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs, ts)
   where
-    ts = nubList (concatMap closureThunkTypes cs)
+    -- TODO: Use set operations here
+    ts = Set.fromList (concatMap closureThunkTypes cs)
 
     closureThunkTypes :: ClosureDecl -> [ThunkType]
     closureThunkTypes (ClosureDecl _ _ params _) = ThunkType argSorts : concatMap paramThunkTypes params
