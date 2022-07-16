@@ -15,7 +15,6 @@ module Hoist
     , Sort(..)
     , Name(..)
     , Info(..)
-    , infoForSort
     , ThunkType(..)
     , ThunkArg(..)
     , thunkTypeCode
@@ -584,17 +583,13 @@ infoForSort' (AllocH aa) = do
     Nothing -> case Map.lookup aa ifields of
       Just (InfoName aa') -> pure (EnvInfo aa')
       Nothing -> error ("not in scope: " ++ show aa)
-infoForSort' s = pure (infoForSort s)
-
-infoForSort :: Sort -> Info
-infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
-infoForSort IntegerH = Int64Info
-infoForSort BooleanH = BoolInfo
-infoForSort UnitH = UnitInfo
-infoForSort SumH = SumInfo
-infoForSort (ProductH _ _) = ProductInfo
-infoForSort (ListH _) = ListInfo
-infoForSort (ClosureH _) = ClosureInfo
+infoForSort' IntegerH = pure Int64Info
+infoForSort' BooleanH = pure BoolInfo
+infoForSort' UnitH = pure UnitInfo
+infoForSort' SumH = pure SumInfo
+infoForSort' (ProductH _ _) = pure ProductInfo
+infoForSort' (ListH _) = pure ListInfo
+infoForSort' (ClosureH _) = pure ClosureInfo
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.

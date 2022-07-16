@@ -151,10 +151,17 @@ emitThunkTrace ty@(ThunkType ss) =
   where
     ns = namesForThunk ty
     traceField i ThunkInfoArg = "" -- TODO: Avoid blank line here.
+    -- Hmm. This clause basically duplicates 'infoForSort'. Is there a cleaner way?
     traceField i (ThunkValueArg s) = case s of
       AllocH _ ->
         "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) (EnvInfo ("info" ++ show i)) ++ ";"
-      _ -> "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) (infoForSort s) ++ ";"
+      IntegerH -> "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) Int64Info ++ ";"
+      BooleanH -> "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) BoolInfo ++ ";"
+      UnitH -> "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) UnitInfo ++ ";"
+      SumH -> "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) SumInfo ++ ";"
+      ProductH _ _ -> "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) ProductInfo ++ ";"
+      ListH _ -> "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) ListInfo ++ ";"
+      ClosureH _ -> "    " ++ emitMarkGray "next" (EnvName ("arg" ++ show i)) ClosureInfo ++ ";"
 
 emitThunkEnter :: ThunkType -> [String]
 emitThunkEnter ty@(ThunkType ss) =
