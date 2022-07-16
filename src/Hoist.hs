@@ -426,8 +426,16 @@ hoist (LetAbsC fs e) = do
 
 hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
 hoistEnvDef (C.EnvDef tys free rec) =
-  let tys' = map (\ (C.TyVar aa) -> (InfoName aa, EnvInfo aa)) tys in
-  EnvAlloc tys' <$> traverse envAllocField free <*> traverse envAllocField rec
+  EnvAlloc
+    <$> traverse envAllocInfo tys
+    <*> traverse envAllocField free
+    <*> traverse envAllocField rec
+
+envAllocInfo :: C.TyVar -> HoistM (InfoName, Info)
+envAllocInfo aa = do
+  let info = asInfoName aa
+  i <- infoForSort' (AllocH aa)
+  pure (info, i)
 
 envAllocField :: (C.Name, C.Sort) -> HoistM (FieldName, Name)
 envAllocField (x, s) = do
@@ -638,6 +646,7 @@ pprintTerm n (AllocClosure cs e) =
 pprintClosureArg :: ClosureArg -> String
 pprintClosureArg (TypeArg i) = '@' : show i
 pprintClosureArg (ValueArg x) = show x
+pprintClosureArg (OpaqueArg x i) = show x ++ "@" ++ show i
 
 pprintValue :: ValueH -> String
 pprintValue (PairH _ _ x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
