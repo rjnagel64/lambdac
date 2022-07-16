@@ -244,7 +244,7 @@ instance Show Info where
 -- in a definition are either parameters, local temporaries, or environment
 -- field references.
 --
--- TODO: HoistEnv should contain type variables
+-- TODO: HoistEnv should map closure names to thunk types
 data HoistEnv
   = HoistEnv {
       localPlaces :: Map C.Name PlaceName
@@ -307,28 +307,27 @@ runHoist = second (second Set.toList) . runWriter .  flip evalStateT Set.empty .
 tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs, ts)
   where
-    -- TODO: Use set operations here
-    ts = Set.fromList (concatMap closureThunkTypes cs)
+    ts = foldMap closureThunkTypes cs
 
-    closureThunkTypes :: ClosureDecl -> [ThunkType]
-    closureThunkTypes (ClosureDecl _ _ params _) = ThunkType argSorts : concatMap paramThunkTypes params
+    closureThunkTypes :: ClosureDecl -> Set ThunkType
+    closureThunkTypes (ClosureDecl _ _ params _) = Set.insert ty (foldMap paramThunkTypes params)
       where
-        argSorts = map f params
+        ty = ThunkType (map f params)
         f (TypeParam i) = ThunkInfoArg
         f (PlaceParam p) = ThunkValueArg (placeSort p)
 
-    paramThunkTypes :: ClosureParam -> [ThunkType]
-    paramThunkTypes (TypeParam _) = []
+    paramThunkTypes :: ClosureParam -> Set ThunkType
+    paramThunkTypes (TypeParam _) = Set.empty
     paramThunkTypes (PlaceParam p) = thunkTypesOf (placeSort p)
 
-    thunkTypesOf :: Sort -> [ThunkType]
-    thunkTypesOf (AllocH _) = []
-    thunkTypesOf IntegerH = []
-    thunkTypesOf BooleanH = []
-    thunkTypesOf SumH = []
-    thunkTypesOf UnitH = []
-    thunkTypesOf (ClosureH ss) = ThunkType (map ThunkValueArg ss) : concatMap thunkTypesOf ss
-    thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 ++ thunkTypesOf t2
+    thunkTypesOf :: Sort -> Set ThunkType
+    thunkTypesOf (AllocH _) = Set.empty
+    thunkTypesOf IntegerH = Set.empty
+    thunkTypesOf BooleanH = Set.empty
+    thunkTypesOf SumH = Set.empty
+    thunkTypesOf UnitH = Set.empty
+    thunkTypesOf (ClosureH ss) = Set.insert (ThunkType (map ThunkValueArg ss)) (foldMap thunkTypesOf ss)
+    thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
     thunkTypesOf (ListH t) = thunkTypesOf t
 
 
@@ -336,23 +335,20 @@ tellClosures cs = tell (ClosureDecls cs, ts)
 -- be lifted to the top level. Additionally, map value, continuation, and
 -- function names to C names.
 hoist :: TermC -> HoistM TermH
-hoist (HaltC x) = (\ (x', i) -> HaltH x' i) <$> hoistVarOcc'' x
+hoist (HaltC x) = (\ (x', i) -> HaltH x' i) <$> hoistVarOcc' x
 hoist (JumpC k xs) = do
   (ys, ss) <- hoistArgList xs
-  -- (ys, ss) <- unzip <$> traverse hoistVarOcc' xs
   OpenH <$> hoistVarOcc k <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
 hoist (CallC f xs ks) = do
   (ys, ss) <- hoistArgList (xs ++ ks)
-  -- (ys, ss) <- unzip <$> traverse hoistVarOcc' (xs ++ ks)
   OpenH <$> hoistVarOcc f <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
 hoist (InstC f ts ks) = do
   (ys, ss) <- hoistArgList ks
-  -- (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
   -- TODO: It would be better if OpenH looked up the thunk type of the
   -- head, rather than trying to reconstruct it.
   let infoSorts = replicate (length ts) ThunkInfoArg
   let ty = ThunkType (infoSorts ++ map ThunkValueArg ss)
-  ts' <- traverse (infoForSort' . sortOf) ts
+  ts' <- traverse (infoForSort . sortOf) ts
   OpenH <$> hoistVarOcc f <*> pure ty <*> pure (map TypeArg ts' ++ ys)
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
@@ -434,7 +430,7 @@ hoistEnvDef (C.EnvDef tys free rec) =
 envAllocInfo :: C.TyVar -> HoistM (InfoName, Info)
 envAllocInfo aa = do
   let info = asInfoName aa
-  i <- infoForSort' (AllocH aa)
+  i <- infoForSort (AllocH aa)
   pure (info, i)
 
 envAllocField :: (C.Name, C.Sort) -> HoistM (FieldName, Name)
@@ -476,12 +472,12 @@ declareClosureNames closureName cs =
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
-hoistValue (PairC x y) = (\ (x', i) (y', j) -> PairH i j x' y') <$> hoistVarOcc'' x <*> hoistVarOcc'' y
+hoistValue (PairC x y) = (\ (x', i) (y', j) -> PairH i j x' y') <$> hoistVarOcc' x <*> hoistVarOcc' y
 hoistValue NilC = pure NilH
-hoistValue (InlC x) = (\ (x', i) -> InlH i x') <$> hoistVarOcc'' x
-hoistValue (InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOcc'' x
+hoistValue (InlC x) = (\ (x', i) -> InlH i x') <$> hoistVarOcc' x
+hoistValue (InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOcc' x
 hoistValue EmptyC = pure ListNilH
-hoistValue (ConsC x xs) = (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOcc'' x <*> hoistVarOcc xs
+hoistValue (ConsC x xs) = (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOcc' x <*> hoistVarOcc xs
 
 hoistArith :: ArithC -> HoistM PrimOp
 hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -542,7 +538,7 @@ inClosure (C.EnvDef tys free rec) typlaces places m = do
   let inScopeNames = map (fieldName . snd) fields' ++ map (placeName . snd) places' ++ map (infoName . snd) tyfields' 
   let name = pickEnvironmentName (Set.fromList inScopeNames)
 
-  let mkFieldInfo' f = infoForSort' (fieldSort f)
+  let mkFieldInfo' f = infoForSort (fieldSort f)
   fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
   pure ((name, EnvDecl (map snd tyfields') fieldsWithInfo), map snd places', r)
 
@@ -558,8 +554,8 @@ hoistVarOcc x = do
       Nothing -> error ("not in scope: " ++ show x)
 
 -- | Hoist a variable occurrence, and also retrieve its sort.
-hoistVarOcc' :: C.Name -> HoistM (Name, Sort)
-hoistVarOcc' x = do
+hoistVarOccSort :: C.Name -> HoistM (Name, Sort)
+hoistVarOccSort x = do
   HoistEnv ps fs ips ifs <- ask
   case Map.lookup x ps of
     Just (PlaceName s x') -> pure (LocalName x', s)
@@ -570,34 +566,34 @@ hoistVarOcc' x = do
 hoistArgList :: [C.Name] -> HoistM ([ClosureArg], [Sort])
 hoistArgList xs = unzip <$> traverse f xs
   where
-    f x = hoistVarOcc' x >>= \ (x', s) -> case s of
+    f x = hoistVarOccSort x >>= \ (x', s) -> case s of
       AllocH _ -> do
-        i <- infoForSort' s
+        i <- infoForSort s
         pure (OpaqueArg x' i, s)
       _ -> pure (ValueArg x', s)
 
 -- | Hoist a variable occurrence, and also retrieve the @type_info@ that describes it.
-hoistVarOcc'' :: C.Name -> HoistM (Name, Info)
-hoistVarOcc'' x = do
-  (x', s) <- hoistVarOcc' x
-  s' <- infoForSort' s
+hoistVarOcc' :: C.Name -> HoistM (Name, Info)
+hoistVarOcc' x = do
+  (x', s) <- hoistVarOccSort x
+  s' <- infoForSort s
   pure (x', s')
 
-infoForSort' :: Sort -> HoistM Info
-infoForSort' (AllocH aa) = do
+infoForSort :: Sort -> HoistM Info
+infoForSort (AllocH aa) = do
   HoistEnv _ _ iplaces ifields <- ask
   case Map.lookup aa iplaces of
     Just (InfoName aa') -> pure (LocalInfo aa')
     Nothing -> case Map.lookup aa ifields of
       Just (InfoName aa') -> pure (EnvInfo aa')
       Nothing -> error ("not in scope: " ++ show aa)
-infoForSort' IntegerH = pure Int64Info
-infoForSort' BooleanH = pure BoolInfo
-infoForSort' UnitH = pure UnitInfo
-infoForSort' SumH = pure SumInfo
-infoForSort' (ProductH _ _) = pure ProductInfo
-infoForSort' (ListH _) = pure ListInfo
-infoForSort' (ClosureH _) = pure ClosureInfo
+infoForSort IntegerH = pure Int64Info
+infoForSort BooleanH = pure BoolInfo
+infoForSort UnitH = pure UnitInfo
+infoForSort SumH = pure SumInfo
+infoForSort (ProductH _ _) = pure ProductInfo
+infoForSort (ListH _) = pure ListInfo
+infoForSort (ClosureH _) = pure ClosureInfo
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.
