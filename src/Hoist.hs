@@ -242,22 +242,18 @@ instance Show Info where
   show ClosureInfo = "$closure"
   show ListInfo = "$list"
 
-infoForSort :: Sort -> Info
-infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
-infoForSort IntegerH = Int64Info
-infoForSort BooleanH = BoolInfo
-infoForSort UnitH = UnitInfo
-infoForSort SumH = SumInfo
-infoForSort (ProductH _ _) = ProductInfo
-infoForSort (ListH _) = ListInfo
-infoForSort (ClosureH _) = ClosureInfo
-
 -- Note: FieldName:s should not be nested? after closure conversion, all names
 -- in a definition are either parameters, local temporaries, or environment
 -- field references.
 --
 -- TODO: HoistEnv should contain type variables
-data HoistEnv = HoistEnv (Map C.Name PlaceName) (Map C.Name FieldName)
+data HoistEnv
+  = HoistEnv {
+      localPlaces :: Map C.Name PlaceName
+    , envPlaces :: Map C.Name FieldName
+    , localInfos :: Map C.TyVar InfoName
+    , envInfos :: Map C.TyVar InfoName
+  }
 
 
 newtype ClosureDecls = ClosureDecls [ClosureDecl]
@@ -307,7 +303,7 @@ deriving newtype instance MonadState (Set DeclName) HoistM
 
 runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
 runHoist = second (second Set.toList) . runWriter .  flip evalStateT Set.empty .  flip runReaderT emptyEnv .  runHoistM
-  where emptyEnv = HoistEnv mempty mempty
+  where emptyEnv = HoistEnv mempty mempty mempty mempty
 
 tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs, ts)
@@ -361,7 +357,7 @@ hoist (InstC f ts ks) = do
   -- head, rather than trying to reconstruct it.
   let infoSorts = replicate (length ts) ThunkInfoArg
   let ty = ThunkType (infoSorts ++ map ThunkValueArg ss)
-  InstH <$> hoistVarOcc f <*> pure ty <*> pure (map (infoForSort . sortOf) ts) <*> pure ys
+  InstH <$> hoistVarOcc f <*> pure ty <*> traverse (infoForSort' . sortOf) ts <*> pure ys
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -439,7 +435,7 @@ envAllocField (x, s) = do
 
 placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(DeclName, a)] -> ([(PlaceName, DeclName, a)] -> HoistM r) -> HoistM r
 placesForClosureAllocs closureName closureSort cdecls kont = do
-  HoistEnv scope _ <- ask
+  HoistEnv scope _ _ _ <- ask
   let
     pickPlace sc (d, def) =
       let (cname, csort) = (closureName def, closureSort def) in
@@ -450,7 +446,7 @@ placesForClosureAllocs closureName closureSort cdecls kont = do
       Nothing -> c
       Just _ -> go sc (C.prime c)
   let (scope', cplaces) = mapAccumL pickPlace scope cdecls
-  let extend (HoistEnv _ fields) = HoistEnv scope' fields
+  let extend (HoistEnv _ fields iplaces ifields) = HoistEnv scope' fields iplaces ifields
   local extend (kont cplaces)
 
 
@@ -492,19 +488,19 @@ hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
-  (env', places', body') <- inClosure env (xs ++ ks) $ hoist body
+  (env', places', body') <- inClosure env [] (xs ++ ks) $ hoist body
   let fd = ClosureDecl fdecl env' (map PlaceParam places') body'
   pure fd
 
 hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ClosureDecl
 hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
-  (env', places', body') <- inClosure env xs $ hoist body
+  (env', places', body') <- inClosure env [] xs $ hoist body
   let kd = ClosureDecl kdecl env' (map PlaceParam places') body'
   pure kd
 
 hoistAbsClosure :: (DeclName, C.AbsClosureDef) -> HoistM ClosureDecl
 hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
-  (env', places', body') <- inClosure env ks $ hoist body
+  (env', places', body') <- inClosure env as ks $ hoist body
   let fd = ClosureDecl fdecl env' (map (TypeParam . asInfoName) as ++ map PlaceParam places') body'
   pure fd
 
@@ -521,27 +517,29 @@ pickEnvironmentName sc = go (0 :: Int)
 -- set of declaration names intact. This is because inside a closure, all names
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: C.EnvDef -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((String, EnvDecl), [PlaceName], a)
-inClosure (C.EnvDef tys free rec) places m = do
+inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((String, EnvDecl), [PlaceName], a)
+inClosure (C.EnvDef tys free rec) typlaces places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields = free ++ rec
   let fields' = map (\ (x, s) -> (x, asFieldName s x)) fields
   let places' = map (\ (x, s) -> (x, asPlaceName s x)) places
-  let tys' = map asInfoName tys
-  let replaceEnv (HoistEnv _ _) = HoistEnv (Map.fromList places') (Map.fromList fields')
+  let tyfields' = map (\aa -> (aa, asInfoName aa)) tys
+  let typlaces' = map (\aa -> (aa, asInfoName aa)) typlaces
+  let replaceEnv _oldEnv = HoistEnv (Map.fromList places') (Map.fromList fields') (Map.fromList typlaces') (Map.fromList tyfields')
   r <- local replaceEnv m
-  let inScopeNames = map (fieldName . snd) fields' ++ map (placeName . snd) places' ++ map infoName tys'
+  -- TODO: consider typlaces in scope when picking environment name.
+  let inScopeNames = map (fieldName . snd) fields' ++ map (placeName . snd) places' ++ map (infoName . snd) tyfields' 
   let name = pickEnvironmentName (Set.fromList inScopeNames)
 
-  let mkFieldInfo f = case fieldSort f of { AllocH (C.TyVar aa) -> EnvInfo aa; s -> infoForSort s }
-  let fieldsWithInfo = [(f, mkFieldInfo f) | (_, f) <- fields']
-  pure ((name, EnvDecl tys' fieldsWithInfo), map snd places', r)
+  let mkFieldInfo' f = infoForSort' (fieldSort f)
+  fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
+  pure ((name, EnvDecl (map snd tyfields') fieldsWithInfo), map snd places', r)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
 hoistVarOcc x = do
-  HoistEnv ps fs <- ask
+  HoistEnv ps fs ips ifs <- ask
   case Map.lookup x ps of
     Just (PlaceName _ x') -> pure (LocalName x')
     Nothing -> case Map.lookup x fs of
@@ -551,7 +549,7 @@ hoistVarOcc x = do
 -- | Hoist a variable occurrence, and also retrieve its sort.
 hoistVarOcc' :: C.Name -> HoistM (Name, Sort)
 hoistVarOcc' x = do
-  HoistEnv ps fs <- ask
+  HoistEnv ps fs ips ifs <- ask
   case Map.lookup x ps of
     Just (PlaceName s x') -> pure (LocalName x', s)
     Nothing -> case Map.lookup x fs of
@@ -565,23 +563,38 @@ hoistVarOcc'' x = do
   s' <- infoForSort' s
   pure (x', s')
 
--- TODO: Use scope to determine if AllocH should become LocalInfo or EnvInfo
 infoForSort' :: Sort -> HoistM Info
-infoForSort' (AllocH (C.TyVar aa)) = pure (LocalInfo aa)
+infoForSort' (AllocH aa) = do
+  HoistEnv _ _ iplaces ifields <- ask
+  case Map.lookup aa iplaces of
+    Just (InfoName aa') -> pure (LocalInfo aa')
+    Nothing -> case Map.lookup aa ifields of
+      Just (InfoName aa') -> pure (EnvInfo aa')
+      Nothing -> error ("not in scope: " ++ show aa)
 infoForSort' s = pure (infoForSort s)
+
+infoForSort :: Sort -> Info
+infoForSort (AllocH (C.TyVar aa)) = LocalInfo aa
+infoForSort IntegerH = Int64Info
+infoForSort BooleanH = BoolInfo
+infoForSort UnitH = UnitInfo
+infoForSort SumH = SumInfo
+infoForSort (ProductH _ _) = ProductInfo
+infoForSort (ListH _) = ListInfo
+infoForSort (ClosureH _) = ClosureInfo
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.
 withPlace :: C.Name -> C.Sort -> HoistM a -> HoistM (PlaceName, a)
 withPlace x s m = do
   x' <- makePlace x s
-  let f (HoistEnv places fields) = HoistEnv (Map.insert x x' places) fields
+  let f (HoistEnv places fields iplaces ifields) = HoistEnv (Map.insert x x' places) fields iplaces ifields
   a <- local f m
   pure (x', a)
 
 makePlace :: C.Name -> C.Sort -> HoistM PlaceName
 makePlace x s = do
-  HoistEnv places _ <- ask
+  HoistEnv places _ _ _ <- ask
   go x places
   where
     -- I think this is fine. We might shadow local names, which is bad, but
