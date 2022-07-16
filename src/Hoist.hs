@@ -273,7 +273,7 @@ data ThunkArg
   | ThunkInfoArg
 
 thunkTypeCode :: ThunkType -> String
-thunkTypeCode (ThunkType ss) = concatMap argcode ss
+thunkTypeCode (ThunkType ts) = concatMap argcode ts
   where
     argcode ThunkInfoArg = "I"
     argcode (ThunkValueArg s) = tycode s
@@ -281,7 +281,7 @@ thunkTypeCode (ThunkType ss) = concatMap argcode ss
     tycode :: Sort -> String
     tycode (ClosureH ss) = 'C' : show (length ss) ++ concatMap tycode ss
     tycode IntegerH = "V"
-    tycode (AllocH aa) = "A"
+    tycode (AllocH _) = "A"
     tycode SumH = "S"
     tycode BooleanH = "B"
     tycode (ProductH s t) = 'Q' : tycode s ++ tycode t
@@ -442,7 +442,7 @@ envAllocField (x, s) = do
 
 placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(DeclName, a)] -> ([(PlaceName, DeclName, a)] -> HoistM r) -> HoistM r
 placesForClosureAllocs closureName closureSort cdecls kont = do
-  HoistEnv scope _ _ _ <- ask
+  scope <- asks localPlaces
   let
     pickPlace sc (d, def) =
       let (cname, csort) = (closureName def, closureSort def) in
@@ -546,7 +546,8 @@ inClosure (C.EnvDef tys free rec) typlaces places m = do
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
 hoistVarOcc x = do
-  HoistEnv ps fs ips ifs <- ask
+  ps <- asks localPlaces
+  fs <- asks envPlaces
   case Map.lookup x ps of
     Just (PlaceName _ x') -> pure (LocalName x')
     Nothing -> case Map.lookup x fs of
@@ -556,7 +557,8 @@ hoistVarOcc x = do
 -- | Hoist a variable occurrence, and also retrieve its sort.
 hoistVarOccSort :: C.Name -> HoistM (Name, Sort)
 hoistVarOccSort x = do
-  HoistEnv ps fs ips ifs <- ask
+  ps <- asks localPlaces
+  fs <- asks envPlaces
   case Map.lookup x ps of
     Just (PlaceName s x') -> pure (LocalName x', s)
     Nothing -> case Map.lookup x fs of
@@ -581,7 +583,8 @@ hoistVarOcc' x = do
 
 infoForSort :: Sort -> HoistM Info
 infoForSort (AllocH aa) = do
-  HoistEnv _ _ iplaces ifields <- ask
+  iplaces <- asks localInfos
+  ifields <- asks envInfos
   case Map.lookup aa iplaces of
     Just (InfoName aa') -> pure (LocalInfo aa')
     Nothing -> case Map.lookup aa ifields of
@@ -606,7 +609,7 @@ withPlace x s m = do
 
 makePlace :: C.Name -> C.Sort -> HoistM PlaceName
 makePlace x s = do
-  HoistEnv places _ _ _ <- ask
+  places <- asks localPlaces
   go x places
   where
     -- I think this is fine. We might shadow local names, which is bad, but
@@ -687,9 +690,9 @@ pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
   indent n (show f ++ " " ++ env ++ " (" ++ intercalate ", " (map pprintParam params) ++ ") =\n") ++
   pprintTerm (n+2) e
   where
-    env = name ++ " : {" ++ envInfos ++ "; " ++ envFields ++ "}"
-    envInfos = intercalate ", " (map pprintInfo is)
-    envFields = intercalate ", " (map (pprintField . fst) fs)
+    env = name ++ " : {" ++ infoFields ++ "; " ++ valueFields ++ "}"
+    infoFields = intercalate ", " (map pprintInfo is)
+    valueFields = intercalate ", " (map (pprintField . fst) fs)
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p _t d env) =
