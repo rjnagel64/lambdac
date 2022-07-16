@@ -108,11 +108,7 @@ withParams (PlaceParam p : params) m = withPlace p (withParams params m)
 
 checkClosureBody :: TermH -> TC ()
 -- checkClosureBody (HaltH x s) = checkSort s *> checkName x s
--- TODO: Sort is not expressive enough to describe polymorphic closures
--- 'ThunkType' will need to be upgraded to work on ClosureParam, not Sort
--- newtype ThunkType = ThunkType [ThunkParam]
--- data ThunkParam = ThunkInfo | ThunkValue Sort ?
-checkClosureBody (InstH f ty ss ks) = throwError (NotImplemented "checkClosureBody InstH")
+checkClosureBody (OpenH f ty args) = throwError (NotImplemented "checkClosureBody OpenH")
 checkClosureBody (LetPrimH p prim e) = do
   s <- checkPrimOp prim
   equalSorts s (placeSort p)

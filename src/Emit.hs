@@ -270,10 +270,8 @@ emitClosureBody envp (AllocClosure cs e) =
   emitClosureBody envp e
 emitClosureBody envp (HaltH x i) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp i ++ ");"]
-emitClosureBody envp (OpenH c ty xs) =
-  [emitSuspend envp c ty (map ValueArg xs)]
-emitClosureBody envp (InstH f ty is ks) =
-  [emitSuspend envp f ty (map TypeArg is ++ map ValueArg ks)]
+emitClosureBody envp (OpenH c ty args) =
+  [emitSuspend envp c ty args]
 emitClosureBody envp (CaseH x kind ks) =
   emitCase kind envp x ks
 

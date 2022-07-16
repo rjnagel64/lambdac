@@ -128,10 +128,7 @@ data TermH
   -- 'let value x = fst y in e'
   | LetProjectH PlaceName Name Projection TermH
   | HaltH Name Info
-  -- TODO: Open a closure, by providing a spine of arguments.
-  -- (Unify OpenH and InstH)
-  | OpenH Name ThunkType [Name]
-  | InstH Name ThunkType [Info] [Name]
+  | OpenH Name ThunkType [ClosureArg]
   | CaseH Name CaseKind [(Name, ThunkType)]
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
@@ -340,10 +337,10 @@ hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = (\ (x', i) -> HaltH x' i) <$> hoistVarOcc'' x
 hoist (JumpC k xs) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' xs
-  OpenH <$> hoistVarOcc k <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
+  OpenH <$> hoistVarOcc k <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure (map ValueArg ys)
 hoist (CallC f xs ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' (xs ++ ks)
-  OpenH <$> hoistVarOcc f <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
+  OpenH <$> hoistVarOcc f <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure (map ValueArg ys)
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
@@ -353,11 +350,12 @@ hoist (CaseC x t ks) = do
   pure $ CaseH x' kind ks'
 hoist (InstC f ts ks) = do
   (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
-  -- TODO: It would be better if OpenH/InstH looked up the thunk type of the
+  -- TODO: It would be better if OpenH looked up the thunk type of the
   -- head, rather than trying to reconstruct it.
   let infoSorts = replicate (length ts) ThunkInfoArg
   let ty = ThunkType (infoSorts ++ map ThunkValueArg ss)
-  InstH <$> hoistVarOcc f <*> pure ty <*> traverse (infoForSort' . sortOf) ts <*> pure ys
+  ts' <- traverse (infoForSort' . sortOf) ts
+  OpenH <$> hoistVarOcc f <*> pure ty <*> pure (map TypeArg ts' ++ map ValueArg ys)
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -610,12 +608,11 @@ indent n s = replicate n ' ' ++ s
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH x _) = indent n $ "HALT " ++ show x ++ ";\n"
-pprintTerm n (OpenH c _ xs) = indent n $ show c ++ " " ++ intercalate " " (map show xs) ++ ";\n"
+pprintTerm n (OpenH c _ args) =
+  indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
   let branches = intercalate " | " (map (show . fst) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
-pprintTerm n (InstH f _ty is ks) =
-  indent n $ intercalate " @" (show f : map show is) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetProjectH x y p e) =
@@ -627,6 +624,10 @@ pprintTerm n (LetPrimH x p e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintPrim p ++ ";\n") ++ pprintTerm n e
 pprintTerm n (AllocClosure cs e) =
   indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
+
+pprintClosureArg :: ClosureArg -> String
+pprintClosureArg (TypeArg i) = '@' : show i
+pprintClosureArg (ValueArg x) = show x
 
 pprintValue :: ValueH -> String
 pprintValue (PairH _ _ x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
