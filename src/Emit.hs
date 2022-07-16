@@ -282,10 +282,12 @@ emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep a
     args = emitName envp cl : zipWith makeArg ss xs
 
     makeArg ThunkInfoArg (TypeArg i) = emitInfo envp i
-    makeArg (ThunkValueArg s) (ValueArg y) = case s of
-      -- TODO: Emit proper type info for arguments of sort AllocH
-      AllocH aa -> emitName envp y ++ ", " ++ emitInfo envp (infoForSort (AllocH aa))
-      _ -> emitName envp y
+    makeArg (ThunkValueArg (AllocH _)) (OpaqueArg y i) = emitName envp y ++ ", " ++ emitInfo envp i
+    makeArg (ThunkValueArg _) (OpaqueArg _ _) =
+      error "only 'alloc' thunk args should be passed as opaque values"
+    makeArg (ThunkValueArg (AllocH _)) (ValueArg _) =
+      error "'alloc' thunk args should be opaque values"
+    makeArg (ThunkValueArg _) (ValueArg y) = emitName envp y
     makeArg _ _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
 

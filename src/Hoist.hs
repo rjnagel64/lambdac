@@ -133,7 +133,9 @@ data TermH
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
-data ClosureArg = ValueArg Name | TypeArg Info
+-- TODO: OpaqueArg Name Info
+-- This will let me emit proper info for polymorphic arguments.
+data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
 
 -- TODO(eventually): bring back generic case expressions
 data CaseKind = CaseBool | CaseSum | CaseList
@@ -266,6 +268,7 @@ deriving newtype instance Monoid ClosureDecls
 -- a binding structure. (Or does it?)
 data ThunkType = ThunkType [ThunkArg]
 
+-- TODO: Does this need an 'OpaqueArg' analogue?
 data ThunkArg
   = ThunkValueArg Sort
   | ThunkInfoArg
@@ -336,11 +339,22 @@ tellClosures cs = tell (ClosureDecls cs, ts)
 hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = (\ (x', i) -> HaltH x' i) <$> hoistVarOcc'' x
 hoist (JumpC k xs) = do
-  (ys, ss) <- unzip <$> traverse hoistVarOcc' xs
-  OpenH <$> hoistVarOcc k <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure (map ValueArg ys)
+  (ys, ss) <- hoistArgList xs
+  -- (ys, ss) <- unzip <$> traverse hoistVarOcc' xs
+  OpenH <$> hoistVarOcc k <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
 hoist (CallC f xs ks) = do
-  (ys, ss) <- unzip <$> traverse hoistVarOcc' (xs ++ ks)
-  OpenH <$> hoistVarOcc f <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure (map ValueArg ys)
+  (ys, ss) <- hoistArgList (xs ++ ks)
+  -- (ys, ss) <- unzip <$> traverse hoistVarOcc' (xs ++ ks)
+  OpenH <$> hoistVarOcc f <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
+hoist (InstC f ts ks) = do
+  (ys, ss) <- hoistArgList ks
+  -- (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
+  -- TODO: It would be better if OpenH looked up the thunk type of the
+  -- head, rather than trying to reconstruct it.
+  let infoSorts = replicate (length ts) ThunkInfoArg
+  let ty = ThunkType (infoSorts ++ map ThunkValueArg ss)
+  ts' <- traverse (infoForSort' . sortOf) ts
+  OpenH <$> hoistVarOcc f <*> pure ty <*> pure (map TypeArg ts' ++ ys)
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
@@ -348,14 +362,6 @@ hoist (CaseC x t ks) = do
     k' <- hoistVarOcc k
     pure (k', ThunkType (map (ThunkValueArg . sortOf) ss))
   pure $ CaseH x' kind ks'
-hoist (InstC f ts ks) = do
-  (ys, ss) <- unzip <$> traverse hoistVarOcc' ks
-  -- TODO: It would be better if OpenH looked up the thunk type of the
-  -- head, rather than trying to reconstruct it.
-  let infoSorts = replicate (length ts) ThunkInfoArg
-  let ty = ThunkType (infoSorts ++ map ThunkValueArg ss)
-  ts' <- traverse (infoForSort' . sortOf) ts
-  OpenH <$> hoistVarOcc f <*> pure ty <*> pure (map TypeArg ts' ++ map ValueArg ys)
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
@@ -421,7 +427,7 @@ hoist (LetAbsC fs e) = do
 
 hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
 hoistEnvDef (C.EnvDef tys free rec) =
-  let tys' = map (\ (C.TyVar aa) -> (InfoName aa, LocalInfo aa)) tys in
+  let tys' = map (\ (C.TyVar aa) -> (InfoName aa, EnvInfo aa)) tys in
   EnvAlloc tys' <$> traverse envAllocField free <*> traverse envAllocField rec
 
 envAllocField :: (C.Name, C.Sort) -> HoistM (FieldName, Name)
@@ -553,6 +559,15 @@ hoistVarOcc' x = do
     Nothing -> case Map.lookup x fs of
       Just (FieldName s x') -> pure (EnvName x', s)
       Nothing -> error ("not in scope: " ++ show x)
+
+hoistArgList :: [C.Name] -> HoistM ([ClosureArg], [Sort])
+hoistArgList xs = unzip <$> traverse f xs
+  where
+    f x = hoistVarOcc' x >>= \ (x', s) -> case s of
+      AllocH _ -> do
+        i <- infoForSort' s
+        pure (OpaqueArg x' i, s)
+      _ -> pure (ValueArg x', s)
 
 -- | Hoist a variable occurrence, and also retrieve the @type_info@ that describes it.
 hoistVarOcc'' :: C.Name -> HoistM (Name, Info)
