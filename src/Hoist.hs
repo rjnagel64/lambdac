@@ -54,27 +54,8 @@ import Data.Function (on)
 import qualified CC as C
 import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..))
 
--- TODO: The whole PlaceName/FieldName and LocalName/EnvName feels messy
--- Especially because I need to add some form of name capable of referring to type_info.
---
--- * FieldName is not really that useful??
--- * PlaceName gets used for lots of things: parameters, local variables, etc.
--- * LocalName/EnvName: Could I generalize this to 'LocalName String | ProjectField Name String'?
---   If 'ClosureDecl' gives a name to the environment pointer, environment accesses would look like
---   'ProjectField (LocalName "envp") "x"'. I currently only need one level,
---   but it probably would be useful to make "the thing being projected from" a
---   name reference in its own right.
---   Tracing a thunk declaration could also make use of such a type.
---   (maybe I could even do something weird and add a 'CastField Name Sort' ctor to do stuff)
-
--- This is only for free occurrences? Binders use a different type for names? Yeah.
--- LocalName is for 'x'
--- EnvName is for 'env->q'
---
--- Local names are bound by places; environment names are bound by fields.
--- (Actually, local/place and env/field are pretty much the same, but place and
--- field have sorts as well)
---
+-- | A 'Name' refers to a 'PlaceName'. It is either a 'PlaceName' in the local
+-- scope, or in the environment scope.
 -- TODO: FieldName -> PlaceName. PlaceName -> Place Id Sort; newtype Id = String
 data Name = LocalName String | EnvName String
   deriving (Eq, Ord)
@@ -86,11 +67,16 @@ instance Show Name where
 -- Place names declare a reference to an object: value, function, or continuation.
 -- They are used as parameters and also as local temporaries.
 -- TODO: Unify PlaceName and FieldName
+
+-- | A 'PlaceName' is a location that can hold a value. It has an identifier
+-- and a sort that specifies what values can be stored there.
 data PlaceName = PlaceName { placeSort :: Sort, placeName :: String }
 
 asPlaceName :: C.Sort -> C.Name -> PlaceName
 asPlaceName s (C.Name x i) = PlaceName (sortOf s) (x ++ show i)
 
+-- | A 'InfoName' is a location that can hold a @type_info@.
+-- TODO: 'InfoName' -> 'InfoPlace'
 data InfoName = InfoName { infoName :: String }
 
 asInfoName :: C.TyVar -> InfoName
@@ -100,6 +86,7 @@ asInfoName (C.TyVar aa) = InfoName aa
 -- | 'DeclName's are used to refer to top-level functions and continuations.
 -- They are introduced by (hoisting) function/continuation closure bingings,
 -- and used when allocating function/continuation closures.
+-- TODO: 'DeclName' -> 'ClosureName'
 newtype DeclName = DeclName String
   deriving (Eq, Ord)
 
@@ -128,8 +115,6 @@ data TermH
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
--- TODO: OpaqueArg Name Info
--- This will let me emit proper info for polymorphic arguments.
 data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
 
 -- TODO(eventually): bring back generic case expressions
@@ -237,19 +222,9 @@ instance Show Info where
   show ClosureInfo = "$closure"
   show ListInfo = "$list"
 
--- Note: FieldName:s should not be nested? after closure conversion, all names
--- in a definition are either parameters, local temporaries, or environment
--- field references.
---
--- TODO: HoistEnv should map closure names to thunk types
-data HoistEnv
-  = HoistEnv {
-      localPlaces :: Map C.Name PlaceName
-    , envPlaces :: Map C.Name PlaceName
-    , localInfos :: Map C.TyVar InfoName
-    , envInfos :: Map C.TyVar InfoName
-  }
+data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
 
+data Scope = Scope { scopePlaces :: Map C.Name PlaceName, scopeInfos :: Map C.TyVar InfoName }
 
 newtype ClosureDecls = ClosureDecls [ClosureDecl]
 
@@ -304,7 +279,9 @@ deriving newtype instance MonadState (Set DeclName) HoistM
 
 runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
 runHoist = second (second Set.toList) . runWriter .  flip evalStateT Set.empty .  flip runReaderT emptyEnv .  runHoistM
-  where emptyEnv = HoistEnv mempty mempty mempty mempty
+  where
+    emptyEnv = HoistEnv emptyScope emptyScope
+    emptyScope = Scope Map.empty Map.empty
 
 tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs, ts)
@@ -444,7 +421,7 @@ envAllocField (x, s) = do
 
 placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(DeclName, a)] -> ([(PlaceName, DeclName, a)] -> HoistM r) -> HoistM r
 placesForClosureAllocs closureName closureSort cdecls kont = do
-  scope <- asks localPlaces
+  scope <- asks (scopePlaces . localScope)
   let
     pickPlace sc (d, def) =
       let (cname, csort) = (closureName def, closureSort def) in
@@ -455,7 +432,7 @@ placesForClosureAllocs closureName closureSort cdecls kont = do
       Nothing -> c
       Just _ -> go sc (C.prime c)
   let (scope', cplaces) = mapAccumL pickPlace scope cdecls
-  let extend (HoistEnv _ fields iplaces ifields) = HoistEnv scope' fields iplaces ifields
+  let extend (HoistEnv (Scope _ fields) env) = HoistEnv (Scope scope' fields) env
   local extend (kont cplaces)
 
 
@@ -535,7 +512,9 @@ inClosure (C.EnvDef tys free rec) typlaces places m = do
   let places' = map (\ (x, s) -> (x, asPlaceName s x)) places
   let tyfields' = map (\aa -> (aa, asInfoName aa)) tys
   let typlaces' = map (\aa -> (aa, asInfoName aa)) typlaces
-  let replaceEnv _oldEnv = HoistEnv (Map.fromList places') (Map.fromList fields') (Map.fromList typlaces') (Map.fromList tyfields')
+  let newLocals = Scope (Map.fromList places') (Map.fromList typlaces')
+  let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
+  let replaceEnv _oldEnv = HoistEnv newLocals newEnv
   r <- local replaceEnv m
   -- TODO: consider typlaces in scope when picking environment name.
   let inScopeNames = map (placeName . snd) fields' ++ map (placeName . snd) places' ++ map (infoName . snd) tyfields' 
@@ -549,8 +528,8 @@ inClosure (C.EnvDef tys free rec) typlaces places m = do
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
 hoistVarOcc x = do
-  ps <- asks localPlaces
-  fs <- asks envPlaces
+  ps <- asks (scopePlaces . localScope)
+  fs <- asks (scopePlaces . envScope)
   case Map.lookup x ps of
     Just (PlaceName _ x') -> pure (LocalName x')
     Nothing -> case Map.lookup x fs of
@@ -560,8 +539,8 @@ hoistVarOcc x = do
 -- | Hoist a variable occurrence, and also retrieve its sort.
 hoistVarOccSort :: C.Name -> HoistM (Name, Sort)
 hoistVarOccSort x = do
-  ps <- asks localPlaces
-  fs <- asks envPlaces
+  ps <- asks (scopePlaces . localScope)
+  fs <- asks (scopePlaces . envScope)
   case Map.lookup x ps of
     Just (PlaceName s x') -> pure (LocalName x', s)
     Nothing -> case Map.lookup x fs of
@@ -586,8 +565,8 @@ hoistVarOcc' x = do
 
 infoForSort :: Sort -> HoistM Info
 infoForSort (AllocH aa) = do
-  iplaces <- asks localInfos
-  ifields <- asks envInfos
+  iplaces <- asks (scopeInfos . localScope)
+  ifields <- asks (scopeInfos . envScope)
   case Map.lookup aa iplaces of
     Just (InfoName aa') -> pure (LocalInfo aa')
     Nothing -> case Map.lookup aa ifields of
@@ -606,13 +585,13 @@ infoForSort (ClosureH _) = pure ClosureInfo
 withPlace :: C.Name -> C.Sort -> HoistM a -> HoistM (PlaceName, a)
 withPlace x s m = do
   x' <- makePlace x s
-  let f (HoistEnv places fields iplaces ifields) = HoistEnv (Map.insert x x' places) fields iplaces ifields
+  let f (HoistEnv (Scope places fields) env) = HoistEnv (Scope (Map.insert x x' places) fields) env
   a <- local f m
   pure (x', a)
 
 makePlace :: C.Name -> C.Sort -> HoistM PlaceName
 makePlace x s = do
-  places <- asks localPlaces
+  places <- asks (scopePlaces . localScope)
   go x places
   where
     -- I think this is fine. We might shadow local names, which is bad, but
