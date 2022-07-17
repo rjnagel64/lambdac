@@ -15,6 +15,7 @@ module Hoist
     , Sort(..)
     , Name(..)
     , Info(..)
+    , Id(..)
     , ThunkType(..)
     , ThunkArg(..)
     , thunkTypeCode
@@ -54,33 +55,36 @@ import Data.Function (on)
 import qualified CC as C
 import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..))
 
+-- | An 'Id' is any type of identifier.
+newtype Id = Id String
+  deriving (Eq, Ord)
+
+instance Show Id where
+  show (Id x) = x
+
 -- | A 'Name' refers to a 'PlaceName'. It is either a 'PlaceName' in the local
 -- scope, or in the environment scope.
 -- TODO: FieldName -> PlaceName. PlaceName -> Place Id Sort; newtype Id = String
-data Name = LocalName String | EnvName String
+data Name = LocalName Id | EnvName Id
   deriving (Eq, Ord)
 
 instance Show Name where
-  show (LocalName x) = x
-  show (EnvName x) = "@." ++ x
-
--- Place names declare a reference to an object: value, function, or continuation.
--- They are used as parameters and also as local temporaries.
--- TODO: Unify PlaceName and FieldName
+  show (LocalName x) = show x
+  show (EnvName x) = "@." ++ show x
 
 -- | A 'PlaceName' is a location that can hold a value. It has an identifier
 -- and a sort that specifies what values can be stored there.
-data PlaceName = PlaceName { placeSort :: Sort, placeName :: String }
+data PlaceName = PlaceName { placeSort :: Sort, placeName :: Id }
 
 asPlaceName :: C.Sort -> C.Name -> PlaceName
-asPlaceName s (C.Name x i) = PlaceName (sortOf s) (x ++ show i)
+asPlaceName s (C.Name x i) = PlaceName (sortOf s) (Id (x ++ show i))
 
 -- | A 'InfoName' is a location that can hold a @type_info@.
 -- TODO: 'InfoName' -> 'InfoPlace'
-data InfoName = InfoName { infoName :: String }
+data InfoName = InfoName { infoName :: Id }
 
 asInfoName :: C.TyVar -> InfoName
-asInfoName (C.TyVar aa) = InfoName aa
+asInfoName (C.TyVar aa) = InfoName (Id aa)
 
 
 -- | 'DeclName's are used to refer to top-level functions and continuations.
@@ -98,7 +102,7 @@ asDeclName (C.Name x i) = DeclName (x ++ show i)
 
 
 data ClosureDecl
-  = ClosureDecl DeclName (String, EnvDecl) [ClosureParam] TermH
+  = ClosureDecl DeclName (Id, EnvDecl) [ClosureParam] TermH
 
 data EnvDecl = EnvDecl [InfoName] [(PlaceName, Info)]
 
@@ -193,9 +197,9 @@ sortOf (C.Alloc aa) = AllocH aa
 -- This is dynamic information.
 data Info
   -- @a0@
-  = LocalInfo String
+  = LocalInfo Id
   -- @env->b1@
-  | EnvInfo String
+  | EnvInfo Id
   -- @int64_info@
   | Int64Info
   -- @bool_info@
@@ -212,8 +216,8 @@ data Info
   | ListInfo
 
 instance Show Info where
-  show (LocalInfo aa) = '$' : aa
-  show (EnvInfo aa) = "$." ++ aa
+  show (LocalInfo aa) = '$' : show aa
+  show (EnvInfo aa) = "$." ++ show aa
   show Int64Info = "$int64"
   show BoolInfo = "$bool"
   show UnitInfo = "$unit"
@@ -493,18 +497,18 @@ hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
 
 -- | Pick a name for the environment parameter, that will not clash with
 -- anything already in scope.
-pickEnvironmentName :: Set String -> String
+pickEnvironmentName :: Set Id -> Id
 pickEnvironmentName sc = go (0 :: Int)
   where
     go i =
-      let envp = "env" ++ show i in
+      let envp = Id ("env" ++ show i) in
       if Set.member envp sc then go (i+1) else envp
 
 -- | Replace the set of fields and places in the environment, while leaving the
 -- set of declaration names intact. This is because inside a closure, all names
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((String, EnvDecl), [PlaceName], a)
+inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [PlaceName], a)
 inClosure (C.EnvDef tys free rec) typlaces places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields = free ++ rec
@@ -652,10 +656,10 @@ pprintPrim (PrimGtInt64 x y) = "prim_gtint64(" ++ show x ++ ", " ++ show y ++ ")
 pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintPlace :: PlaceName -> String
-pprintPlace (PlaceName s x) = pprintSort s ++ " " ++ x
+pprintPlace (PlaceName s x) = pprintSort s ++ " " ++ show x
 
 pprintInfo :: InfoName -> String
-pprintInfo (InfoName aa) = aa
+pprintInfo (InfoName aa) = show aa
 
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
@@ -669,7 +673,7 @@ pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
   indent n (show f ++ " " ++ env ++ " (" ++ intercalate ", " (map pprintParam params) ++ ") =\n") ++
   pprintTerm (n+2) e
   where
-    env = name ++ " : {" ++ infoFields ++ "; " ++ valueFields ++ "}"
+    env = show name ++ " : {" ++ infoFields ++ "; " ++ valueFields ++ "}"
     infoFields = intercalate ", " (map pprintInfo is)
     valueFields = intercalate ", " (map (pprintPlace . fst) fs)
 
