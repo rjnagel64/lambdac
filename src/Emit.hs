@@ -139,7 +139,7 @@ emitThunkType ty@(ThunkType ss) =
     mkField i ThunkInfoArg = "    type_info arg" ++ show i ++ ";\n"
     mkField i (ThunkValueArg s) = case s of
       AllocH _ -> "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
-      _ -> "    " ++ emitFieldDecl (FieldName s ("arg" ++ show i)) ++ ";"
+      _ -> "    " ++ emitFieldDecl (PlaceName s ("arg" ++ show i)) ++ ";"
 
 emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace ty@(ThunkType ss) =
@@ -231,7 +231,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
     params = map emitInfoDecl is ++ map (emitFieldDecl . fst) fs
 
     assignInfo (InfoName aa) = "    env->" ++ aa ++ " = " ++ aa ++ ";"
-    assignField (FieldName _ x, _) = "    env->" ++ x ++ " = " ++ x ++ ";"
+    assignField (PlaceName _ x, _) = "    env->" ++ x ++ " = " ++ x ++ ";"
 
 -- | Emit a method to trace a closure environment.
 -- (And also emit type info for the environment types)
@@ -244,7 +244,7 @@ emitEnvTrace ns (EnvDecl _is fs) =
   ,"type_info " ++ closureEnvName ns ++ "_info = { " ++ closureTraceName ns ++ ", display_env };"]
   where
     closureTy = "struct " ++ closureEnvName ns ++ " *"
-    traceField (FieldName _ x, i) = "    " ++ emitMarkGray "env" (EnvName x) i ++ ";"
+    traceField (PlaceName _ x, i) = "    " ++ emitMarkGray "env" (EnvName x) i ++ ";"
 
 emitClosureCode :: ClosureNames -> String -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
@@ -380,11 +380,11 @@ emitPatch ns (PlaceName _ p) (EnvAlloc _info _free rec) =
   concatMap patchField rec
   where
     env = "((struct " ++ closureEnvName ns ++ " *)" ++ p ++ "->env)"
-    patchField (FieldName _ f, LocalName x) = ["    " ++ env ++ "->" ++ f ++ " = " ++ x ++ ";"]
+    patchField (PlaceName _ f, LocalName x) = ["    " ++ env ++ "->" ++ f ++ " = " ++ x ++ ";"]
     patchField (_, EnvName _) = [] -- Why ignore environment names?
 
-emitFieldDecl :: FieldName -> String
-emitFieldDecl (FieldName s x) = typeForSort s ++ x
+emitFieldDecl :: PlaceName -> String
+emitFieldDecl (PlaceName s x) = typeForSort s ++ x
 
 emitInfoDecl :: InfoName -> String
 emitInfoDecl (InfoName i) = "type_info " ++ i

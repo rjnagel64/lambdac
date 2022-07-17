@@ -107,7 +107,9 @@ withParams (PlaceParam p : params) m = withPlace p (withParams params m)
 --   where extend (Context names tys) = Context names (Set.insert i tys)
 
 checkClosureBody :: TermH -> TC ()
--- checkClosureBody (HaltH x s) = checkSort s *> checkName x s
+checkClosureBody (HaltH x i) = do
+  s <- lookupName x
+  checkInfo s i
 checkClosureBody (OpenH f ty args) = throwError (NotImplemented "checkClosureBody OpenH")
 checkClosureBody (LetPrimH p prim e) = do
   s <- checkPrimOp prim
@@ -151,5 +153,7 @@ checkSort (ProductH t s) = checkSort t *> checkSort s
 checkSort (ListH t) = checkSort t
 checkSort (ClosureH ss) = traverse_ checkSort ss
 
-checkThunkType :: ThunkType -> TC ()
-checkThunkType (ThunkType ss) = throwError (NotImplemented "checkThunkType")
+checkInfo :: Sort -> Info -> TC ()
+checkInfo (AllocH aa) (LocalInfo bb) = throwError (NotImplemented "checkInfo LocalInfo")
+checkInfo (AllocH aa) (EnvInfo bb) = throwError (NotImplemented "checkInfo EnvInfo")
+checkInfo IntegerH Int64Info = pure ()

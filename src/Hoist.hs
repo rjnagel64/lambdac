@@ -19,7 +19,6 @@ module Hoist
     , ThunkArg(..)
     , thunkTypeCode
     , PlaceName(..)
-    , FieldName(..)
     , InfoName(..)
     , DeclName(..)
     , ClosureDecl(..)
@@ -75,6 +74,8 @@ import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..))
 -- Local names are bound by places; environment names are bound by fields.
 -- (Actually, local/place and env/field are pretty much the same, but place and
 -- field have sorts as well)
+--
+-- TODO: FieldName -> PlaceName. PlaceName -> Place Id Sort; newtype Id = String
 data Name = LocalName String | EnvName String
   deriving (Eq, Ord)
 
@@ -87,13 +88,8 @@ instance Show Name where
 -- TODO: Unify PlaceName and FieldName
 data PlaceName = PlaceName { placeSort :: Sort, placeName :: String }
 
-data FieldName = FieldName { fieldSort :: Sort, fieldName :: String }
-
 asPlaceName :: C.Sort -> C.Name -> PlaceName
 asPlaceName s (C.Name x i) = PlaceName (sortOf s) (x ++ show i)
-
-asFieldName :: C.Sort -> C.Name -> FieldName
-asFieldName s (C.Name x i) = FieldName (sortOf s) (x ++ show i)
 
 data InfoName = InfoName { infoName :: String }
 
@@ -117,7 +113,7 @@ asDeclName (C.Name x i) = DeclName (x ++ show i)
 data ClosureDecl
   = ClosureDecl DeclName (String, EnvDecl) [ClosureParam] TermH
 
-data EnvDecl = EnvDecl [InfoName] [(FieldName, Info)]
+data EnvDecl = EnvDecl [InfoName] [(PlaceName, Info)]
 
 data ClosureParam = PlaceParam PlaceName | TypeParam InfoName
 
@@ -159,8 +155,8 @@ data ClosureAlloc
 data EnvAlloc
   = EnvAlloc {
     envAllocInfoArgs :: [(InfoName, Info)]
-  , envAllocFreeArgs :: [(FieldName, Name)]
-  , envAllocRecArgs :: [(FieldName, Name)]
+  , envAllocFreeArgs :: [(PlaceName, Name)]
+  , envAllocRecArgs :: [(PlaceName, Name)]
   }
 
 data ValueH
@@ -194,6 +190,7 @@ data Sort
   | ProductH Sort Sort
   | ListH Sort
   | ClosureH [Sort]
+  -- TODO: Should Hoist.Sort really be using CC.TyVar? Introduce Hoist.TyVar
   | AllocH C.TyVar
   deriving (Eq, Ord)
 
@@ -248,7 +245,7 @@ instance Show Info where
 data HoistEnv
   = HoistEnv {
       localPlaces :: Map C.Name PlaceName
-    , envPlaces :: Map C.Name FieldName
+    , envPlaces :: Map C.Name PlaceName
     , localInfos :: Map C.TyVar InfoName
     , envInfos :: Map C.TyVar InfoName
   }
@@ -268,6 +265,10 @@ deriving newtype instance Monoid ClosureDecls
 data ThunkType = ThunkType [ThunkArg]
 
 -- TODO: Does this need an 'OpaqueArg' analogue?
+-- More generally, is a 'Sort' really the right thing to use here?
+-- ThunkType/ThunkArg are more for specifying the calling convention, an opaque
+-- "this closure expects an integer, an opaque value, and a closure" as
+-- arguments rather than the actual details of the argument types.
 data ThunkArg
   = ThunkValueArg Sort
   | ThunkInfoArg
@@ -291,6 +292,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
+-- TODO: Use 'Map DeclName ThunkType' instead of 'Set DeclName'?
 newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer (ClosureDecls, Set ThunkType))) a }
 
 deriving newtype instance Functor HoistM
@@ -433,9 +435,9 @@ envAllocInfo aa = do
   i <- infoForSort (AllocH aa)
   pure (info, i)
 
-envAllocField :: (C.Name, C.Sort) -> HoistM (FieldName, Name)
+envAllocField :: (C.Name, C.Sort) -> HoistM (PlaceName, Name)
 envAllocField (x, s) = do
-  let field = asFieldName s x
+  let field = asPlaceName s x
   x' <- hoistVarOcc x
   pure (field, x')
 
@@ -464,7 +466,8 @@ declareClosureNames closureName cs =
       pickName f ds =
         let d = asDeclName f in
         if Set.member d ds then pickName (C.prime f) ds else (d, Set.insert d ds)
-    (d, decls') <- pickName (closureName def) <$> get
+    decls <- get
+    let (d, decls') = pickName (closureName def) decls
     put decls'
     pure (d, def)
 
@@ -528,17 +531,17 @@ inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM (
 inClosure (C.EnvDef tys free rec) typlaces places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields = free ++ rec
-  let fields' = map (\ (x, s) -> (x, asFieldName s x)) fields
+  let fields' = map (\ (x, s) -> (x, asPlaceName s x)) fields
   let places' = map (\ (x, s) -> (x, asPlaceName s x)) places
   let tyfields' = map (\aa -> (aa, asInfoName aa)) tys
   let typlaces' = map (\aa -> (aa, asInfoName aa)) typlaces
   let replaceEnv _oldEnv = HoistEnv (Map.fromList places') (Map.fromList fields') (Map.fromList typlaces') (Map.fromList tyfields')
   r <- local replaceEnv m
   -- TODO: consider typlaces in scope when picking environment name.
-  let inScopeNames = map (fieldName . snd) fields' ++ map (placeName . snd) places' ++ map (infoName . snd) tyfields' 
+  let inScopeNames = map (placeName . snd) fields' ++ map (placeName . snd) places' ++ map (infoName . snd) tyfields' 
   let name = pickEnvironmentName (Set.fromList inScopeNames)
 
-  let mkFieldInfo' f = infoForSort (fieldSort f)
+  let mkFieldInfo' f = infoForSort (placeSort f)
   fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
   pure ((name, EnvDecl (map snd tyfields') fieldsWithInfo), map snd places', r)
 
@@ -551,7 +554,7 @@ hoistVarOcc x = do
   case Map.lookup x ps of
     Just (PlaceName _ x') -> pure (LocalName x')
     Nothing -> case Map.lookup x fs of
-      Just (FieldName _ x') -> pure (EnvName x')
+      Just (PlaceName _ x') -> pure (EnvName x')
       Nothing -> error ("not in scope: " ++ show x)
 
 -- | Hoist a variable occurrence, and also retrieve its sort.
@@ -562,7 +565,7 @@ hoistVarOccSort x = do
   case Map.lookup x ps of
     Just (PlaceName s x') -> pure (LocalName x', s)
     Nothing -> case Map.lookup x fs of
-      Just (FieldName s x') -> pure (EnvName x', s)
+      Just (PlaceName s x') -> pure (EnvName x', s)
       Nothing -> error ("not in scope: " ++ show x)
 
 hoistArgList :: [C.Name] -> HoistM ([ClosureArg], [Sort])
@@ -672,9 +675,6 @@ pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")
 pprintPlace :: PlaceName -> String
 pprintPlace (PlaceName s x) = pprintSort s ++ " " ++ x
 
-pprintField :: FieldName -> String
-pprintField (FieldName s x) = pprintSort s ++ " " ++ x
-
 pprintInfo :: InfoName -> String
 pprintInfo (InfoName aa) = aa
 
@@ -692,7 +692,7 @@ pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
   where
     env = name ++ " : {" ++ infoFields ++ "; " ++ valueFields ++ "}"
     infoFields = intercalate ", " (map pprintInfo is)
-    valueFields = intercalate ", " (map (pprintField . fst) fs)
+    valueFields = intercalate ", " (map (pprintPlace . fst) fs)
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p _t d env) =
@@ -705,8 +705,8 @@ pprintEnvAlloc (EnvAlloc info free rec) =
 pprintAllocInfo :: (InfoName, Info) -> String
 pprintAllocInfo (info, i) = "@" ++ pprintInfo info ++ " = " ++ show i
 
-pprintAllocArg :: (FieldName, Name) -> String
-pprintAllocArg (field, x) = pprintField field ++ " = " ++ show x
+pprintAllocArg :: (PlaceName, Name) -> String
+pprintAllocArg (field, x) = pprintPlace field ++ " = " ++ show x
 
 pprintThunkTypes :: [ThunkType] -> String
 pprintThunkTypes ts = unlines (map pprintThunkType ts)
