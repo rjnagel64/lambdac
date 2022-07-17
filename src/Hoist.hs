@@ -19,8 +19,8 @@ module Hoist
     , ThunkType(..)
     , ThunkArg(..)
     , thunkTypeCode
-    , PlaceName(..)
-    , InfoName(..)
+    , Place(..)
+    , InfoPlace(..)
     , DeclName(..)
     , ClosureDecl(..)
     , ClosureParam(..)
@@ -62,9 +62,8 @@ newtype Id = Id String
 instance Show Id where
   show (Id x) = x
 
--- | A 'Name' refers to a 'PlaceName'. It is either a 'PlaceName' in the local
+-- | A 'Name' refers to a 'Place'. It is either a 'Place' in the local
 -- scope, or in the environment scope.
--- TODO: FieldName -> PlaceName. PlaceName -> Place Id Sort; newtype Id = String
 data Name = LocalName Id | EnvName Id
   deriving (Eq, Ord)
 
@@ -72,19 +71,18 @@ instance Show Name where
   show (LocalName x) = show x
   show (EnvName x) = "@." ++ show x
 
--- | A 'PlaceName' is a location that can hold a value. It has an identifier
--- and a sort that specifies what values can be stored there.
-data PlaceName = PlaceName { placeSort :: Sort, placeName :: Id }
+-- | A 'Place' is a location that can hold a value. It has an identifier and a
+-- sort that specifies what values can be stored there.
+data Place = Place { placeSort :: Sort, placeName :: Id }
 
-asPlaceName :: C.Sort -> C.Name -> PlaceName
-asPlaceName s (C.Name x i) = PlaceName (sortOf s) (Id (x ++ show i))
+asPlace :: C.Sort -> C.Name -> Place
+asPlace s (C.Name x i) = Place (sortOf s) (Id (x ++ show i))
 
--- | A 'InfoName' is a location that can hold a @type_info@.
--- TODO: 'InfoName' -> 'InfoPlace'
-data InfoName = InfoName { infoName :: Id }
+-- | A 'InfoPlace' is a location that can hold a @type_info@.
+data InfoPlace = InfoPlace { infoName :: Id }
 
-asInfoName :: C.TyVar -> InfoName
-asInfoName (C.TyVar aa) = InfoName (Id aa)
+asInfoPlace :: C.TyVar -> InfoPlace
+asInfoPlace (C.TyVar aa) = InfoPlace (Id aa)
 
 
 -- | 'DeclName's are used to refer to top-level functions and continuations.
@@ -104,15 +102,15 @@ asDeclName (C.Name x i) = DeclName (x ++ show i)
 data ClosureDecl
   = ClosureDecl DeclName (Id, EnvDecl) [ClosureParam] TermH
 
-data EnvDecl = EnvDecl [InfoName] [(PlaceName, Info)]
+data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
 
-data ClosureParam = PlaceParam PlaceName | TypeParam InfoName
+data ClosureParam = PlaceParam Place | TypeParam InfoPlace
 
 data TermH
-  = LetValH PlaceName ValueH TermH
-  | LetPrimH PlaceName PrimOp TermH
+  = LetValH Place ValueH TermH
+  | LetPrimH Place PrimOp TermH
   -- 'let value x = fst y in e'
-  | LetProjectH PlaceName Name Projection TermH
+  | LetProjectH Place Name Projection TermH
   | HaltH Name Info
   | OpenH Name ThunkType [ClosureArg]
   | CaseH Name CaseKind [(Name, ThunkType)]
@@ -134,8 +132,8 @@ caseKind s = error ("cannot perform case analysis on sort " ++ show s)
 
 data ClosureAlloc
   = ClosureAlloc {
-    -- TODO: Make ClosureAlloc contain a PlaceName for the environment
-    closurePlace :: PlaceName
+    -- TODO: Make ClosureAlloc contain a Place for the environment
+    closurePlace :: Place
   , closureType :: ThunkType
   , closureDecl :: DeclName
   , closureEnv :: EnvAlloc
@@ -143,9 +141,9 @@ data ClosureAlloc
 
 data EnvAlloc
   = EnvAlloc {
-    envAllocInfoArgs :: [(InfoName, Info)]
-  , envAllocFreeArgs :: [(PlaceName, Name)]
-  , envAllocRecArgs :: [(PlaceName, Name)]
+    envAllocInfoArgs :: [(InfoPlace, Info)]
+  , envAllocFreeArgs :: [(Place, Name)]
+  , envAllocRecArgs :: [(Place, Name)]
   }
 
 data ValueH
@@ -228,7 +226,7 @@ instance Show Info where
 
 data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
 
-data Scope = Scope { scopePlaces :: Map C.Name PlaceName, scopeInfos :: Map C.TyVar InfoName }
+data Scope = Scope { scopePlaces :: Map C.Name Place, scopeInfos :: Map C.TyVar InfoPlace }
 
 newtype ClosureDecls = ClosureDecls [ClosureDecl]
 
@@ -410,27 +408,27 @@ hoistEnvDef (C.EnvDef tys free rec) =
     <*> traverse envAllocField free
     <*> traverse envAllocField rec
 
-envAllocInfo :: C.TyVar -> HoistM (InfoName, Info)
+envAllocInfo :: C.TyVar -> HoistM (InfoPlace, Info)
 envAllocInfo aa = do
-  let info = asInfoName aa
+  let info = asInfoPlace aa
   i <- infoForSort (AllocH aa)
   pure (info, i)
 
-envAllocField :: (C.Name, C.Sort) -> HoistM (PlaceName, Name)
+envAllocField :: (C.Name, C.Sort) -> HoistM (Place, Name)
 envAllocField (x, s) = do
-  let field = asPlaceName s x
+  let field = asPlace s x
   x' <- hoistVarOcc x
   pure (field, x')
 
 
-placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(DeclName, a)] -> ([(PlaceName, DeclName, a)] -> HoistM r) -> HoistM r
+placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(DeclName, a)] -> ([(Place, DeclName, a)] -> HoistM r) -> HoistM r
 placesForClosureAllocs closureName closureSort cdecls kont = do
   scope <- asks (scopePlaces . localScope)
   let
     pickPlace sc (d, def) =
       let (cname, csort) = (closureName def, closureSort def) in
       let c = go sc cname in
-      let p = asPlaceName csort c in
+      let p = asPlace csort c in
       (Map.insert cname p sc, (p, d, def))
     go sc c = case Map.lookup c sc of
       Nothing -> c
@@ -492,7 +490,7 @@ hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
 hoistAbsClosure :: (DeclName, C.AbsClosureDef) -> HoistM ClosureDecl
 hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
   (env', places', body') <- inClosure env as ks $ hoist body
-  let fd = ClosureDecl fdecl env' (map (TypeParam . asInfoName) as ++ map PlaceParam places') body'
+  let fd = ClosureDecl fdecl env' (map (TypeParam . asInfoPlace) as ++ map PlaceParam places') body'
   pure fd
 
 -- | Pick a name for the environment parameter, that will not clash with
@@ -508,14 +506,14 @@ pickEnvironmentName sc = go (0 :: Int)
 -- set of declaration names intact. This is because inside a closure, all names
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [PlaceName], a)
+inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [Place], a)
 inClosure (C.EnvDef tys free rec) typlaces places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields = free ++ rec
-  let fields' = map (\ (x, s) -> (x, asPlaceName s x)) fields
-  let places' = map (\ (x, s) -> (x, asPlaceName s x)) places
-  let tyfields' = map (\aa -> (aa, asInfoName aa)) tys
-  let typlaces' = map (\aa -> (aa, asInfoName aa)) typlaces
+  let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
+  let places' = map (\ (x, s) -> (x, asPlace s x)) places
+  let tyfields' = map (\aa -> (aa, asInfoPlace aa)) tys
+  let typlaces' = map (\aa -> (aa, asInfoPlace aa)) typlaces
   let newLocals = Scope (Map.fromList places') (Map.fromList typlaces')
   let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
   let replaceEnv _oldEnv = HoistEnv newLocals newEnv
@@ -535,9 +533,9 @@ hoistVarOcc x = do
   ps <- asks (scopePlaces . localScope)
   fs <- asks (scopePlaces . envScope)
   case Map.lookup x ps of
-    Just (PlaceName _ x') -> pure (LocalName x')
+    Just (Place _ x') -> pure (LocalName x')
     Nothing -> case Map.lookup x fs of
-      Just (PlaceName _ x') -> pure (EnvName x')
+      Just (Place _ x') -> pure (EnvName x')
       Nothing -> error ("not in scope: " ++ show x)
 
 -- | Hoist a variable occurrence, and also retrieve its sort.
@@ -546,9 +544,9 @@ hoistVarOccSort x = do
   ps <- asks (scopePlaces . localScope)
   fs <- asks (scopePlaces . envScope)
   case Map.lookup x ps of
-    Just (PlaceName s x') -> pure (LocalName x', s)
+    Just (Place s x') -> pure (LocalName x', s)
     Nothing -> case Map.lookup x fs of
-      Just (PlaceName s x') -> pure (EnvName x', s)
+      Just (Place s x') -> pure (EnvName x', s)
       Nothing -> error ("not in scope: " ++ show x)
 
 hoistArgList :: [C.Name] -> HoistM ([ClosureArg], [Sort])
@@ -572,9 +570,9 @@ infoForSort (AllocH aa) = do
   iplaces <- asks (scopeInfos . localScope)
   ifields <- asks (scopeInfos . envScope)
   case Map.lookup aa iplaces of
-    Just (InfoName aa') -> pure (LocalInfo aa')
+    Just (InfoPlace aa') -> pure (LocalInfo aa')
     Nothing -> case Map.lookup aa ifields of
-      Just (InfoName aa') -> pure (EnvInfo aa')
+      Just (InfoPlace aa') -> pure (EnvInfo aa')
       Nothing -> error ("not in scope: " ++ show aa)
 infoForSort IntegerH = pure Int64Info
 infoForSort BooleanH = pure BoolInfo
@@ -586,23 +584,23 @@ infoForSort (ClosureH _) = pure ClosureInfo
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.
-withPlace :: C.Name -> C.Sort -> HoistM a -> HoistM (PlaceName, a)
+withPlace :: C.Name -> C.Sort -> HoistM a -> HoistM (Place, a)
 withPlace x s m = do
   x' <- makePlace x s
   let f (HoistEnv (Scope places fields) env) = HoistEnv (Scope (Map.insert x x' places) fields) env
   a <- local f m
   pure (x', a)
 
-makePlace :: C.Name -> C.Sort -> HoistM PlaceName
+makePlace :: C.Name -> C.Sort -> HoistM Place
 makePlace x s = do
   places <- asks (scopePlaces . localScope)
   go x places
   where
     -- I think this is fine. We might shadow local names, which is bad, but
     -- environment references are guarded by 'env->'.
-    go :: C.Name -> Map C.Name PlaceName -> HoistM PlaceName
+    go :: C.Name -> Map C.Name Place -> HoistM Place
     go v ps = case Map.lookup v ps of
-      Nothing -> pure (asPlaceName s v)
+      Nothing -> pure (asPlace s v)
       Just _ -> go (C.prime v) ps
 
 
@@ -655,11 +653,11 @@ pprintPrim (PrimLeInt64 x y) = "prim_leint64(" ++ show x ++ ", " ++ show y ++ ")
 pprintPrim (PrimGtInt64 x y) = "prim_gtint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")"
 
-pprintPlace :: PlaceName -> String
-pprintPlace (PlaceName s x) = pprintSort s ++ " " ++ show x
+pprintPlace :: Place -> String
+pprintPlace (Place s x) = pprintSort s ++ " " ++ show x
 
-pprintInfo :: InfoName -> String
-pprintInfo (InfoName aa) = show aa
+pprintInfo :: InfoPlace -> String
+pprintInfo (InfoPlace aa) = show aa
 
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
@@ -685,10 +683,10 @@ pprintEnvAlloc :: EnvAlloc -> String
 pprintEnvAlloc (EnvAlloc info free rec) =
   "{" ++ intercalate ", " (map pprintAllocInfo info ++ map pprintAllocArg (free ++ rec)) ++ "}"
 
-pprintAllocInfo :: (InfoName, Info) -> String
+pprintAllocInfo :: (InfoPlace, Info) -> String
 pprintAllocInfo (info, i) = "@" ++ pprintInfo info ++ " = " ++ show i
 
-pprintAllocArg :: (PlaceName, Name) -> String
+pprintAllocArg :: (Place, Name) -> String
 pprintAllocArg (field, x) = pprintPlace field ++ " = " ++ show x
 
 pprintThunkTypes :: [ThunkType] -> String

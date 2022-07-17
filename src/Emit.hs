@@ -139,7 +139,7 @@ emitThunkType ty@(ThunkType ss) =
     mkField i ThunkInfoArg = "    type_info arg" ++ show i ++ ";\n"
     mkField i (ThunkValueArg s) = case s of
       AllocH _ -> "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
-      _ -> "    " ++ emitFieldDecl (PlaceName s (Id ("arg" ++ show i))) ++ ";"
+      _ -> "    " ++ emitFieldDecl (Place s (Id ("arg" ++ show i))) ++ ";"
 
 emitThunkTrace :: ThunkType -> [String]
 emitThunkTrace ty@(ThunkType ss) =
@@ -176,7 +176,7 @@ emitThunkEnter ty@(ThunkType ss) =
     ns = namesForThunk ty
     paramList = commaSep ("void *env" : mapWithIndex makeParam ss)
     makeParam i ThunkInfoArg = "type_info arg" ++ show i
-    makeParam i (ThunkValueArg s) = emitPlace (PlaceName s (Id ("arg" ++ show i)))
+    makeParam i (ThunkValueArg s) = emitPlace (Place s (Id ("arg" ++ show i)))
     argList = commaSep ("next->closure->env" : mapWithIndex makeArg ss)
     makeArg i _ = "next->arg" ++ show i
 
@@ -196,7 +196,7 @@ emitThunkSuspend ty@(ThunkType ss) =
     makeParam i ThunkInfoArg = "type_info arg" ++ show i
     makeParam i (ThunkValueArg s) = case s of
       AllocH _ -> "struct alloc_header *arg" ++ show i ++ ", type_info info" ++ show i
-      _ -> emitPlace (PlaceName s (Id ("arg" ++ show i)))
+      _ -> emitPlace (Place s (Id ("arg" ++ show i)))
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
 
 emitClosureDecl :: H.ClosureDecl -> [String]
@@ -232,8 +232,8 @@ emitEnvAlloc ns (EnvDecl is fs) =
     paramList = if null is && null fs then "void" else commaSep params
     params = map emitInfoDecl is ++ map (emitFieldDecl . fst) fs
 
-    assignInfo (InfoName aa) = "    env->" ++ show aa ++ " = " ++ show aa ++ ";"
-    assignField (PlaceName _ x, _) = "    env->" ++ show x ++ " = " ++ show x ++ ";"
+    assignInfo (InfoPlace aa) = "    env->" ++ show aa ++ " = " ++ show aa ++ ";"
+    assignField (Place _ x, _) = "    env->" ++ show x ++ " = " ++ show x ++ ";"
 
 -- | Emit a method to trace a closure environment.
 -- (And also emit type info for the environment types)
@@ -246,7 +246,7 @@ emitEnvTrace ns (EnvDecl _is fs) =
   ,"type_info " ++ closureEnvName ns ++ "_info = { " ++ closureTraceName ns ++ ", display_env };"]
   where
     closureTy = "struct " ++ closureEnvName ns ++ " *"
-    traceField (PlaceName _ x, i) = "    " ++ emitMarkGray "env" (EnvName x) i ++ ";"
+    traceField (Place _ x, i) = "    " ++ emitMarkGray "env" (EnvName x) i ++ ";"
 
 emitClosureCode :: ClosureNames -> String -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
@@ -377,23 +377,23 @@ emitAlloc envp (ClosureAlloc p ty d (EnvAlloc info free rec)) =
     infoArgs = map (emitInfo envp . snd) info
     envAllocArgs = infoArgs ++ map (emitName envp . snd) free ++ map (const "NULL") rec
 
-emitPatch :: ClosureNames -> PlaceName -> EnvAlloc -> [String]
-emitPatch ns (PlaceName _ p) (EnvAlloc _info _free rec) =
+emitPatch :: ClosureNames -> Place -> EnvAlloc -> [String]
+emitPatch ns (Place _ p) (EnvAlloc _info _free rec) =
   concatMap patchField rec
   where
     env = "((struct " ++ closureEnvName ns ++ " *)" ++ show p ++ "->env)"
-    patchField (PlaceName _ f, LocalName x) = ["    " ++ env ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
+    patchField (Place _ f, LocalName x) = ["    " ++ env ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
     patchField (_, EnvName _) = [] -- Why ignore environment names?
 
 -- TODO: Remove emitFieldDecl
-emitFieldDecl :: PlaceName -> String
-emitFieldDecl (PlaceName s x) = typeForSort s ++ show x
+emitFieldDecl :: Place -> String
+emitFieldDecl (Place s x) = typeForSort s ++ show x
 
-emitInfoDecl :: InfoName -> String
-emitInfoDecl (InfoName i) = "type_info " ++ show i
+emitInfoDecl :: InfoPlace -> String
+emitInfoDecl (InfoPlace i) = "type_info " ++ show i
 
-emitPlace :: PlaceName -> String
-emitPlace (PlaceName s x) = typeForSort s ++ show x
+emitPlace :: Place -> String
+emitPlace (Place s x) = typeForSort s ++ show x
 
 emitName :: EnvPtr -> Name -> String
 emitName _ (LocalName x) = show x

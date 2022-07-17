@@ -54,8 +54,8 @@ equalSorts expected actual =
   when (expected /= actual) $
     throwError (TypeMismatch expected actual)
 
-withPlace :: PlaceName -> TC a -> TC a
-withPlace (PlaceName s x) m = do
+withPlace :: Place -> TC a -> TC a
+withPlace (Place s x) m = do
   checkSort s
   throwError (NotImplemented "withPlace")
   local extend m
