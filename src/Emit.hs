@@ -127,6 +127,8 @@ emitThunkDecl t =
   emitThunkTrace t ++
   emitThunkSuspend t
 
+-- TODO: Build auxiliary structure that contains information necessary to emit
+-- thunk types. (provide, not reconstruct)
 emitThunkType :: ThunkType -> [String]
 emitThunkType ty@(ThunkType ss) =
   ["struct " ++ thunkTypeName ns ++ " {"

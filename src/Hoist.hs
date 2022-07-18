@@ -270,6 +270,7 @@ instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
 -- TODO: Use 'Map DeclName ThunkType' instead of 'Set DeclName'?
+-- Hmm. Instead of 'Writer', would an 'Update' monad be applicable here?
 newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer (ClosureDecls, Set ThunkType))) a }
 
 deriving newtype instance Functor HoistM

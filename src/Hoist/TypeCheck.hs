@@ -31,23 +31,32 @@ deriving newtype instance MonadError TCError TC
 -- Hmm. ctxNames should be split into 'env' and 'locals'
 --
 -- Hmm. There should be a separate scope for closure names/types.
-data Context = Context { ctxNames :: Map Name Sort, ctxTyVars :: Set C.TyVar }
+data Context = Context { ctxLocals :: Scope, ctxEnv :: Scope, ctxDecls :: Map DeclName ThunkType }
+
+data Scope = Scope { scopePlaces :: Map Id Sort, scopeTypes :: Set Id }
 
 newtype Signature = Signature (Map DeclName Sort)
 
 lookupName :: Name -> TC Sort
-lookupName x = do
-  ctx <- asks ctxNames
+lookupName (LocalName x) = do
+  ctx <- asks (scopePlaces . ctxLocals)
+  case Map.lookup x ctx of
+    Just s -> pure s
+    Nothing -> throwError $ NameNotInScope x
+lookupName (EnvName x) = do
+  ctx <- asks (scopePlaces . ctxEnv)
   case Map.lookup x ctx of
     Just s -> pure s
     Nothing -> throwError $ NameNotInScope x
 
 lookupTyVar :: C.TyVar -> TC ()
-lookupTyVar aa = do
-  ctx <- asks ctxTyVars
-  case Set.member aa ctx of
+lookupTyVar (C.TyVar aa) = do
+  -- TODO: C.TyVar doesn't really make sense here.
+  let aa' = Id aa
+  ctx <- asks (scopeTypes . ctxLocals)
+  case Set.member aa' ctx of
     True -> pure ()
-    False -> throwError $ TyVarNotInScope aa
+    False -> throwError $ TyVarNotInScope (C.TyVar aa)
 
 equalSorts :: Sort -> Sort -> TC ()
 equalSorts expected actual =
@@ -57,21 +66,29 @@ equalSorts expected actual =
 withPlace :: Place -> TC a -> TC a
 withPlace (Place s x) m = do
   checkSort s
-  throwError (NotImplemented "withPlace")
   local extend m
   where
-    -- Add new local name to context
-    extend (Context names tys) = Context names tys
+    extend (Context (Scope places tys) env ds) = Context (Scope (Map.insert x s places) tys) env ds
+
+withInfo :: InfoPlace -> TC a -> TC a
+withInfo (InfoPlace aa) m = local extend m
+  where
+    extend (Context (Scope places tys) env ds) = Context (Scope places (Set.insert aa tys)) env ds
 
 data TCError
   = TypeMismatch Sort Sort
-  | NameNotInScope Name
+  | NameNotInScope Id
   | TyVarNotInScope C.TyVar
   | NotImplemented String
+  | IncorrectInfo
+  | BadValue
+  | BadProjection Sort Projection
 
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT ctx . getTC
-  where ctx = Context { ctxNames = Map.empty, ctxTyVars = Set.empty }
+  where
+    ctx = Context emptyScope emptyScope Map.empty
+    emptyScope = Scope Map.empty Set.empty
 
 
 checkProgram :: [ClosureDecl] -> TermH -> TC ()
@@ -82,7 +99,7 @@ checkProgram cs e =
   throwError (NotImplemented "checkProgram")
 
 checkEntryPoint :: TermH -> TC ()
-checkEntryPoint e = checkClosureBody e
+checkEntryPoint e = checkClosureBody e -- Adjust scope?
 
 -- checkClosure uses signature and params to populate local context
 -- Note: Check that parameters are well-formed
@@ -93,7 +110,11 @@ checkEntryPoint e = checkClosureBody e
 -- (Nonetheless, it would still be cleaner to have (erased) quantifiers, just
 -- as singletons still have implicit foralls)
 checkClosure :: Signature -> ClosureDecl -> TC ()
-checkClosure sig (ClosureDecl cl (envp, envd) params body) = throwError (NotImplemented "checkClosure")
+checkClosure sig (ClosureDecl cl (envp, envd) params body) = do
+  -- _ <- checkEnv envd
+  _ <- checkParams params
+  -- withEnv env
+  withParams params $ checkClosureBody body
 
 -- | Closure parameters form a telescope, because info bindings bring type
 -- variables into scope for subsequent bindings.
@@ -103,8 +124,7 @@ checkParams params = throwError (NotImplemented "checkParams")
 withParams :: [ClosureParam] -> TC a -> TC a
 withParams [] m = m
 withParams (PlaceParam p : params) m = withPlace p (withParams params m)
--- withParams (TypeParam i : params) m = local extend (withParams params m)
---   where extend (Context names tys) = Context names (Set.insert i tys)
+withParams (TypeParam i : params) m = withInfo i (withParams params m)
 
 checkClosureBody :: TermH -> TC ()
 checkClosureBody (HaltH x i) = do
@@ -113,13 +133,22 @@ checkClosureBody (HaltH x i) = do
 checkClosureBody (OpenH f ty args) = throwError (NotImplemented "checkClosureBody OpenH")
 checkClosureBody (LetPrimH p prim e) = do
   s <- checkPrimOp prim
-  equalSorts s (placeSort p)
+  equalSorts (placeSort p) s
   withPlace p $ checkClosureBody e
 checkClosureBody (LetValH p v e) = do
   checkSort (placeSort p)
   checkValue v (placeSort p)
   withPlace p $ checkClosureBody e
+checkClosureBody (LetProjectH p x proj e) = do
+  s <- lookupName x
+  case (s, proj) of
+    (ProductH s' _, ProjectFst) -> equalSorts (placeSort p) s'
+    (ProductH _ t', ProjectSnd) -> equalSorts (placeSort p) t'
+    (_, _) -> throwError (BadProjection s proj)
+  withPlace p $ checkClosureBody e
 
+-- | Check that a primitive operation has correct argument sorts, and yield its
+-- return sort.
 checkPrimOp :: PrimOp -> TC Sort
 checkPrimOp (PrimAddInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure IntegerH
 checkPrimOp (PrimSubInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure IntegerH
@@ -132,17 +161,44 @@ checkPrimOp (PrimLeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> 
 checkPrimOp (PrimGtInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
 checkPrimOp (PrimGeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
 
+-- | Check that a value has the given sort.
 checkValue :: ValueH -> Sort -> TC ()
 checkValue (IntH _) IntegerH = pure ()
+checkValue (IntH _) _ = throwError BadValue
 checkValue (BoolH _) BooleanH = pure ()
+checkValue (BoolH _) _ = throwError BadValue
+checkValue NilH UnitH = pure ()
+checkValue NilH _ = throwError BadValue
+checkValue (InlH i x) SumH = do
+  s <- lookupName x
+  checkInfo s i
+checkValue (InlH _ _) _ = throwError BadValue
+checkValue (InrH i x) SumH = do
+  s <- lookupName x
+  checkInfo s i
+checkValue (InrH _ _) _ = throwError BadValue
+checkValue (PairH i j x y) (ProductH s t) = do
+  s' <- lookupName x
+  t' <- lookupName y
+  equalSorts s s'
+  equalSorts t t'
+  checkInfo s' i
+  checkInfo t' j
+checkValue (PairH _ _ _ _) _ = throwError BadValue
 checkValue ListNilH (ListH _) = pure ()
-
+checkValue ListNilH _ = throwError BadValue
+checkValue (ListConsH i x xs) (ListH t) = do
+  checkInfo t i
+  checkName x t
+  checkName xs (ListH t) 
+checkValue (ListConsH _ _ _) _ = throwError BadValue
 
 checkName :: Name -> Sort -> TC ()
 checkName x s = do
   s' <- lookupName x
   equalSorts s s'
 
+-- | Check that a sort is well-formed w.r.t. the context
 checkSort :: Sort -> TC ()
 checkSort (AllocH aa) = lookupTyVar aa
 checkSort UnitH = pure ()
@@ -153,7 +209,21 @@ checkSort (ProductH t s) = checkSort t *> checkSort s
 checkSort (ListH t) = checkSort t
 checkSort (ClosureH ss) = traverse_ checkSort ss
 
+-- | Check that info @i@ describes sort @s@.
 checkInfo :: Sort -> Info -> TC ()
+-- Check that tyvar aa is in the local scope
+-- (And bb = toId aa?)
 checkInfo (AllocH aa) (LocalInfo bb) = throwError (NotImplemented "checkInfo LocalInfo")
+-- Check that tyvar aa is in the env scope
+-- (And bb = toId aa?)
 checkInfo (AllocH aa) (EnvInfo bb) = throwError (NotImplemented "checkInfo EnvInfo")
+-- Polymorphic sort should not have monomorphic info
+checkInfo (AllocH _) _ = throwError IncorrectInfo
 checkInfo IntegerH Int64Info = pure ()
+checkInfo IntegerH _ = throwError IncorrectInfo
+checkInfo BooleanH BoolInfo = pure ()
+checkInfo BooleanH _ = throwError IncorrectInfo
+checkInfo UnitH UnitInfo = pure ()
+checkInfo UnitH _ = throwError IncorrectInfo
+checkInfo SumH SumInfo = pure ()
+checkInfo SumH _ = throwError IncorrectInfo
