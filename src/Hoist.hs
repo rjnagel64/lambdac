@@ -177,7 +177,6 @@ data Sort
   | ProductH Sort Sort
   | ListH Sort
   | ClosureH [Sort]
-  -- TODO: Should Hoist.Sort really be using CC.TyVar? Introduce Hoist.TyVar
   | AllocH C.TyVar
   deriving (Eq, Ord)
 

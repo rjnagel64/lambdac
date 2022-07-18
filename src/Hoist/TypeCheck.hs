@@ -101,20 +101,15 @@ checkProgram cs e =
 checkEntryPoint :: TermH -> TC ()
 checkEntryPoint e = checkClosureBody e -- Adjust scope?
 
--- checkClosure uses signature and params to populate local context
--- Note: Check that parameters are well-formed
--- (I think I need mapAccumL for this too, because tyvar bindings are in scope
--- for subsequent 'Alloc' or 'Info')
--- (... Hmm. Parameter lists should include tyvars, then.)
--- (Hmm. Remember that 'Info aa' basically acts as a binder for 'aa')
--- (Nonetheless, it would still be cleaner to have (erased) quantifiers, just
--- as singletons still have implicit foralls)
 checkClosure :: Signature -> ClosureDecl -> TC ()
 checkClosure sig (ClosureDecl cl (envp, envd) params body) = do
   -- _ <- checkEnv envd
   _ <- checkParams params
   -- withEnv env
   withParams params $ checkClosureBody body
+
+checkEnv :: EnvDecl -> TC Scope
+checkEnv (EnvDecl tys places) = _
 
 -- | Closure parameters form a telescope, because info bindings bring type
 -- variables into scope for subsequent bindings.
@@ -211,12 +206,17 @@ checkSort (ClosureH ss) = traverse_ checkSort ss
 
 -- | Check that info @i@ describes sort @s@.
 checkInfo :: Sort -> Info -> TC ()
--- Check that tyvar aa is in the local scope
--- (And bb = toId aa?)
-checkInfo (AllocH aa) (LocalInfo bb) = throwError (NotImplemented "checkInfo LocalInfo")
--- Check that tyvar aa is in the env scope
--- (And bb = toId aa?)
-checkInfo (AllocH aa) (EnvInfo bb) = throwError (NotImplemented "checkInfo EnvInfo")
+checkInfo (AllocH aa) (LocalInfo bb) = do
+  -- TODO: checkInfo AllocH: aa should equal bb, right?
+  ctx <- asks (scopeTypes . ctxEnv)
+  case Set.member bb ctx of
+    False -> throwError (NameNotInScope bb)
+    True -> pure ()
+checkInfo (AllocH aa) (EnvInfo bb) = do
+  ctx <- asks (scopeTypes . ctxEnv)
+  case Set.member bb ctx of
+    False -> throwError (NameNotInScope bb)
+    True -> pure ()
 -- Polymorphic sort should not have monomorphic info
 checkInfo (AllocH _) _ = throwError IncorrectInfo
 checkInfo IntegerH Int64Info = pure ()
