@@ -31,11 +31,11 @@ deriving newtype instance MonadError TCError TC
 -- Hmm. ctxNames should be split into 'env' and 'locals'
 --
 -- Hmm. There should be a separate scope for closure names/types.
-data Context = Context { ctxLocals :: Scope, ctxEnv :: Scope, ctxDecls :: Map DeclName ThunkType }
+data Context = Context { ctxLocals :: Scope, ctxEnv :: Scope, ctxDecls :: Map ClosureName ThunkType }
 
 data Scope = Scope { scopePlaces :: Map Id Sort, scopeTypes :: Set Id }
 
-newtype Signature = Signature (Map DeclName Sort)
+newtype Signature = Signature (Map ClosureName Sort)
 
 lookupName :: Name -> TC Sort
 lookupName (LocalName x) = do
@@ -109,7 +109,7 @@ checkClosure sig (ClosureDecl cl (envp, envd) params body) = do
   withParams params $ checkClosureBody body
 
 checkEnv :: EnvDecl -> TC Scope
-checkEnv (EnvDecl tys places) = _
+checkEnv (EnvDecl tys places) = throwError (NotImplemented "checkEnv")
 
 -- | Closure parameters form a telescope, because info bindings bring type
 -- variables into scope for subsequent bindings.

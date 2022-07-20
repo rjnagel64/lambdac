@@ -43,8 +43,8 @@ data ClosureNames
   , closureCodeName :: String
   }
 
-namesForDecl :: DeclName -> ClosureNames
-namesForDecl (DeclName f) =
+namesForClosure :: ClosureName -> ClosureNames
+namesForClosure (ClosureName f) =
   ClosureNames {
     -- These methods (except closureCodeName) are very similar to declaring a
     -- product type, though the trace method is not a proper type info.
@@ -207,7 +207,7 @@ emitClosureDecl (H.ClosureDecl d (Id envName, envd) params e) =
   emitEnvTrace ns envd ++
   emitEnvAlloc ns envd ++
   emitClosureCode ns envName params e
-  where ns = namesForDecl d
+  where ns = namesForClosure d
 
 emitEnvDecl :: ClosureNames -> EnvDecl -> [String]
 emitEnvDecl ns (EnvDecl is fs) =
@@ -361,13 +361,13 @@ emitPrimCall envp fn xs = fn ++ "(" ++ commaSep (map (emitName envp) xs) ++ ")"
 emitAllocGroup :: EnvPtr -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
   map (emitAlloc envp) closures ++
-  concatMap (\ (ClosureAlloc p _ty d env) -> emitPatch (namesForDecl d) p env) closures
+  concatMap (\ (ClosureAlloc p _ty d env) -> emitPatch (namesForClosure d) p env) closures
 
 emitAlloc :: EnvPtr -> ClosureAlloc -> String
 emitAlloc envp (ClosureAlloc p ty d (EnvAlloc info free rec)) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep args ++ ");"
   where
-    ns = namesForDecl d
+    ns = namesForClosure d
     args = [envArg, traceArg, codeArg, enterArg]
     envArg = asAlloc (closureAllocName ns ++ "(" ++ commaSep envAllocArgs ++ ")")
     traceArg = closureEnvInfo ns

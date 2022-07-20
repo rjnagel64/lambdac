@@ -21,7 +21,7 @@ module Hoist
     , thunkTypeCode
     , Place(..)
     , InfoPlace(..)
-    , DeclName(..)
+    , ClosureName(..)
     , ClosureDecl(..)
     , ClosureParam(..)
     , ClosureArg(..)
@@ -89,18 +89,18 @@ asInfoPlace (C.TyVar aa) = InfoPlace (Id aa)
 -- They are introduced by (hoisting) function/continuation closure bingings,
 -- and used when allocating function/continuation closures.
 -- TODO: 'DeclName' -> 'ClosureName'
-newtype DeclName = DeclName String
+newtype ClosureName = ClosureName String
   deriving (Eq, Ord)
 
-instance Show DeclName where
-  show (DeclName d) = d
+instance Show ClosureName where
+  show (ClosureName d) = d
 
-asDeclName :: C.Name -> DeclName
-asDeclName (C.Name x i) = DeclName (x ++ show i)
+asDeclName :: C.Name -> ClosureName
+asDeclName (C.Name x i) = ClosureName (x ++ show i)
 
 
 data ClosureDecl
-  = ClosureDecl DeclName (Id, EnvDecl) [ClosureParam] TermH
+  = ClosureDecl ClosureName (Id, EnvDecl) [ClosureParam] TermH
 
 data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
 
@@ -135,7 +135,7 @@ data ClosureAlloc
     -- TODO: Make ClosureAlloc contain a Place for the environment
     closurePlace :: Place
   , closureType :: ThunkType
-  , closureDecl :: DeclName
+  , closureDecl :: ClosureName
   , closureEnv :: EnvAlloc
   }
 
@@ -268,16 +268,16 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
--- TODO: Use 'Map DeclName ThunkType' instead of 'Set DeclName'?
+-- TODO: Use 'Map ClosureName ThunkType' instead of 'Set DeclName'?
 -- Hmm. Instead of 'Writer', would an 'Update' monad be applicable here?
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set DeclName) (Writer (ClosureDecls, Set ThunkType))) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set ClosureName) (Writer (ClosureDecls, Set ThunkType))) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter (ClosureDecls, Set ThunkType) HoistM
-deriving newtype instance MonadState (Set DeclName) HoistM
+deriving newtype instance MonadState (Set ClosureName) HoistM
 
 runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
 runHoist = second (second Set.toList) . runWriter .  flip evalStateT Set.empty .  flip runReaderT emptyEnv .  runHoistM
@@ -421,7 +421,7 @@ envAllocField (x, s) = do
   pure (field, x')
 
 
-placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(DeclName, a)] -> ([(Place, DeclName, a)] -> HoistM r) -> HoistM r
+placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(ClosureName, a)] -> ([(Place, ClosureName, a)] -> HoistM r) -> HoistM r
 placesForClosureAllocs closureName closureSort cdecls kont = do
   scope <- asks (scopePlaces . localScope)
   let
@@ -438,7 +438,7 @@ placesForClosureAllocs closureName closureSort cdecls kont = do
   local extend (kont cplaces)
 
 
-declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(DeclName, a)]
+declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(ClosureName, a)]
 declareClosureNames closureName cs =
   for cs $ \def -> do
     let
@@ -475,19 +475,19 @@ hoistCmp (GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
-hoistFunClosure :: (DeclName, C.FunClosureDef) -> HoistM ClosureDecl
+hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
   (env', places', body') <- inClosure env [] (xs ++ ks) $ hoist body
   let fd = ClosureDecl fdecl env' (map PlaceParam places') body'
   pure fd
 
-hoistContClosure :: (DeclName, C.ContClosureDef) -> HoistM ClosureDecl
+hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ClosureDecl
 hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
   (env', places', body') <- inClosure env [] xs $ hoist body
   let kd = ClosureDecl kdecl env' (map PlaceParam places') body'
   pure kd
 
-hoistAbsClosure :: (DeclName, C.AbsClosureDef) -> HoistM ClosureDecl
+hoistAbsClosure :: (ClosureName, C.AbsClosureDef) -> HoistM ClosureDecl
 hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
   (env', places', body') <- inClosure env as ks $ hoist body
   let fd = ClosureDecl fdecl env' (map (TypeParam . asInfoPlace) as ++ map PlaceParam places') body'
