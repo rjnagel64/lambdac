@@ -122,36 +122,35 @@ mapWithIndex f = zipWith f [0..]
 -- a bit, make them more encapsulated.
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
-  emitThunkType t ++
-  emitThunkEnter t ++
-  emitThunkTrace t ++
-  emitThunkSuspend t
+  let ns = namesForThunk t in
+  emitThunkType ns t ++
+  emitThunkEnter ns t ++
+  emitThunkTrace ns t ++
+  emitThunkSuspend ns t
 
 -- TODO: Build auxiliary structure that contains information necessary to emit
 -- thunk types. (provide, not reconstruct)
-emitThunkType :: ThunkType -> [String]
-emitThunkType ty@(ThunkType ss) =
+emitThunkType :: ThunkNames -> ThunkType -> [String]
+emitThunkType ns (ThunkType ss) =
   ["struct " ++ thunkTypeName ns ++ " {"
   ,"    struct thunk header;"
   ,"    struct closure *closure;"] ++
   mapWithIndex mkField ss ++
   ["};"]
   where
-    ns = namesForThunk ty
     mkField i ThunkInfoArg = "    type_info arg" ++ show i ++ ";\n"
     mkField i (ThunkValueArg s) = case s of
       AllocH _ -> "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
       _ -> "    " ++ emitFieldDecl (Place s (Id ("arg" ++ show i))) ++ ";"
 
-emitThunkTrace :: ThunkType -> [String]
-emitThunkTrace ty@(ThunkType ss) =
+emitThunkTrace :: ThunkNames -> ThunkType -> [String]
+emitThunkTrace ns (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
   ,"    " ++ emitMarkGray "next" (EnvName (Id "closure")) ClosureInfo ++ ";"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
-    ns = namesForThunk ty
     traceField i ThunkInfoArg = "" -- TODO: Avoid blank line here.
     -- Hmm. This clause basically duplicates 'infoForSort'. Is there a cleaner way?
     traceField i (ThunkValueArg s) =
@@ -167,23 +166,22 @@ emitThunkTrace ty@(ThunkType ss) =
         ListH _ -> "    " ++ emitMarkGray "next" x ListInfo ++ ";"
         ClosureH _ -> "    " ++ emitMarkGray "next" x ClosureInfo ++ ";"
 
-emitThunkEnter :: ThunkType -> [String]
-emitThunkEnter ty@(ThunkType ss) =
+emitThunkEnter :: ThunkNames -> ThunkType -> [String]
+emitThunkEnter ns (ThunkType ss) =
   ["void " ++ thunkEnterName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
   ,"    void (*code)(" ++ paramList ++ ") = (void (*)(" ++ paramList ++ "))next->closure->code;"
   ,"    code(" ++ argList ++ ");"
   ,"}"]
   where
-    ns = namesForThunk ty
     paramList = commaSep ("void *env" : mapWithIndex makeParam ss)
     makeParam i ThunkInfoArg = "type_info arg" ++ show i
     makeParam i (ThunkValueArg s) = emitPlace (Place s (Id ("arg" ++ show i)))
     argList = commaSep ("next->closure->env" : mapWithIndex makeArg ss)
     makeArg i _ = "next->arg" ++ show i
 
-emitThunkSuspend :: ThunkType -> [String]
-emitThunkSuspend ty@(ThunkType ss) =
+emitThunkSuspend :: ThunkNames -> ThunkType -> [String]
+emitThunkSuspend ns (ThunkType ss) =
   ["void " ++ thunkSuspendName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = realloc(next_step, sizeof(struct " ++ thunkTypeName ns ++ "));"
   ,"    next->header.enter = closure->enter;"
@@ -193,7 +191,6 @@ emitThunkSuspend ty@(ThunkType ss) =
   ["    next_step = (struct thunk *)next;"
   ,"}"]
   where
-    ns = namesForThunk ty
     paramList = commaSep ("struct closure *closure" : mapWithIndex makeParam ss)
     makeParam i ThunkInfoArg = "type_info arg" ++ show i
     makeParam i (ThunkValueArg s) = case s of
