@@ -103,6 +103,7 @@ asDeclName :: C.Name -> ClosureName
 asDeclName (C.Name x i) = ClosureName (x ++ show i)
 
 
+-- Should ClosureDecl contain a ThunkType?
 data ClosureDecl
   = ClosureDecl ClosureName (Id, EnvDecl) [ClosureParam] TermH
 

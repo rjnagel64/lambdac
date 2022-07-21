@@ -283,12 +283,10 @@ void cons_new_alloc(struct alloc_header *alloc, type_info info) {
 struct closure *allocate_closure(
         struct alloc_header *env,
         type_info env_info,
-        void (*code)(void),
         void (*enter)(void)) {
     struct closure *cl = malloc(sizeof(struct closure));
     cl->env = env;
     cl->env_info = env_info;
-    cl->code = code;
     cl->enter = enter;
 
     cons_new_alloc(AS_ALLOC(cl), closure_info);

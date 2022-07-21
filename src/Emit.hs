@@ -41,6 +41,7 @@ data ClosureNames
   , closureAllocName :: String
   , closureTraceName :: String
   , closureCodeName :: String
+  , closureEnterName :: String
   }
 
 namesForClosure :: ClosureName -> ClosureNames
@@ -55,6 +56,7 @@ namesForClosure (ClosureName f) =
   , closureAllocName = "allocate_" ++ f ++ "_env"
   , closureTraceName = "trace_" ++ f ++ "_env"
   , closureCodeName = f ++ "_code"
+  , closureEnterName = "enter_" ++ f
   }
 
 prologue :: [String]
@@ -69,7 +71,6 @@ emitEntryPoint e =
 data ThunkNames
   = ThunkNames {
     thunkTypeName :: String
-  , thunkEnterName :: String
   , thunkTraceName :: String
   , thunkSuspendName :: String
   }
@@ -79,7 +80,6 @@ namesForThunk :: ThunkType -> ThunkNames
 namesForThunk ty =
   ThunkNames {
     thunkTypeName = "thunk_" ++ code
-  , thunkEnterName = "enter_" ++ code
   , thunkTraceName = "trace_" ++ code
   , thunkSuspendName = "suspend_" ++ code
   }
@@ -115,21 +115,15 @@ emitMarkGray envp x s = "mark_gray(" ++ asAlloc (emitName envp x) ++ ", " ++ emi
 mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
 mapWithIndex f = zipWith f [0..]
 
--- TODO: Generate per-sort allocate_closure methods?
--- I think I need to still maintain only one 'struct closure' (because
--- pointer-casting and struct-casting issues), but I think I can make
--- allocate_closure per-sort. This would move around the function pointer casts
--- a bit, make them more encapsulated.
+-- TODO: Build auxiliary structure that contains information necessary to emit
+-- thunk types. (provide, not reconstruct)
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
   let ns = namesForThunk t in
   emitThunkType ns t ++
-  emitThunkEnter ns t ++
   emitThunkTrace ns t ++
   emitThunkSuspend ns t
 
--- TODO: Build auxiliary structure that contains information necessary to emit
--- thunk types. (provide, not reconstruct)
 emitThunkType :: ThunkNames -> ThunkType -> [String]
 emitThunkType ns (ThunkType ss) =
   ["struct " ++ thunkTypeName ns ++ " {"
@@ -167,20 +161,6 @@ emitThunkTrace ns (ThunkType ss) =
         ListH _ -> "    " ++ emitMarkGray next x ListInfo ++ ";"
         ClosureH _ -> "    " ++ emitMarkGray next x ClosureInfo ++ ";"
 
-emitThunkEnter :: ThunkNames -> ThunkType -> [String]
-emitThunkEnter ns (ThunkType ss) =
-  ["void " ++ thunkEnterName ns ++ "(void) {"
-  ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    void (*code)(" ++ paramList ++ ") = (void (*)(" ++ paramList ++ "))next->closure->code;"
-  ,"    code(" ++ argList ++ ");"
-  ,"}"]
-  where
-    paramList = commaSep ("void *env" : mapWithIndex makeParam ss)
-    makeParam i ThunkInfoArg = "type_info arg" ++ show i
-    makeParam i (ThunkValueArg s) = emitPlace (Place s (Id ("arg" ++ show i)))
-    argList = commaSep ("next->closure->env" : mapWithIndex makeArg ss)
-    makeArg i _ = "next->arg" ++ show i
-
 emitThunkSuspend :: ThunkNames -> ThunkType -> [String]
 emitThunkSuspend ns (ThunkType ss) =
   ["void " ++ thunkSuspendName ns ++ "(" ++ paramList ++ ") {"
@@ -202,9 +182,14 @@ emitThunkSuspend ns (ThunkType ss) =
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
   emitClosureEnv ns envd ++
-  emitClosureCode ns envName params e
-  -- emitClosureEnter ns
-  where ns = namesForClosure d
+  emitClosureCode ns envName params e ++
+  emitClosureEnter ns ty
+  where
+    ns = namesForClosure d
+    -- TODO: It's a bit inelegant to re-infer the thunk type here.
+    ty = ThunkType (map f params)
+    f (TypeParam _) = ThunkInfoArg
+    f (PlaceParam p) = ThunkValueArg (placeSort p)
 
 emitClosureEnv :: ClosureNames -> EnvDecl -> [String]
 emitClosureEnv ns envd =
@@ -225,6 +210,7 @@ emitEnvDecl ns (EnvDecl is fs) =
 
 emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
 -- TODO: What if there is a parameter named 'env'?
+-- (Use envName from the ClosureDecl here)
 emitEnvAlloc ns (EnvDecl is fs) =
   ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"]++
@@ -251,6 +237,18 @@ emitEnvInfo ns (EnvDecl _is fs) =
     envName = Id "env"
     envTy = "struct " ++ closureEnvName ns ++ " *"
     traceField (Place _ x, i) = "    " ++ emitMarkGray envName (EnvName x) i ++ ";"
+
+emitClosureEnter :: ClosureNames -> ThunkType -> [String]
+emitClosureEnter ns ty@(ThunkType ss) =
+  ["void " ++ closureEnterName ns ++ "(void) {"
+  ,"    " ++ thunkTy ++ "next = (" ++ thunkTy ++ ")next_step;"
+  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")next->closure->env;"
+  ,"    " ++ closureCodeName ns ++ "(" ++ commaSep argList ++ ");"
+  ,"}"]
+  where
+    thunkTy = "struct " ++ thunkTypeName (namesForThunk ty) ++ " *"
+    envTy = "struct " ++ closureEnvName ns ++ " *"
+    argList = "env" : mapWithIndex (\i _ -> "next->arg" ++ show i) ss
 
 emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
@@ -370,11 +368,10 @@ emitAlloc envp (ClosureAlloc p ty d (EnvAlloc info free rec)) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep args ++ ");"
   where
     ns = namesForClosure d
-    args = [envArg, traceArg, codeArg, enterArg]
+    args = [envArg, traceArg, enterArg]
     envArg = asAlloc (closureAllocName ns ++ "(" ++ commaSep envAllocArgs ++ ")")
     traceArg = closureEnvInfo ns
-    codeArg = "(void (*)(void))" ++ closureCodeName ns
-    enterArg = thunkEnterName (namesForThunk ty)
+    enterArg = closureEnterName ns
 
     -- Recursive/cyclic environment references are initialized to NULL, and
     -- then patched once all the closures have been allocated.
