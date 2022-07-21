@@ -25,7 +25,7 @@ import Hoist
 commaSep :: [String] -> String
 commaSep = intercalate ", "
 
-type EnvPtr = String
+type EnvPtr = Id
 
 emitProgram :: ([ThunkType], [ClosureDecl], TermH) -> [String]
 emitProgram (ts, cs, e) =
@@ -63,7 +63,7 @@ prologue = ["#include \"rts.h\""]
 emitEntryPoint :: TermH -> [String]
 emitEntryPoint e =
   ["void program_entry(void) {"] ++
-  emitClosureBody "NULL" e ++ -- There is no top-level environment. All names are local.
+  emitClosureBody (Id "NULL") e ++ -- There is no top-level environment. All names are local.
   ["}"]
 
 data ThunkNames
@@ -147,7 +147,7 @@ emitThunkTrace :: ThunkNames -> ThunkType -> [String]
 emitThunkTrace ns (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    " ++ emitMarkGray "next" (EnvName (Id "closure")) ClosureInfo ++ ";"] ++
+  ,"    " ++ emitMarkGray (Id "next") (EnvName (Id "closure")) ClosureInfo ++ ";"] ++
   mapWithIndex traceField ss ++
   ["}"]
   where
@@ -155,16 +155,17 @@ emitThunkTrace ns (ThunkType ss) =
     -- Hmm. This clause basically duplicates 'infoForSort'. Is there a cleaner way?
     traceField i (ThunkValueArg s) =
       let x = EnvName (Id ("arg" ++ show i)) in
+      let next = Id "next" in
       case s of
         AllocH _ ->
-          "    " ++ emitMarkGray "next" x (EnvInfo (Id ("info" ++ show i))) ++ ";"
-        IntegerH -> "    " ++ emitMarkGray "next" x Int64Info ++ ";"
-        BooleanH -> "    " ++ emitMarkGray "next" x BoolInfo ++ ";"
-        UnitH -> "    " ++ emitMarkGray "next" x UnitInfo ++ ";"
-        SumH -> "    " ++ emitMarkGray "next" x SumInfo ++ ";"
-        ProductH _ _ -> "    " ++ emitMarkGray "next" x ProductInfo ++ ";"
-        ListH _ -> "    " ++ emitMarkGray "next" x ListInfo ++ ";"
-        ClosureH _ -> "    " ++ emitMarkGray "next" x ClosureInfo ++ ";"
+          "    " ++ emitMarkGray next x (EnvInfo (Id ("info" ++ show i))) ++ ";"
+        IntegerH -> "    " ++ emitMarkGray next x Int64Info ++ ";"
+        BooleanH -> "    " ++ emitMarkGray next x BoolInfo ++ ";"
+        UnitH -> "    " ++ emitMarkGray next x UnitInfo ++ ";"
+        SumH -> "    " ++ emitMarkGray next x SumInfo ++ ";"
+        ProductH _ _ -> "    " ++ emitMarkGray next x ProductInfo ++ ";"
+        ListH _ -> "    " ++ emitMarkGray next x ListInfo ++ ";"
+        ClosureH _ -> "    " ++ emitMarkGray next x ClosureInfo ++ ";"
 
 emitThunkEnter :: ThunkNames -> ThunkType -> [String]
 emitThunkEnter ns (ThunkType ss) =
@@ -199,7 +200,7 @@ emitThunkSuspend ns (ThunkType ss) =
     assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
 
 emitClosureDecl :: H.ClosureDecl -> [String]
-emitClosureDecl (H.ClosureDecl d (Id envName, envd) params e) =
+emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
   emitClosureEnv ns envd ++
   emitClosureCode ns envName params e
   -- emitClosureEnter ns
@@ -242,18 +243,19 @@ emitEnvAlloc ns (EnvDecl is fs) =
 emitEnvInfo :: ClosureNames -> EnvDecl -> [String]
 emitEnvInfo ns (EnvDecl _is fs) =
   ["void " ++ closureTraceName ns ++ "(struct alloc_header *alloc) {"
-  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")alloc;"] ++
+  ,"    " ++ envTy ++ show envName ++ " = (" ++ envTy ++ ")alloc;"] ++
   map traceField fs ++
   ["}"
   ,"type_info " ++ closureEnvName ns ++ "_info = { " ++ closureTraceName ns ++ ", display_env };"]
   where
+    envName = Id "env"
     envTy = "struct " ++ closureEnvName ns ++ " *"
-    traceField (Place _ x, i) = "    " ++ emitMarkGray "env" (EnvName x) i ++ ";"
+    traceField (Place _ x, i) = "    " ++ emitMarkGray envName (EnvName x) i ++ ";"
 
-emitClosureCode :: ClosureNames -> String -> [ClosureParam] -> TermH -> [String]
+emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
   ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"
-  ,"    struct " ++ closureEnvName ns ++ " *" ++ envName ++ " = __env;"] ++
+  ,"    struct " ++ closureEnvName ns ++ " *" ++ show envName ++ " = __env;"] ++
   emitClosureBody envName e ++
   ["}"]
   where
@@ -399,11 +401,11 @@ emitPlace (Place s x) = typeForSort s ++ show x
 
 emitName :: EnvPtr -> Name -> String
 emitName _ (LocalName x) = show x
-emitName envp (EnvName x) = envp ++ "->" ++ show x
+emitName envp (EnvName x) = show envp ++ "->" ++ show x
 
 emitInfo :: EnvPtr -> Info -> String
 emitInfo _ (LocalInfo aa) = show aa
-emitInfo envp (EnvInfo aa) = envp ++ "->" ++ show aa
+emitInfo envp (EnvInfo aa) = show envp ++ "->" ++ show aa
 emitInfo _ Int64Info = "int64_value_info"
 emitInfo _ BoolInfo = "bool_value_info"
 emitInfo _ UnitInfo = "unit_info"
