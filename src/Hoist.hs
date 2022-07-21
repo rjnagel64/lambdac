@@ -55,6 +55,9 @@ import Data.Function (on)
 import qualified CC as C
 import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..))
 
+-- Hmm. Type variables are still useful here, kind of.
+-- ==> Add 'Hoist.TyVar'?
+
 -- | An 'Id' is any type of identifier.
 newtype Id = Id String
   deriving (Eq, Ord)
@@ -79,6 +82,7 @@ asPlace :: C.Sort -> C.Name -> Place
 asPlace s (C.Name x i) = Place (sortOf s) (Id (x ++ show i))
 
 -- | A 'InfoPlace' is a location that can hold a @type_info@.
+-- Should this have a sort, to express 'my_info : info int'
 data InfoPlace = InfoPlace { infoName :: Id }
 
 asInfoPlace :: C.TyVar -> InfoPlace
@@ -421,6 +425,9 @@ envAllocField (x, s) = do
   pure (field, x')
 
 
+-- TODO: Generate places for environment allocations in placesForClosureAllocs?
+-- TODO: Compute thunk types in placesForClosureAllocs?
+-- Hmm. The return type here could possibly use a helper type.
 placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(ClosureName, a)] -> ([(Place, ClosureName, a)] -> HoistM r) -> HoistM r
 placesForClosureAllocs closureName closureSort cdecls kont = do
   scope <- asks (scopePlaces . localScope)
