@@ -59,6 +59,7 @@ standard_test("polyid", "<closure>")
 standard_test("polyapp", "17")
 standard_test("duparg", "true")
 # standard_test("polystate", "(55, 55)")
+standard_test("rank2poly", "true")
 
 
 for (test, out, err) in failed_tests:

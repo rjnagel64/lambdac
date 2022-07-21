@@ -200,11 +200,16 @@ emitThunkSuspend ns (ThunkType ss) =
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d (Id envName, envd) params e) =
-  emitEnvDecl ns envd ++
-  emitEnvTrace ns envd ++
-  emitEnvAlloc ns envd ++
+  emitClosureEnv ns envd ++
   emitClosureCode ns envName params e
+  -- emitClosureEnter ns
   where ns = namesForClosure d
+
+emitClosureEnv :: ClosureNames -> EnvDecl -> [String]
+emitClosureEnv ns envd =
+  emitEnvDecl ns envd ++
+  emitEnvInfo ns envd ++
+  emitEnvAlloc ns envd
 
 emitEnvDecl :: ClosureNames -> EnvDecl -> [String]
 emitEnvDecl ns (EnvDecl is fs) =
@@ -234,17 +239,15 @@ emitEnvAlloc ns (EnvDecl is fs) =
     assignInfo (InfoPlace aa) = "    env->" ++ show aa ++ " = " ++ show aa ++ ";"
     assignField (Place _ x, _) = "    env->" ++ show x ++ " = " ++ show x ++ ";"
 
--- | Emit a method to trace a closure environment.
--- (And also emit type info for the environment types)
-emitEnvTrace :: ClosureNames -> EnvDecl -> [String]
-emitEnvTrace ns (EnvDecl _is fs) =
+emitEnvInfo :: ClosureNames -> EnvDecl -> [String]
+emitEnvInfo ns (EnvDecl _is fs) =
   ["void " ++ closureTraceName ns ++ "(struct alloc_header *alloc) {"
-  ,"    " ++ closureTy ++ "env = (" ++ closureTy ++ ")alloc;"] ++
+  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")alloc;"] ++
   map traceField fs ++
   ["}"
   ,"type_info " ++ closureEnvName ns ++ "_info = { " ++ closureTraceName ns ++ ", display_env };"]
   where
-    closureTy = "struct " ++ closureEnvName ns ++ " *"
+    envTy = "struct " ++ closureEnvName ns ++ " *"
     traceField (Place _ x, i) = "    " ++ emitMarkGray "env" (EnvName x) i ++ ";"
 
 emitClosureCode :: ClosureNames -> String -> [ClosureParam] -> TermH -> [String]

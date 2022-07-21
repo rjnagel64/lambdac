@@ -1,0 +1,7 @@
+let foo : (forall a. a -> a) -> bool =
+  \ (fn : forall a. a -> a) -> fn @bool true
+in
+let id : forall a. a -> a =
+  \ @a -> \ (x : a) -> x
+in
+foo id
