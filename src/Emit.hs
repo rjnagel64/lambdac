@@ -252,14 +252,12 @@ emitClosureEnter ns ty@(ThunkType ss) =
 
 emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
-  ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"
-  ,"    struct " ++ closureEnvName ns ++ " *" ++ show envName ++ " = __env;"] ++
+  ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"] ++
   emitClosureBody envName e ++
   ["}"]
   where
-    -- User-provided names cannot start with _, so we use that for the
-    -- polymorphic environment parameter.
-    paramList = commaSep ("void *__env" : map emitParam xs)
+    paramList = commaSep (envParam : map emitParam xs)
+    envParam = "struct " ++ closureEnvName ns ++ " *" ++ show envName
     emitParam (TypeParam i) = emitInfoDecl i
     emitParam (PlaceParam p) = emitPlace p
 
