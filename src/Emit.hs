@@ -129,37 +129,28 @@ emitThunkType ns (ThunkType ss) =
   ["struct " ++ thunkTypeName ns ++ " {"
   ,"    struct thunk header;"
   ,"    struct closure *closure;"] ++
-  mapWithIndex mkField ss ++
+  concat (mapWithIndex mkField ss) ++
   ["};"]
   where
-    mkField i ThunkInfoArg = "    type_info arg" ++ show i ++ ";\n"
-    mkField i (ThunkValueArg s) = case s of
-      AllocH _ -> "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
-      _ -> "    " ++ emitPlace (Place s (Id ("arg" ++ show i))) ++ ";"
+    mkField i ThunkInfoArg =
+      ["    type_info arg" ++ show i ++ ";"]
+    mkField i (ThunkValueArg s) =
+      ["    " ++ emitPlace (Place s (Id ("arg" ++ show i))) ++ ";"
+      ,"    " ++ emitInfoPlace (InfoPlace (Id ("info" ++ show i))) ++ ";"]
 
 emitThunkTrace :: ThunkNames -> ThunkType -> [String]
 emitThunkTrace ns (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
   ,"    " ++ emitMarkGray (Id "next") (EnvName (Id "closure")) ClosureInfo ++ ";"] ++
-  mapWithIndex traceField ss ++
+  concat (mapWithIndex traceField ss) ++
   ["}"]
   where
-    traceField i ThunkInfoArg = "" -- TODO: Avoid blank line here.
-    -- Hmm. This clause basically duplicates 'infoForSort'. Is there a cleaner way?
-    traceField i (ThunkValueArg s) =
-      let x = EnvName (Id ("arg" ++ show i)) in
-      let next = Id "next" in
-      case s of
-        AllocH _ ->
-          "    " ++ emitMarkGray next x (EnvInfo (Id ("info" ++ show i))) ++ ";"
-        IntegerH -> "    " ++ emitMarkGray next x Int64Info ++ ";"
-        BooleanH -> "    " ++ emitMarkGray next x BoolInfo ++ ";"
-        UnitH -> "    " ++ emitMarkGray next x UnitInfo ++ ";"
-        SumH -> "    " ++ emitMarkGray next x SumInfo ++ ";"
-        ProductH _ _ -> "    " ++ emitMarkGray next x ProductInfo ++ ";"
-        ListH _ -> "    " ++ emitMarkGray next x ListInfo ++ ";"
-        ClosureH _ -> "    " ++ emitMarkGray next x ClosureInfo ++ ";"
+    traceField _ ThunkInfoArg = []
+    traceField i (ThunkValueArg _) =
+      let arg = EnvName (Id ("arg" ++ show i)) in
+      let info = EnvInfo (Id ("info" ++ show i)) in
+      ["    " ++ emitMarkGray (Id "next") arg info ++ ";"]
 
 emitThunkSuspend :: ThunkNames -> ThunkType -> [String]
 emitThunkSuspend ns (ThunkType ss) =
@@ -168,16 +159,31 @@ emitThunkSuspend ns (ThunkType ss) =
   ,"    next->header.enter = closure->enter;"
   ,"    next->header.trace = " ++ thunkTraceName ns ++ ";"
   ,"    next->closure = closure;"] ++
-  mapWithIndex assignField ss ++
+  concat (mapWithIndex assignField ss) ++
   ["    next_step = (struct thunk *)next;"
   ,"}"]
   where
-    paramList = commaSep ("struct closure *closure" : mapWithIndex makeParam ss)
-    makeParam i ThunkInfoArg = "type_info arg" ++ show i
+    paramList = commaSep ("struct closure *closure" : concat (mapWithIndex makeParam ss))
+    makeParam i ThunkInfoArg = ["type_info arg" ++ show i]
     makeParam i (ThunkValueArg s) = case s of
-      AllocH _ -> "struct alloc_header *arg" ++ show i ++ ", type_info info" ++ show i
-      _ -> emitPlace (Place s (Id ("arg" ++ show i)))
-    assignField i _ = "    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
+      AllocH _ -> ["struct alloc_header *arg" ++ show i, "type_info info" ++ show i]
+      _ -> [emitPlace (Place s (Id ("arg" ++ show i)))]
+
+    assignField i ThunkInfoArg =
+      ["    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"]
+    assignField i (ThunkValueArg s) =
+      ["    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
+      ,"    next->info" ++ show i ++ " = " ++ emitInfo (Id "next") info ++ ";"]
+      where
+        info = case s of
+          AllocH _ -> EnvInfo (Id ("info" ++ show i))
+          IntegerH -> Int64Info
+          BooleanH -> BoolInfo
+          UnitH -> UnitInfo
+          SumH -> SumInfo
+          ProductH _ _ -> ProductInfo
+          ListH _ -> ListInfo
+          ClosureH _ -> ClosureInfo
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
@@ -205,7 +211,7 @@ emitEnvDecl ns (EnvDecl is fs) =
   map mkField fs ++
   ["};"]
   where
-    mkInfo i = "    " ++ emitInfoDecl i ++ ";"
+    mkInfo i = "    " ++ emitInfoPlace i ++ ";"
     mkField (f, _) = "    " ++ emitPlace f ++ ";"
 
 emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
@@ -221,7 +227,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
   ,"}"]
   where
     paramList = if null is && null fs then "void" else commaSep params
-    params = map emitInfoDecl is ++ map (emitPlace . fst) fs
+    params = map emitInfoPlace is ++ map (emitPlace . fst) fs
 
     assignInfo (InfoPlace aa) = "    env->" ++ show aa ++ " = " ++ show aa ++ ";"
     assignField (Place _ x, _) = "    env->" ++ show x ++ " = " ++ show x ++ ";"
@@ -258,7 +264,7 @@ emitClosureCode ns envName xs e =
   where
     paramList = commaSep (envParam : map emitParam xs)
     envParam = "struct " ++ closureEnvName ns ++ " *" ++ show envName
-    emitParam (TypeParam i) = emitInfoDecl i
+    emitParam (TypeParam i) = emitInfoPlace i
     emitParam (PlaceParam p) = emitPlace p
 
 emitClosureBody :: EnvPtr -> TermH -> [String]
@@ -384,8 +390,8 @@ emitPatch ns (Place _ p) (EnvAlloc _info _free rec) =
     patchField (Place _ f, LocalName x) = ["    " ++ env ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
     patchField (_, EnvName _) = [] -- Why ignore environment names?
 
-emitInfoDecl :: InfoPlace -> String
-emitInfoDecl (InfoPlace i) = "type_info " ++ show i
+emitInfoPlace :: InfoPlace -> String
+emitInfoPlace (InfoPlace i) = "type_info " ++ show i
 
 emitPlace :: Place -> String
 emitPlace (Place s x) = typeForSort s ++ show x

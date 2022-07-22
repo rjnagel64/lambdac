@@ -180,6 +180,7 @@ data Sort
   | SumH
   | ProductH Sort Sort
   | ListH Sort
+  -- TODO: Sort.ClosureH should have info parameters
   | ClosureH [Sort]
   | AllocH C.TyVar
   deriving (Eq, Ord)
@@ -272,19 +273,23 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
--- TODO: Use 'Map ClosureName ThunkType' instead of 'Set DeclName'?
 -- Hmm. Instead of 'Writer', would an 'Update' monad be applicable here?
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set ClosureName) (Writer (ClosureDecls, Set ThunkType))) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Map ClosureName ThunkType) (Writer (ClosureDecls, Set ThunkType))) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter (ClosureDecls, Set ThunkType) HoistM
-deriving newtype instance MonadState (Set ClosureName) HoistM
+deriving newtype instance MonadState (Map ClosureName ThunkType) HoistM
 
 runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
-runHoist = second (second Set.toList) . runWriter .  flip evalStateT Set.empty .  flip runReaderT emptyEnv .  runHoistM
+runHoist =
+  second (second Set.toList) .
+  runWriter .
+  flip evalStateT Map.empty .
+  flip runReaderT emptyEnv .
+  runHoistM
   where
     emptyEnv = HoistEnv emptyScope emptyScope
     emptyScope = Scope Map.empty Map.empty
@@ -322,19 +327,22 @@ tellClosures cs = tell (ClosureDecls cs, ts)
 hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = (\ (x', i) -> HaltH x' i) <$> hoistVarOcc' x
 hoist (JumpC k xs) = do
-  (ys, ss) <- hoistArgList xs
-  OpenH <$> hoistVarOcc k <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
+  (k', ss) <- hoistCall k
+  (ys, _ss) <- hoistArgList xs
+  OpenH <$> pure k' <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
 hoist (CallC f xs ks) = do
-  (ys, ss) <- hoistArgList (xs ++ ks)
-  OpenH <$> hoistVarOcc f <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
+  (f', ss) <- hoistCall f
+  (ys, _ss) <- hoistArgList (xs ++ ks)
+  OpenH <$> pure f' <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
 hoist (InstC f ts ks) = do
-  (ys, ss) <- hoistArgList ks
+  (f', ss) <- hoistCall f
+  (ys, _ss) <- hoistArgList ks
   -- TODO: It would be better if OpenH looked up the thunk type of the
   -- head, rather than trying to reconstruct it.
   let infoSorts = replicate (length ts) ThunkInfoArg
   let ty = ThunkType (infoSorts ++ map ThunkValueArg ss)
   ts' <- traverse (infoForSort . sortOf) ts
-  OpenH <$> hoistVarOcc f <*> pure ty <*> pure (map TypeArg ts' ++ ys)
+  OpenH <$> pure f' <*> pure ty <*> pure (map TypeArg ts' ++ ys)
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
@@ -367,17 +375,20 @@ hoist (LetCompareC (x, s) cmp e) = do
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' cmp' e')
 hoist (LetFunC fs e) = do
-  fdecls <- declareClosureNames C.funClosureName fs
+  let funThunkType (C.FunClosureDef _ _ xs ks _) = ThunkType (map (ThunkValueArg . sortOf . snd) xs ++ map (ThunkValueArg . sortOf . snd) ks)
+  fdecls <- declareClosureNames C.funClosureName funThunkType fs
   ds' <- traverse hoistFunClosure fdecls
   tellClosures ds'
   hoistClosureAllocs C.funClosureName C.funClosureSort C.funEnvDef fdecls e
 hoist (LetContC ks e) = do
-  kdecls <- declareClosureNames C.contClosureName ks
+  let contThunkType (C.ContClosureDef _ _ xs _) = ThunkType (map (ThunkValueArg . sortOf . snd) xs)
+  kdecls <- declareClosureNames C.contClosureName contThunkType ks
   ds' <- traverse hoistContClosure kdecls
   tellClosures ds'
   hoistClosureAllocs C.contClosureName C.contClosureSort C.contEnvDef kdecls e
 hoist (LetAbsC fs e) = do
-  fdecls <- declareClosureNames C.absClosureName fs
+  let absThunkType (C.AbsClosureDef _ _ as ks _) = ThunkType (replicate (length as) ThunkInfoArg ++ map (ThunkValueArg . sortOf . snd) ks)
+  fdecls <- declareClosureNames C.absClosureName absThunkType fs
   ds' <- traverse hoistAbsClosure fdecls
   tellClosures ds'
   hoistClosureAllocs C.absClosureName C.absClosureSort C.absEnvDef fdecls e
@@ -432,13 +443,15 @@ placesForClosureAllocs closureName closureSort cdecls kont = do
   local extend (kont cplaces)
 
 
-declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(ClosureName, a)]
-declareClosureNames closureName cs =
+declareClosureNames :: (a -> C.Name) -> (a -> ThunkType) -> [a] -> HoistM [(ClosureName, a)]
+declareClosureNames closureName closureThunkType cs =
   for cs $ \def -> do
     let
       pickName f ds =
         let d = asDeclName f in
-        if Set.member d ds then pickName (C.prime f) ds else (d, Set.insert d ds)
+        case Map.lookup d ds of
+          Nothing -> let ty = closureThunkType def in (d, Map.insert d ty ds)
+          Just _ty -> pickName (C.prime f) ds
     decls <- get
     let (d, decls') = pickName (closureName def) decls
     put decls'
@@ -540,6 +553,19 @@ hoistVarOccSort x = do
     Nothing -> case Map.lookup x fs of
       Just (Place s x') -> pure (EnvName x', s)
       Nothing -> error ("not in scope: " ++ show x)
+
+hoistCall :: C.Name -> HoistM (Name, [Sort])
+hoistCall x = do
+  ps <- asks (scopePlaces . localScope)
+  fs <- asks (scopePlaces . envScope)
+  (x', s) <- case Map.lookup x ps of
+    Just (Place s x') -> pure (LocalName x', s)
+    Nothing -> case Map.lookup x fs of
+      Just (Place s x') -> pure (EnvName x', s)
+      Nothing -> error ("not in scope: " ++ show x)
+  case s of
+    ClosureH ss -> pure (x', ss)
+    _ -> error ("called a non-closure: " ++ show x ++ " : " ++ pprintSort s)
 
 hoistArgList :: [C.Name] -> HoistM ([ClosureArg], [Sort])
 hoistArgList xs = unzip <$> traverse f xs
