@@ -1,0 +1,381 @@
+
+let id : forall a. a -> a =
+  \@a -> \ (x : a) -> x;
+in
+-- ... Can I monomorphise this?
+-- I think I need to add parameters.
+let h : (forall a. a -> a) -> (unit, bool) =
+  \ (g : forall a. a -> a) -> (g @unit (), g @bool true);
+in
+let p : unit * bool =
+  h id;
+in
+p
+===>
+let idUnit : unit -> unit =
+  \ (x : unit) -> x;
+in
+let idBool : bool -> bool =
+  \ (x : bool) -> x;
+in
+let h : (unit -> unit) -> (bool -> bool) -> (unit, bool) =
+  \ (gUnit : unit -> unit) -> \ (gBool : bool -> bool) -> (gUnit (), gBool true);
+in
+let p : unit * bool =
+  h idUnit idBool;
+in
+p
+
+- - - - -
+
+-- Rank-2 encoding of existentials
+
+type exists f = forall r. (forall a. f a -> r) -> r
+
+data eq a = eq (a -> a -> bool)
+
+let equnit : eq unit =
+  eq (\ (x : unit) -> \ (y : unit) -> true);
+in
+let foo : exists eq =
+  \@r -> \ (k : forall a. eq a -> r) -> k @unit equnit;
+in
+foo @int (\ (e : eqUnit) -> 17)
+===>
+type existsEq = forall r. (forall a. eq a -> r) -> r
+data eqUnit = eqUnit (unit -> unit -> bool)
+let equnit : eqUnit =
+  eqUnit (\ (x : unit) -> \ (y : unit) -> true);
+in
+let fooInt : (eqUnit -> int) -> int =
+  \ (kUnit : eqUnit -> int) -> kUnit equnit;
+in
+fooInt (\ (e : eqUnit) -> 17)
+
+- - - - -
+
+listFold :: forall a. [a] -> forall r. ((unit + (a * r)) -> r) -> r
+listFold @a xs @r alg = case xs of
+  [] -> alg (inl ())
+  y:ys -> alg (inr (y, listFold @a ys @r alg))
+
+- - - - -
+
+let cpsid : forall a. a -> forall r. (a -> r) -> r =
+  \@a -> \ (x : a) -> \@r -> \ (k : a -> r) -> k @a x
+in
+cpsid @bool true @unit (\ (b : bool) -> ())
+===>
+letabs cpsid @a =
+  letfun f0 (x : a) =
+    letabs f1 @r =
+      letfun f2 (k : a -> r) =
+        k @a x;
+      in
+      f2;
+    in
+    f1;
+  in
+  f0;
+in
+letfun k0 (b : bool) : unit = ();
+in
+cpsid @bool true @unit k0
+===>
+let cpsid_bool =
+  letfun f0 (x : bool) =
+    letabs f1 @r =
+      letfun f2 (k : bool -> r) =
+        k x;
+      in
+      f2;
+    in
+    f1;
+  in
+  f0;
+in
+letfun k0 (b : bool) : unit = ();
+in
+cpsid_bool true @unit k0
+===>
+letfun cpsid_bool (x : bool) =
+  letfun f2_unit (k : bool -> unit) =
+    k x;
+  in
+  f2_unit;
+in
+letfun k0 (b : bool) : unit = ();
+in
+cpsid_bool true k0
+
+- - - - -
+let id = \@a -> \ (x : a) -> x; in
+id @(forall z. z -> z) id
+===>
+let id = \@a -> \ (x : a) -> x; in
+let id1 = \ (x : forall z. z -> z) -> z; in
+id1 id
+
+- - - - -
+|-
+let pair : forall a. a -> a * a = \ @a -> \ (x : a) -> x;
+let repair : (forall x. x -> x * x) -> forall b. forall c. (b * c) -> ((b * b) * (c * c)) =
+  \ (mk_pair : forall x. x -> x * x) -> \ @b -> \ @c -> \ (p : b * c) -> (mk_pair @b (fst p), mk_pair @c (snd p))
+repair pair @bool @int (false, 17)
+
+==> Add pair to context
+let pair : forall a. a -> a * a = \ @a -> \ (x : a) -> x;
+|-
+let repair : (forall x. x -> x * x) -> forall b. forall c. (b * c) -> ((b * b) * (c * c)) =
+  \ (mk_pair : forall x. x -> x * x) -> \ @b -> \ @c -> \ (p : b * c) -> (mk_pair @b (fst p), mk_pair @c (snd p))
+repair pair @bool @int (false, 17)
+
+==>
+
+
+
+- - - - -
+-- Data types also need to be monomorphised. Basically monomorphisation on the type level?
+data Fix : (* -> *) -> * where
+  Roll : forall (f : * -> *). f (Fix f) -> Fix f
+
+-- Type class dictionaries are impredicative.
+data Functor : (* -> *) -> * where
+  MkFunctor : forall (f : * -> *). (forall a b. (a -> b) -> f a -> f b) -> Functor f
+
+cata : forall f a. Functor f -> (f a -> a) -> Fix f -> a
+cata @f @a dFunctor alg x = case x of
+  Roll fx -> alg (case dFunctor of MkFunctor fmap -> fmap @(Fix f) @a (cata @f @a alg) fx)
+
+data ListF : * -> * where
+  NilF : forall r. ListF r
+  ConsF : forall r. Int -> r -> ListF r
+
+fmapListF : forall a b. (a -> b) -> ListF a -> ListF b
+fmapListF @a @b f l = case l of
+  NilF -> NilF @b
+  ConsF x r -> ConsF @b x (f r)
+
+dFunctorListF : Functor ListF
+dFunctorListF = MkFunctor @ListF fmapListF
+
+addAlg : ListF Int -> Int
+addAlg l = case l of
+  NilF -> 0
+  ConsF x acc -> x + acc
+
+sum : Fix ListF -> Int
+sum = cata @ListF @Int dFunctorListF addAlg
+
+===>
+data Fix : (* -> *) -> * where
+  Roll : forall (f : * -> *). f (Fix f) -> Fix f
+
+data Functor : (* -> *) -> * where
+  MkFunctor : forall (f : * -> *). (forall a b. (a -> b) -> f a -> f b) -> Functor f
+
+-- cata : forall f a. Functor f -> (f a -> a) -> Fix f -> a
+-- cata @f @a dFunctor alg x = case x of
+--   Roll fx -> alg (case dFunctor of MkFunctor fmap -> fmap @(Fix f) @a (cata @f @a dFunctor alg) fx)
+
+data ListF : * -> * where
+  NilF : forall r. ListF r
+  ConsF : forall r. Int -> r -> ListF r
+
+fmapListF : forall a b. (a -> b) -> ListF a -> ListF b
+fmapListF @a @b f l = case l of
+  NilF -> NilF @b
+  ConsF x r -> ConsF @b x (f r)
+
+dFunctorListF : Functor ListF
+dFunctorListF = MkFunctor @ListF fmapListF
+
+addAlg : ListF Int -> Int
+addAlg l = case l of
+  NilF -> 0
+  ConsF x acc -> x + acc
+
+sum : Fix ListF -> Int
+sum = cata_ListF_Int dFunctorListF addAlg
+
+cata_ListF_Int : Functor ListF -> (ListF Int -> Int) -> Fix ListF -> Int
+cata_ListF_Int dFunctor alg x = case x of
+  Roll fx -> alg (case dFunctor of MkFunctor fmap -> fmap @(Fix ListF) @Int (cata_ListF_Int dFunctor alg) fx)
+
+===>
+data Fix : (* -> *) -> * where
+  Roll : forall (f : * -> *). f (Fix f) -> Fix f
+
+-- data Functor : (* -> *) -> * where
+--   MkFunctor : forall (f : * -> *). (forall a b. (a -> b) -> f a -> f b) -> Functor f
+
+data ListF : * -> * where
+  NilF : forall r. ListF r
+  ConsF : forall r. Int -> r -> ListF r
+
+fmapListF : forall a b. (a -> b) -> ListF a -> ListF b
+fmapListF @a @b f l = case l of
+  NilF -> NilF @b
+  ConsF x r -> ConsF @b x (f r)
+
+data Functor_ListF : * where
+  MkFunctor_ListF : (forall a b. (a -> b) -> ListF a -> ListF b) -> Functor_ListF
+
+dFunctorListF : Functor_ListF
+dFunctorListF = MkFunctor_ListF fmapListF
+
+addAlg : ListF Int -> Int
+addAlg l = case l of
+  NilF -> 0
+  ConsF x acc -> x + acc
+
+sum : Fix ListF -> Int
+sum = cata_ListF_Int dFunctorListF addAlg
+
+cata_ListF_Int : Functor_ListF -> (ListF Int -> Int) -> Fix ListF -> Int
+cata_ListF_Int dFunctor alg x = case x of
+  Roll fx -> alg (case dFunctor of MkFunctor_ListF fmap -> fmap @(Fix ListF) @Int (cata_ListF_Int dFunctor alg) fx)
+
+===>
+-- data Fix : (* -> *) -> * where
+--   Roll : forall (f : * -> *). f (Fix f) -> Fix f
+
+data Fix_ListF : * where
+  Roll_ListF : ListF Fix_ListF -> Fix_ListF
+
+data ListF : * -> * where
+  NilF : forall r. ListF r
+  ConsF : forall r. Int -> r -> ListF r
+
+fmapListF : forall a b. (a -> b) -> ListF a -> ListF b
+fmapListF @a @b f l = case l of
+  NilF -> NilF @b
+  ConsF x r -> ConsF @b x (f r)
+
+data Functor_ListF : * where
+  MkFunctor_ListF : (forall a b. (a -> b) -> ListF a -> ListF b) -> Functor_ListF
+
+dFunctorListF : Functor_ListF
+dFunctorListF = MkFunctor_ListF fmapListF
+
+addAlg : ListF Int -> Int
+addAlg l = case l of
+  NilF -> 0
+  ConsF x acc -> x + acc
+
+sum : Fix_ListF -> Int
+sum = cata_ListF_Int dFunctorListF addAlg
+
+cata_ListF_Int : Functor_ListF -> (ListF Int -> Int) -> Fix_ListF -> Int
+cata_ListF_Int dFunctor alg x = case x of
+  Roll_ListF fx -> alg (case dFunctor of MkFunctor_ListF fmap -> fmap @Fix_ListF @Int (cata_ListF_Int dFunctor alg) fx)
+
+===>
+data Fix_ListF : * where
+  Roll_ListF : ListF Fix_ListF -> Fix_ListF
+
+data ListF : * -> * where
+  NilF : forall r. ListF r
+  ConsF : forall r. Int -> r -> ListF r
+
+fmapListF : forall a b. (a -> b) -> ListF a -> ListF b
+fmapListF @a @b f l = case l of
+  NilF -> NilF @b
+  ConsF x r -> ConsF @b x (f r)
+
+-- data Functor_ListF : * where
+--   MkFunctor_ListF : (forall a b. (a -> b) -> ListF a -> ListF b) -> Functor_ListF
+
+data Functor_ListF' : * where
+  MkFunctor_ListF' : ((Fix_ListF -> Int) -> ListF Fix_ListF -> ListF_Int) -> Functor_ListF'
+
+dFunctorListF : Functor_ListF'
+dFunctorListF = MkFunctor_ListF' (fmapListF @Fix_ListF @Int)
+
+addAlg : ListF Int -> Int
+addAlg l = case l of
+  NilF -> 0
+  ConsF x acc -> x + acc
+
+sum : Fix_ListF -> Int
+sum = cata_ListF_Int dFunctorListF addAlg
+
+cata_ListF_Int : Functor_ListF' -> (ListF Int -> Int) -> Fix_ListF -> Int
+cata_ListF_Int dFunctor alg x = case x of
+  Roll_ListF fx -> alg (case dFunctor of MkFunctor_ListF' fmap -> fmap (cata_ListF_Int dFunctor alg) fx)
+
+===>
+data Fix_ListF : * where
+  Roll_ListF : ListF Fix_ListF -> Fix_ListF
+
+data ListF : * -> * where
+  NilF : forall r. ListF r
+  ConsF : forall r. Int -> r -> ListF r
+
+-- fmapListF : forall a b. (a -> b) -> ListF a -> ListF b
+-- fmapListF @a @b f l = case l of
+--   NilF -> NilF @b
+--   ConsF x r -> ConsF @b x (f r)
+
+fmapListF_Fix_ListF_Int : (Fix_ListF -> Int) -> ListF Fix_ListF -> ListF Int
+fmapListF_Fix_ListF_Int f l = case l of
+  NilF -> NilF @Int
+  ConsF x r -> ConsF @Int x (f r)
+
+data Functor_ListF' : * where
+  MkFunctor_ListF' : ((Fix_ListF -> Int) -> ListF Fix_ListF -> ListF_Int) -> Functor_ListF'
+
+dFunctorListF : Functor_ListF'
+dFunctorListF = MkFunctor_ListF' fmapListF_Fix_ListF_Int
+
+addAlg : ListF Int -> Int
+addAlg l = case l of
+  NilF -> 0
+  ConsF x acc -> x + acc
+
+sum : Fix_ListF -> Int
+sum = cata_ListF_Int dFunctorListF addAlg
+
+cata_ListF_Int : Functor_ListF' -> (ListF Int -> Int) -> Fix_ListF -> Int
+cata_ListF_Int dFunctor alg x = case x of
+  Roll_ListF fx -> alg (case dFunctor of MkFunctor_ListF' fmap -> fmap (cata_ListF_Int dFunctor alg) fx)
+
+===>
+data Fix_ListF : * where
+  Roll_ListF : ListF_Fix_ListF -> Fix_ListF
+
+-- data ListF : * -> * where
+--   NilF : forall r. ListF r
+--   ConsF : forall r. Int -> r -> ListF r
+
+data ListF_Int : * where
+  NilF_Int : ListF_Int
+  ConsF_Int : Int -> Int -> ListF_Int
+
+data ListF_Fix_ListF : * where
+  NilF_Fix_ListF : ListF_Fix_ListF
+  ConsF_Fix_ListF : Int -> Fix_ListF -> ListF_Fix_ListF
+
+fmapListF_Fix_ListF_Int : (Fix_ListF -> Int) -> ListF_Fix_ListF -> ListF_Int
+fmapListF_Fix_ListF_Int f l = case l of
+  NilF_Fix_ListF -> NilF_Int
+  ConsF_Fix_ListF x r -> ConsF_Int x (f r)
+
+data Functor_ListF' : * where
+  MkFunctor_ListF' : ((Fix_ListF -> Int) -> ListF Fix_ListF -> ListF_Int) -> Functor_ListF'
+
+dFunctorListF : Functor_ListF'
+dFunctorListF = MkFunctor_ListF' fmapListF_Fix_ListF_Int
+
+addAlg : ListF_Int -> Int
+addAlg l = case l of
+  NilF_Int -> 0
+  ConsF_Int x acc = x + acc
+
+sum : Fix_ListF -> Int
+sum = cata_ListF_Int dFunctorListF addAlg
+
+cata_ListF_Int : Functor_ListF' -> (ListF_Int -> Int) -> Fix_ListF -> Int
+cata_ListF_Int dFunctor alg x = case x of
+  Roll_ListF fx -> alg (case dFunctor of MkFunctor_ListF' fmap -> fmap (cata_ListF_Int dFunctor alg) fx)
+

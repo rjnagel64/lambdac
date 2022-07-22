@@ -1,0 +1,49 @@
+
+Test Cases for Source-Level Uncurrying/Arity Raising
+====================================================
+
+```
+let f = \x -> \y -> e in
+f 3 4
+==> Uncurry f x y => f (x y)
+let f = \x y -> e in
+f (3 4)
+```
+
+```
+let f = \x -> \y -> e in
+(f 3 4, f 1)
+==> No uncurry: insufficiently saturated
+let f = \x -> \y -> e in
+(f 3 4, f 1)
+```
+
+```
+let f = \x -> \y -> \z -> e in
+(f 2 3 4, f 1 5)
+==> Partial curry: minimum saturation
+let f = \x y -> \z -> e in
+(f (2 3) 4, f (1 5))
+```
+
+```
+let f = \b -> if b then \x -> x + x else \x -> x * x in
+f true 7
+==> No uncurry: signficant computation blocks argument list
+```
+
+```
+let g = \x -> x in
+let f = \y -> g in
+f 3 4
+==> Eta-expand, uncurry
+let g = \x -> x in
+let f = \y x -> g x in
+f (3 4)
+```
+
+See "Call Arity" for more discussion of these topics (uncurrying and eta-expansion)
+
+Another topic to note is that if source-level applications are uncurried, their
+CPS translation will involve translating and naming `n` temporaries to make the
+call.

@@ -1,0 +1,415 @@
+
+(( BEGIN Hoist syntax -- too formal? Not formal enough? Unsatisfied. ))
+prog ::= closure+; e
+
+closure ::= 'closure' cname envdecl '(' tele  ')' '=' e
+
+envdecl ::= '{' ('@' id)+ ';' (id ':' sort)+ '}'
+
+tele ::= '.' | '@' id ',' tele | id ':' sort ',' tele
+
+sort ::= 'unit' | id
+
+
+name ::= id | '@.' id
+
+info ::= id | '$@.' id | 'unit_info'
+
+e ::= 'halt' name info | 'let' id ':' sort '=' value 'in' e
+
+
+
+lctx ::= '.' | lctx ',' '@' id | lctx ',' id ':' sort
+ectx ::= '.'
+
+-- Closure types are existential
+ctype ::= '∃' l '.' 'code' '(' l ',' sort+ ')' '×' l
+-- Closure context maps closure names to types
+cctx ::= '.' | cctx ',' cname : ctype
+
+G - local scope
+D - env scope
+C - closure environment
+
+---
+G; D |- e ok
+
+
+_ |- _ : _ |- _
+(_ :: cctx) |- (_ :: closure) : (_ :: ctype) |- (_ :: cctx)
+
+|- envty ~> D
+D |- params ~> G
+D; G |- e ok
+---
+C |- closure (f :: cname) (envty :: envd) (params :: tele) = (e :: term) : ∃l. code (l, s+) × l |- C, ...
+(( END Hoist syntax ))
+
+
+
+TODO: Write this up into real documentation/design notes!
+
+SYNTAX
+======
+
+variable x, y, f
+Term variables
+
+variable a, b
+Type variables
+
+variable l
+Record labels
+
+G ::= . | G, a : type | G, x : t
+Typing contexts
+-- Maybe 'G, x : info t' also?
+
+t, s ::= unit | t × s | ∃a.t[a] | code(t; S)
+Types
+
+S ::= . | @a, S | t, S
+Telescopes/Parameter lists
+-- maybe forall a, S instead of @a, S?
+
+e ::= let x : t = v in e | unpack <a, x> = e1 in e2 | f(x, E)
+Terms
+
+E ::= . | @t, E | x, E
+Argument lists
+
+v, w ::= x | (v, w) | <t, v> | {(l = v)+}
+Values
+
+i, j ::= x | $unit_info | $pair_info
+
+
+JUDGMENTS
+=========
+
+G |- t
+Type 't' is well-formed in context 'G'
+
+G |- v : t
+Value 'v' has type 't' in context 'G'
+
+G |- i : info t
+Info value 'i' describes type 't' in context 'G'
+
+G |- e OK
+Expression 'e' is well-typed in context 'G'
+
+G |- S
+Telescope S is well-formed (return extended context?)
+
+G |- E : S
+Argument sequence E has type telescope S
+
+
+RULES
+=====
+
+Typing rules for telescopes are standard, though value bindings are non-dependent.
+
+  ------
+  G |- .
+
+  G, a |- S
+  ----------
+  G |- @a, S
+  
+  G |- t
+  ---------
+  G |- t, S
+
+Telescopes are used to type argument lists.
+
+  ----------
+  G |- . : .
+
+  G |- i : info t
+  G |- E : S[a := t]
+  ------------------
+  G |- i, E : @a, S
+
+  G |- x : t
+  G |- E : S
+  ----------------
+  G |- x, E : t, S
+
+
+After closure-conversion, function types have been decomposed into code
+pointers and existentially-quantified environments. Existential types are
+entirely standard.
+
+  G, a |- t
+  ---------
+  G |- ∃a.t
+
+  G |- t
+  G |- e : s[a := t]
+  ------------------
+  G |- <t, e> : ∃a.s
+
+  G |- e1 : ∃b.t
+  G, a, x : t[b := a] |- e2 OK
+  --------------------------------
+  G |- unpack <a, x> = e1 in e2 OK
+
+TODO: Move rules for existentials down after desugaring is introduced
+
+Code types consist of an environment type and a telescope of argument types.
+
+  G |- t
+  (G |- s_i)^i
+  -------------------------
+  G |- code(t; s1, ..., sn)
+
+TODO: the parameter types should form a telescope. (Because type parameters)
+
+Aside: It isn't actually necessary to distinguish the environment parameter
+from the rest, but eh, whatever. (As of commit fdc1afd, environment parameters
+are special only in that they get custom data types generated for them, to
+avoid excessive tuple-projecting)
+
+Code pointers can be called by providing a matching environment and an
+appropriate list of arguments. Calling a code pointer is therefore uncurried.
+
+  f : code(t; s1, ..., sn) ∈ G
+  G |- env : t
+  (G |- arg_i : s_i)^i
+  -------------------------------
+  G |- f(env; arg1, ..., argn) OK
+
+Instead of using code types directly, the translation of types introduces
+"closure types", which behave pretty much as you expect.
+
+  CC[(s1, ..., sn) -> !] = closure(s1, ..., sn)
+
+  (G |- s_i)^i
+  -------------------------
+  G |- closure(s1, ..., sn)
+
+  G |- f : code(t, s1, ..., sn)
+  G |- env : t
+  G, cl : closure(s1, ..., sn) |- e OK
+  ------------------------------------------------------
+  G |- let cl : closure(s1, ..., sn) = f { env } in e OK
+
+  G |- cl : closure(s1, ..., sn)
+  (G |- arg_i : s_i)^i
+  --------------------------------
+  G |- call cl(arg1, ..., argn) OK
+
+The semantics of these constructs are given by desugaring to existential
+products of an environment and a code pointer:
+
+  closure(s1, ..., sn) ::= ∃l.l × code(l; s1, ..., sn)
+
+Closure construction involves creating an existential package:
+
+  let cl : closure(s1, ..., sn) = f { env } in e
+  ::=
+  let cl : ∃l.l × code(l; s1, ..., sn) = <typeof(env), (env, f)> in e
+
+And calling a closure unpacks the environment and code pointer.
+
+  call cl(arg1, ..., argn)
+  ::=
+  unpack <a, (env, code)> = cl in code(env; arg1, ..., argn)
+
+Aside: It isn't necessary to use a real product type in this desugaring. The
+product could instead be fused with the quantifier, as a sort of "existential
+product" type constructor '∃a.a × -' with constructor '<t, e1, e2>' and
+analysis 'unpack <a, x, y> = e1 in e2'.
+
+
+A top-level code declaration may be polymorphic still, if its environment
+captures type variables. Example:
+
+  global #id_inner (envp : {aa_info : info aa}; x : aa, k1 : closure(aa)) =
+    call k1(x)
+
+We have the type variable 'aa', but it is not bound anywhere. Furthermore,
+observe that this code will work no matter what 'aa' is. Therefore, we permit
+'global's to bind a set of type variables, and references to globals must
+instantiate those variables.
+
+  global #id_inner[aa] (envp : {aa_info : info aa}; x : aa, k1 : closure(aa)) =
+    call k1(x)
+
+  let inner : closure(bb, closure(bb)) = <{aa_info : info bb}, ({aa_info = _}, #inner[bb])> in e
+
+
+REFERENCES
+==========
+
+[[See J. Siek "Closure Conversion with Polymorphism"]]
+
+[[See Minamide 1985 "Polymorphic Closure Conversion"]]
+
+
+Worked Example 1: adder: {{{
+
+let fun adder (x : int, k0 : (int -> int) -> !) =
+  let fun inner (y : int, k1 : int -> !) =
+    let z : int = x + y in
+    k1 z
+  in
+  k0 inner
+in
+let cont j0 (f0 : (int, (int) -> !) -> !) =
+  let cont j1 (z : int) =
+    halt z
+  in
+  let y : int = 5 in
+  f0 y j1
+in
+let x : int = 3 in
+adder x j0
+==>
+let fun adder {} (x : int, k0 : (int -> int) -> !) =
+  let fun inner {x : int} (y : int, k1 : int -> !) =
+    let z : int = @.x + y in
+    k1 z
+  in
+  k0 inner
+in
+let cont j0 {} (f0 : (int, (int) -> !) -> !) =
+  let y : int = 5 in
+  let cont j1 {} (z : int) =
+    halt z
+  in
+  f0 y j1
+in
+let x : int = 3 in
+adder x j0
+==>
+-- #inner : code({x : int}, int, closure(int))
+global #inner (envp : {x : int}; y : int, k1 : closure(int)) =
+  let z : int = envp.x + y in
+  call k1(z)
+
+global #adder (envp : {}; x : int, k0 : closure(int, closure(int))) =
+  let inner : closure(int, closure(int)) = #inner {x = x} in
+  call k0(inner)
+
+global #j1 (envp : {}; z : int) =
+  halt z $int64_info
+
+global #j0 (envp : {}; f0 : closure(int, closure(int))) =
+  let y : int = 5 in
+  let j1 : closure(int) = #j1 {} in
+  call f0(y, j1)
+
+let adder : closure(int, closure(int, closure(int))) = #adder {}
+let j0 : closure(closure(int, closure(int))) = #j0 {}
+let x : int = 3 in
+call adder(x, j0)
+==> (desugar closures to existentials)
+-- #inner : code ({x : int}; int, ∃a.a × code (a; int))
+global #inner (envp : {x : int}; y : int, k1 : ∃a.a × code (a; int)) =
+  let z : int = envp.x + y in
+  -- z : int, a : type, k1_env : ak1_code : code (a, int), |- k1_code(k1_env; z) OK
+  unpack <a, (k1_env, k1_code)> = k1 in k1_code(k1_env; z)
+
+global #adder (envp : {}; x : int, k0 : ∃b.b × code(b; int, ∃c.c × code(c; int))) =
+  let inner : ∃d.d × code (d; int, ∃e.e × code (e; int)) = <{x : int}, ({x = x}, #inner)> in
+  unpack <b, (k0_env, k0_code)> = k0 in k0_code(k0_env; inner)
+
+global #j1 (envp : {}; z : int) =
+  halt z $int64_info
+
+global #j0 (envp : {}; f0 : ∃f.f × code(f; int, ∃g.g × code(g; int))) =
+  let y : int = 5 in
+  let j1 : ∃h.h × code(h; int) = <{}, ({}, #j1)> in
+  unpack <f, (f0_env, f0_code)> = f0 in f0_code(f0_env; y, j1)
+
+let adder : ∃i.i × code(i; int, ∃j.j × code(j; int, ∃k.k × code(k; int))) = <{}, ({}, #adder)> in
+let j0 : ∃l.l × code(l; ∃m.m × code(m; int, ∃n.n × code(n; int))) = <{}, ({}, #j0)> in
+let x : int = 3 in
+unpack <i, (adder_env, adder_code)> = adder in adder_code(adder_env; x, j0)
+
+}}}
+
+Worked Example 2: id: {{{
+
+let fun id (@a, k0 : (a, (a) -> !) -> !) =
+  let fun inner (x : a, k1 : (a) -> !) =
+    k1 x
+  in
+  k0 inner
+in
+let cont j0 (id_bool : (bool, (bool) -> !) -> !) =
+  let b : bool = true in
+  let cont j1 (z : bool) =
+    halt @bool z
+  in
+  id_bool b j1
+in
+id @bool j0
+==>
+let fun id {} (@a, k0 : (a, (a) -> !) -> !) =
+  let fun inner {@a} (x : a, k1 : (a) -> !) =
+    k1 x
+  in
+  k0 inner
+in
+let cont j0 {} (id_bool : (bool, (bool) -> !) -> !) =
+  let b : bool = true in
+  let cont j1 {} (z : bool) =
+    halt @bool z
+  in
+  id_bool b j1
+in
+id @bool j0
+==>
+...
+==> (desugar closures to existentials)
+-- #inner : code({@aa}; aa, ∃a.a × code(a; aa))
+-- So this is the part where the "invisible foralls" come in.
+-- To be well-scoped, we need a binder for 'aa'.
+-- We can't just use the @aa in the environment, because that'll get
+-- existentialled out.
+-- So, we say that this function is polymorphic, but only for purposes of
+-- type-checking. No code is duplicated, no extra arguments are passed.
+-- I think that this "pseudo-forall" should be counted as part of 'code', with
+-- the usual nullary shorthand.
+-- #inner : code[aa]({@aa}; aa, ∃a.a × code(a; aa))
+--
+-- Nope. The "pseudo-forall" is part of the 'global' declaration. It expresses
+-- the fact that '#inner' works for any type 'aa' as long as you provide info
+-- for that type, a value of that type, and a closure that accepts a value of
+-- that type.
+global #inner[aa] (envp : {aa_info : info aa}; x : aa, k1 : ∃a.a × code(a; aa)) =
+  unpack <a, (k1_env, k1_code)> = k1 in k1_code(k1_env; x)
+
+-- parameters to 'code()' form a telescope, because they include '@aa' and sorts.
+-- #id : code({}; @aa, k0 : ∃b.b × code(b; aa, ∃c.c × code(c; aa)))
+global #id (envp : {}; @aa, k0 : ∃b.b × code(b; aa, ∃c.c × code(c; aa))) =
+  -- '#inner' is "polymorphic code", so when we reference the global #inner, we
+  -- (no-op) instantiate its type variables.
+  --
+  -- Not quite satisfied with the environment construction here. Should 'aa'
+  -- really be a type variable and usable as an info variable? I don't really
+  -- think so. ... This might be another case where polymorphic code is used.
+  -- Instead of relevant type argument, erased type argument and relevant info.
+  let inner : ∃d.d × code(d; aa, ∃e.e × code(e; aa)) = <{aa_info : info aa}, ({aa_info = aa}, #inner[aa])> in
+  unpack <b, (k0_env, k0_code)> = k0 in k0_code(k0_env; inner)
+
+-- #j1 : code({}; bool)
+global #j1 (envp : {}; z : bool) =
+  halt z $bool_info
+
+-- #j0 : code({}; ∃f.f × code(f; bool, ∃g.g × code(g; bool)))
+global #j0 (envp : {}; id_bool : ∃f.f × code(f; bool, ∃g.g × code(g; bool))) =
+  let b : bool = true in
+  let j1 : ∃h.h × code(h, bool) = <{}, ({}, #j1)> in
+  unpack <f, (id_bool_env, id_bool_code)> = id_bool in id_bool_code(id_bool_env; b, j1)
+
+let id : ∃i.i × code(i; @aa, ∃j.j × code(j; aa, ∃k.k × code(k; aa))) = <{}, ({}, #id)> in
+let j0 : ∃l.l × code(l; ∃m.m × code(m; bool, ∃n.n × code(n; bool))) = <{}, ({}, #j0)> in
+unpack <i, (id_env, id_code)> = id in id_code(id_env; $bool_info, j0)
+
+}}}
+
