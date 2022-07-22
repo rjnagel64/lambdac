@@ -135,7 +135,7 @@ emitThunkType ns (ThunkType ss) =
     mkField i ThunkInfoArg = "    type_info arg" ++ show i ++ ";\n"
     mkField i (ThunkValueArg s) = case s of
       AllocH _ -> "    struct alloc_header *arg" ++ show i ++ ";\n    type_info info" ++ show i ++ ";"
-      _ -> "    " ++ emitFieldDecl (Place s (Id ("arg" ++ show i))) ++ ";"
+      _ -> "    " ++ emitPlace (Place s (Id ("arg" ++ show i))) ++ ";"
 
 emitThunkTrace :: ThunkNames -> ThunkType -> [String]
 emitThunkTrace ns (ThunkType ss) =
@@ -206,7 +206,7 @@ emitEnvDecl ns (EnvDecl is fs) =
   ["};"]
   where
     mkInfo i = "    " ++ emitInfoDecl i ++ ";"
-    mkField (f, _) = "    " ++ emitFieldDecl f ++ ";"
+    mkField (f, _) = "    " ++ emitPlace f ++ ";"
 
 emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
 -- TODO: What if there is a parameter named 'env'?
@@ -221,7 +221,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
   ,"}"]
   where
     paramList = if null is && null fs then "void" else commaSep params
-    params = map emitInfoDecl is ++ map (emitFieldDecl . fst) fs
+    params = map emitInfoDecl is ++ map (emitPlace . fst) fs
 
     assignInfo (InfoPlace aa) = "    env->" ++ show aa ++ " = " ++ show aa ++ ";"
     assignField (Place _ x, _) = "    env->" ++ show x ++ " = " ++ show x ++ ";"
@@ -383,10 +383,6 @@ emitPatch ns (Place _ p) (EnvAlloc _info _free rec) =
     env = "((struct " ++ closureEnvName ns ++ " *)" ++ show p ++ "->env)"
     patchField (Place _ f, LocalName x) = ["    " ++ env ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
     patchField (_, EnvName _) = [] -- Why ignore environment names?
-
--- TODO: Remove emitFieldDecl
-emitFieldDecl :: Place -> String
-emitFieldDecl (Place s x) = typeForSort s ++ show x
 
 emitInfoDecl :: InfoPlace -> String
 emitInfoDecl (InfoPlace i) = "type_info " ++ show i
