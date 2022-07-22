@@ -370,39 +370,17 @@ hoist (LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
   ds' <- traverse hoistFunClosure fdecls
   tellClosures ds'
-
-  -- TODO: Abstract over placesForClosureAllocs
-  placesForClosureAllocs C.funClosureName C.funClosureSort fdecls $ \fplaces -> do
-    -- Hmm. It's inelegant that I ignore everything except the environment.
-    -- There's probably a better way, that operates only on the environment
-    fs' <- for fplaces $ \ (p, d, def) -> do
-      env' <- hoistEnvDef (C.funEnvDef def)
-      -- TODO: Give name to environment allocations as well
-      pure (ClosureAlloc p d env')
-    e' <- hoist e
-    pure (AllocClosure fs' e')
+  hoistClosureAllocs C.funClosureName C.funClosureSort C.funEnvDef fdecls e
 hoist (LetContC ks e) = do
   kdecls <- declareClosureNames C.contClosureName ks
   ds' <- traverse hoistContClosure kdecls
   tellClosures ds'
-
-  placesForClosureAllocs C.contClosureName C.contClosureSort kdecls $ \kplaces -> do
-    ks' <- for kplaces $ \ (p, d, def) -> do
-      env' <- hoistEnvDef (C.contEnvDef def)
-      pure (ClosureAlloc p d env')
-    e' <- hoist e
-    pure (AllocClosure ks' e')
+  hoistClosureAllocs C.contClosureName C.contClosureSort C.contEnvDef kdecls e
 hoist (LetAbsC fs e) = do
   fdecls <- declareClosureNames C.absClosureName fs
   ds' <- traverse hoistAbsClosure fdecls
   tellClosures ds'
-
-  placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
-    fs' <- for fplaces $ \ (p, d, def) -> do
-      env' <- hoistEnvDef (C.absEnvDef def)
-      pure (ClosureAlloc p d env')
-    e' <- hoist e
-    pure (AllocClosure fs' e')
+  hoistClosureAllocs C.absClosureName C.absClosureSort C.absEnvDef fdecls e
 
 hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
 hoistEnvDef (C.EnvDef tys free rec) =
@@ -423,6 +401,16 @@ envAllocField (x, s) = do
   x' <- hoistVarOcc x
   pure (field, x')
 
+
+hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> TermC -> HoistM TermH
+hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
+  placesForClosureAllocs closureName closureSort cdecls $ \cplaces -> do
+    cs' <- for cplaces $ \ (p, d, def) -> do
+      env' <- hoistEnvDef (closureEnvDef def)
+      -- TODO: Give name to environment allocations as well
+      pure (ClosureAlloc p d env')
+    e' <- hoist e
+    pure (AllocClosure cs' e')
 
 -- TODO: Generate places for environment allocations in placesForClosureAllocs?
 -- TODO: Compute thunk types in placesForClosureAllocs?
@@ -483,21 +471,18 @@ hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
-  (env', places', body') <- inClosure env [] (xs ++ ks) $ hoist body
-  let fd = ClosureDecl fdecl env' (map PlaceParam places') body'
-  pure fd
+  (env', params', body') <- inClosure env [] (xs ++ ks) $ hoist body
+  pure (ClosureDecl fdecl env' params' body')
 
 hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ClosureDecl
 hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
-  (env', places', body') <- inClosure env [] xs $ hoist body
-  let kd = ClosureDecl kdecl env' (map PlaceParam places') body'
-  pure kd
+  (env', params', body') <- inClosure env [] xs $ hoist body
+  pure (ClosureDecl kdecl env' params' body')
 
 hoistAbsClosure :: (ClosureName, C.AbsClosureDef) -> HoistM ClosureDecl
 hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
-  (env', places', body') <- inClosure env as ks $ hoist body
-  let fd = ClosureDecl fdecl env' (map (TypeParam . asInfoPlace) as ++ map PlaceParam places') body'
-  pure fd
+  (env', params', body') <- inClosure env as ks $ hoist body
+  pure (ClosureDecl fdecl env' params' body')
 
 -- | Pick a name for the environment parameter, that will not clash with
 -- anything already in scope.
@@ -512,7 +497,7 @@ pickEnvironmentName sc = go (0 :: Int)
 -- set of declaration names intact. This is because inside a closure, all names
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [Place], a)
+inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [ClosureParam], a)
 inClosure (C.EnvDef tys free rec) typlaces places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields = free ++ rec
@@ -530,7 +515,8 @@ inClosure (C.EnvDef tys free rec) typlaces places m = do
 
   let mkFieldInfo' f = infoForSort (placeSort f)
   fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
-  pure ((name, EnvDecl (map snd tyfields') fieldsWithInfo), map snd places', r)
+  let params = map (TypeParam . snd) typlaces' ++ map (PlaceParam . snd) places'
+  pure ((name, EnvDecl (map snd tyfields') fieldsWithInfo), params, r)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
