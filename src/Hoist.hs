@@ -375,8 +375,8 @@ hoist (LetFunC fs e) = do
   placesForClosureAllocs C.funClosureName C.funClosureSort fdecls $ \fplaces -> do
     -- Hmm. It's inelegant that I ignore everything except the environment.
     -- There's probably a better way, that operates only on the environment
-    fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f env _xs _ks _e) -> do
-      env' <- hoistEnvDef env
+    fs' <- for fplaces $ \ (p, d, def) -> do
+      env' <- hoistEnvDef (C.funEnvDef def)
       -- TODO: Give name to environment allocations as well
       pure (ClosureAlloc p d env')
     e' <- hoist e
@@ -387,8 +387,8 @@ hoist (LetContC ks e) = do
   tellClosures ds'
 
   placesForClosureAllocs C.contClosureName C.contClosureSort kdecls $ \kplaces -> do
-    ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k env _xs _e) -> do
-      env' <- hoistEnvDef env
+    ks' <- for kplaces $ \ (p, d, def) -> do
+      env' <- hoistEnvDef (C.contEnvDef def)
       pure (ClosureAlloc p d env')
     e' <- hoist e
     pure (AllocClosure ks' e')
@@ -398,8 +398,8 @@ hoist (LetAbsC fs e) = do
   tellClosures ds'
 
   placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
-    fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env _as _ks _e) -> do
-      env' <- hoistEnvDef env
+    fs' <- for fplaces $ \ (p, d, def) -> do
+      env' <- hoistEnvDef (C.absEnvDef def)
       pure (ClosureAlloc p d env')
     e' <- hoist e
     pure (AllocClosure fs' e')
