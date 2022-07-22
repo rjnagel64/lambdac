@@ -359,10 +359,10 @@ emitPrimCall envp fn xs = fn ++ "(" ++ commaSep (map (emitName envp) xs) ++ ")"
 emitAllocGroup :: EnvPtr -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
   map (emitAlloc envp) closures ++
-  concatMap (\ (ClosureAlloc p _ty d env) -> emitPatch (namesForClosure d) p env) closures
+  concatMap (\ (ClosureAlloc p d env) -> emitPatch (namesForClosure d) p env) closures
 
 emitAlloc :: EnvPtr -> ClosureAlloc -> String
-emitAlloc envp (ClosureAlloc p ty d (EnvAlloc info free rec)) =
+emitAlloc envp (ClosureAlloc p d (EnvAlloc info free rec)) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep args ++ ");"
   where
     ns = namesForClosure d

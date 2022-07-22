@@ -139,7 +139,6 @@ data ClosureAlloc
   = ClosureAlloc {
     -- TODO: Make ClosureAlloc contain a Place for the environment
     closurePlace :: Place
-  , closureType :: ThunkType
   , closureDecl :: ClosureName
   , closureEnv :: EnvAlloc
   }
@@ -372,12 +371,14 @@ hoist (LetFunC fs e) = do
   ds' <- traverse hoistFunClosure fdecls
   tellClosures ds'
 
+  -- TODO: Abstract over placesForClosureAllocs
   placesForClosureAllocs C.funClosureName C.funClosureSort fdecls $ \fplaces -> do
-    fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f env xs ks _e) -> do
+    -- Hmm. It's inelegant that I ignore everything except the environment.
+    -- There's probably a better way, that operates only on the environment
+    fs' <- for fplaces $ \ (p, d, C.FunClosureDef _f env _xs _ks _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType ([ThunkValueArg (sortOf s) | (_x, s) <- xs] ++ [ThunkValueArg (sortOf s) | (_k, s) <- ks])
       -- TODO: Give name to environment allocations as well
-      pure (ClosureAlloc p ty d env')
+      pure (ClosureAlloc p d env')
     e' <- hoist e
     pure (AllocClosure fs' e')
 hoist (LetContC ks e) = do
@@ -386,10 +387,9 @@ hoist (LetContC ks e) = do
   tellClosures ds'
 
   placesForClosureAllocs C.contClosureName C.contClosureSort kdecls $ \kplaces -> do
-    ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k env xs _e) -> do
+    ks' <- for kplaces $ \ (p, d, C.ContClosureDef _k env _xs _e) -> do
       env' <- hoistEnvDef env
-      let ty = ThunkType [ThunkValueArg (sortOf s) | (_x, s) <- xs]
-      pure (ClosureAlloc p ty d env')
+      pure (ClosureAlloc p d env')
     e' <- hoist e
     pure (AllocClosure ks' e')
 hoist (LetAbsC fs e) = do
@@ -398,11 +398,9 @@ hoist (LetAbsC fs e) = do
   tellClosures ds'
 
   placesForClosureAllocs C.absClosureName C.absClosureSort fdecls $ \fplaces -> do
-    fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env as ks _e) -> do
+    fs' <- for fplaces $ \ (p, d, C.AbsClosureDef _f env _as _ks _e) -> do
       env' <- hoistEnvDef env
-      let infoSorts = replicate (length as) ThunkInfoArg
-      let ty = ThunkType (infoSorts ++ [ThunkValueArg (sortOf s) | (_k, s) <- ks])
-      pure (ClosureAlloc p ty d env')
+      pure (ClosureAlloc p d env')
     e' <- hoist e
     pure (AllocClosure fs' e')
 
@@ -684,7 +682,7 @@ pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
     valueFields = intercalate ", " (map (pprintPlace . fst) fs)
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
-pprintClosureAlloc n (ClosureAlloc p _t d env) =
+pprintClosureAlloc n (ClosureAlloc p d env) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ pprintEnvAlloc env ++ "\n"
 
 pprintEnvAlloc :: EnvAlloc -> String
