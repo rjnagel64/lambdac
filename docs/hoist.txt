@@ -47,40 +47,44 @@ C |- closure (f :: cname) (envty :: envd) (params :: tele) = (e :: term) : ∃l.
 
 
 
-TODO: Write this up into real documentation/design notes!
-
 SYNTAX
 ======
 
-variable x, y, f
 Term variables
+variable x, y, f, k
 
-variable a, b
 Type variables
+variable a, b
 
-variable l
 Record labels
+variable l
 
-G ::= . | G, a : type | G, x : t
 Typing contexts
+G ::= . | G, a : type | G, x : t
 -- Maybe 'G, x : info t' also?
 
-t, s ::= unit | t × s | ∃a.t[a] | code(t; S)
 Types
+t, s ::= unit | t × s | ∃a.t[a] | code(t; S)
 
-S ::= . | @a, S | t, S
 Telescopes/Parameter lists
+S ::= . | @a, S | t, S
 -- maybe forall a, S instead of @a, S?
 
-e ::= let x : t = v in e | unpack <a, x> = e1 in e2 | f(x, E)
 Terms
+e ::=
+  | let x : t = v in e
+  | let x : t = fst y in e
+  | unpack <a, x> = e1 in e2
+  | f(x, E)
+  | case x of (k : s)^*
 
-E ::= . | @t, E | x, E
 Argument lists
+E ::= . | @t, E | x, E
 
-v, w ::= x | (v, w) | <t, v> | {(l = v)+}
 Values
+v, w ::= x | (v, w) | <t, v> | {(l = v)+}
 
+Info values
 i, j ::= x | $unit_info | $pair_info
 
 
@@ -137,28 +141,10 @@ Telescopes are used to type argument lists.
   ----------------
   G |- x, E : t, S
 
-
-After closure-conversion, function types have been decomposed into code
-pointers and existentially-quantified environments. Existential types are
-entirely standard.
-
-  G, a |- t
-  ---------
-  G |- ∃a.t
-
-  G |- t
-  G |- e : s[a := t]
-  ------------------
-  G |- <t, e> : ∃a.s
-
-  G |- e1 : ∃b.t
-  G, a, x : t[b := a] |- e2 OK
-  --------------------------------
-  G |- unpack <a, x> = e1 in e2 OK
-
-TODO: Move rules for existentials down after desugaring is introduced
-
-Code types consist of an environment type and a telescope of argument types.
+The distinctive feature of CC and Hoist is that functions and closures are not
+the same thing. A closure has an environment for non-local names, whereas a
+function (code pointer) is entirely closed. Code types consist of a type for
+the environment parameter and a telescope of argument types.
 
   G |- t
   (G |- s_i)^i
@@ -205,6 +191,22 @@ The semantics of these constructs are given by desugaring to existential
 products of an environment and a code pointer:
 
   closure(s1, ..., sn) ::= ∃l.l × code(l; s1, ..., sn)
+
+The rules for existential types are entirely standard.
+
+  G, a |- t
+  ---------
+  G |- ∃a.t
+
+  G |- t
+  G |- e : s[a := t]
+  ------------------
+  G |- <t, e> : ∃a.s
+
+  G |- e1 : ∃b.t
+  G, a, x : t[b := a] |- e2 OK
+  --------------------------------
+  G |- unpack <a, x> = e1 in e2 OK
 
 Closure construction involves creating an existential package:
 
@@ -413,3 +415,4 @@ unpack <i, (id_env, id_code)> = id in id_code(id_env; $bool_info, j0)
 
 }}}
 
+-- vim: set et sts=2 sw=2:
