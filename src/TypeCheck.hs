@@ -17,6 +17,7 @@ import Control.Monad.Reader
 
 data TCError
   = NotInScope TmVar
+  | TyNotInScope TyVar
   | TypeMismatch Type Type -- expected, actual
   | CannotProject Type
   | CannotApply Type
@@ -30,6 +31,7 @@ instance Show TCError where
     ,"actual:   " ++ pprintType 0 actual
     ]
   show (NotInScope x) = "variable not in scope: " ++ show x
+  show (TyNotInScope aa) = "type variable not in scope: " ++ show aa
   show (CannotApply t) = "value of type " ++ pprintType 0 t ++ " cannot have a value applied to it"
   show (CannotInstantiate t) = "value of type " ++ pprintType 0 t ++ " cannot have a type applied to it"
   show (CannotProject t) = "cannot project field from value of type " ++ pprintType 0 t
@@ -43,9 +45,10 @@ deriving newtype instance Monad TC
 deriving newtype instance MonadReader (Map TmVar Type, Set TyVar) TC
 deriving newtype instance MonadError TCError TC
 
--- TODO: Check that types are well-formed when extending the context
 withVars :: [(TmVar, Type)] -> TC a -> TC a
-withVars xs = local f
+withVars xs m = do
+  traverse_ (wfType . snd) xs
+  local f m
   where
     f (tms, tys) = (foldr (uncurry Map.insert) tms xs, tys)
 
@@ -151,6 +154,19 @@ checkFun (TmFun _f x t s e) = do
   withVars [(x, t)] $ check e s
   pure ()
 
+wfType :: Type -> TC ()
+wfType (TyAll aa t) = local (\ (tms, tys) -> (tms, Set.insert aa tys)) $ wfType t
+wfType (TyVarOcc aa) = do
+  ctx <- asks snd
+  when (Set.notMember aa ctx) $
+    throwError (TyNotInScope aa)
+wfType TyUnit = pure ()
+wfType TyInt = pure ()
+wfType TyBool = pure ()
+wfType (TyList t) = wfType t
+wfType (TySum t s) = wfType t *> wfType s
+wfType (TyProd t s) = wfType t *> wfType s
+wfType (TyArr t s) = wfType t *> wfType s
 
 checkProgram :: Term -> Either TCError ()
 checkProgram e = runExcept . flip runReaderT (Map.empty, Set.empty) $ runTC $ infer e *> pure ()
