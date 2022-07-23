@@ -282,13 +282,29 @@ insertMany xs m = foldr (uncurry Map.insert) m xs
 bindFields :: [(Name, Sort)] -> FieldsFor -> FieldsFor
 bindFields xs fs = FieldsFor $ \ctx ->
   let ctx' = insertMany xs ctx in
-  let (fields, tys) = runFieldsFor fs ctx' in
-  (fields Set.\\ Set.fromList (uncurry FreeOcc <$> xs), tys)
+  let (fields, tyfields) = runFieldsFor fs ctx' in
+  (fields Set.\\ Set.fromList (uncurry FreeOcc <$> xs), tyfields)
 
-bindTyFields :: [TyVar] -> FieldsFor -> FieldsFor
-bindTyFields aas fs = FieldsFor $ \ctx ->
-  let (fields, tys) = runFieldsFor fs ctx in
-  (fields, tys Set.\\ Set.fromList aas)
+bindTms :: [(K.TmVar, K.TypeK)] -> FieldsFor -> FieldsFor
+bindTms xs f = FieldsFor $ \ctx ->
+  let xs' = map bindTm xs in
+  let ctx' = insertMany xs' ctx in
+  let (fields, tyfields) = runFieldsFor f ctx' in
+  (fields Set.\\ Set.fromList (uncurry FreeOcc <$> xs'), tyfields)
+
+bindCos :: [(K.CoVar, K.CoTypeK)] -> FieldsFor -> FieldsFor
+bindCos ks f = FieldsFor $ \ctx ->
+  let ks' = map bindCo ks in
+  let ctx' = insertMany ks' ctx in
+  let (fields, tyfields) = runFieldsFor f ctx' in
+  (fields Set.\\ Set.fromList (uncurry FreeOcc <$> ks'), tyfields)
+
+bindTys :: [K.TyVar] -> FieldsFor -> FieldsFor
+bindTys aas f = FieldsFor $ \ctx ->
+  let aas' = map bindTy aas in
+  let ctx' = ctx in
+  let (fields, tyfields) = runFieldsFor f ctx' in
+  (fields, tyfields Set.\\ Set.fromList aas')
 
 bindTm :: (K.TmVar, K.TypeK) -> (Name, Sort)
 bindTm = bimap tmVar sortOf
@@ -316,14 +332,14 @@ fieldsFor (CallK f xs ks) = unitTm f <> foldMap unitTm xs <> foldMap unitCo ks
 fieldsFor (CaseK x _ ks) = unitTm x <> foldMap unitCo ks
 fieldsFor (InstK f ts ks) = unitTm f <> foldMap fieldsForTy ts <> foldMap unitCo ks
 fieldsFor (LetFstK x t y e) =
-  unitTm y <> fieldsForTy t <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
+  unitTm y <> fieldsForTy t <> bindTms [(x, t)] (fieldsFor e)
 fieldsFor (LetSndK x t y e) =
-  unitTm y <> fieldsForTy t <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
+  unitTm y <> fieldsForTy t <> bindTms [(x, t)] (fieldsFor e)
 fieldsFor (LetValK x t v e) =
-  fieldsForValue v <> fieldsForTy t <> bindFields [(tmVar x, sortOf t)] (fieldsFor e)
-fieldsFor (LetArithK x op e) = fieldsForArith op <> bindFields [(tmVar x, Integer)] (fieldsFor e)
-fieldsFor (LetNegateK x y e) = unitTm y <> bindFields [(tmVar x, Integer)] (fieldsFor e)
-fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindFields [(tmVar x, Boolean)] (fieldsFor e)
+  fieldsForValue v <> fieldsForTy t <> bindTms [(x, t)] (fieldsFor e)
+fieldsFor (LetArithK x op e) = fieldsForArith op <> bindTms [(x, K.IntK)] (fieldsFor e)
+fieldsFor (LetNegateK x y e) = unitTm y <> bindTms [(x, K.IntK)] (fieldsFor e)
+fieldsFor (LetCompareK x cmp e) = fieldsForCmp cmp <> bindTms [(x, K.BoolK)] (fieldsFor e)
 
 fieldsForArith :: ArithK -> FieldsFor
 fieldsForArith (AddK x y) = unitTm x <> unitTm y
@@ -350,20 +366,20 @@ fieldsForValue (ConsK x y) = unitTm x <> unitTm y
 
 fieldsForFunDef :: FunDef a -> FieldsFor
 fieldsForFunDef (FunDef _ _f xs ks e) =
-  bindFields (map bindTm xs ++ map bindCo ks) (fieldsFor e) <>
+  bindTms xs (bindCos ks (fieldsFor e)) <>
   foldMap (fieldsForTy . snd) xs <>
   foldMap (fieldsForCoTy . snd) ks
 
 fieldsForContDef :: ContDef a -> FieldsFor
 fieldsForContDef (ContDef _ _k xs e) =
-  bindFields (map bindTm xs) (fieldsFor e) <>
+  bindTms xs (fieldsFor e) <>
   foldMap (fieldsForTy . snd) xs
 
 fieldsForAbsDef :: AbsDef a -> FieldsFor
 fieldsForAbsDef (AbsDef _ _f as ks e) =
-  bindTyFields (map bindTy as) $
+  bindTys as $
     foldMap (fieldsForCoTy . snd) ks <>
-    bindFields (map bindCo ks) (fieldsFor e)
+    bindCos ks (fieldsFor e)
 
 fieldsForTy :: K.TypeK -> FieldsFor
 fieldsForTy K.UnitK = mempty
@@ -374,7 +390,7 @@ fieldsForTy (K.SumK t s) = fieldsForTy t <> fieldsForTy s
 fieldsForTy (K.ListK t) = fieldsForTy t
 fieldsForTy (K.FunK ts ss) = foldMap fieldsForTy ts <> foldMap fieldsForCoTy ss
 fieldsForTy (K.TyVarOccK aa) = unitTy aa
-fieldsForTy (K.AllK aas ss) = bindTyFields (map bindTy aas) (foldMap fieldsForCoTy ss)
+fieldsForTy (K.AllK aas ss) = bindTys aas (foldMap fieldsForCoTy ss)
 
 fieldsForCoTy :: K.CoTypeK -> FieldsFor
 fieldsForCoTy (K.ContK ss) = foldMap fieldsForTy ss
