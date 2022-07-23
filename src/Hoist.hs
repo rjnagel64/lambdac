@@ -328,21 +328,19 @@ hoist :: TermC -> HoistM TermH
 hoist (HaltC x) = (\ (x', i) -> HaltH x' i) <$> hoistVarOcc' x
 hoist (JumpC k xs) = do
   (k', ss) <- hoistCall k
-  (ys, _ss) <- hoistArgList xs
-  OpenH <$> pure k' <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
+  ys <- hoistArgList xs
+  pure (OpenH k' (ThunkType (map ThunkValueArg ss)) ys)
 hoist (CallC f xs ks) = do
   (f', ss) <- hoistCall f
-  (ys, _ss) <- hoistArgList (xs ++ ks)
-  OpenH <$> pure f' <*> pure (ThunkType (map ThunkValueArg ss)) <*> pure ys
+  ys <- hoistArgList (xs ++ ks)
+  pure (OpenH f' (ThunkType (map ThunkValueArg ss)) ys)
 hoist (InstC f ts ks) = do
   (f', ss) <- hoistCall f
-  (ys, _ss) <- hoistArgList ks
-  -- TODO: It would be better if OpenH looked up the thunk type of the
-  -- head, rather than trying to reconstruct it.
+  ys <- hoistArgList ks
   let infoSorts = replicate (length ts) ThunkInfoArg
   let ty = ThunkType (infoSorts ++ map ThunkValueArg ss)
   ts' <- traverse (infoForSort . sortOf) ts
-  OpenH <$> pure f' <*> pure ty <*> pure (map TypeArg ts' ++ ys)
+  pure (OpenH f' ty (map TypeArg ts' ++ ys))
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
@@ -567,14 +565,14 @@ hoistCall x = do
     ClosureH ss -> pure (x', ss)
     _ -> error ("called a non-closure: " ++ show x ++ " : " ++ pprintSort s)
 
-hoistArgList :: [C.Name] -> HoistM ([ClosureArg], [Sort])
-hoistArgList xs = unzip <$> traverse f xs
+hoistArgList :: [C.Name] -> HoistM [ClosureArg]
+hoistArgList xs = traverse f xs
   where
     f x = hoistVarOccSort x >>= \ (x', s) -> case s of
       AllocH _ -> do
         i <- infoForSort s
-        pure (OpaqueArg x' i, s)
-      _ -> pure (ValueArg x', s)
+        pure (OpaqueArg x' i)
+      _ -> pure (ValueArg x')
 
 -- | Hoist a variable occurrence, and also retrieve the @type_info@ that describes it.
 hoistVarOcc' :: C.Name -> HoistM (Name, Info)
