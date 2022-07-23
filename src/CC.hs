@@ -309,13 +309,13 @@ bindTys aas f = FieldsFor $ \ctx ->
 
 fieldsFor :: TermK a -> FieldsFor
 fieldsFor (LetFunK fs e) =
-  foldMap (bindFields fs' . fieldsForFunDef) fs <> bindFields fs' (fieldsFor e)
+  bindFields fs' $ foldMap (fieldsForFunDef) fs <> fieldsFor e
   where fs' = funDefNames fs
 fieldsFor (LetContK ks e) =
-  foldMap (bindFields ks' . fieldsForContDef) ks <> bindFields ks' (fieldsFor e)
+  bindFields ks' $ foldMap (fieldsForContDef) ks <> fieldsFor e
   where ks' = contDefNames ks
 fieldsFor (LetAbsK fs e) =
-  foldMap (bindFields fs' . fieldsForAbsDef) fs <> bindFields fs' (fieldsFor e)
+  bindFields fs' $ foldMap (fieldsForAbsDef) fs <> fieldsFor e
   where fs' = absDefNames fs
 fieldsFor (HaltK x) = unitTm x
 fieldsFor (JumpK k xs) = unitCo k <> foldMap unitTm xs
