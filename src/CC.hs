@@ -402,6 +402,17 @@ deriving newtype instance MonadReader (Map Name Sort) ConvM
 runConv :: ConvM a -> a
 runConv = flip runReader Map.empty . runConvM
 
+withTm :: K.TmVar -> K.TypeK -> (Name -> Sort -> ConvM a) -> ConvM a
+withTm x t k = local extend (k x' t')
+  where
+    x' = tmVar x
+    t' = sortOf t
+    extend ctx = Map.insert x' t' ctx
+
+withBinds :: [(Name, Sort)] -> ConvM a -> ConvM a
+withBinds binds m = local extend m
+  where extend ctx = foldr (uncurry Map.insert) ctx binds
+
 -- Idea: I could factor out the fieldsFor computation by doing a first
 -- annotation pass over the data, and then having
 -- 'cconv :: TermK EnvFields -> ConvM TermC'
@@ -411,18 +422,15 @@ cconv :: TermK a -> ConvM TermC
 cconv (LetFunK fs e) =
   let names = funDefNames fs in
   let fs' = Set.fromList (fst <$> names) in
-  let extendGroup ctx = foldr (uncurry Map.insert) ctx names in
-  LetFunC <$> local extendGroup (traverse (cconvFunDef fs') fs) <*> local extendGroup (cconv e)
+  withBinds names $ LetFunC <$> traverse (cconvFunDef fs') fs <*> cconv e
 cconv (LetContK ks e) =
   let names = contDefNames ks in
   let ks' = Set.fromList (fst <$> names) in
-  let extend ctx = foldr (uncurry Map.insert) ctx names in
-  LetContC <$> local extend (traverse (cconvContDef ks') ks) <*> local extend (cconv e)
+  withBinds names $ LetContC <$> traverse (cconvContDef ks') ks <*> cconv e
 cconv (LetAbsK fs e) =
   let names = absDefNames fs in
-  let extend ctx = foldr (uncurry Map.insert) ctx names in
   let fs' = Set.fromList (fst <$> names) in
-  LetAbsC <$> local extend (traverse (cconvAbsDef fs') fs) <*> local extend (cconv e)
+  withBinds names $ LetAbsC <$> traverse (cconvAbsDef fs') fs <*> cconv e
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
@@ -436,24 +444,12 @@ cconv (CaseK x t ks) = do
       _ -> error "cannot case on this type"
   pure $ CaseC (tmVar x) (sortOf t) ks'
 cconv (InstK f ts ks) = pure $ InstC (tmVar f) (map sortOf ts) (map coVar ks)
-cconv (LetFstK x t y e) = LetFstC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)
-  where
-    extend ctx = Map.insert (tmVar x) (sortOf t) ctx
-cconv (LetSndK x t y e) = LetSndC (tmVar x, sortOf t) (tmVar y) <$> local extend (cconv e)
-  where
-    extend ctx = Map.insert (tmVar x) (sortOf t) ctx
-cconv (LetValK x t v e) = LetValC (tmVar x, sortOf t) (cconvValue v) <$> local extend (cconv e)
-  where
-    extend ctx = Map.insert (tmVar x) (sortOf t) ctx
-cconv (LetArithK x op e) = LetArithC (tmVar x, Integer) (cconvArith op) <$> local extend (cconv e)
-  where
-    extend ctx = Map.insert (tmVar x) Integer ctx
-cconv (LetNegateK x y e) = LetNegateC (tmVar x, Integer) (tmVar y) <$> local extend (cconv e)
-  where
-    extend ctx = Map.insert (tmVar x) Integer ctx
-cconv (LetCompareK x cmp e) = LetCompareC (tmVar x, Boolean) (cconvCmp cmp) <$> local extend (cconv e)
-  where
-    extend ctx = Map.insert (tmVar x) Boolean ctx
+cconv (LetFstK x t y e) = withTm x t $ \x' t' -> LetFstC (x', t') (tmVar y) <$> cconv e
+cconv (LetSndK x t y e) = withTm x t $ \x' t' -> LetSndC (x', t') (tmVar y) <$> cconv e
+cconv (LetValK x t v e) = withTm x t $ \x' t' -> LetValC (x', t') (cconvValue v) <$> cconv e
+cconv (LetArithK x op e) = withTm x K.IntK $ \x' t' -> LetArithC (x', t') (cconvArith op) <$> cconv e
+cconv (LetNegateK x y e) = withTm x K.IntK $ \x' t' -> LetNegateC (x', t') (tmVar y) <$> cconv e
+cconv (LetCompareK x cmp e) = withTm x K.BoolK $ \x' t' -> LetCompareC (x', t') (cconvCmp cmp) <$> cconv e
 
 cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
 cconvFunDef fs fun@(FunDef _ f xs ks e) = do
