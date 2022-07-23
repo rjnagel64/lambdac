@@ -287,33 +287,24 @@ bindFields xs fs = FieldsFor $ \ctx ->
 
 bindTms :: [(K.TmVar, K.TypeK)] -> FieldsFor -> FieldsFor
 bindTms xs f = FieldsFor $ \ctx ->
-  let xs' = map bindTm xs in
+  let xs' = map (bimap tmVar sortOf) xs in
   let ctx' = insertMany xs' ctx in
   let (fields, tyfields) = runFieldsFor f ctx' in
   (fields Set.\\ Set.fromList (uncurry FreeOcc <$> xs'), tyfields)
 
 bindCos :: [(K.CoVar, K.CoTypeK)] -> FieldsFor -> FieldsFor
 bindCos ks f = FieldsFor $ \ctx ->
-  let ks' = map bindCo ks in
+  let ks' = map (bimap coVar coSortOf) ks in
   let ctx' = insertMany ks' ctx in
   let (fields, tyfields) = runFieldsFor f ctx' in
   (fields Set.\\ Set.fromList (uncurry FreeOcc <$> ks'), tyfields)
 
 bindTys :: [K.TyVar] -> FieldsFor -> FieldsFor
 bindTys aas f = FieldsFor $ \ctx ->
-  let aas' = map bindTy aas in
+  let aas' = map tyVar aas in
   let ctx' = ctx in
   let (fields, tyfields) = runFieldsFor f ctx' in
   (fields, tyfields Set.\\ Set.fromList aas')
-
-bindTm :: (K.TmVar, K.TypeK) -> (Name, Sort)
-bindTm = bimap tmVar sortOf
-
-bindCo :: (K.CoVar, K.CoTypeK) -> (Name, Sort)
-bindCo = bimap coVar coSortOf
-
-bindTy :: K.TyVar -> TyVar
-bindTy = tyVar
 
 
 fieldsFor :: TermK a -> FieldsFor
@@ -435,19 +426,19 @@ withTm x t k = local extend (k (x', t'))
 withTmBinds :: [(K.TmVar, K.TypeK)] -> ([(Name, Sort)] -> ConvM a) -> ConvM a
 withTmBinds xs k = local extend (k tmbinds)
   where
-    tmbinds = map bindTm xs
+    tmbinds = map (bimap tmVar sortOf) xs
     extend (Context names) = Context (insertMany tmbinds names)
 
 withCoBinds :: [(K.CoVar, K.CoTypeK)] -> ([(Name, Sort)] -> ConvM a) -> ConvM a
 withCoBinds ks k = local extend (k cobinds)
   where
-    cobinds = map bindCo ks
+    cobinds = map (bimap coVar coSortOf) ks
     extend (Context names) = Context (insertMany cobinds names)
 
 withTyBinds :: [K.TyVar] -> ([TyVar] -> ConvM a) -> ConvM a
 withTyBinds as k = local extend (k tybinds)
   where
-    tybinds = map bindTy as
+    tybinds = map tyVar as
     extend (Context names) = Context names
 
 withBinds :: [(Name, Sort)] -> ConvM a -> ConvM a
