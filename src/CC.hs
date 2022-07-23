@@ -276,9 +276,12 @@ unitCo = unitField . coVar
 unitTy :: K.TyVar -> FieldsFor
 unitTy aa = let aa' = tyVar aa in FieldsFor $ \ctx -> (Set.empty, Set.singleton aa')
 
+insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
+insertMany xs m = foldr (uncurry Map.insert) m xs
+
 bindFields :: [(Name, Sort)] -> FieldsFor -> FieldsFor
 bindFields xs fs = FieldsFor $ \ctx ->
-  let ctx' = foldr (uncurry Map.insert) ctx xs in
+  let ctx' = insertMany xs ctx in
   let (fields, tys) = runFieldsFor fs ctx' in
   (fields Set.\\ Set.fromList (uncurry FreeOcc <$> xs), tys)
 
@@ -417,13 +420,13 @@ withTmBinds :: [(K.TmVar, K.TypeK)] -> ([(Name, Sort)] -> ConvM a) -> ConvM a
 withTmBinds xs k = local extend (k tmbinds)
   where
     tmbinds = map bindTm xs
-    extend (Context names) = Context (foldr (uncurry Map.insert) names tmbinds)
+    extend (Context names) = Context (insertMany tmbinds names)
 
 withCoBinds :: [(K.CoVar, K.CoTypeK)] -> ([(Name, Sort)] -> ConvM a) -> ConvM a
 withCoBinds ks k = local extend (k cobinds)
   where
     cobinds = map bindCo ks
-    extend (Context names) = Context (foldr (uncurry Map.insert) names cobinds)
+    extend (Context names) = Context (insertMany cobinds names)
 
 withTyBinds :: [K.TyVar] -> ([TyVar] -> ConvM a) -> ConvM a
 withTyBinds as k = local extend (k tybinds)
@@ -433,7 +436,7 @@ withTyBinds as k = local extend (k tybinds)
 
 withBinds :: [(Name, Sort)] -> ConvM a -> ConvM a
 withBinds binds m = local extend m
-  where extend (Context names) = Context (foldr (uncurry Map.insert) names binds)
+  where extend (Context names) = Context (insertMany binds names)
 
 -- Idea: I could factor out the fieldsFor computation by doing a first
 -- annotation pass over the data, and then having

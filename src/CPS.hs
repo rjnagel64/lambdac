@@ -67,6 +67,7 @@ data TmVar = TmVar String Int
 data CoVar = CoVar String Int
   deriving (Eq, Ord)
 data TyVar = TyVar String Int
+  deriving (Eq, Ord)
 
 instance Show TmVar where
   show (TmVar x i) = x ++ show i
