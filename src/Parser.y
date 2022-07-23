@@ -139,12 +139,10 @@ RecBinds :: { [(TmVar, Type, Term)] }
 RecBind :: { (TmVar, Type, Term) }
         : ID ':' Type '=' Term ';' { (var $1, $3, $5) }
 
--- TODO: Should type-level sum/product be left-, right-, or non-associative?
--- I kind of think non-associative, because 'a * (b * c)' and '(a * b) * c' are
--- distinctly different things.
 Type :: { Type }
      : AppType { $1 }
      | AppType '->' Type { TyArr $1 $3 }
+     -- Note: product types are left-associative.
      | Type '*' AppType { TyProd $1 $3 }
      | 'forall' ID '.' Type { TyAll (tvar $2) $4 }
 

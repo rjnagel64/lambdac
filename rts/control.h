@@ -3,6 +3,10 @@
 
 #include "alloc.h"
 
+// TODO: Use uniform arrays for value and info arguments
+// This allows us to not generate 'thunk_*' types, not generate 'trace_*'
+// methods, and do less pointer-casting overall. 'mark_root' also becomes less
+// necessary.
 struct thunk {
     void (*enter)(void);
     void (*trace)(void);

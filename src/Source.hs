@@ -18,7 +18,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
--- TODO: 'Source' level optimizations?
+-- In the future, it may be worthwhile to do 'Source'-level optimizations.
 -- At the very least, arity raising/uncurrying is much easier here.
 -- (On a related note, maybe support multiple arguments/parameters here, with
 -- requirement of exact arity matching. Parser still generates curried

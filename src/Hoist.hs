@@ -180,7 +180,7 @@ data Sort
   | SumH
   | ProductH Sort Sort
   | ListH Sort
-  -- TODO: Sort.ClosureH should have info parameters
+  -- TODO: Sort.ClosureH should have info parameters (It should be a telescope)
   | ClosureH [Sort]
   | AllocH C.TyVar
   deriving (Eq, Ord)
