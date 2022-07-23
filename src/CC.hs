@@ -455,29 +455,26 @@ cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
 cconvFunDef fs fun@(FunDef _ f xs ks e) = do
   let tmbinds = map bindTm xs
   let cobinds = map bindCo ks
-  let extend ctx' = foldr (uncurry Map.insert) ctx' (tmbinds ++ cobinds)
-  (fields, tyfields) <- fmap (runFieldsFor (fieldsForFunDef fun) . extend) ask
+  (fields, tyfields) <- withBinds (tmbinds ++ cobinds) $ runFieldsFor (fieldsForFunDef fun) <$> ask
   let (free, rec) = markRec fs (Set.toList fields)
-  e' <- local extend (cconv e)
+  e' <- withBinds (tmbinds ++ cobinds) $ cconv e
   pure (FunClosureDef (tmVar f) (EnvDef (Set.toList tyfields) free rec) tmbinds cobinds e')
 
 cconvContDef :: Set Name -> ContDef a -> ConvM ContClosureDef
 cconvContDef ks kont@(ContDef _ k xs e) = do
   let tmbinds = map bindTm xs
-  let extend ctx' = foldr (uncurry Map.insert) ctx' tmbinds
-  (fields, tyfields) <- fmap (runFieldsFor (fieldsForContDef kont) . extend) ask
+  (fields, tyfields) <- withBinds tmbinds $ runFieldsFor (fieldsForContDef kont) <$> ask
   let (free, rec) = markRec ks (Set.toList fields)
-  e' <- local extend (cconv e)
+  e' <- withBinds tmbinds $ cconv e
   pure (ContClosureDef (coVar k) (EnvDef (Set.toList tyfields) free rec) tmbinds e')
 
 cconvAbsDef :: Set Name -> AbsDef a -> ConvM AbsClosureDef
 cconvAbsDef fs abs@(AbsDef _ f as ks e) = do
   let tybinds = map bindTy as
   let cobinds = map bindCo ks
-  let extend ctx' = foldr (uncurry Map.insert) ctx' cobinds
-  (fields, tyfields) <- fmap (runFieldsFor (fieldsForAbsDef abs) . extend) ask
+  (fields, tyfields) <- withBinds cobinds $ runFieldsFor (fieldsForAbsDef abs) <$> ask
   let (free, rec) = markRec fs (Set.toList fields)
-  e' <- local extend (cconv e)
+  e' <- withBinds cobinds $ cconv e
   pure (AbsClosureDef (tmVar f) (EnvDef (Set.toList tyfields) free rec) tybinds cobinds e')
 
 cconvValue :: ValueK -> ValueC
