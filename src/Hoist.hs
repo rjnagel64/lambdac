@@ -517,18 +517,17 @@ pickEnvironmentName sc = go (0 :: Int)
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
 inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [ClosureParam], a)
-inClosure (C.EnvDef tys fields) typlaces places m = do
+inClosure (C.EnvDef tyfields fields) typlaces places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
   let places' = map (\ (x, s) -> (x, asPlace s x)) places
-  let tyfields' = map (\aa -> (aa, asInfoPlace aa)) tys
+  let tyfields' = map (\aa -> (aa, asInfoPlace aa)) tyfields
   let typlaces' = map (\aa -> (aa, asInfoPlace aa)) typlaces
   let newLocals = Scope (Map.fromList places') (Map.fromList typlaces')
   let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
   let replaceEnv _oldEnv = HoistEnv newLocals newEnv
   r <- local replaceEnv m
-  -- TODO: consider typlaces in scope when picking environment name.
-  let inScopeNames = map (placeName . snd) fields' ++ map (placeName . snd) places' ++ map (infoName . snd) tyfields' 
+  let inScopeNames = map (placeName . snd) fields' ++ map (placeName . snd) places' ++ map (infoName . snd) tyfields' ++ map (infoName . snd) typlaces'
   let name = pickEnvironmentName (Set.fromList inScopeNames)
 
   let mkFieldInfo' f = infoForSort (placeSort f)
