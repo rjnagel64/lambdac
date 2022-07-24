@@ -278,12 +278,6 @@ unitTy aa = let aa' = tyVar aa in FieldsFor $ \ctx -> (Set.empty, Set.singleton 
 insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
-bindFields :: [(Name, Sort)] -> FieldsFor -> FieldsFor
-bindFields xs fs = FieldsFor $ \ctx ->
-  let ctx' = insertMany xs ctx in
-  let (fields, tyfields) = runFieldsFor fs ctx' in
-  (fields Set.\\ Set.fromList (uncurry FreeOcc <$> xs), tyfields)
-
 bindTms :: [(K.TmVar, K.TypeK)] -> FieldsFor -> FieldsFor
 bindTms xs f = FieldsFor $ \ctx ->
   let xs' = map (bimap tmVar sortOf) xs in
@@ -430,20 +424,6 @@ withTyBinds as k = local extend (k tybinds)
     tybinds = map tyVar as
     extend (Context names) = Context names
 
-withBinds :: [(Name, Sort)] -> ConvM a -> ConvM a
-withBinds binds m = local extend m
-  where extend (Context names) = Context (insertMany binds names)
-
-funDefNames :: [FunDef a] -> [(Name, Sort)]
-funDefNames fs = [(tmVar f, Closure (map (sortOf . snd) xs ++ map (coSortOf . snd) ks)) | FunDef _ f xs ks _ <- fs]
-
-contDefNames :: [ContDef a] -> [(Name, Sort)]
-contDefNames ks = [(coVar k, Closure (map (sortOf . snd) xs)) | ContDef _ k xs _ <- ks]
-
--- TODO: What is the sort of a polymorphic function? 'Closure' is insufficient.
-absDefNames :: [AbsDef a] -> [(Name, Sort)]
-absDefNames fs = [(tmVar f, Closure (map (coSortOf . snd) ks)) | AbsDef _ f as ks _ <- fs]
-
 
 -- Idea: I could factor out the fieldsFor computation by doing a first
 -- annotation pass over the data, and then having
@@ -451,18 +431,18 @@ absDefNames fs = [(tmVar f, Closure (map (coSortOf . snd) ks)) | AbsDef _ f as k
 -- This does get a bit messy with both TmVar/CoVar and Name being present,
 -- though.
 cconv :: TermK a -> ConvM TermC
-cconv (LetFunK fs e) =
-  let names = funDefNames fs in
-  let fs' = Set.fromList (fst <$> names) in
-  withBinds names $ LetFunC <$> traverse (cconvFunDef fs') fs <*> cconv e
-cconv (LetContK ks e) =
-  let names = contDefNames ks in
-  let ks' = Set.fromList (fst <$> names) in
-  withBinds names $ LetContC <$> traverse (cconvContDef ks') ks <*> cconv e
-cconv (LetAbsK fs e) =
-  let names = absDefNames fs in
-  let fs' = Set.fromList (fst <$> names) in
-  withBinds names $ LetAbsC <$> traverse (cconvAbsDef fs') fs <*> cconv e
+cconv (LetFunK fs e) = do
+  let tmbinds = [(f, K.FunK (map snd xs) (map snd ks)) | FunDef _ f xs ks _ <- fs]
+  let fs' = Set.fromList [tmVar f | FunDef _ f _ _ _ <- fs]
+  withTmBinds tmbinds $ \tmbinds' -> LetFunC <$> traverse (cconvFunDef fs') fs <*> cconv e
+cconv (LetContK ks e) = do
+  let cobinds = [(k, K.ContK (map snd xs)) | ContDef _ k xs _ <- ks]
+  let ks' = Set.fromList [coVar k | ContDef _ k _ _ <- ks]
+  withCoBinds cobinds $ \cobinds' -> LetContC <$> traverse (cconvContDef ks') ks <*> cconv e
+cconv (LetAbsK fs e) = do
+  let tmbinds = [(f, K.AllK as (map snd ks)) | AbsDef _ f as ks _ <- fs]
+  let fs' = Set.fromList [tmVar f | AbsDef _ f _ _ _ <- fs]
+  withTmBinds tmbinds $ \tmbinds' -> LetAbsC <$> traverse (cconvAbsDef fs') fs <*> cconv e
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
