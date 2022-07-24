@@ -192,9 +192,6 @@ data FunClosureDef
 funClosureSort :: FunClosureDef -> Sort
 funClosureSort (FunClosureDef _ _ params conts _) = Closure (map snd params ++ map snd conts)
 
--- | @k {x+} y+ = e@
--- Closures capture two sets of names: those from outer scopes, and those from
--- the same recursive bind group.
 data ContClosureDef
   = ContClosureDef {
     contClosureName :: Name
@@ -218,6 +215,8 @@ data AbsClosureDef
 absClosureSort :: AbsClosureDef -> Sort
 absClosureSort (AbsClosureDef _ _ types conts _) = Closure (map snd conts)
 
+-- | Closures environments capture two sets of names: those from outer scopes,
+-- and those from the same recursive bind group.
 data EnvDef
   = EnvDef {
     envFreeTypes :: [TyVar]
@@ -309,14 +308,14 @@ bindTys aas f = FieldsFor $ \ctx ->
 
 fieldsFor :: TermK a -> FieldsFor
 fieldsFor (LetFunK fs e) =
-  bindFields fs' $ foldMap (fieldsForFunDef) fs <> fieldsFor e
-  where fs' = funDefNames fs
+  bindTms fs' $ foldMap (fieldsForFunDef) fs <> fieldsFor e
+  where fs' = [(f, K.FunK (map snd xs) (map snd ks)) | FunDef _ f xs ks _ <- fs]
 fieldsFor (LetContK ks e) =
-  bindFields ks' $ foldMap (fieldsForContDef) ks <> fieldsFor e
-  where ks' = contDefNames ks
+  bindCos ks' $ foldMap (fieldsForContDef) ks <> fieldsFor e
+  where ks' = [(k, K.ContK (map snd xs)) | ContDef _ k xs _ <- ks]
 fieldsFor (LetAbsK fs e) =
-  bindFields fs' $ foldMap (fieldsForAbsDef) fs <> fieldsFor e
-  where fs' = absDefNames fs
+  bindTms fs' $ foldMap (fieldsForAbsDef) fs <> fieldsFor e
+  where fs' = [(f, K.AllK as (map snd ks)) | AbsDef _ f as ks _ <- fs]
 fieldsFor (HaltK x) = unitTm x
 fieldsFor (JumpK k xs) = unitCo k <> foldMap unitTm xs
 fieldsFor (CallK f xs ks) = unitTm f <> foldMap unitTm xs <> foldMap unitCo ks
@@ -391,16 +390,6 @@ fieldsForCoTy (K.ContK ss) = foldMap fieldsForTy ss
 markRec :: Set Name -> [FreeOcc] -> ([(Name, Sort)], [(Name, Sort)])
 markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) (map freeOcc xs)
 
-funDefNames :: [FunDef a] -> [(Name, Sort)]
-funDefNames fs = [(tmVar f, Closure (map (sortOf . snd) xs ++ map (coSortOf . snd) ks)) | FunDef _ f xs ks _ <- fs]
-
-contDefNames :: [ContDef a] -> [(Name, Sort)]
-contDefNames ks = [(coVar k, Closure (map (sortOf . snd) xs)) | ContDef _ k xs _ <- ks]
-
--- TODO: What is the sort of a polymorphic function? 'Closure' is insufficient.
-absDefNames :: [AbsDef a] -> [(Name, Sort)]
-absDefNames fs = [(tmVar f, Closure (map (coSortOf . snd) ks)) | AbsDef _ f as ks _ <- fs]
-
 -- TODO: The typing context for ConvM should be
 -- '(Map K.TmVar (Name, Sort), Map K.CoVar (Name, Sort), Map K.TyVar TyVar)'
 newtype ConvM a = ConvM { runConvM :: Reader Context a }
@@ -444,6 +433,17 @@ withTyBinds as k = local extend (k tybinds)
 withBinds :: [(Name, Sort)] -> ConvM a -> ConvM a
 withBinds binds m = local extend m
   where extend (Context names) = Context (insertMany binds names)
+
+funDefNames :: [FunDef a] -> [(Name, Sort)]
+funDefNames fs = [(tmVar f, Closure (map (sortOf . snd) xs ++ map (coSortOf . snd) ks)) | FunDef _ f xs ks _ <- fs]
+
+contDefNames :: [ContDef a] -> [(Name, Sort)]
+contDefNames ks = [(coVar k, Closure (map (sortOf . snd) xs)) | ContDef _ k xs _ <- ks]
+
+-- TODO: What is the sort of a polymorphic function? 'Closure' is insufficient.
+absDefNames :: [AbsDef a] -> [(Name, Sort)]
+absDefNames fs = [(tmVar f, Closure (map (coSortOf . snd) ks)) | AbsDef _ f as ks _ <- fs]
+
 
 -- Idea: I could factor out the fieldsFor computation by doing a first
 -- annotation pass over the data, and then having
