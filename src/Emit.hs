@@ -368,7 +368,7 @@ emitAllocGroup envp closures =
   concatMap (\ (ClosureAlloc p d env) -> emitPatch (namesForClosure d) p env) closures
 
 emitAlloc :: EnvPtr -> ClosureAlloc -> String
-emitAlloc envp (ClosureAlloc p d (EnvAlloc info free rec)) =
+emitAlloc envp (ClosureAlloc p d (EnvAlloc info fields)) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep args ++ ");"
   where
     ns = namesForClosure d
@@ -380,15 +380,23 @@ emitAlloc envp (ClosureAlloc p d (EnvAlloc info free rec)) =
     -- Recursive/cyclic environment references are initialized to NULL, and
     -- then patched once all the closures have been allocated.
     infoArgs = map (emitInfo envp . snd) info
-    envAllocArgs = infoArgs ++ map (emitName envp . snd) free ++ map (const "NULL") rec
+    -- envAllocArgs = infoArgs ++ map (emitName envp . snd) free ++ map (const "NULL") rec
+    envAllocArgs = infoArgs ++ map emitFieldAlloc fields
+
+    emitFieldAlloc (FreeEnvField _ x) = emitName envp x
+    emitFieldAlloc (RecEnvField _ _) = "NULL"
 
 emitPatch :: ClosureNames -> Place -> EnvAlloc -> [String]
-emitPatch ns (Place _ p) (EnvAlloc _info _free rec) =
-  concatMap patchField rec
+emitPatch ns (Place _ closureId) (EnvAlloc _info fields) =
+  concatMap patchField' fields
   where
-    env = "((struct " ++ closureEnvName ns ++ " *)" ++ show p ++ "->env)"
-    patchField (Place _ f, LocalName x) = ["    " ++ env ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
-    patchField (_, EnvName _) = [] -- Why ignore environment names?
+    -- If closure environments had their own Id/Place, this casting would not
+    -- be necessary.
+    env = "((struct " ++ closureEnvName ns ++ " *)" ++ show closureId ++ "->env)"
+    patchField' (FreeEnvField _ _) = []
+    patchField' (RecEnvField p x) = patchField p x
+    patchField (Place _ f) (LocalName x) = ["    " ++ env ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
+    patchField _ (EnvName _) = [] -- Why ignore environment names?
 
 emitInfoPlace :: InfoPlace -> String
 emitInfoPlace (InfoPlace i) = "type_info " ++ show i

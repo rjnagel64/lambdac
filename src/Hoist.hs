@@ -28,6 +28,7 @@ module Hoist
     , EnvDecl(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
+    , EnvField(..)
 
     , runHoist
     , ClosureDecls(..)
@@ -92,7 +93,6 @@ asInfoPlace (C.TyVar aa) = InfoPlace (Id aa)
 -- | 'DeclName's are used to refer to top-level functions and continuations.
 -- They are introduced by (hoisting) function/continuation closure bingings,
 -- and used when allocating function/continuation closures.
--- TODO: 'DeclName' -> 'ClosureName'
 newtype ClosureName = ClosureName String
   deriving (Eq, Ord)
 
@@ -146,9 +146,13 @@ data ClosureAlloc
 data EnvAlloc
   = EnvAlloc {
     envAllocInfoArgs :: [(InfoPlace, Info)]
-  , envAllocFreeArgs :: [(Place, Name)]
-  , envAllocRecArgs :: [(Place, Name)]
+  , envAllocValueArgs :: [EnvField]
   }
+
+-- Hmm. I don't like this name.
+data EnvField
+  = FreeEnvField Place Name
+  | RecEnvField Place Name
 
 data ValueH
   = IntH Int64
@@ -391,12 +395,11 @@ hoist (LetAbsC fs e) = do
   tellClosures ds'
   hoistClosureAllocs C.absClosureName C.absClosureSort C.absEnvDef fdecls e
 
-hoistEnvDef :: C.EnvDef -> HoistM EnvAlloc
-hoistEnvDef (C.EnvDef tys free rec) =
-  EnvAlloc
-    <$> traverse envAllocInfo tys
-    <*> traverse envAllocField free
-    <*> traverse envAllocField rec
+hoistEnvDef :: Set C.Name -> C.EnvDef -> HoistM EnvAlloc
+hoistEnvDef recNames (C.EnvDef tys fields) = do
+  tyfields <- traverse envAllocInfo tys
+  fields' <- traverse (envAllocField recNames) fields
+  pure (EnvAlloc tyfields fields')
 
 envAllocInfo :: C.TyVar -> HoistM (InfoPlace, Info)
 envAllocInfo aa = do
@@ -404,18 +407,23 @@ envAllocInfo aa = do
   i <- infoForSort (AllocH aa)
   pure (info, i)
 
-envAllocField :: (C.Name, C.Sort) -> HoistM (Place, Name)
-envAllocField (x, s) = do
-  let field = asPlace s x
-  x' <- hoistVarOcc x
-  pure (field, x')
+envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvField
+envAllocField recNames (x, s) = case Set.member x recNames of
+  False -> do
+    let field = asPlace s x
+    x' <- hoistVarOcc x
+    pure $ FreeEnvField field x'
+  True -> do
+    let field = asPlace s x
+    x' <- hoistVarOcc x
+    pure $ RecEnvField field x'
 
 
 hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> TermC -> HoistM TermH
 hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
   placesForClosureAllocs closureName closureSort cdecls $ \cplaces -> do
     cs' <- for cplaces $ \ (p, d, def) -> do
-      env' <- hoistEnvDef (closureEnvDef def)
+      env' <- hoistEnvDef (Set.fromList (map (closureName . snd) cdecls)) (closureEnvDef def)
       -- TODO: Give name to environment allocations as well
       pure (ClosureAlloc p d env')
     e' <- hoist e
@@ -509,9 +517,8 @@ pickEnvironmentName sc = go (0 :: Int)
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
 inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [ClosureParam], a)
-inClosure (C.EnvDef tys free rec) typlaces places m = do
+inClosure (C.EnvDef tys fields) typlaces places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
-  let fields = free ++ rec
   let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
   let places' = map (\ (x, s) -> (x, asPlace s x)) places
   let tyfields' = map (\aa -> (aa, asInfoPlace aa)) tys
@@ -696,14 +703,15 @@ pprintClosureAlloc n (ClosureAlloc p d env) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ pprintEnvAlloc env ++ "\n"
 
 pprintEnvAlloc :: EnvAlloc -> String
-pprintEnvAlloc (EnvAlloc info free rec) =
-  "{" ++ intercalate ", " (map pprintAllocInfo info ++ map pprintAllocArg (free ++ rec)) ++ "}"
+pprintEnvAlloc (EnvAlloc info fields) =
+  "{" ++ intercalate ", " (map pprintAllocInfo info ++ map pprintAllocArg fields) ++ "}"
 
 pprintAllocInfo :: (InfoPlace, Info) -> String
 pprintAllocInfo (info, i) = "@" ++ pprintInfo info ++ " = " ++ show i
 
-pprintAllocArg :: (Place, Name) -> String
-pprintAllocArg (field, x) = pprintPlace field ++ " = " ++ show x
+pprintAllocArg :: EnvField -> String
+pprintAllocArg (FreeEnvField field x) = pprintPlace field ++ " = " ++ show x
+pprintAllocArg (RecEnvField field x) = pprintPlace field ++ " = " ++ show x
 
 pprintThunkTypes :: [ThunkType] -> String
 pprintThunkTypes ts = unlines (map pprintThunkType ts)

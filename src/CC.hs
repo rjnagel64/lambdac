@@ -221,7 +221,6 @@ data EnvDef
   = EnvDef {
     envFreeTypes :: [TyVar]
   , envFreeNames :: [(Name, Sort)]
-  , envRecNames :: [(Name, Sort)]
   }
 
 data ValueC
@@ -468,26 +467,31 @@ cconvFunDef fs fun@(FunDef _ f xs ks e) = do
   withTmBinds xs $ \tmbinds -> do
     withCoBinds ks $ \cobinds -> do
       (fields, tyfields) <- runFieldsFor (fieldsForFunDef fun) <$> asks ctxNames
-      let (free, rec) = markRec fs (Set.toList fields)
+      let env = cconvEnvDef fs fields tyfields
       e' <- cconv e
-      pure (FunClosureDef (tmVar f) (EnvDef (Set.toList tyfields) free rec) tmbinds cobinds e')
+      pure (FunClosureDef (tmVar f) env tmbinds cobinds e')
 
 cconvContDef :: Set Name -> ContDef a -> ConvM ContClosureDef
 cconvContDef ks kont@(ContDef _ k xs e) = do
   withTmBinds xs $ \tmbinds -> do
     (fields, tyfields) <- runFieldsFor (fieldsForContDef kont) <$> asks ctxNames
-    let (free, rec) = markRec ks (Set.toList fields)
+    let env = cconvEnvDef ks fields tyfields
     e' <- cconv e
-    pure (ContClosureDef (coVar k) (EnvDef (Set.toList tyfields) free rec) tmbinds e')
+    pure (ContClosureDef (coVar k) env tmbinds e')
 
 cconvAbsDef :: Set Name -> AbsDef a -> ConvM AbsClosureDef
 cconvAbsDef fs abs@(AbsDef _ f as ks e) = do
   withTyBinds as $ \tybinds -> do
     withCoBinds ks $ \cobinds -> do
       (fields, tyfields) <- runFieldsFor (fieldsForAbsDef abs) <$> asks ctxNames
-      let (free, rec) = markRec fs (Set.toList fields)
+      let env = cconvEnvDef fs fields tyfields
       e' <- cconv e
-      pure (AbsClosureDef (tmVar f) (EnvDef (Set.toList tyfields) free rec) tybinds cobinds e')
+      pure (AbsClosureDef (tmVar f) env tybinds cobinds e')
+
+cconvEnvDef :: Set Name -> Set FreeOcc -> Set TyVar -> EnvDef
+cconvEnvDef recNames fields tyfields =
+  let (free, rec) = markRec recNames (Set.toList fields) in
+  EnvDef (Set.toList tyfields) (map freeOcc $ Set.toList fields)
 
 cconvValue :: ValueK -> ValueC
 cconvValue NilK = NilC
@@ -602,6 +606,6 @@ pprintAbsClosureDef n (AbsClosureDef f env as ks e) =
     args = map (\v -> "@" ++ show v) as ++ map pprintPlace ks
 
 pprintEnvDef :: Int -> EnvDef -> String
-pprintEnvDef n (EnvDef tys free rec) = indent n $ "{" ++ intercalate ", " vars ++ "}\n"
+pprintEnvDef n (EnvDef tys free) = indent n $ "{" ++ intercalate ", " vars ++ "}\n"
   where
-    vars = map (\v -> "@" ++ show v) tys ++ map (\ (v, s) -> show s ++ " " ++ show v) (free ++ rec)
+    vars = map (\v -> "@" ++ show v) tys ++ map (\ (v, s) -> show s ++ " " ++ show v) free
