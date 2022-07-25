@@ -28,7 +28,7 @@ module Hoist
     , EnvDecl(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
-    , EnvField(..)
+    , EnvAllocArg(..)
 
     , runHoist
     , ClosureDecls(..)
@@ -146,13 +146,12 @@ data ClosureAlloc
 data EnvAlloc
   = EnvAlloc {
     envAllocInfoArgs :: [(InfoPlace, Info)]
-  , envAllocValueArgs :: [EnvField]
+  , envAllocValueArgs :: [EnvAllocArg]
   }
 
--- Hmm. I don't like this name.
-data EnvField
-  = FreeEnvField Place Name
-  | RecEnvField Place Name
+data EnvAllocArg
+  = EnvFreeArg Place Name
+  | EnvRecArg Place Name
 
 data ValueH
   = IntH Int64
@@ -407,16 +406,16 @@ envAllocInfo aa = do
   i <- infoForSort (AllocH aa)
   pure (info, i)
 
-envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvField
+envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvAllocArg
 envAllocField recNames (x, s) = case Set.member x recNames of
   False -> do
     let field = asPlace s x
     x' <- hoistVarOcc x
-    pure $ FreeEnvField field x'
+    pure $ EnvFreeArg field x'
   True -> do
     let field = asPlace s x
     x' <- hoistVarOcc x
-    pure $ RecEnvField field x'
+    pure $ EnvRecArg field x'
 
 
 hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> TermC -> HoistM TermH
@@ -708,9 +707,9 @@ pprintEnvAlloc (EnvAlloc info fields) =
 pprintAllocInfo :: (InfoPlace, Info) -> String
 pprintAllocInfo (info, i) = "@" ++ pprintInfo info ++ " = " ++ show i
 
-pprintAllocArg :: EnvField -> String
-pprintAllocArg (FreeEnvField field x) = pprintPlace field ++ " = " ++ show x
-pprintAllocArg (RecEnvField field x) = pprintPlace field ++ " = " ++ show x
+pprintAllocArg :: EnvAllocArg -> String
+pprintAllocArg (EnvFreeArg field x) = pprintPlace field ++ " = " ++ show x
+pprintAllocArg (EnvRecArg field x) = pprintPlace field ++ " = " ++ show x
 
 pprintThunkTypes :: [ThunkType] -> String
 pprintThunkTypes ts = unlines (map pprintThunkType ts)

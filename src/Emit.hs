@@ -365,7 +365,7 @@ emitPrimCall envp fn xs = fn ++ "(" ++ commaSep (map (emitName envp) xs) ++ ")"
 emitAllocGroup :: EnvPtr -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
   map (emitAlloc envp) closures ++
-  concatMap (\ (ClosureAlloc p d env) -> emitPatch (namesForClosure d) p env) closures
+  concatMap (\ (ClosureAlloc p d env) -> emitPatch (closureEnvName (namesForClosure d)) p env) closures
 
 emitAlloc :: EnvPtr -> ClosureAlloc -> String
 emitAlloc envp (ClosureAlloc p d (EnvAlloc info fields)) =
@@ -379,24 +379,24 @@ emitAlloc envp (ClosureAlloc p d (EnvAlloc info fields)) =
 
     -- Recursive/cyclic environment references are initialized to NULL, and
     -- then patched once all the closures have been allocated.
-    infoArgs = map (emitInfo envp . snd) info
-    -- envAllocArgs = infoArgs ++ map (emitName envp . snd) free ++ map (const "NULL") rec
-    envAllocArgs = infoArgs ++ map emitFieldAlloc fields
+    envAllocArgs = map (emitInfo envp . snd) info ++ map emitAllocArg fields
 
-    emitFieldAlloc (FreeEnvField _ x) = emitName envp x
-    emitFieldAlloc (RecEnvField _ _) = "NULL"
+    emitAllocArg (EnvFreeArg _ x) = emitName envp x
+    emitAllocArg (EnvRecArg _ _) = "NULL"
 
-emitPatch :: ClosureNames -> Place -> EnvAlloc -> [String]
-emitPatch ns (Place _ closureId) (EnvAlloc _info fields) =
-  concatMap patchField' fields
+emitPatch :: String -> Place -> EnvAlloc -> [String]
+emitPatch envName (Place _ closureId) (EnvAlloc _info fields) =
+  concatMap patchField fields
   where
     -- If closure environments had their own Id/Place, this casting would not
     -- be necessary.
-    env = "((struct " ++ closureEnvName ns ++ " *)" ++ show closureId ++ "->env)"
-    patchField' (FreeEnvField _ _) = []
-    patchField' (RecEnvField p x) = patchField p x
-    patchField (Place _ f) (LocalName x) = ["    " ++ env ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
-    patchField _ (EnvName _) = [] -- Why ignore environment names?
+    env = "((struct " ++ envName ++ " *)" ++ show closureId ++ "->env)"
+    patchField (EnvFreeArg _ _) = []
+    patchField (EnvRecArg (Place _ f) (LocalName x)) =
+      ["    " ++ env ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
+    -- Patching recursive closures should only ever involve local names.
+    -- Additionally, we do not have access to an environment pointer in this function.
+    patchField (EnvRecArg _ (EnvName _)) = []
 
 emitInfoPlace :: InfoPlace -> String
 emitInfoPlace (InfoPlace i) = "type_info " ++ show i
