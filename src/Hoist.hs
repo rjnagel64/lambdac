@@ -408,14 +408,8 @@ envAllocInfo aa = do
 
 envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvAllocArg
 envAllocField recNames (x, s) = case Set.member x recNames of
-  False -> do
-    let field = asPlace s x
-    x' <- hoistVarOcc x
-    pure $ EnvFreeArg field x'
-  True -> do
-    let field = asPlace s x
-    x' <- hoistVarOcc x
-    pure $ EnvRecArg field x'
+  False -> EnvFreeArg (asPlace s x) <$> hoistVarOcc x
+  True -> EnvRecArg (asPlace s x) <$> hoistVarOcc x
 
 
 hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> TermC -> HoistM TermH

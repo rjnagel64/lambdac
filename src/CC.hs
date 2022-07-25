@@ -37,7 +37,7 @@ import Control.Monad.Reader
 import Control.Monad.Writer hiding (Sum)
 
 import Data.Function (on)
-import Data.List (intercalate, partition)
+import Data.List (intercalate)
 import Data.Bifunctor
 import Prelude hiding (abs)
 
@@ -378,11 +378,6 @@ fieldsForTy (K.AllK aas ss) = bindTys aas (foldMap fieldsForCoTy ss)
 fieldsForCoTy :: K.CoTypeK -> FieldsFor
 fieldsForCoTy (K.ContK ss) = foldMap fieldsForTy ss
 
--- | Split occurrences into free variables and recursive calls.
--- Return @(free, rec)@.
-markRec :: Set Name -> [FreeOcc] -> ([(Name, Sort)], [(Name, Sort)])
-markRec fs xs = partition (\ (x, _) -> if Set.member x fs then False else True) (map freeOcc xs)
-
 -- TODO: The typing context for ConvM should be
 -- '(Map K.TmVar (Name, Sort), Map K.CoVar (Name, Sort), Map K.TyVar TyVar)'
 newtype ConvM a = ConvM { runConvM :: Reader Context a }
@@ -432,16 +427,13 @@ withTyBinds as k = local extend (k tybinds)
 cconv :: TermK a -> ConvM TermC
 cconv (LetFunK fs e) = do
   let tmbinds = [(f, K.FunK (map snd xs) (map snd ks)) | FunDef _ f xs ks _ <- fs]
-  let fs' = Set.fromList [tmVar f | FunDef _ f _ _ _ <- fs]
-  withTmBinds tmbinds $ \tmbinds' -> LetFunC <$> traverse (cconvFunDef fs') fs <*> cconv e
+  withTmBinds tmbinds $ \tmbinds' -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
 cconv (LetContK ks e) = do
   let cobinds = [(k, K.ContK (map snd xs)) | ContDef _ k xs _ <- ks]
-  let ks' = Set.fromList [coVar k | ContDef _ k _ _ <- ks]
-  withCoBinds cobinds $ \cobinds' -> LetContC <$> traverse (cconvContDef ks') ks <*> cconv e
+  withCoBinds cobinds $ \cobinds' -> LetContC <$> traverse cconvContDef ks <*> cconv e
 cconv (LetAbsK fs e) = do
   let tmbinds = [(f, K.AllK as (map snd ks)) | AbsDef _ f as ks _ <- fs]
-  let fs' = Set.fromList [tmVar f | AbsDef _ f _ _ _ <- fs]
-  withTmBinds tmbinds $ \tmbinds' -> LetAbsC <$> traverse (cconvAbsDef fs') fs <*> cconv e
+  withTmBinds tmbinds $ \tmbinds' -> LetAbsC <$> traverse cconvAbsDef fs <*> cconv e
 cconv (HaltK x) = pure $ HaltC (tmVar x)
 cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
 cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
@@ -462,35 +454,37 @@ cconv (LetArithK x op e) = withTm x K.IntK $ \b -> LetArithC b (cconvArith op) <
 cconv (LetNegateK x y e) = withTm x K.IntK $ \b -> LetNegateC b (tmVar y) <$> cconv e
 cconv (LetCompareK x cmp e) = withTm x K.BoolK $ \b -> LetCompareC b (cconvCmp cmp) <$> cconv e
 
-cconvFunDef :: Set Name -> FunDef a -> ConvM FunClosureDef
-cconvFunDef fs fun@(FunDef _ f xs ks e) = do
+cconvFunDef :: FunDef a -> ConvM FunClosureDef
+cconvFunDef fun@(FunDef _ f xs ks e) = do
   withTmBinds xs $ \tmbinds -> do
     withCoBinds ks $ \cobinds -> do
-      (fields, tyfields) <- runFieldsFor (fieldsForFunDef fun) <$> asks ctxNames
-      let env = cconvEnvDef fs fields tyfields
+      Context names <- ask
+      let (fields, tyfields) = runFieldsFor (fieldsForFunDef fun) names
+      let env = cconvEnvDef fields tyfields
       e' <- cconv e
       pure (FunClosureDef (tmVar f) env tmbinds cobinds e')
 
-cconvContDef :: Set Name -> ContDef a -> ConvM ContClosureDef
-cconvContDef ks kont@(ContDef _ k xs e) = do
+cconvContDef :: ContDef a -> ConvM ContClosureDef
+cconvContDef kont@(ContDef _ k xs e) = do
   withTmBinds xs $ \tmbinds -> do
-    (fields, tyfields) <- runFieldsFor (fieldsForContDef kont) <$> asks ctxNames
-    let env = cconvEnvDef ks fields tyfields
+    Context names <- ask
+    let (fields, tyfields) = runFieldsFor (fieldsForContDef kont) names
+    let env = cconvEnvDef fields tyfields
     e' <- cconv e
     pure (ContClosureDef (coVar k) env tmbinds e')
 
-cconvAbsDef :: Set Name -> AbsDef a -> ConvM AbsClosureDef
-cconvAbsDef fs abs@(AbsDef _ f as ks e) = do
+cconvAbsDef :: AbsDef a -> ConvM AbsClosureDef
+cconvAbsDef abs@(AbsDef _ f as ks e) = do
   withTyBinds as $ \tybinds -> do
     withCoBinds ks $ \cobinds -> do
-      (fields, tyfields) <- runFieldsFor (fieldsForAbsDef abs) <$> asks ctxNames
-      let env = cconvEnvDef fs fields tyfields
+      Context names <- ask
+      let (fields, tyfields) = runFieldsFor (fieldsForAbsDef abs) names
+      let env = cconvEnvDef fields tyfields
       e' <- cconv e
       pure (AbsClosureDef (tmVar f) env tybinds cobinds e')
 
-cconvEnvDef :: Set Name -> Set FreeOcc -> Set TyVar -> EnvDef
-cconvEnvDef recNames fields tyfields =
-  let (free, rec) = markRec recNames (Set.toList fields) in
+cconvEnvDef :: Set FreeOcc -> Set TyVar -> EnvDef
+cconvEnvDef fields tyfields =
   EnvDef (Set.toList tyfields) (map freeOcc $ Set.toList fields)
 
 cconvValue :: ValueK -> ValueC
