@@ -253,35 +253,35 @@ instance Ord FreeOcc where
 -- I think that the "proper" way to do it is with a Writer monad, and using
 -- 'censor' to implement 'bindFields'? I might just keep it as part of the
 -- return value, though.
-newtype FieldsFor
-  = FieldsFor {
-    -- Hmm. Bundle up these fields as 'Context'
-    runFieldsFor :: Map Name Sort
-                 -> Map K.TmVar (Name, Sort)
-                 -> Map K.CoVar (Name, Sort)
-                 -> Map K.TyVar TyVar
-                 -> (Set FreeOcc, Set TyVar)
+newtype FieldsFor = FieldsFor { runFieldsFor :: Context -> (Set FreeOcc, Set TyVar) }
+
+data Context
+  = Context {
+    ctxNames :: Map Name Sort
+  , ctxTms :: Map K.TmVar (Name, Sort)
+  , ctxCos :: Map K.CoVar (Name, Sort)
+  , ctxTys :: Map K.TyVar TyVar
   }
 
 instance Semigroup FieldsFor where
-  fs <> fs' = FieldsFor $ \ctx tms cos tys -> runFieldsFor fs ctx tms cos tys <> runFieldsFor fs' ctx tms cos tys
+  fs <> fs' = FieldsFor $ \ctx -> runFieldsFor fs ctx <> runFieldsFor fs' ctx
 
 instance Monoid FieldsFor where
-  mempty = FieldsFor $ \_ _ _ _ -> (Set.empty, Set.empty)
+  mempty = FieldsFor $ \_ -> (Set.empty, Set.empty)
 
 unitTm :: K.TmVar -> FieldsFor
-unitTm x = FieldsFor $ \_ tms _ _ -> case Map.lookup x tms of
-  Nothing -> error ("unbound variable occurrence: " ++ show x ++ " not in " ++ show tms)
+unitTm x = FieldsFor $ \ctx -> case Map.lookup x (ctxTms ctx) of
+  Nothing -> error ("unbound variable occurrence: " ++ show x ++ " not in " ++ show (ctxTms ctx))
   Just (x', s) -> (Set.singleton (FreeOcc x' s), Set.empty)
 
 unitCo :: K.CoVar -> FieldsFor
-unitCo k = FieldsFor $ \_ _ cos _ -> case Map.lookup k cos of
-  Nothing -> error ("unbound variable occurrence: " ++ show k ++ " not in " ++ show cos)
+unitCo k = FieldsFor $ \ctx -> case Map.lookup k (ctxCos ctx) of
+  Nothing -> error ("unbound variable occurrence: " ++ show k ++ " not in " ++ show (ctxCos ctx))
   Just (k', s) -> (Set.singleton (FreeOcc k' s), Set.empty)
 
 unitTy :: K.TyVar -> FieldsFor
-unitTy aa = FieldsFor $ \_ _ _ tys -> case Map.lookup aa tys of
-  Nothing -> error ("unbound type variable occurrence: " ++ show aa ++ " not in " ++ show tys)
+unitTy aa = FieldsFor $ \ctx -> case Map.lookup aa (ctxTys ctx) of
+  Nothing -> error ("unbound type variable occurrence: " ++ show aa ++ " not in " ++ show (ctxTys ctx))
   Just aa' -> (Set.empty, Set.singleton aa')
 
 
@@ -289,26 +289,26 @@ insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
 bindTms :: [(K.TmVar, K.TypeK)] -> FieldsFor -> FieldsFor
-bindTms xs f = FieldsFor $ \ctx tms cos tys ->
+bindTms xs f = FieldsFor $ \ctx ->
   let xs' = map (\b -> (fst b, bimap tmVar sortOf b)) xs in
-  let ctx' = insertMany (map snd xs') ctx in
-  let (fields, tyfields) = runFieldsFor f ctx' (insertMany xs' tms) cos tys in
+  let ctx' = ctx { ctxTms = insertMany xs' (ctxTms ctx) } in
+  let (fields, tyfields) = runFieldsFor f ctx' in
   let bound = Set.fromList $ map (\ (_, (x, s)) -> FreeOcc x s) xs' in
   (fields Set.\\ bound, tyfields)
 
 bindCos :: [(K.CoVar, K.CoTypeK)] -> FieldsFor -> FieldsFor
-bindCos ks f = FieldsFor $ \ctx tms cos tys->
+bindCos ks f = FieldsFor $ \ctx ->
   let ks' = map (\b -> (fst b, bimap coVar coSortOf b)) ks in
-  let ctx' = insertMany (map snd ks') ctx in
-  let (fields, tyfields) = runFieldsFor f ctx' tms (insertMany ks' cos) tys in
+  let ctx' = ctx { ctxCos = insertMany ks' (ctxCos ctx) } in
+  let (fields, tyfields) = runFieldsFor f ctx' in
   let bound = Set.fromList $ map (\ (_, (k, s)) -> FreeOcc k s) ks' in
   (fields Set.\\ bound, tyfields)
 
 bindTys :: [K.TyVar] -> FieldsFor -> FieldsFor
-bindTys aas f = FieldsFor $ \ctx tms cos tys ->
+bindTys aas f = FieldsFor $ \ctx ->
   let aas' = map (\a -> (a, tyVar a)) aas in
-  let ctx' = ctx in
-  let (fields, tyfields) = runFieldsFor f ctx' tms cos (insertMany aas' tys) in
+  let ctx' = ctx { ctxTys = insertMany aas' (ctxTys ctx) } in
+  let (fields, tyfields) = runFieldsFor f ctx' in
   let bound = Set.fromList (map snd aas') in
   (fields, tyfields Set.\\ bound)
 
@@ -401,14 +401,6 @@ deriving newtype instance Applicative ConvM
 deriving newtype instance Monad ConvM
 deriving newtype instance MonadReader Context ConvM
 
-data Context
-  = Context {
-    ctxNames :: Map Name Sort
-  , ctxTms :: Map K.TmVar (Name, Sort)
-  , ctxCos :: Map K.CoVar (Name, Sort)
-  , ctxTys :: Map K.TyVar TyVar
-  }
-
 runConv :: ConvM a -> a
 runConv = flip runReader emptyContext . runConvM
   where emptyContext = Context Map.empty Map.empty Map.empty Map.empty
@@ -480,11 +472,8 @@ cconvFunDef :: FunDef a -> ConvM FunClosureDef
 cconvFunDef fun@(FunDef _ f xs ks e) = do
   withTmBinds xs $ \tmbinds -> do
     withCoBinds ks $ \cobinds -> do
-      names <- asks ctxNames
-      tms <- asks ctxTms
-      cos <- asks ctxCos
-      tys <- asks ctxTys
-      let (fields, tyfields) = runFieldsFor (fieldsForFunDef fun) names tms cos tys
+      ctx <- ask
+      let (fields, tyfields) = runFieldsFor (fieldsForFunDef fun) ctx
       let env = cconvEnvDef fields tyfields
       e' <- cconv e
       pure (FunClosureDef (tmVar f) env tmbinds cobinds e')
@@ -492,11 +481,8 @@ cconvFunDef fun@(FunDef _ f xs ks e) = do
 cconvContDef :: ContDef a -> ConvM ContClosureDef
 cconvContDef kont@(ContDef _ k xs e) = do
   withTmBinds xs $ \tmbinds -> do
-    names <- asks ctxNames
-    tms <- asks ctxTms
-    cos <- asks ctxCos
-    tys <- asks ctxTys
-    let (fields, tyfields) = runFieldsFor (fieldsForContDef kont) names tms cos tys
+    ctx <- ask
+    let (fields, tyfields) = runFieldsFor (fieldsForContDef kont) ctx
     let env = cconvEnvDef fields tyfields
     e' <- cconv e
     pure (ContClosureDef (coVar k) env tmbinds e')
@@ -505,11 +491,8 @@ cconvAbsDef :: AbsDef a -> ConvM AbsClosureDef
 cconvAbsDef abs@(AbsDef _ f as ks e) = do
   withTyBinds as $ \tybinds -> do
     withCoBinds ks $ \cobinds -> do
-      names <- asks ctxNames
-      tms <- asks ctxTms
-      cos <- asks ctxCos
-      tys <- asks ctxTys
-      let (fields, tyfields) = runFieldsFor (fieldsForAbsDef abs) names tms cos tys
+      ctx <- ask
+      let (fields, tyfields) = runFieldsFor (fieldsForAbsDef abs) ctx
       let env = cconvEnvDef fields tyfields
       e' <- cconv e
       pure (AbsClosureDef (tmVar f) env tybinds cobinds e')
