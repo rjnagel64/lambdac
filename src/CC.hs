@@ -39,7 +39,7 @@ import Control.Monad.Writer hiding (Sum)
 import Data.Function (on)
 import Data.List (intercalate)
 import Data.Bifunctor
-import Prelude hiding (abs)
+import Prelude hiding (abs, cos)
 
 import qualified CPS as K
 import CPS (TermK(..), FunDef(..), ContDef(..), AbsDef(..), ValueK(..), ArithK(..), CmpK(..))
@@ -387,36 +387,42 @@ deriving newtype instance Applicative ConvM
 deriving newtype instance Monad ConvM
 deriving newtype instance MonadReader Context ConvM
 
-data Context = Context { ctxNames :: Map Name Sort }
+data Context
+  = Context {
+    ctxNames :: Map Name Sort
+  , ctxTms :: Map K.TmVar (Name, Sort)
+  , ctxCos :: Map K.CoVar (Name, Sort)
+  , ctxTys :: Map K.TyVar TyVar
+  }
 
 runConv :: ConvM a -> a
 runConv = flip runReader emptyContext . runConvM
-  where emptyContext = Context Map.empty
+  where emptyContext = Context Map.empty Map.empty Map.empty Map.empty
 
 withTm :: K.TmVar -> K.TypeK -> ((Name, Sort) -> ConvM a) -> ConvM a
-withTm x t k = local extend (k (x', t'))
+withTm x t kont = local extend (kont (x', t'))
   where
     x' = tmVar x
     t' = sortOf t
-    extend (Context names) = Context (Map.insert x' t' names)
+    extend (Context names tms cos tys) = Context (Map.insert x' t' names) (Map.insert x (x', t') tms) cos tys
 
 withTmBinds :: [(K.TmVar, K.TypeK)] -> ([(Name, Sort)] -> ConvM a) -> ConvM a
-withTmBinds xs k = local extend (k tmbinds)
+withTmBinds xs kont = local extend (kont (map snd tmbinds))
   where
-    tmbinds = map (bimap tmVar sortOf) xs
-    extend (Context names) = Context (insertMany tmbinds names)
+    tmbinds = map (\ (x, t) -> (x, (tmVar x, sortOf t))) xs
+    extend (Context names tms cos tys) = Context (insertMany (map snd tmbinds) names) (insertMany tmbinds tms) cos tys
 
 withCoBinds :: [(K.CoVar, K.CoTypeK)] -> ([(Name, Sort)] -> ConvM a) -> ConvM a
-withCoBinds ks k = local extend (k cobinds)
+withCoBinds ks kont = local extend (kont (map snd cobinds))
   where
-    cobinds = map (bimap coVar coSortOf) ks
-    extend (Context names) = Context (insertMany cobinds names)
+    cobinds = map (\ (k, s) -> (k, (coVar k, coSortOf s))) ks
+    extend (Context names tms cos tys) = Context (insertMany (map snd cobinds) names) tms (insertMany cobinds cos) tys
 
 withTyBinds :: [K.TyVar] -> ([TyVar] -> ConvM a) -> ConvM a
-withTyBinds as k = local extend (k tybinds)
+withTyBinds as kont = local extend (kont (map snd tybinds))
   where
-    tybinds = map tyVar as
-    extend (Context names) = Context names
+    tybinds = map (\a -> (a, tyVar a)) as
+    extend (Context names tms cos tys) = Context names tms cos (insertMany tybinds tys)
 
 
 -- Idea: I could factor out the fieldsFor computation by doing a first
@@ -458,7 +464,7 @@ cconvFunDef :: FunDef a -> ConvM FunClosureDef
 cconvFunDef fun@(FunDef _ f xs ks e) = do
   withTmBinds xs $ \tmbinds -> do
     withCoBinds ks $ \cobinds -> do
-      Context names <- ask
+      names <- asks ctxNames
       let (fields, tyfields) = runFieldsFor (fieldsForFunDef fun) names
       let env = cconvEnvDef fields tyfields
       e' <- cconv e
@@ -467,7 +473,7 @@ cconvFunDef fun@(FunDef _ f xs ks e) = do
 cconvContDef :: ContDef a -> ConvM ContClosureDef
 cconvContDef kont@(ContDef _ k xs e) = do
   withTmBinds xs $ \tmbinds -> do
-    Context names <- ask
+    names <- asks ctxNames
     let (fields, tyfields) = runFieldsFor (fieldsForContDef kont) names
     let env = cconvEnvDef fields tyfields
     e' <- cconv e
@@ -477,7 +483,7 @@ cconvAbsDef :: AbsDef a -> ConvM AbsClosureDef
 cconvAbsDef abs@(AbsDef _ f as ks e) = do
   withTyBinds as $ \tybinds -> do
     withCoBinds ks $ \cobinds -> do
-      Context names <- ask
+      names <- asks ctxNames
       let (fields, tyfields) = runFieldsFor (fieldsForAbsDef abs) names
       let env = cconvEnvDef fields tyfields
       e' <- cconv e
