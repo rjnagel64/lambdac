@@ -471,18 +471,14 @@ cconvFunDef :: FunDef a -> ConvM FunClosureDef
 cconvFunDef fun@(FunDef _ f xs ks e) = do
   withTmBinds xs $ \tmbinds -> do
     withCoBinds ks $ \cobinds -> do
-      ctx <- ask
-      let (fields, tyfields) = runFieldsFor (fieldsForFunDef fun) ctx
-      let env = cconvEnvDef fields tyfields
+      env <- cconvEnvDef fieldsForFunDef fun
       e' <- cconv e
       pure (FunClosureDef (tmVar f) env tmbinds cobinds e')
 
 cconvContDef :: ContDef a -> ConvM ContClosureDef
 cconvContDef kont@(ContDef _ k xs e) = do
   withTmBinds xs $ \tmbinds -> do
-    ctx <- ask
-    let (fields, tyfields) = runFieldsFor (fieldsForContDef kont) ctx
-    let env = cconvEnvDef fields tyfields
+    env <- cconvEnvDef fieldsForContDef kont
     e' <- cconv e
     pure (ContClosureDef (coVar k) env tmbinds e')
 
@@ -490,15 +486,16 @@ cconvAbsDef :: AbsDef a -> ConvM AbsClosureDef
 cconvAbsDef abs@(AbsDef _ f as ks e) = do
   withTyBinds as $ \tybinds -> do
     withCoBinds ks $ \cobinds -> do
-      ctx <- ask
-      let (fields, tyfields) = runFieldsFor (fieldsForAbsDef abs) ctx
-      let env = cconvEnvDef fields tyfields
+      env <- cconvEnvDef fieldsForAbsDef abs
       e' <- cconv e
       pure (AbsClosureDef (tmVar f) env tybinds cobinds e')
 
-cconvEnvDef :: Set FreeOcc -> Set TyVar -> EnvDef
-cconvEnvDef fields tyfields =
-  EnvDef (Set.toList tyfields) (map freeOcc $ Set.toList fields)
+cconvEnvDef :: (a -> FieldsFor) -> a -> ConvM EnvDef
+cconvEnvDef fieldsForDef def = do
+  ctx <- ask
+  let (fields, tyfields) = runFieldsFor (fieldsForDef def) ctx
+  let env = EnvDef (Set.toList tyfields) (map freeOcc $ Set.toList fields)
+  pure env
 
 cconvTmVar :: K.TmVar -> ConvM Name
 cconvTmVar x = do
