@@ -84,6 +84,7 @@ instance Show Name where
 prime :: Name -> Name
 prime (Name x i) = Name x (i+1)
 
+-- TODO: Eliminate tmVar, coVar, and tyVar. They are not aware of the Context.
 tmVar :: K.TmVar -> Name
 tmVar (K.TmVar x i) = Name x i
 
@@ -440,25 +441,27 @@ cconv (LetContK ks e) = do
 cconv (LetAbsK fs e) = do
   let tmbinds = [(f, K.AllK as (map snd ks)) | AbsDef _ f as ks _ <- fs]
   withTmBinds tmbinds $ \tmbinds' -> LetAbsC <$> traverse cconvAbsDef fs <*> cconv e
-cconv (HaltK x) = pure $ HaltC (tmVar x)
-cconv (JumpK k xs) = pure $ JumpC (coVar k) (map tmVar xs)
-cconv (CallK f xs ks) = pure $ CallC (tmVar f) (map tmVar xs) (map coVar ks)
+cconv (HaltK x) = HaltC <$> cconvTmVar x
+cconv (JumpK k xs) = JumpC <$> cconvCoVar k <*> traverse cconvTmVar xs
+cconv (CallK f xs ks) = CallC <$> cconvTmVar f <*> traverse cconvTmVar xs <*> traverse cconvCoVar ks
+cconv (InstK f ts ks) = InstC <$> cconvTmVar f <*> pure (map sortOf ts) <*> traverse cconvCoVar ks
 cconv (CaseK x t ks) = do
   -- The type of each thunk/branch is determined by the type of the scrutinee.
+  ks' <- traverse cconvCoVar ks
   let
-    ks' = case t of
-      K.SumK a b -> zip (map coVar ks) [BranchType [sortOf a], BranchType [sortOf b]]
-      K.BoolK -> zip (map coVar ks) [BranchType [], BranchType []]
-      K.ListK a -> zip (map coVar ks) [BranchType [], BranchType [sortOf a, sortOf t]]
+    branchTypes = case t of
+      K.SumK a b -> [BranchType [sortOf a], BranchType [sortOf b]]
+      K.BoolK -> [BranchType [], BranchType []]
+      K.ListK a -> [BranchType [], BranchType [sortOf a, sortOf t]]
       _ -> error "cannot case on this type"
-  pure $ CaseC (tmVar x) (sortOf t) ks'
-cconv (InstK f ts ks) = pure $ InstC (tmVar f) (map sortOf ts) (map coVar ks)
-cconv (LetFstK x t y e) = withTm x t $ \b -> LetFstC b (tmVar y) <$> cconv e
-cconv (LetSndK x t y e) = withTm x t $ \b -> LetSndC b (tmVar y) <$> cconv e
-cconv (LetValK x t v e) = withTm x t $ \b -> LetValC b (cconvValue v) <$> cconv e
-cconv (LetArithK x op e) = withTm x K.IntK $ \b -> LetArithC b (cconvArith op) <$> cconv e
-cconv (LetNegateK x y e) = withTm x K.IntK $ \b -> LetNegateC b (tmVar y) <$> cconv e
-cconv (LetCompareK x cmp e) = withTm x K.BoolK $ \b -> LetCompareC b (cconvCmp cmp) <$> cconv e
+  x' <- cconvTmVar x
+  pure $ CaseC x' (sortOf t) (zip ks' branchTypes)
+cconv (LetFstK x t y e) = withTm x t $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
+cconv (LetSndK x t y e) = withTm x t $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
+cconv (LetValK x t v e) = withTm x t $ \b -> LetValC b <$> cconvValue v <*> cconv e
+cconv (LetArithK x op e) = withTm x K.IntK $ \b -> LetArithC b <$> cconvArith op <*> cconv e
+cconv (LetNegateK x y e) = withTm x K.IntK $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
+cconv (LetCompareK x cmp e) = withTm x K.BoolK $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
 
 cconvFunDef :: FunDef a -> ConvM FunClosureDef
 cconvFunDef fun@(FunDef _ f xs ks e) = do
@@ -493,28 +496,42 @@ cconvEnvDef :: Set FreeOcc -> Set TyVar -> EnvDef
 cconvEnvDef fields tyfields =
   EnvDef (Set.toList tyfields) (map freeOcc $ Set.toList fields)
 
-cconvValue :: ValueK -> ValueC
-cconvValue NilK = NilC
-cconvValue (PairK x y) = (PairC (tmVar x) (tmVar y))
-cconvValue (IntValK i) = (IntC i)
-cconvValue (BoolValK b) = (BoolC b)
-cconvValue (InlK x) = (InlC (tmVar x))
-cconvValue (InrK y) = (InrC (tmVar y))
-cconvValue EmptyK = EmptyC
-cconvValue (ConsK x y) = (ConsC (tmVar x) (tmVar y))
+cconvTmVar :: K.TmVar -> ConvM Name
+cconvTmVar x = do
+  tms <- asks ctxTms
+  case Map.lookup x tms of
+    Nothing -> error ("variable not in scope: " ++ show x)
+    Just (x', _) -> pure x'
 
-cconvArith :: ArithK -> ArithC
-cconvArith (AddK x y) = AddC (tmVar x) (tmVar y)
-cconvArith (SubK x y) = SubC (tmVar x) (tmVar y)
-cconvArith (MulK x y) = MulC (tmVar x) (tmVar y)
+cconvCoVar :: K.CoVar -> ConvM Name
+cconvCoVar k = do
+  cos <- asks ctxCos
+  case Map.lookup k cos of
+    Nothing -> error ("variable not in scope: " ++ show k)
+    Just (k', _) -> pure k'
 
-cconvCmp :: CmpK -> CmpC
-cconvCmp (CmpEqK x y) = EqC (tmVar x) (tmVar y)
-cconvCmp (CmpNeK x y) = NeC (tmVar x) (tmVar y)
-cconvCmp (CmpLtK x y) = LtC (tmVar x) (tmVar y)
-cconvCmp (CmpLeK x y) = LeC (tmVar x) (tmVar y)
-cconvCmp (CmpGtK x y) = GtC (tmVar x) (tmVar y)
-cconvCmp (CmpGeK x y) = GeC (tmVar x) (tmVar y)
+cconvValue :: ValueK -> ConvM ValueC
+cconvValue NilK = pure NilC
+cconvValue (PairK x y) = PairC <$> cconvTmVar x <*> cconvTmVar y
+cconvValue (IntValK i) = pure (IntC i)
+cconvValue (BoolValK b) = pure (BoolC b)
+cconvValue (InlK x) = InlC <$> cconvTmVar x
+cconvValue (InrK y) = InrC <$> cconvTmVar y
+cconvValue EmptyK = pure EmptyC
+cconvValue (ConsK x y) = ConsC <$> cconvTmVar x <*> cconvTmVar y
+
+cconvArith :: ArithK -> ConvM ArithC
+cconvArith (AddK x y) = AddC <$> cconvTmVar x <*> cconvTmVar y
+cconvArith (SubK x y) = SubC <$> cconvTmVar x <*> cconvTmVar y
+cconvArith (MulK x y) = MulC <$> cconvTmVar x <*> cconvTmVar y
+
+cconvCmp :: CmpK -> ConvM CmpC
+cconvCmp (CmpEqK x y) = EqC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (CmpNeK x y) = NeC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (CmpLtK x y) = LtC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (CmpLeK x y) = LeC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (CmpGtK x y) = GtC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (CmpGeK x y) = GeC <$> cconvTmVar x <*> cconvTmVar y
 
 -- What does well-typed closure conversion look like?
 -- How are the values in a closure bound?
