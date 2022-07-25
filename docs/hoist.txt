@@ -59,9 +59,15 @@ variable a, b
 Record labels
 variable l
 
+Code pointers
+variable #fn
+
 Typing contexts
-G ::= . | G, a : type | G, x : t
--- Maybe 'G, x : info t' also?
+Γ ::= . | Γ, a : type | Γ, x : t
+-- Maybe 'Γ, x : info t' also?
+
+Signatures
+Σ ::= . | Σ, global #fn : forall a+. code(t; S)
 
 Types
 t, s ::= unit | t × s | ∃a.t[a] | code(t; S)
@@ -74,39 +80,47 @@ Terms
 e ::=
   | let x : t = v in e
   | let x : t = fst y in e
+  | let x : t = snd y in e
   | unpack <a, x> = e1 in e2
+  | case x of (k : s)+
   | f(x, E)
-  | case x of (k : s)^*
+  | #fn[t+]
 
 Argument lists
 E ::= . | @t, E | x, E
 
 Values
-v, w ::= x | (v, w) | <t, v> | {(l = v)+}
+v, w ::= x | (v, w) | <t, v> | {(l = v)+} | inl x | inr x
 
 Info values
-i, j ::= x | $unit_info | $pair_info
+i, j ::= x | $unit_info | $pair_info | $sum_info
+
+Global declarations
+global ::= global #fn (x : t; S) = e
+
+Programs
+prog ::= global+; e
 
 
 JUDGMENTS
 =========
 
-G |- t
-Type 't' is well-formed in context 'G'
+Γ |- t
+Type 't' is well-formed in context 'Γ'
 
-G |- v : t
-Value 'v' has type 't' in context 'G'
+Σ; Γ |- v : t
+Value 'v' has type 't' in context 'Γ' and signature 'Σ'
 
-G |- i : info t
-Info value 'i' describes type 't' in context 'G'
+Σ; Γ |- i : info t
+Info value 'i' describes type 't' in context 'Γ' and signature 'Σ'
 
-G |- e OK
-Expression 'e' is well-typed in context 'G'
+Σ; Γ |- e OK
+Expression 'e' is well-typed in context 'Γ' and signature 'Σ'
 
-G |- S
+Γ |- S
 Telescope S is well-formed (return extended context?)
 
-G |- E : S
+Σ; Γ |- E : S
 Argument sequence E has type telescope S
 
 
@@ -116,40 +130,40 @@ RULES
 Typing rules for telescopes are standard, though value bindings are non-dependent.
 
   ------
-  G |- .
+  Γ |- .
 
-  G, a |- S
+  Γ, a |- S
   ----------
-  G |- @a, S
+  Γ |- @a, S
   
-  G |- t
+  Γ |- t
   ---------
-  G |- t, S
+  Γ |- t, S
 
 Telescopes are used to type argument lists.
 
   ----------
-  G |- . : .
+  Γ |- . : .
 
-  G |- i : info t
-  G |- E : S[a := t]
+  Γ |- i : info t
+  Γ |- E : S[a := t]
   ------------------
-  G |- i, E : @a, S
+  Γ |- i, E : @a, S
 
-  G |- x : t
-  G |- E : S
+  Γ |- x : t
+  Γ |- E : S
   ----------------
-  G |- x, E : t, S
+  Γ |- x, E : t, S
 
 The distinctive feature of CC and Hoist is that functions and closures are not
 the same thing. A closure has an environment for non-local names, whereas a
 function (code pointer) is entirely closed. Code types consist of a type for
 the environment parameter and a telescope of argument types.
 
-  G |- t
-  (G |- s_i)^i
+  Γ |- t
+  (Γ |- s_i)^i
   -------------------------
-  G |- code(t; s1, ..., sn)
+  Γ |- code(t; s1, ..., sn)
 
 TODO: the parameter types should form a telescope. (Because type parameters)
 
@@ -161,52 +175,58 @@ avoid excessive tuple-projecting)
 Code pointers can be called by providing a matching environment and an
 appropriate list of arguments. Calling a code pointer is therefore uncurried.
 
-  f : code(t; s1, ..., sn) ∈ G
-  G |- env : t
-  (G |- arg_i : s_i)^i
-  -------------------------------
-  G |- f(env; arg1, ..., argn) OK
+  f : code(t; s1, ..., sn) ∈ Γ
+  Σ; Γ |- env : t
+  (Σ; Γ |- arg_i : s_i)^i
+  ----------------------------------
+  Σ; Γ |- f(env; arg1, ..., argn) OK
 
 Instead of using code types directly, the translation of types introduces
 "closure types", which behave pretty much as you expect.
 
   CC[(s1, ..., sn) -> !] = closure(s1, ..., sn)
 
-  (G |- s_i)^i
+  (Γ |- s_i)^i
   -------------------------
-  G |- closure(s1, ..., sn)
+  Γ |- closure(s1, ..., sn)
 
-  G |- f : code(t, s1, ..., sn)
-  G |- env : t
-  G, cl : closure(s1, ..., sn) |- e OK
-  ------------------------------------------------------
-  G |- let cl : closure(s1, ..., sn) = f { env } in e OK
+  Σ |- #fn : code(t, s1, ..., sn)
+  Σ; Γ |- env : t
+  Σ; Γ, f : closure(s1, ..., sn) |- e OK
+  ----------------------------------------------------------
+  Σ; Γ |- let f : closure(s1, ..., sn) = #fn { env } in e OK
 
-  G |- cl : closure(s1, ..., sn)
-  (G |- arg_i : s_i)^i
-  --------------------------------
-  G |- call cl(arg1, ..., argn) OK
+Note: closure allocation is a separate construct from value allocation because
+closures can be mutually recursive, but values cannot be.
 
-The semantics of these constructs are given by desugaring to existential
-products of an environment and a code pointer:
+TODO: Specify allocating multiple closures at once.
+TODO: Specify instantiation of polymorphic code
+
+  Σ; Γ |- f : closure(s1, ..., sn)
+  (Σ; Γ |- arg_i : s_i)^i
+  ----------------------------------
+  Σ; Γ |- call f(arg1, ..., argn) OK
+
+The semantics of closure types, allocations, and calls are given by desugaring
+to existential products of an environment and a code pointer:
 
   closure(s1, ..., sn) ::= ∃l.l × code(l; s1, ..., sn)
 
 The rules for existential types are entirely standard.
 
-  G, a |- t
+  Γ, a |- t
   ---------
-  G |- ∃a.t
+  Γ |- ∃a.t
 
-  G |- t
-  G |- e : s[a := t]
-  ------------------
-  G |- <t, e> : ∃a.s
+  Γ |- t
+  Σ; Γ |- v : s[a := t]
+  ---------------------
+  Σ; Γ |- <t, v> : ∃a.s
 
-  G |- e1 : ∃b.t
-  G, a, x : t[b := a] |- e2 OK
-  --------------------------------
-  G |- unpack <a, x> = e1 in e2 OK
+  Σ; Γ |- e1 : ∃b.t[b]
+  Σ; Γ, a, x : t[b := a] |- e2 OK
+  -----------------------------------
+  Σ; Γ |- unpack <a, x> = e1 in e2 OK
 
 Closure construction involves creating an existential package:
 
@@ -226,21 +246,29 @@ product" type constructor '∃a.a × -' with constructor '<t, e1, e2>' and
 analysis 'unpack <a, x, y> = e1 in e2'.
 
 
-A top-level code declaration may be polymorphic still, if its environment
-captures type variables. Example:
+In order to construct a closure, we must have a code pointer. In Hoist, all
+code is defined at the top-level, using 'global' declarations.
 
-  global #id_inner (envp : {aa_info : info aa}; x : aa, k1 : closure(aa)) =
-    call k1(x)
+  global #foo[a+] (envp : t; S) = e
 
-We have the type variable 'aa', but it is not bound anywhere. Furthermore,
-observe that this code will work no matter what 'aa' is. Therefore, we permit
-'global's to bind a set of type variables, and references to globals must
-instantiate those variables.
+If the environment captures type variables, the code is polymorphic. For
+example, observe that '#id_inner' will work for any type 't' used to
+instantiate 'a'.  When we reference a code pointer, we instantiate its
+polymorphic variables, as '#id_inner[int]' in the example below. This
+instantiation is only relevant to the type checker, and is erased at runtime.
 
-  global #id_inner[aa] (envp : {aa_info : info aa}; x : aa, k1 : closure(aa)) =
-    call k1(x)
+  global id_inner[a] (envp : {}; x : a, k : closure(a)) = call k(x)
+  let f : closure(int, closure(int)) = #id_inner[int] {} in e'
 
-  let inner : closure(bb, closure(bb)) = <{aa_info : info bb}, ({aa_info = _}, #inner[bb])> in e
+Type-checking a 'global' declaration extends the signature Σ.
+
+  a+ |- t
+  a+ |- ... -- how to extract environment fields?
+  a+, ... |- S -- How to pass signature to typecheck body?
+  Σ; ... |- e OK
+  Σ' = Σ, global #fn : code(t, S)
+  -------------------------------------------
+  Σ |- global #fn[a+] (envp : t; S) = e ~> Σ'
 
 
 REFERENCES
