@@ -257,8 +257,7 @@ newtype FieldsFor = FieldsFor { runFieldsFor :: Context -> (Set FreeOcc, Set TyV
 
 data Context
   = Context {
-    ctxNames :: Map Name Sort
-  , ctxTms :: Map K.TmVar (Name, Sort)
+    ctxTms :: Map K.TmVar (Name, Sort)
   , ctxCos :: Map K.CoVar (Name, Sort)
   , ctxTys :: Map K.TyVar TyVar
   }
@@ -403,32 +402,32 @@ deriving newtype instance MonadReader Context ConvM
 
 runConv :: ConvM a -> a
 runConv = flip runReader emptyContext . runConvM
-  where emptyContext = Context Map.empty Map.empty Map.empty Map.empty
+  where emptyContext = Context Map.empty Map.empty Map.empty
 
 withTm :: K.TmVar -> K.TypeK -> ((Name, Sort) -> ConvM a) -> ConvM a
 withTm x t kont = local extend (kont (x', t'))
   where
     x' = tmVar x
     t' = sortOf t
-    extend (Context names tms cos tys) = Context (Map.insert x' t' names) (Map.insert x (x', t') tms) cos tys
+    extend (Context tms cos tys) = Context (Map.insert x (x', t') tms) cos tys
 
 withTmBinds :: [(K.TmVar, K.TypeK)] -> ([(Name, Sort)] -> ConvM a) -> ConvM a
 withTmBinds xs kont = local extend (kont (map snd tmbinds))
   where
     tmbinds = map (\ (x, t) -> (x, (tmVar x, sortOf t))) xs
-    extend (Context names tms cos tys) = Context (insertMany (map snd tmbinds) names) (insertMany tmbinds tms) cos tys
+    extend (Context tms cos tys) = Context (insertMany tmbinds tms) cos tys
 
 withCoBinds :: [(K.CoVar, K.CoTypeK)] -> ([(Name, Sort)] -> ConvM a) -> ConvM a
 withCoBinds ks kont = local extend (kont (map snd cobinds))
   where
     cobinds = map (\ (k, s) -> (k, (coVar k, coSortOf s))) ks
-    extend (Context names tms cos tys) = Context (insertMany (map snd cobinds) names) tms (insertMany cobinds cos) tys
+    extend (Context tms cos tys) = Context tms (insertMany cobinds cos) tys
 
 withTyBinds :: [K.TyVar] -> ([TyVar] -> ConvM a) -> ConvM a
 withTyBinds as kont = local extend (kont (map snd tybinds))
   where
     tybinds = map (\a -> (a, tyVar a)) as
-    extend (Context names tms cos tys) = Context names tms cos (insertMany tybinds tys)
+    extend (Context tms cos tys) = Context tms cos (insertMany tybinds tys)
 
 
 -- Idea: I could factor out the fieldsFor computation by doing a first
