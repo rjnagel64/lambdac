@@ -295,7 +295,7 @@ emitClosureBody envp (LetPrimH x p e) =
 emitClosureBody envp (AllocClosure cs e) =
   emitAllocGroup envp cs ++
   emitClosureBody envp e
-emitClosureBody envp (HaltH x i) =
+emitClosureBody envp (HaltH _s x i) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp i ++ ");"]
 emitClosureBody envp (OpenH c ty args) =
   [emitSuspend envp c ty args]

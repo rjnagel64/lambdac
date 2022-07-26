@@ -85,6 +85,7 @@ e ::=
   | case x of (k : s)+
   | f(x, E)
   | #fn[t+]
+  | halt s v i
 
 Argument lists
 E ::= . | @t, E | x, E
@@ -100,6 +101,10 @@ global ::= global #fn (x : t; S) = e
 
 Programs
 prog ::= global+; e
+
+TODO: In the implementation, Hoist is in ANF. Values only contain variables,
+not other values. Most occurrences of values should be restricted to variables,
+also.
 
 
 JUDGMENTS
@@ -244,6 +249,19 @@ Aside: It isn't necessary to use a real product type in this desugaring. The
 product could instead be fused with the quantifier, as a sort of "existential
 product" type constructor '∃a.a × -' with constructor '<t, e1, e2>' and
 analysis 'unpack <a, x, y> = e1 in e2'.
+
+
+Aside from closure construction and invocation, the other constructs of Hoist
+are largely straightforward.
+
+A program halts when it is provided with a final result value, and information
+to describe it:
+
+  Γ |- s
+  Σ; Γ |- v : s
+  Σ; Γ |- i : info s
+  ---------------------
+  Σ; Γ |- halt s v i OK
 
 
 In order to construct a closure, we must have a code pointer. In Hoist, all

@@ -34,6 +34,25 @@ data Context = Context { ctxLocals :: Scope, ctxEnv :: Scope }
 
 data Scope = Scope { scopePlaces :: Map Id Sort, scopeTypes :: Set Id }
 
+data TCError
+  = TypeMismatch Sort Sort
+  | NameNotInScope Id
+  | TyVarNotInScope C.TyVar
+  | NotImplemented String
+  | IncorrectInfo
+  | BadValue
+  | BadProjection Sort Projection
+
+runTC :: TC a -> Either TCError a
+runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySig . getTC
+  where
+    emptyContext = Context { ctxLocals = emptyScope, ctxEnv = emptyScope }
+    emptySig = Signature { sigClosures = Map.empty }
+
+
+emptyScope :: Scope
+emptyScope = Scope Map.empty Set.empty
+
 lookupName :: Name -> TC Sort
 lookupName (LocalName x) = do
   ctx <- asks (scopePlaces . ctxLocals)
@@ -72,22 +91,6 @@ withInfo (InfoPlace aa) m = local extend m
   where
     extend (Context (Scope places tys) env) = Context (Scope places (Set.insert aa tys)) env
 
-data TCError
-  = TypeMismatch Sort Sort
-  | NameNotInScope Id
-  | TyVarNotInScope C.TyVar
-  | NotImplemented String
-  | IncorrectInfo
-  | BadValue
-  | BadProjection Sort Projection
-
-runTC :: TC a -> Either TCError a
-runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySig . getTC
-  where
-    emptyContext = Context { ctxLocals = emptyScope, ctxEnv = emptyScope }
-    emptyScope = Scope Map.empty Set.empty
-    emptySig = Signature { sigClosures = Map.empty }
-
 
 checkProgram :: [ClosureDecl] -> TermH -> TC ()
 checkProgram [] e = checkEntryPoint e
@@ -101,10 +104,9 @@ checkEntryPoint e = checkClosureBody e
 
 checkClosure :: ClosureDecl -> TC ()
 checkClosure (ClosureDecl cl (envp, envd) params body) = do
-  -- _ <- checkEnv envd
-  _ <- checkParams params
-  -- withEnv env
-  withParams params $ checkClosureBody body
+  envScope <- checkEnv envd
+  localScope <- checkParams params -- Pass info from env to params??
+  local (\ (Context _ _) -> Context localScope envScope) $ checkClosureBody body
   -- Extend signature
   -- modify _
 
@@ -113,26 +115,23 @@ checkEnv (EnvDecl tys places) = throwError (NotImplemented "checkEnv")
 
 -- | Closure parameters form a telescope, because info bindings bring type
 -- variables into scope for subsequent bindings.
-checkParams :: [ClosureParam] -> TC Context
-checkParams params = throwError (NotImplemented "checkParams")
-
-withParams :: [ClosureParam] -> TC a -> TC a
-withParams [] m = m
-withParams (PlaceParam p : params) m = withPlace p (withParams params m)
-withParams (TypeParam i : params) m = withInfo i (withParams params m)
+checkParams :: [ClosureParam] -> TC Scope
+checkParams [] = pure emptyScope
+checkParams (PlaceParam p : params) = withPlace p $ do
+  Scope places tys <- checkParams params
+  pure (Scope (Map.insert (placeName p) (placeSort p) places) tys)
+checkParams (TypeParam i : params) = withInfo i $ do
+  Scope places tys <- checkParams params
+  pure (Scope places (Set.insert (infoName i) tys))
 
 checkClosureBody :: TermH -> TC ()
-checkClosureBody (HaltH x i) = do
-  s <- lookupName x
-  checkInfo s i
-checkClosureBody (OpenH f ty args) = throwError (NotImplemented "checkClosureBody OpenH")
-checkClosureBody (LetPrimH p prim e) = do
-  s <- checkPrimOp prim
-  equalSorts (placeSort p) s
-  withPlace p $ checkClosureBody e
 checkClosureBody (LetValH p v e) = do
   checkSort (placeSort p)
   checkValue v (placeSort p)
+  withPlace p $ checkClosureBody e
+checkClosureBody (LetPrimH p prim e) = do
+  s <- checkPrimOp prim
+  equalSorts (placeSort p) s
   withPlace p $ checkClosureBody e
 checkClosureBody (LetProjectH p x proj e) = do
   s <- lookupName x
@@ -141,6 +140,12 @@ checkClosureBody (LetProjectH p x proj e) = do
     (ProductH _ t', ProjectSnd) -> equalSorts (placeSort p) t'
     (_, _) -> throwError (BadProjection s proj)
   withPlace p $ checkClosureBody e
+checkClosureBody (HaltH s x i) = do
+  checkName x s
+  checkInfo s i
+checkClosureBody (OpenH f ty args) = throwError (NotImplemented "checkClosureBody OpenH")
+checkClosureBody (CaseH x kind ks) = throwError (NotImplemented "checkClosureBody CaseH")
+checkClosureBody (AllocClosure cs e) = throwError (NotImplemented "checkClosureBody AllocClosure")
 
 -- | Check that a primitive operation has correct argument sorts, and yield its
 -- return sort.

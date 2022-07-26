@@ -116,7 +116,7 @@ data TermH
   | LetPrimH Place PrimOp TermH
   -- 'let value x = fst y in e'
   | LetProjectH Place Name Projection TermH
-  | HaltH Name Info
+  | HaltH Sort Name Info
   | OpenH Name ThunkType [ClosureArg]
   | CaseH Name CaseKind [(Name, ThunkType)]
   -- Closures may be mutually recursive, so are allocated as a group.
@@ -329,7 +329,10 @@ tellClosures cs = tell (ClosureDecls cs, ts)
 -- be lifted to the top level. Additionally, map value, continuation, and
 -- function names to C names.
 hoist :: TermC -> HoistM TermH
-hoist (HaltC x) = (\ (x', i) -> HaltH x' i) <$> hoistVarOcc' x
+hoist (HaltC x) = do
+  (x', s) <- hoistVarOccSort x
+  i <- infoForSort s
+  pure (HaltH s x' i)
 hoist (JumpC k xs) = do
   (k', ss) <- hoistCall k
   ys <- hoistArgList xs
@@ -625,7 +628,7 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintTerm :: Int -> TermH -> String
-pprintTerm n (HaltH x _) = indent n $ "HALT " ++ show x ++ ";\n"
+pprintTerm n (HaltH _ x _) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (OpenH c _ args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
