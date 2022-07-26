@@ -8,34 +8,31 @@ import Data.Set (Set)
 
 import Data.Foldable (traverse_)
 
-import Control.Monad.Reader
 import Control.Monad.Except
+import Control.Monad.Reader
+import Control.Monad.State
 
 import Hoist
 
 import qualified CC as C
 
 
-newtype TC a = TC { getTC :: ReaderT Context (Except TCError) a }
+newtype TC a = TC { getTC :: StateT Signature (ReaderT Context (Except TCError)) a }
 
 deriving newtype instance Functor TC
 deriving newtype instance Applicative TC
 deriving newtype instance Monad TC
+deriving newtype instance MonadState Signature TC
 deriving newtype instance MonadReader Context TC
 deriving newtype instance MonadError TCError TC
 
--- Hmm. 'Name' is used for occurrences, not bindings
--- ...
--- Or something.
---
--- Hmm. ctxNames should be split into 'env' and 'locals'
---
--- Hmm. There should be a separate scope for closure names/types.
-data Context = Context { ctxLocals :: Scope, ctxEnv :: Scope, ctxDecls :: Map ClosureName ThunkType }
+-- Hmm. ThunkType is not really the information we need here.
+-- The type of a global code pointer looks like @forall a+. code(t; S)@
+data Signature = Signature { sigClosures :: Map ClosureName ThunkType }
+
+data Context = Context { ctxLocals :: Scope, ctxEnv :: Scope }
 
 data Scope = Scope { scopePlaces :: Map Id Sort, scopeTypes :: Set Id }
-
-newtype Signature = Signature (Map ClosureName Sort)
 
 lookupName :: Name -> TC Sort
 lookupName (LocalName x) = do
@@ -68,12 +65,12 @@ withPlace (Place s x) m = do
   checkSort s
   local extend m
   where
-    extend (Context (Scope places tys) env ds) = Context (Scope (Map.insert x s places) tys) env ds
+    extend (Context (Scope places tys) env) = Context (Scope (Map.insert x s places) tys) env
 
 withInfo :: InfoPlace -> TC a -> TC a
 withInfo (InfoPlace aa) m = local extend m
   where
-    extend (Context (Scope places tys) env ds) = Context (Scope places (Set.insert aa tys)) env ds
+    extend (Context (Scope places tys) env) = Context (Scope places (Set.insert aa tys)) env
 
 data TCError
   = TypeMismatch Sort Sort
@@ -85,10 +82,11 @@ data TCError
   | BadProjection Sort Projection
 
 runTC :: TC a -> Either TCError a
-runTC = runExcept . flip runReaderT ctx . getTC
+runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySig . getTC
   where
-    ctx = Context emptyScope emptyScope Map.empty
+    emptyContext = Context { ctxLocals = emptyScope, ctxEnv = emptyScope }
     emptyScope = Scope Map.empty Set.empty
+    emptySig = Signature { sigClosures = Map.empty }
 
 
 checkProgram :: [ClosureDecl] -> TermH -> TC ()
@@ -99,14 +97,16 @@ checkProgram cs e =
   throwError (NotImplemented "checkProgram")
 
 checkEntryPoint :: TermH -> TC ()
-checkEntryPoint e = checkClosureBody e -- Adjust scope?
+checkEntryPoint e = checkClosureBody e
 
-checkClosure :: Signature -> ClosureDecl -> TC ()
-checkClosure sig (ClosureDecl cl (envp, envd) params body) = do
+checkClosure :: ClosureDecl -> TC ()
+checkClosure (ClosureDecl cl (envp, envd) params body) = do
   -- _ <- checkEnv envd
   _ <- checkParams params
   -- withEnv env
   withParams params $ checkClosureBody body
+  -- Extend signature
+  -- modify _
 
 checkEnv :: EnvDecl -> TC Scope
 checkEnv (EnvDecl tys places) = throwError (NotImplemented "checkEnv")

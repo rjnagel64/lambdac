@@ -270,6 +270,26 @@ Type-checking a 'global' declaration extends the signature Σ.
   -------------------------------------------
   Σ |- global #fn[a+] (envp : t; S) = e ~> Σ'
 
+Type-checking a sequence of 'global's threads the signature through in the
+obvious manner.
+
+  -----------
+  Σ |- ε ~> Σ
+
+  Σ |- global ~> Σ'
+  Σ' |- globals ~> Σ''
+  ---------------------------
+  Σ |- global; globals ~> Σ''
+
+
+To type-check a program, we type-check each of its global declarations and then
+its entry point.
+
+  . |- globals ~> Σ
+  Σ; . |- e OK
+  -----------------
+  |- globals; e OK
+
 
 REFERENCES
 ==========
