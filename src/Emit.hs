@@ -36,12 +36,17 @@ emitProgram (ts, cs, e) =
 
 data ClosureNames
   = ClosureNames {
-    closureEnvName :: String
-  , closureEnvInfo :: String
-  , closureAllocName :: String
-  , closureTraceName :: String
+    closureEnvName :: EnvNames
   , closureCodeName :: String
   , closureEnterName :: String
+  }
+
+data EnvNames
+  = EnvNames {
+    envTypeName :: String
+  , envInfoName :: String
+  , envAllocName :: String
+  , envTraceName :: String
   }
 
 namesForClosure :: ClosureName -> ClosureNames
@@ -51,12 +56,18 @@ namesForClosure (ClosureName f) =
     -- product type, though the trace method is not a proper type info.
     -- (The env is not an alloc_header, and the trace method is not wrapped in
     -- a 'type_info')
-    closureEnvName = f ++ "_env"
-  , closureEnvInfo = f ++ "_env_info"
-  , closureAllocName = "allocate_" ++ f ++ "_env"
-  , closureTraceName = "trace_" ++ f ++ "_env"
+    closureEnvName = namesForEnv (ClosureName f)
   , closureCodeName = f ++ "_code"
   , closureEnterName = "enter_" ++ f
+  }
+
+namesForEnv :: ClosureName -> EnvNames
+namesForEnv (ClosureName f) =
+  EnvNames {
+    envTypeName = f ++ "_env"
+  , envInfoName = f ++ "_env_info"
+  , envAllocName = "allocate_" ++ f ++ "_env"
+  , envTraceName = "trace_" ++ f ++ "_env"
   }
 
 prologue :: [String]
@@ -199,13 +210,14 @@ emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
 
 emitClosureEnv :: ClosureNames -> EnvDecl -> [String]
 emitClosureEnv ns envd =
-  emitEnvDecl ns envd ++
-  emitEnvInfo ns envd ++
-  emitEnvAlloc ns envd
+  let ns' = closureEnvName ns in
+  emitEnvDecl ns' envd ++
+  emitEnvInfo ns' envd ++
+  emitEnvAlloc ns' envd
 
-emitEnvDecl :: ClosureNames -> EnvDecl -> [String]
+emitEnvDecl :: EnvNames -> EnvDecl -> [String]
 emitEnvDecl ns (EnvDecl is fs) =
-  ["struct " ++ closureEnvName ns ++ " {"
+  ["struct " ++ envTypeName ns ++ " {"
   ,"    struct alloc_header header;"] ++
   map mkInfo is ++
   map mkField fs ++
@@ -214,15 +226,15 @@ emitEnvDecl ns (EnvDecl is fs) =
     mkInfo i = "    " ++ emitInfoPlace i ++ ";"
     mkField (f, _) = "    " ++ emitPlace f ++ ";"
 
-emitEnvAlloc :: ClosureNames -> EnvDecl -> [String]
+emitEnvAlloc :: EnvNames -> EnvDecl -> [String]
 -- TODO: What if there is a parameter named 'env'?
 -- (Use envName from the ClosureDecl here)
 emitEnvAlloc ns (EnvDecl is fs) =
-  ["struct " ++ closureEnvName ns ++ " *" ++ closureAllocName ns ++ "(" ++ paramList ++ ") {"
-  ,"    struct " ++ closureEnvName ns ++ " *env = malloc(sizeof(struct " ++ closureEnvName ns ++ "));"]++
+  ["struct " ++ envTypeName ns ++ " *" ++ envAllocName ns ++ "(" ++ paramList ++ ") {"
+  ,"    struct " ++ envTypeName ns ++ " *env = malloc(sizeof(struct " ++ envTypeName ns ++ "));"]++
   map assignInfo is ++
   map assignField fs ++
-  ["    cons_new_alloc(AS_ALLOC(env), " ++ closureEnvInfo ns ++ ");"
+  ["    cons_new_alloc(AS_ALLOC(env), " ++ envInfoName ns ++ ");"
   ,"    return env;"
   ,"}"]
   where
@@ -232,16 +244,16 @@ emitEnvAlloc ns (EnvDecl is fs) =
     assignInfo (InfoPlace aa) = "    env->" ++ show aa ++ " = " ++ show aa ++ ";"
     assignField (Place _ x, _) = "    env->" ++ show x ++ " = " ++ show x ++ ";"
 
-emitEnvInfo :: ClosureNames -> EnvDecl -> [String]
+emitEnvInfo :: EnvNames -> EnvDecl -> [String]
 emitEnvInfo ns (EnvDecl _is fs) =
-  ["void " ++ closureTraceName ns ++ "(struct alloc_header *alloc) {"
+  ["void " ++ envTraceName ns ++ "(struct alloc_header *alloc) {"
   ,"    " ++ envTy ++ show envName ++ " = (" ++ envTy ++ ")alloc;"] ++
   map traceField fs ++
   ["}"
-  ,"type_info " ++ closureEnvName ns ++ "_info = { " ++ closureTraceName ns ++ ", display_env };"]
+  ,"type_info " ++ envInfoName ns ++ " = { " ++ envTraceName ns ++ ", display_env };"]
   where
     envName = Id "env"
-    envTy = "struct " ++ closureEnvName ns ++ " *"
+    envTy = "struct " ++ envTypeName ns ++ " *"
     traceField (Place _ x, i) = "    " ++ emitMarkGray envName (EnvName x) i ++ ";"
 
 emitClosureEnter :: ClosureNames -> ThunkType -> [String]
@@ -253,7 +265,7 @@ emitClosureEnter ns ty@(ThunkType ss) =
   ,"}"]
   where
     thunkTy = "struct " ++ thunkTypeName (namesForThunk ty) ++ " *"
-    envTy = "struct " ++ closureEnvName ns ++ " *"
+    envTy = "struct " ++ envTypeName (closureEnvName ns) ++ " *"
     argList = "env" : mapWithIndex (\i _ -> "next->arg" ++ show i) ss
 
 emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [String]
@@ -263,7 +275,7 @@ emitClosureCode ns envName xs e =
   ["}"]
   where
     paramList = commaSep (envParam : map emitParam xs)
-    envParam = "struct " ++ closureEnvName ns ++ " *" ++ show envName
+    envParam = "struct " ++ envTypeName (closureEnvName ns) ++ " *" ++ show envName
     emitParam (TypeParam i) = emitInfoPlace i
     emitParam (PlaceParam p) = emitPlace p
 
@@ -364,17 +376,19 @@ emitPrimCall envp fn xs = fn ++ "(" ++ commaSep (map (emitName envp) xs) ++ ")"
 
 emitAllocGroup :: EnvPtr -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
+  let envTy = envTypeName . closureEnvName . namesForClosure in
   map (emitAlloc envp) closures ++
-  concatMap (\ (ClosureAlloc p d env) -> emitPatch (closureEnvName (namesForClosure d)) p env) closures
+  concatMap (\ (ClosureAlloc p d env) -> emitPatch (envTy d) p env) closures
 
 emitAlloc :: EnvPtr -> ClosureAlloc -> String
 emitAlloc envp (ClosureAlloc p d (EnvAlloc info fields)) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep args ++ ");"
   where
     ns = namesForClosure d
+    ns' = closureEnvName ns
     args = [envArg, traceArg, enterArg]
-    envArg = asAlloc (closureAllocName ns ++ "(" ++ commaSep envAllocArgs ++ ")")
-    traceArg = closureEnvInfo ns
+    envArg = asAlloc (envAllocName ns' ++ "(" ++ commaSep envAllocArgs ++ ")")
+    traceArg = envInfoName ns'
     enterArg = closureEnterName ns
 
     -- Recursive/cyclic environment references are initialized to NULL, and

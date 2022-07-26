@@ -185,6 +185,7 @@ data Sort
   | ListH Sort
   -- TODO: Sort.ClosureH should have info parameters (It should be a telescope)
   | ClosureH [Sort]
+  -- TODO: Sort.Closure should not use CC.TyVar
   | AllocH C.TyVar
   deriving (Eq, Ord)
 
@@ -403,6 +404,7 @@ hoistEnvDef recNames (C.EnvDef tys fields) = do
 envAllocInfo :: C.TyVar -> HoistM (InfoPlace, Info)
 envAllocInfo aa = do
   let info = asInfoPlace aa
+  -- This is sketchy. Figure out how it should really work.
   i <- infoForSort (AllocH aa)
   pure (info, i)
 
