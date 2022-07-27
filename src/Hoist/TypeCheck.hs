@@ -1,5 +1,5 @@
 
-module Hoist.TypeCheck (checkProgram, runTC) where
+module Hoist.TypeCheck (checkProgram, runTC, TCError(..)) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -22,36 +22,58 @@ newtype TC a = TC { getTC :: StateT Signature (ReaderT Context (Except TCError))
 deriving newtype instance Functor TC
 deriving newtype instance Applicative TC
 deriving newtype instance Monad TC
-deriving newtype instance MonadState Signature TC
-deriving newtype instance MonadReader Context TC
 deriving newtype instance MonadError TCError TC
+deriving newtype instance MonadReader Context TC
+deriving newtype instance MonadState Signature TC
 
+-- | The signature stores information about top-level declarations. Currently,
+-- this only includes code declarations.
 -- Hmm. ThunkType is not really the information we need here.
 -- The type of a global code pointer looks like @forall a+. code(t; S)@
 data Signature = Signature { sigClosures :: Map ClosureName ThunkType }
 
+-- | The typing context is split into two scopes: local information and
+-- environment information.
 data Context = Context { ctxLocals :: Scope, ctxEnv :: Scope }
 
-data Scope = Scope { scopePlaces :: Map Id Sort, scopeTypes :: Set Id }
+-- | A scope contains information about each identifier in scope.
+-- Values record their sort, @x : t@.
+-- Type variables record their presence, @a : type@.
+-- Info variables record the sort they describe, @i : info t@.
+data Scope = Scope { scopePlaces :: Map Id Sort, scopeTypes :: Set Id, scopeInfos :: Map Id Sort }
 
 data TCError
   = TypeMismatch Sort Sort
   | NameNotInScope Id
   | TyVarNotInScope C.TyVar
+  | InfoNotInScope Id
   | NotImplemented String
   | IncorrectInfo
   | BadValue
   | BadProjection Sort Projection
 
 runTC :: TC a -> Either TCError a
-runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySig . getTC
+runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
   where
     emptyContext = Context { ctxLocals = emptyScope, ctxEnv = emptyScope }
-    emptySig = Signature { sigClosures = Map.empty }
 
 
 emptyScope :: Scope
-emptyScope = Scope Map.empty Set.empty
+emptyScope = Scope Map.empty Set.empty Map.empty
+
+bindPlace :: Place -> Scope -> Scope
+bindPlace (Place s x) (Scope places tys infos) = Scope (Map.insert x s places) tys infos
+
+-- TODO: bindInfo is poorly named
+bindInfo :: InfoPlace -> Scope -> Scope
+bindInfo (InfoPlace aa) (Scope places tys infos) = Scope places (Set.insert aa tys) infos
+
+emptySignature :: Signature
+emptySignature = Signature { sigClosures = Map.empty }
+
+declareClosure :: ClosureName -> ThunkType -> Signature -> Signature
+declareClosure cl ty (Signature clos) = Signature (Map.insert cl ty clos)
+
 
 lookupName :: Name -> TC Sort
 lookupName (LocalName x) = do
@@ -80,35 +102,34 @@ equalSorts expected actual =
     throwError (TypeMismatch expected actual)
 
 withPlace :: Place -> TC a -> TC a
-withPlace (Place s x) m = do
-  checkSort s
+withPlace p m = do
+  checkSort (placeSort p)
   local extend m
-  where
-    extend (Context (Scope places tys) env) = Context (Scope (Map.insert x s places) tys) env
+  where extend (Context locals env) = Context (bindPlace p locals) env
 
 withInfo :: InfoPlace -> TC a -> TC a
-withInfo (InfoPlace aa) m = local extend m
-  where
-    extend (Context (Scope places tys) env) = Context (Scope places (Set.insert aa tys)) env
+withInfo i m = local extend m
+  where extend (Context locals env) = Context (bindInfo i locals) env
 
 
 checkProgram :: [ClosureDecl] -> TermH -> TC ()
-checkProgram [] e = checkEntryPoint e
-checkProgram cs e = 
-  -- State monad to build signatures
-  -- mapAccumL, probably.
-  throwError (NotImplemented "checkProgram")
+checkProgram cs e = traverse_ checkClosure cs *> checkEntryPoint e
 
 checkEntryPoint :: TermH -> TC ()
 checkEntryPoint e = checkClosureBody e
 
+-- | Type-check a top-level code declaration and add it to the signature.
 checkClosure :: ClosureDecl -> TC ()
 checkClosure (ClosureDecl cl (envp, envd) params body) = do
+  -- Check the environment and parameters to populate the typing context
   envScope <- checkEnv envd
-  localScope <- checkParams params -- Pass info from env to params??
+  localScope <- checkParams params -- Pass ??? information from env to params??
+  -- Use the new scopes to type-check the closure body
   local (\ (Context _ _) -> Context localScope envScope) $ checkClosureBody body
   -- Extend signature
-  -- modify _
+  let f p = case p of { PlaceParam p' -> ThunkValueArg (placeSort p'); TypeParam _ -> ThunkInfoArg }
+  let ty = ThunkType (map f params)
+  modify (declareClosure cl ty)
 
 checkEnv :: EnvDecl -> TC Scope
 checkEnv (EnvDecl tys places) = throwError (NotImplemented "checkEnv")
@@ -117,12 +138,8 @@ checkEnv (EnvDecl tys places) = throwError (NotImplemented "checkEnv")
 -- variables into scope for subsequent bindings.
 checkParams :: [ClosureParam] -> TC Scope
 checkParams [] = pure emptyScope
-checkParams (PlaceParam p : params) = withPlace p $ do
-  Scope places tys <- checkParams params
-  pure (Scope (Map.insert (placeName p) (placeSort p) places) tys)
-checkParams (TypeParam i : params) = withInfo i $ do
-  Scope places tys <- checkParams params
-  pure (Scope places (Set.insert (infoName i) tys))
+checkParams (PlaceParam p : params) = withPlace p $ fmap (bindPlace p) (checkParams params)
+checkParams (TypeParam i : params) = withInfo i $ fmap (bindInfo i) (checkParams params)
 
 checkClosureBody :: TermH -> TC ()
 checkClosureBody (LetValH p v e) = do
@@ -142,7 +159,7 @@ checkClosureBody (LetProjectH p x proj e) = do
   withPlace p $ checkClosureBody e
 checkClosureBody (HaltH s x i) = do
   checkName x s
-  checkInfo s i
+  checkInfo i s
 checkClosureBody (OpenH f ty args) = throwError (NotImplemented "checkClosureBody OpenH")
 checkClosureBody (CaseH x kind ks) = throwError (NotImplemented "checkClosureBody CaseH")
 checkClosureBody (AllocClosure cs e) = throwError (NotImplemented "checkClosureBody AllocClosure")
@@ -171,24 +188,24 @@ checkValue NilH UnitH = pure ()
 checkValue NilH _ = throwError BadValue
 checkValue (InlH i x) SumH = do
   s <- lookupName x
-  checkInfo s i
+  checkInfo i s
 checkValue (InlH _ _) _ = throwError BadValue
 checkValue (InrH i x) SumH = do
   s <- lookupName x
-  checkInfo s i
+  checkInfo i s
 checkValue (InrH _ _) _ = throwError BadValue
 checkValue (PairH i j x y) (ProductH s t) = do
   s' <- lookupName x
   t' <- lookupName y
   equalSorts s s'
   equalSorts t t'
-  checkInfo s' i
-  checkInfo t' j
+  checkInfo i s'
+  checkInfo j t'
 checkValue (PairH _ _ _ _) _ = throwError BadValue
 checkValue ListNilH (ListH _) = pure ()
 checkValue ListNilH _ = throwError BadValue
 checkValue (ListConsH i x xs) (ListH t) = do
-  checkInfo t i
+  checkInfo i t
   checkName x t
   checkName xs (ListH t) 
 checkValue (ListConsH _ _ _) _ = throwError BadValue
@@ -209,26 +226,17 @@ checkSort (ProductH t s) = checkSort t *> checkSort s
 checkSort (ListH t) = checkSort t
 checkSort (ClosureH ss) = traverse_ checkSort ss
 
--- | Check that info @i@ describes sort @s@.
-checkInfo :: Sort -> Info -> TC ()
-checkInfo (AllocH aa) (LocalInfo bb) = do
-  -- TODO: checkInfo AllocH: aa should equal bb, right?
-  ctx <- asks (scopeTypes . ctxEnv)
-  case Set.member bb ctx of
-    False -> throwError (NameNotInScope bb)
-    True -> pure ()
-checkInfo (AllocH aa) (EnvInfo bb) = do
-  ctx <- asks (scopeTypes . ctxEnv)
-  case Set.member bb ctx of
-    False -> throwError (NameNotInScope bb)
-    True -> pure ()
--- Polymorphic sort should not have monomorphic info
-checkInfo (AllocH _) _ = throwError IncorrectInfo
-checkInfo IntegerH Int64Info = pure ()
-checkInfo IntegerH _ = throwError IncorrectInfo
-checkInfo BooleanH BoolInfo = pure ()
-checkInfo BooleanH _ = throwError IncorrectInfo
-checkInfo UnitH UnitInfo = pure ()
-checkInfo UnitH _ = throwError IncorrectInfo
-checkInfo SumH SumInfo = pure ()
-checkInfo SumH _ = throwError IncorrectInfo
+-- | Given info @i@ and sort @s@, check that @Γ |- i : info s@.
+checkInfo :: Info -> Sort -> TC ()
+checkInfo (LocalInfo i) s = do
+  infos <- asks (scopeInfos . ctxLocals)
+  case Map.lookup i infos of
+    Nothing -> throwError (InfoNotInScope i)
+    Just s' -> equalSorts s s'
+checkInfo (EnvInfo i) s = do
+  infos <- asks (scopeInfos . ctxEnv)
+  case Map.lookup i infos of
+    Nothing -> throwError (InfoNotInScope i)
+    Just s' -> equalSorts s s'
+checkInfo Int64Info IntegerH = pure ()
+checkInfo Int64Info _ = throwError IncorrectInfo

@@ -83,7 +83,8 @@ asPlace :: C.Sort -> C.Name -> Place
 asPlace s (C.Name x i) = Place (sortOf s) (Id (x ++ show i))
 
 -- | A 'InfoPlace' is a location that can hold a @type_info@.
--- Should this have a sort, to express 'my_info : info int'
+-- Should this have a sort, to express 'my_info : info int'?
+-- TODO: Distinguish 'InfoPlace' from 'TyPlace'
 data InfoPlace = InfoPlace { infoName :: Id }
 
 asInfoPlace :: C.TyVar -> InfoPlace
