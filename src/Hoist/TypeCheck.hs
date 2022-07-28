@@ -237,3 +237,15 @@ checkInfo (EnvInfo i) s = do
     Just s' -> equalSorts s s'
 checkInfo Int64Info IntegerH = pure ()
 checkInfo Int64Info _ = throwError IncorrectInfo
+checkInfo BoolInfo BooleanH = pure ()
+checkInfo BoolInfo _ = throwError IncorrectInfo
+checkInfo UnitInfo UnitH = pure ()
+checkInfo UnitInfo _ = throwError IncorrectInfo
+checkInfo SumInfo SumH = pure ()
+checkInfo SumInfo _ = throwError IncorrectInfo
+checkInfo ProductInfo (ProductH _ _) = pure ()
+checkInfo ProductInfo _ = throwError IncorrectInfo
+checkInfo ListInfo (ListH _) = pure ()
+checkInfo ListInfo _ = throwError IncorrectInfo
+checkInfo ClosureInfo (ClosureH _) = pure ()
+checkInfo ClosureInfo _ = throwError IncorrectInfo
