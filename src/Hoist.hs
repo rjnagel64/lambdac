@@ -92,6 +92,12 @@ asInfoPlace (C.TyVar aa) = InfoPlace (Id aa)
 -- TODO: Distinguish 'InfoPlace' from 'TyPlace'
 data InfoPlace2 = InfoPlace2 { infoName2 :: Id, infoSort2 :: Sort }
 
+-- Note: Part of the confusion between type places and info places is that when
+-- translating from CC to Hoist, a CC type variable binding becomes an (erased)
+-- type variable binding and a (relevant) info binding.
+--
+-- At least, that's how I think it should be.
+
 
 -- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
 data TyVar = TyVar String
@@ -102,9 +108,6 @@ instance Show TyVar where
 
 asTyVar :: C.TyVar -> TyVar
 asTyVar (C.TyVar aa) = TyVar aa
-
-fromTyVar :: TyVar -> C.TyVar
-fromTyVar (TyVar aa) = C.TyVar aa
 
 
 -- | 'DeclName's are used to refer to top-level functions and continuations.
@@ -252,7 +255,7 @@ instance Show Info where
 
 data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
 
-data Scope = Scope { scopePlaces :: Map C.Name Place, scopeInfos :: Map C.TyVar InfoPlace }
+data Scope = Scope { scopePlaces :: Map C.Name Place, scopeInfos :: Map TyVar InfoPlace }
 
 newtype ClosureDecls = ClosureDecls [ClosureDecl]
 
@@ -426,7 +429,7 @@ envAllocInfo :: C.TyVar -> HoistM (InfoPlace, Info)
 envAllocInfo aa = do
   let info = asInfoPlace aa
   -- This is sketchy. Figure out how it should really work.
-  i <- infoForSort (AllocH (asTyVar aa))
+  i <- infoForTyVar (asTyVar aa)
   pure (info, i)
 
 envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvAllocArg
@@ -537,8 +540,8 @@ inClosure (C.EnvDef tyfields fields) typlaces places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
   let places' = map (\ (x, s) -> (x, asPlace s x)) places
-  let tyfields' = map (\aa -> (aa, asInfoPlace aa)) tyfields
-  let typlaces' = map (\aa -> (aa, asInfoPlace aa)) typlaces
+  let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
+  let typlaces' = map (\aa -> (asTyVar aa, asInfoPlace aa)) typlaces
   let newLocals = Scope (Map.fromList places') (Map.fromList typlaces')
   let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
   let replaceEnv _oldEnv = HoistEnv newLocals newEnv
@@ -606,14 +609,7 @@ hoistVarOcc' x = do
   pure (x', s')
 
 infoForSort :: Sort -> HoistM Info
-infoForSort (AllocH aa) = do
-  iplaces <- asks (scopeInfos . localScope)
-  ifields <- asks (scopeInfos . envScope)
-  case Map.lookup (fromTyVar aa) iplaces of
-    Just (InfoPlace aa') -> pure (LocalInfo aa')
-    Nothing -> case Map.lookup (fromTyVar aa) ifields of
-      Just (InfoPlace aa') -> pure (EnvInfo aa')
-      Nothing -> error ("not in scope: " ++ show aa)
+infoForSort (AllocH aa) = infoForTyVar aa
 infoForSort IntegerH = pure Int64Info
 infoForSort BooleanH = pure BoolInfo
 infoForSort UnitH = pure UnitInfo
@@ -621,6 +617,16 @@ infoForSort SumH = pure SumInfo
 infoForSort (ProductH _ _) = pure ProductInfo
 infoForSort (ListH _) = pure ListInfo
 infoForSort (ClosureH _) = pure ClosureInfo
+
+infoForTyVar :: TyVar -> HoistM Info
+infoForTyVar aa = do
+  iplaces <- asks (scopeInfos . localScope)
+  ifields <- asks (scopeInfos . envScope)
+  case Map.lookup aa iplaces of
+    Just (InfoPlace aa') -> pure (LocalInfo aa')
+    Nothing -> case Map.lookup aa ifields of
+      Just (InfoPlace aa') -> pure (EnvInfo aa')
+      Nothing -> error ("not in scope: " ++ show aa)
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.
