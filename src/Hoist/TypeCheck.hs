@@ -14,8 +14,6 @@ import Control.Monad.State
 
 import Hoist
 
-import qualified CC as C
-
 
 newtype TC a = TC { getTC :: StateT Signature (ReaderT Context (Except TCError)) a }
 
@@ -45,7 +43,7 @@ data Scope = Scope { scopePlaces :: Map Id Sort, scopeTypes :: Set Id, scopeInfo
 data TCError
   = TypeMismatch Sort Sort
   | NameNotInScope Id
-  | TyVarNotInScope C.TyVar
+  | TyVarNotInScope TyVar
   | InfoNotInScope Id
   | NotImplemented String
   | IncorrectInfo
@@ -87,14 +85,13 @@ lookupName (EnvName x) = do
     Just s -> pure s
     Nothing -> throwError $ NameNotInScope x
 
-lookupTyVar :: C.TyVar -> TC ()
-lookupTyVar (C.TyVar aa) = do
-  -- TODO: C.TyVar doesn't really make sense here.
+lookupTyVar :: TyVar -> TC ()
+lookupTyVar (TyVar aa) = do
   let aa' = Id aa
   ctx <- asks (scopeTypes . ctxLocals)
   case Set.member aa' ctx of
     True -> pure ()
-    False -> throwError $ TyVarNotInScope (C.TyVar aa)
+    False -> throwError $ TyVarNotInScope (TyVar aa)
 
 equalSorts :: Sort -> Sort -> TC ()
 equalSorts expected actual =

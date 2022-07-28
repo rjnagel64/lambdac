@@ -16,6 +16,7 @@ module Hoist
     , Name(..)
     , Info(..)
     , Id(..)
+    , TyVar(..)
     , ThunkType(..)
     , ThunkArg(..)
     , thunkTypeCode
@@ -90,6 +91,20 @@ asInfoPlace (C.TyVar aa) = InfoPlace (Id aa)
 -- s@.
 -- TODO: Distinguish 'InfoPlace' from 'TyPlace'
 data InfoPlace2 = InfoPlace2 { infoName2 :: Id, infoSort2 :: Sort }
+
+
+-- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
+data TyVar = TyVar String
+  deriving (Eq, Ord)
+
+instance Show TyVar where
+  show (TyVar aa) = aa
+
+asTyVar :: C.TyVar -> TyVar
+asTyVar (C.TyVar aa) = TyVar aa
+
+fromTyVar :: TyVar -> C.TyVar
+fromTyVar (TyVar aa) = C.TyVar aa
 
 
 -- | 'DeclName's are used to refer to top-level functions and continuations.
@@ -189,7 +204,7 @@ data Sort
   -- TODO: Sort.ClosureH should have type/info parameters (It should be a telescope)
   | ClosureH [Sort]
   -- TODO: Sort.Closure should not use CC.TyVar
-  | AllocH C.TyVar
+  | AllocH TyVar
   deriving (Eq, Ord)
 
 sortOf :: C.Sort -> Sort
@@ -200,7 +215,7 @@ sortOf C.Sum = SumH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.List t) = ListH (sortOf t)
 sortOf (C.Closure ss) = ClosureH (map sortOf ss)
-sortOf (C.Alloc aa) = AllocH aa
+sortOf (C.Alloc aa) = AllocH (asTyVar aa)
 
 -- | 'Info' is used to represent @type_info@ values that are passed at runtime.
 -- This is dynamic information.
@@ -411,7 +426,7 @@ envAllocInfo :: C.TyVar -> HoistM (InfoPlace, Info)
 envAllocInfo aa = do
   let info = asInfoPlace aa
   -- This is sketchy. Figure out how it should really work.
-  i <- infoForSort (AllocH aa)
+  i <- infoForSort (AllocH (asTyVar aa))
   pure (info, i)
 
 envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvAllocArg
@@ -594,9 +609,9 @@ infoForSort :: Sort -> HoistM Info
 infoForSort (AllocH aa) = do
   iplaces <- asks (scopeInfos . localScope)
   ifields <- asks (scopeInfos . envScope)
-  case Map.lookup aa iplaces of
+  case Map.lookup (fromTyVar aa) iplaces of
     Just (InfoPlace aa') -> pure (LocalInfo aa')
-    Nothing -> case Map.lookup aa ifields of
+    Nothing -> case Map.lookup (fromTyVar aa) ifields of
       Just (InfoPlace aa') -> pure (EnvInfo aa')
       Nothing -> error ("not in scope: " ++ show aa)
 infoForSort IntegerH = pure Int64Info
