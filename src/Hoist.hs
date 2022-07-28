@@ -206,7 +206,6 @@ data Sort
   | ListH Sort
   -- TODO: Sort.ClosureH should have type/info parameters (It should be a telescope)
   | ClosureH [Sort]
-  -- TODO: Sort.Closure should not use CC.TyVar
   | AllocH TyVar
   deriving (Eq, Ord)
 

@@ -227,22 +227,20 @@ emitEnvDecl ns (EnvDecl is fs) =
     mkField (f, _) = "    " ++ emitPlace f ++ ";"
 
 emitEnvAlloc :: EnvNames -> EnvDecl -> [String]
--- TODO: What if there is a parameter named 'env'?
--- (Use envName from the ClosureDecl here)
 emitEnvAlloc ns (EnvDecl is fs) =
   ["struct " ++ envTypeName ns ++ " *" ++ envAllocName ns ++ "(" ++ paramList ++ ") {"
-  ,"    struct " ++ envTypeName ns ++ " *env = malloc(sizeof(struct " ++ envTypeName ns ++ "));"]++
+  ,"    struct " ++ envTypeName ns ++ " *_env = malloc(sizeof(struct " ++ envTypeName ns ++ "));"]++
   map assignInfo is ++
   map assignField fs ++
-  ["    cons_new_alloc(AS_ALLOC(env), " ++ envInfoName ns ++ ");"
-  ,"    return env;"
+  ["    cons_new_alloc(AS_ALLOC(_env), " ++ envInfoName ns ++ ");"
+  ,"    return _env;"
   ,"}"]
   where
     paramList = if null is && null fs then "void" else commaSep params
     params = map emitInfoPlace is ++ map (emitPlace . fst) fs
 
-    assignInfo (InfoPlace aa) = "    env->" ++ show aa ++ " = " ++ show aa ++ ";"
-    assignField (Place _ x, _) = "    env->" ++ show x ++ " = " ++ show x ++ ";"
+    assignInfo (InfoPlace aa) = "    _env->" ++ show aa ++ " = " ++ show aa ++ ";"
+    assignField (Place _ x, _) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
 
 emitEnvInfo :: EnvNames -> EnvDecl -> [String]
 emitEnvInfo ns (EnvDecl _is fs) =
