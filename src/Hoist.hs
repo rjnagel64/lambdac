@@ -56,8 +56,6 @@ import Data.Function (on)
 import qualified CC as C
 import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..))
 
--- Hmm. Type variables are still useful here, kind of.
--- ==> Add 'Hoist.TyVar'?
 
 -- | An 'Id' is any type of identifier.
 newtype Id = Id String
@@ -83,12 +81,15 @@ asPlace :: C.Sort -> C.Name -> Place
 asPlace s (C.Name x i) = Place (sortOf s) (Id (x ++ show i))
 
 -- | A 'InfoPlace' is a location that can hold a @type_info@.
--- Should this have a sort, to express 'my_info : info int'?
--- TODO: Distinguish 'InfoPlace' from 'TyPlace'
 data InfoPlace = InfoPlace { infoName :: Id }
 
 asInfoPlace :: C.TyVar -> InfoPlace
 asInfoPlace (C.TyVar aa) = InfoPlace (Id aa)
+
+-- | The /real/ 'InfoPlace'. @InfoPlace2 x s@ denotes an info binding @x : info
+-- s@.
+-- TODO: Distinguish 'InfoPlace' from 'TyPlace'
+data InfoPlace2 = InfoPlace2 { infoName2 :: Id, infoSort2 :: Sort }
 
 
 -- | 'DeclName's are used to refer to top-level functions and continuations.
@@ -108,6 +109,7 @@ asDeclName (C.Name x i) = ClosureName (x ++ show i)
 data ClosureDecl
   = ClosureDecl ClosureName (Id, EnvDecl) [ClosureParam] TermH
 
+-- TODO: EnvDecl should use InfoPlace2
 data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
 
 data ClosureParam = PlaceParam Place | TypeParam InfoPlace
@@ -184,7 +186,7 @@ data Sort
   | SumH
   | ProductH Sort Sort
   | ListH Sort
-  -- TODO: Sort.ClosureH should have info parameters (It should be a telescope)
+  -- TODO: Sort.ClosureH should have type/info parameters (It should be a telescope)
   | ClosureH [Sort]
   -- TODO: Sort.Closure should not use CC.TyVar
   | AllocH C.TyVar
@@ -532,7 +534,9 @@ inClosure (C.EnvDef tyfields fields) typlaces places m = do
   let mkFieldInfo' f = infoForSort (placeSort f)
   fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
   let params = map (TypeParam . snd) typlaces' ++ map (PlaceParam . snd) places'
-  pure ((name, EnvDecl (map snd tyfields') fieldsWithInfo), params, r)
+  -- TODO: Convert tyfields' to [InfoPlace2]
+  let envd = EnvDecl (map snd tyfields') fieldsWithInfo
+  pure ((name, envd), params, r)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
