@@ -15,6 +15,9 @@ import Control.Monad.State
 import Hoist
 
 
+-- TODO: Implement substitution for Hoist types
+
+
 newtype TC a = TC { getTC :: StateT Signature (ReaderT Context (Except TCError)) a }
 
 deriving newtype instance Functor TC
