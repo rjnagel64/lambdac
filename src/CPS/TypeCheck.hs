@@ -7,7 +7,11 @@ import Control.Monad.Reader
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import Data.Foldable (for_)
+import qualified Data.Set as Set
+import Data.Set (Set)
+
+import Data.Bool (bool)
+import Data.Foldable (for_, traverse_)
 
 import CPS
 
@@ -17,6 +21,7 @@ import Prelude hiding (cos)
 data TypeError
   = TmNotInScope TmVar
   | CoNotInScope CoVar
+  | TyNotInScope TyVar
   | TypeMismatch TypeK TypeK
   | CoTypeMismatch CoTypeK CoTypeK
   | BadCaseAnalysis TmVar TypeK
@@ -28,6 +33,7 @@ data TypeError
 instance Show TypeError where
   show (TmNotInScope x) = "term variable " ++ show x ++ " not in scope"
   show (CoNotInScope k) = "continuation variable " ++ show k ++ " not in scope"
+  show (TyNotInScope aa) = "type variable " ++ show aa ++ " not in scope"
   show (TypeMismatch expected actual) = unlines
     [ "type mismatch:"
     , "expected type: " ++ pprintType expected
@@ -57,31 +63,47 @@ deriving newtype instance MonadError TypeError M
 runM :: M a -> Either TypeError a
 runM = runExcept . flip runReaderT emptyContext . getM
 
-data Context = Context { tmContext :: Map TmVar TypeK, coContext :: Map CoVar CoTypeK }
+data Context
+  = Context {
+    tmContext :: Map TmVar TypeK
+  , coContext :: Map CoVar CoTypeK
+  , tyContext :: Set TyVar
+  }
 
 emptyContext :: Context
-emptyContext = Context Map.empty Map.empty
+emptyContext = Context Map.empty Map.empty Set.empty
 
--- TODO: Check that types are well-formed when extending the context
 withTmVars :: [(TmVar, TypeK)] -> M a -> M a
-withTmVars xs = local extend
-  where
-    extend (Context tms cos) = Context (foldr (uncurry Map.insert) tms xs) cos
+withTmVars [] m = m
+withTmVars ((x, t):xs) m = checkType t *> local extend (withTmVars xs m)
+  where extend (Context tms cos tys) = Context (Map.insert x t tms) cos tys
 
 withCoVars :: [(CoVar, CoTypeK)] -> M a -> M a
-withCoVars ks = local extend
-  where
-    extend (Context tms cos) = Context tms (foldr (uncurry Map.insert) cos ks)
+withCoVars [] m = m
+withCoVars ((k, s):ks) m = checkCoType s *> local extend (withCoVars ks m)
+  where extend (Context tms cos tys) = Context tms (Map.insert k s cos) tys
+
+withTyVars :: [TyVar] -> M a -> M a
+withTyVars aas = local extend
+  where extend (Context tms cos tys) = Context tms cos (foldr Set.insert tys aas)
 
 lookupTmVar :: TmVar -> M TypeK
 lookupTmVar x = asks tmContext >>= maybe err pure . Map.lookup x
   where err = throwError (TmNotInScope x)
 
 lookupCoVar :: CoVar -> M CoTypeK
-lookupCoVar x = asks coContext >>= pure . Map.lookup x >>= \case
-  Nothing -> throwError (CoNotInScope x)
-  Just s -> pure s
+lookupCoVar x = asks coContext >>= maybe err pure . Map.lookup x
+  where err = throwError (CoNotInScope x)
 
+lookupTyVar :: TyVar -> M ()
+lookupTyVar x = asks tyContext >>= bool err (pure ()) . Set.member x
+  where err = throwError (TyNotInScope x)
+
+equalTypes :: TypeK -> TypeK -> M ()
+equalTypes exp act = when (not (eqTypeK exp act)) $ throwError (TypeMismatch exp act)
+
+equalCoTypes :: CoTypeK -> CoTypeK -> M ()
+equalCoTypes exp act = when (not (eqCoTypeK exp act)) $ throwError (CoTypeMismatch exp act)
 
 
 checkProgram :: TermK () -> Either TypeError ()
@@ -90,7 +112,9 @@ checkProgram e = runM (check e)
 
 -- TODO: Type-Checking for CPSed System F
 check :: TermK a -> M ()
-check (HaltK _) = pure () -- TODO: Check 'HaltK x' has x in scope
+check (HaltK x) = do
+  _ <- lookupTmVar x
+  pure ()
 check (JumpK k xs) = do
   ContK ss <- lookupCoVar k
   checkTmArgs xs ss
@@ -134,12 +158,12 @@ check (LetNegateK x y e) = do
   withTmVars [(x, IntK)] $ check e
 check (LetFstK x t y e) = do
   lookupTmVar y >>= \case
-    ProdK t' _s -> when (not (eqTypeK t t')) $ throwError (TypeMismatch t t')
+    ProdK t' _s -> equalTypes t t'
     t' -> throwError (BadProjection t')
   withTmVars [(x, t)] $ check e
 check (LetSndK x s y e) = do
   lookupTmVar y >>= \case
-    ProdK _t s' -> when (not (eqTypeK s s')) $ throwError (TypeMismatch s s')
+    ProdK _t s' -> equalTypes s s'
     t' -> throwError (BadProjection t')
   withTmVars [(x, s)] $ check e
 
@@ -179,14 +203,12 @@ checkValue v t = throwError (BadValue v t)
 checkTmVar :: TmVar -> TypeK -> M ()
 checkTmVar x t = do
   t' <- lookupTmVar x
-  when (not (eqTypeK t t')) $
-    throwError $ TypeMismatch t t'
+  equalTypes t t'
 
 checkCoVar :: CoVar -> CoTypeK -> M ()
 checkCoVar x t = do
   t' <- lookupCoVar x
-  when (not (eqCoTypeK t t')) $
-    throwError $ CoTypeMismatch t t'
+  equalCoTypes t t'
 
 checkTmArgs :: [TmVar] -> [TypeK] -> M ()
 checkTmArgs [] [] = pure ()
@@ -198,3 +220,19 @@ checkCoArgs [] [] = pure ()
 checkCoArgs (k:ks) (s:ss) = checkCoVar k s *> checkCoArgs ks ss
 checkCoArgs _ _ = throwError ArityMismatch
 
+
+-- | Check that a type is well-formed.
+checkType :: TypeK -> M ()
+checkType (TyVarOccK aa) = lookupTyVar aa
+checkType (AllK aas ss) = withTyVars aas (traverse_ checkCoType ss)
+checkType (FunK ts ss) = traverse_ checkType ts *> traverse_ checkCoType ss
+checkType (ProdK t s) = checkType t *> checkType s
+checkType (SumK t s) = checkType t *> checkType s
+checkType (ListK t) = checkType t
+checkType UnitK = pure ()
+checkType IntK = pure ()
+checkType BoolK = pure ()
+
+-- | Check that a co-type is well-formed.
+checkCoType :: CoTypeK -> M ()
+checkCoType (ContK ts) = traverse_ checkType ts
