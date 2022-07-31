@@ -96,7 +96,10 @@ data InfoPlace2 = InfoPlace2 { infoName2 :: Id, infoSort2 :: Sort }
 -- translating from CC to Hoist, a CC type variable binding becomes an (erased)
 -- type variable binding and a (relevant) info binding.
 --
--- At least, that's how I think it should be.
+-- At least, that's how I think it should be. So far, I've been turning tyvar
+-- binds into info bindings and ignoring the hoist-level tyvar bindings,
+-- because they do not impact code generation. The type-checker, however, cares
+-- more.
 
 
 -- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
@@ -132,6 +135,8 @@ data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
 
 data ClosureParam = PlaceParam Place | TypeParam InfoPlace
 
+data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
+
 data TermH
   = LetValH Place ValueH TermH
   | LetPrimH Place PrimOp TermH
@@ -142,8 +147,6 @@ data TermH
   | CaseH Name CaseKind [(Name, ThunkType)]
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
-
-data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
 
 -- TODO(eventually): bring back generic case expressions
 data CaseKind = CaseBool | CaseSum | CaseList
@@ -208,6 +211,16 @@ data Sort
   | ClosureH [Sort]
   | AllocH TyVar
   deriving (Eq, Ord)
+
+-- TODO: A better name for ClosureSortParam
+-- ClosureParam and ClosureArg are already used
+-- ClosureTele isn't quite right, because we have [ClosureTele], not
+-- ClosureTele by itself. (I want to have [whatever] so that 'map' keeps
+-- working, at least for the moment)
+-- data ClosureSortParam
+--   = ClosureValueParam Sort
+--   | ClosureTypeParam TyVar
+--   | ClosureInfoParam Sort
 
 sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH

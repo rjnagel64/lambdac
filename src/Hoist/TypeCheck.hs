@@ -6,7 +6,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
-import Data.Foldable (traverse_)
+import Data.Foldable (traverse_, for_)
 
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -32,6 +32,17 @@ deriving newtype instance MonadState Signature TC
 -- Hmm. ThunkType is not really the information we need here.
 -- The type of a global code pointer looks like @forall a+. code(t; S)@
 data Signature = Signature { sigClosures :: Map ClosureName ThunkType }
+
+-- Represents the type signature 'code[aa+](t; S)'
+data ClosureDeclType = ClosureDeclType [TyVar] EnvDeclType ParamTele
+
+type EnvDeclType = ([Sort], [Sort]) -- info types, value types. Maybe use sum type instead?
+
+data ParamTele
+  = TeleEnd -- .
+  | TypeTele TyVar ParamTele -- forall aa, S
+  | InfoTele Sort ParamTele -- info t, S
+  | ValueTele Sort ParamTele -- t, S
 
 -- | The typing context is split into two scopes: local information and
 -- environment information.
@@ -129,6 +140,11 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   -- Extend signature
   let f p = case p of { PlaceParam p' -> ThunkValueArg (placeSort p'); TypeParam _ -> ThunkInfoArg }
   let ty = ThunkType (map f params)
+  let
+    g (PlaceParam p) tele = ValueTele (placeSort p) tele
+    g (TypeParam (InfoPlace (Id aa))) tele = TypeTele (TyVar aa) tele
+  let tele = foldr g TeleEnd params
+  let declTy = ClosureDeclType [] ([], []) tele
   modify (declareClosure cl ty)
 
 checkEnv :: EnvDecl -> TC Scope
@@ -162,7 +178,18 @@ checkClosureBody (HaltH s x i) = do
   checkInfo i s
 checkClosureBody (OpenH f ty args) = throwError (NotImplemented "checkClosureBody OpenH")
 checkClosureBody (CaseH x kind ks) = throwError (NotImplemented "checkClosureBody CaseH")
-checkClosureBody (AllocClosure cs e) = throwError (NotImplemented "checkClosureBody AllocClosure")
+-- Extend env with places for each closure
+-- type check each closure/env application
+checkClosureBody (AllocClosure cs e) = do
+  let binds = map closurePlace cs
+  -- withPlaces binds $
+  for_ cs $ \ (ClosureAlloc p c env) -> do
+    -- Look up type of closure decl ([polymorphic] code type)
+    -- Use closure type to check environment allocation
+    -- check that place sort matches code type?
+    throwError (NotImplemented "checking closure alloc")
+  -- withPlaces binds $
+  checkClosureBody e
 
 -- | Check that a primitive operation has correct argument sorts, and yield its
 -- return sort.
