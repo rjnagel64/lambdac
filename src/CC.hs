@@ -160,7 +160,7 @@ data TermC
   | JumpC Name [Name] -- k x...
   | CallC Name [Name] [Name] -- f x+ k+
   | HaltC Name
-  | CaseC Name CaseKind [(Name, BranchType)] -- case x of k1 | k2 | ...
+  | CaseC Name CaseKind [Name] -- case x of k1 | k2 | ...
   | InstC Name [Sort] [Name] -- f @t+ k+
 
 data CaseKind
@@ -461,18 +461,7 @@ cconv (HaltK x) = HaltC <$> cconvTmVar x
 cconv (JumpK k xs) = JumpC <$> cconvCoVar k <*> traverse cconvTmVar xs
 cconv (CallK f xs ks) = CallC <$> cconvTmVar f <*> traverse cconvTmVar xs <*> traverse cconvCoVar ks
 cconv (InstK f ts ks) = InstC <$> cconvTmVar f <*> pure (map sortOf ts) <*> traverse cconvCoVar ks
-cconv (CaseK x t ks) = do
-  -- The type of each thunk/branch is determined by the type of the scrutinee.
-  ks' <- traverse cconvCoVar ks
-  let
-    branchTypes = case t of
-      K.SumK a b -> [BranchType [sortOf a], BranchType [sortOf b]]
-      K.BoolK -> [BranchType [], BranchType []]
-      K.ListK a -> [BranchType [], BranchType [sortOf a, sortOf t]]
-      _ -> error "cannot case on this type"
-  x' <- cconvTmVar x
-  let kind = caseKind t
-  pure $ CaseC x' kind (zip ks' branchTypes)
+cconv (CaseK x t ks) = CaseC <$> cconvTmVar x <*> pure (caseKind t) <*> traverse cconvCoVar ks
 cconv (LetFstK x t y e) = withTm x t $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
 cconv (LetSndK x t y e) = withTm x t $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
 cconv (LetValK x t v e) = withTm x t $ \b -> LetValC b <$> cconvValue v <*> cconv e
@@ -580,7 +569,7 @@ pprintTerm n (LetFstC x y e) =
 pprintTerm n (LetSndC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (CaseC x _ ks) =
-  let branches = intercalate " | " (map (show . fst) ks) in
+  let branches = intercalate " | " (map show ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetArithC x op e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e

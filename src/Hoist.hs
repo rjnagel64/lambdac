@@ -144,7 +144,7 @@ data TermH
   | LetProjectH Place Name Projection TermH
   | HaltH Sort Name Info
   | OpenH Name ThunkType [ClosureArg]
-  | CaseH Name CaseKind [(Name, ThunkType)]
+  | CaseH Name CaseKind [Name]
   -- Closures may be mutually recursive, so are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
@@ -383,9 +383,7 @@ hoist (InstC f ts ks) = do
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
-  ks' <- for ks $ \ (k, C.BranchType ss) -> do
-    k' <- hoistVarOcc k
-    pure (k', ThunkType (map (ThunkValueArg . sortOf) ss))
+  ks' <- traverse hoistVarOcc ks
   pure $ CaseH x' kind ks'
 hoist (LetValC (x, s) v e) = do
   v' <- hoistValue v
@@ -669,7 +667,7 @@ pprintTerm n (HaltH _ x _) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (OpenH c _ args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
-  let branches = intercalate " | " (map (show . fst) ks) in
+  let branches = intercalate " | " (map show ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e

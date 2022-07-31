@@ -298,7 +298,7 @@ emitClosureBody envp (HaltH _s x i) =
 emitClosureBody envp (OpenH c ty args) =
   [emitSuspend envp c ty args]
 emitClosureBody envp (CaseH x kind ks) =
-  emitCase kind envp x (map fst ks)
+  emitCase kind envp x ks
 
 emitSuspend :: EnvPtr -> Name -> ThunkType -> [ClosureArg] -> String
 emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep args ++ ");"
