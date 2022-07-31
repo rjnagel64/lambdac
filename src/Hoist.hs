@@ -6,6 +6,12 @@
   , FlexibleInstances
   #-}
 
+-- | Hoisting serves two purposes: to split local closure definitions into
+-- top-level code declarations and local closure allocations, and to perform
+-- miscellaneous C-lowering details like calling conventions and type info
+-- values.
+--
+-- Perhaps the latter task might be better suited to another pass. Hmm.
 module Hoist
     ( TermH(..)
     , CaseKind(..)

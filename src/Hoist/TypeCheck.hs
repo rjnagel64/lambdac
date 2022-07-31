@@ -29,11 +29,9 @@ deriving newtype instance MonadState Signature TC
 
 -- | The signature stores information about top-level declarations. Currently,
 -- this only includes code declarations.
--- Hmm. ThunkType is not really the information we need here.
--- The type of a global code pointer looks like @forall a+. code(t; S)@
-data Signature = Signature { sigClosures :: Map ClosureName ThunkType }
+data Signature = Signature { sigClosures :: Map ClosureName ClosureDeclType }
 
--- Represents the type signature 'code[aa+](t; S)'
+-- | Represents the type signature 'code[aa+](t; S)'
 data ClosureDeclType = ClosureDeclType [TyVar] EnvDeclType ParamTele
 
 type EnvDeclType = ([Sort], [Sort]) -- info types, value types. Maybe use sum type instead?
@@ -83,7 +81,7 @@ bindInfo (InfoPlace aa) (Scope places tys infos) = Scope places (Set.insert aa t
 emptySignature :: Signature
 emptySignature = Signature { sigClosures = Map.empty }
 
-declareClosure :: ClosureName -> ThunkType -> Signature -> Signature
+declareClosure :: ClosureName -> ClosureDeclType -> Signature -> Signature
 declareClosure cl ty (Signature clos) = Signature (Map.insert cl ty clos)
 
 
@@ -138,14 +136,13 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   -- Use the new scopes to type-check the closure body
   local (\ (Context _ _) -> Context localScope envScope) $ checkClosureBody body
   -- Extend signature
-  let f p = case p of { PlaceParam p' -> ThunkValueArg (placeSort p'); TypeParam _ -> ThunkInfoArg }
-  let ty = ThunkType (map f params)
+  let envTy = ([], [])
   let
-    g (PlaceParam p) tele = ValueTele (placeSort p) tele
-    g (TypeParam (InfoPlace (Id aa))) tele = TypeTele (TyVar aa) tele
-  let tele = foldr g TeleEnd params
-  let declTy = ClosureDeclType [] ([], []) tele
-  modify (declareClosure cl ty)
+    addParam (PlaceParam p) tele = ValueTele (placeSort p) tele
+    addParam (TypeParam (InfoPlace (Id aa))) tele = TypeTele (TyVar aa) tele
+  let tele = foldr addParam TeleEnd params
+  let declTy = ClosureDeclType [] envTy tele
+  modify (declareClosure cl declTy)
 
 checkEnv :: EnvDecl -> TC Scope
 checkEnv (EnvDecl tys places) = throwError (NotImplemented "checkEnv")
