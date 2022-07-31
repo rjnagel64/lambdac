@@ -8,6 +8,7 @@
 
 module CC
   ( TermC(..)
+  , CaseKind(..)
   , FunClosureDef(..)
   , funClosureSort
   , ContClosureDef(..)
@@ -159,8 +160,19 @@ data TermC
   | JumpC Name [Name] -- k x...
   | CallC Name [Name] [Name] -- f x+ k+
   | HaltC Name
-  | CaseC Name Sort [(Name, BranchType)] -- case x of k1 | k2 | ...
+  | CaseC Name CaseKind [(Name, BranchType)] -- case x of k1 | k2 | ...
   | InstC Name [Sort] [Name] -- f @t+ k+
+
+data CaseKind
+  = CaseBool
+  | CaseSum Sort Sort
+  | CaseList Sort
+
+caseKind :: K.TypeK -> CaseKind
+caseKind K.BoolK = CaseBool
+caseKind (K.SumK a b) = CaseSum (sortOf a) (sortOf b)
+caseKind (K.ListK a) = CaseList (sortOf a)
+caseKind a = error "cannot perform case analysis on this type"
 
 -- | A 'BranchType' specifies the argument sorts expected by a case branch.
 newtype BranchType = BranchType [Sort]
@@ -459,7 +471,8 @@ cconv (CaseK x t ks) = do
       K.ListK a -> [BranchType [], BranchType [sortOf a, sortOf t]]
       _ -> error "cannot case on this type"
   x' <- cconvTmVar x
-  pure $ CaseC x' (sortOf t) (zip ks' branchTypes)
+  let kind = caseKind t
+  pure $ CaseC x' kind (zip ks' branchTypes)
 cconv (LetFstK x t y e) = withTm x t $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
 cconv (LetSndK x t y e) = withTm x t $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
 cconv (LetValK x t v e) = withTm x t $ \b -> LetValC b <$> cconvValue v <*> cconv e

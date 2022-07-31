@@ -149,15 +149,14 @@ data TermH
   | AllocClosure [ClosureAlloc] TermH
 
 -- TODO(eventually): bring back generic case expressions
-data CaseKind = CaseBool | CaseSum | CaseList
+data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
 
 data Projection = ProjectFst | ProjectSnd
 
-caseKind :: C.Sort -> CaseKind
-caseKind C.Boolean = CaseBool
-caseKind C.Sum = CaseSum
-caseKind (C.List _) = CaseList
-caseKind s = error ("cannot perform case analysis on sort " ++ show s)
+caseKind :: C.CaseKind -> CaseKind
+caseKind C.CaseBool = CaseBool
+caseKind (C.CaseSum a b) = CaseSum (sortOf a) (sortOf b)
+caseKind (C.CaseList a) = CaseList (sortOf a)
 
 data ClosureAlloc
   = ClosureAlloc {

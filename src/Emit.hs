@@ -298,7 +298,7 @@ emitClosureBody envp (HaltH _s x i) =
 emitClosureBody envp (OpenH c ty args) =
   [emitSuspend envp c ty args]
 emitClosureBody envp (CaseH x kind ks) =
-  emitCase kind envp x ks
+  emitCase kind envp x (map fst ks)
 
 emitSuspend :: EnvPtr -> Name -> ThunkType -> [ClosureArg] -> String
 emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep args ++ ");"
@@ -316,30 +316,45 @@ emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep a
     makeArg _ _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
 
-emitCase :: CaseKind -> EnvPtr -> Name -> [(Name, ThunkType)] -> [String]
+emitCase :: CaseKind -> EnvPtr -> Name -> [Name] -> [String]
 emitCase kind envp x ks =
   ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
-  concatMap emitCaseBranch (zip3 [0..] (branchArgNames kind) ks) ++
+  concatMap emitCaseBranch (zip3 [0..] (caseInfoTable kind) ks) ++
   ["    default:"
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    emitCaseBranch :: (Int, (String, [String]), (Name, ThunkType)) -> [String]
-    emitCaseBranch (i, (ctorCast, argNames), (k, ty@(ThunkType ss))) =
+    emitCaseBranch :: (Int, BranchInfo, Name) -> [String]
+    emitCaseBranch (i, BranchInfo ctorCast ty argNames, k) =
       let
         method = thunkSuspendName (namesForThunk ty)
-        args = emitName envp k : zipWith mkArg argNames ss
-        mkArg _ ThunkInfoArg = error "info args in case (existential ADTs not supported)"
-        mkArg argName (ThunkValueArg argSort) =
+        args = emitName envp k : map mkArg argNames
+        mkArg (argName, argSort) =
           asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
 
-    branchArgNames CaseBool = [("AS_BOOL_FALSE", []), ("AS_BOOL_TRUE", [])]
-    branchArgNames CaseSum = [("AS_SUM_INL", ["payload"]), ("AS_SUM_INR", ["payload"])]
-    branchArgNames CaseList = [("AS_LIST_NIL", []), ("AS_LIST_CONS", ["head", "tail"])]
+data BranchInfo
+  -- How to downcast to the constructor, what thunk type to suspend with, and
+  -- the name/sort of each argument to extract.
+  = BranchInfo String ThunkType [(String, Sort)]
+
+caseInfoTable :: CaseKind -> [BranchInfo]
+caseInfoTable CaseBool =
+  [ BranchInfo "AS_BOOL_FALSE" (ThunkType []) []
+  , BranchInfo "AS_BOOL_TRUE" (ThunkType []) []
+  ]
+caseInfoTable (CaseSum t s) =
+  [ BranchInfo "AS_SUM_INL" (ThunkType [ThunkValueArg t]) [("payload", t)]
+  , BranchInfo "AS_SUM_INR" (ThunkType [ThunkValueArg s]) [("payload", s)]
+  ]
+caseInfoTable (CaseList t) =
+  [ BranchInfo "AS_LIST_NIL" (ThunkType []) []
+  , BranchInfo "AS_LIST_CONS" consThunkTy [("head", t), ("tail", ListH t)]
+  ]
+  where consThunkTy = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
 
 emitValueAlloc :: EnvPtr -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
