@@ -316,20 +316,20 @@ instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
 -- Hmm. Instead of 'Writer', would an 'Update' monad be applicable here?
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Map ClosureName ThunkType) (Writer (ClosureDecls, Set ThunkType))) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set ClosureName) (Writer (ClosureDecls, Set ThunkType))) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter (ClosureDecls, Set ThunkType) HoistM
-deriving newtype instance MonadState (Map ClosureName ThunkType) HoistM
+deriving newtype instance MonadState (Set ClosureName) HoistM
 
 runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
 runHoist =
   second (second Set.toList) .
   runWriter .
-  flip evalStateT Map.empty .
+  flip evalStateT Set.empty .
   flip runReaderT emptyEnv .
   runHoistM
   where
@@ -416,20 +416,17 @@ hoist (LetCompareC (x, s) cmp e) = do
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' cmp' e')
 hoist (LetFunC fs e) = do
-  let funThunkType (C.FunClosureDef _ _ xs ks _) = ThunkType (map (ThunkValueArg . sortOf . snd) xs ++ map (ThunkValueArg . sortOf . snd) ks)
-  fdecls <- declareClosureNames C.funClosureName funThunkType fs
+  fdecls <- declareClosureNames C.funClosureName fs
   ds' <- traverse hoistFunClosure fdecls
   tellClosures ds'
   hoistClosureAllocs C.funClosureName C.funClosureSort C.funEnvDef fdecls e
 hoist (LetContC ks e) = do
-  let contThunkType (C.ContClosureDef _ _ xs _) = ThunkType (map (ThunkValueArg . sortOf . snd) xs)
-  kdecls <- declareClosureNames C.contClosureName contThunkType ks
+  kdecls <- declareClosureNames C.contClosureName ks
   ds' <- traverse hoistContClosure kdecls
   tellClosures ds'
   hoistClosureAllocs C.contClosureName C.contClosureSort C.contEnvDef kdecls e
 hoist (LetAbsC fs e) = do
-  let absThunkType (C.AbsClosureDef _ _ as ks _) = ThunkType (replicate (length as) ThunkInfoArg ++ map (ThunkValueArg . sortOf . snd) ks)
-  fdecls <- declareClosureNames C.absClosureName absThunkType fs
+  fdecls <- declareClosureNames C.absClosureName fs
   ds' <- traverse hoistAbsClosure fdecls
   tellClosures ds'
   hoistClosureAllocs C.absClosureName C.absClosureSort C.absEnvDef fdecls e
@@ -450,15 +447,15 @@ hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
   pure (ClosureDecl fdecl env' params' body')
 
 
-declareClosureNames :: (a -> C.Name) -> (a -> ThunkType) -> [a] -> HoistM [(ClosureName, a)]
-declareClosureNames closureName closureThunkType cs =
+declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(ClosureName, a)]
+declareClosureNames closureName cs =
   for cs $ \def -> do
     let
       pickName f ds =
         let d = asDeclName f in
-        case Map.lookup d ds of
-          Nothing -> let ty = closureThunkType def in (d, Map.insert d ty ds)
-          Just _ty -> pickName (C.prime f) ds
+        case Set.member d ds of
+          False -> (d, Set.insert d ds)
+          True -> pickName (C.prime f) ds
     decls <- get
     let (d, decls') = pickName (closureName def) decls
     put decls'
