@@ -434,24 +434,70 @@ hoist (LetAbsC fs e) = do
   tellClosures ds'
   hoistClosureAllocs C.absClosureName C.absClosureSort C.absEnvDef fdecls e
 
-hoistEnvDef :: Set C.Name -> C.EnvDef -> HoistM EnvAlloc
-hoistEnvDef recNames (C.EnvDef tys fields) = do
-  tyfields <- traverse envAllocInfo tys
-  fields' <- traverse (envAllocField recNames) fields
-  pure (EnvAlloc tyfields fields')
+hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ClosureDecl
+hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
+  (env', params', body') <- inClosure env [] (xs ++ ks) $ hoist body
+  pure (ClosureDecl fdecl env' params' body')
 
-envAllocInfo :: C.TyVar -> HoistM (InfoPlace, Info)
-envAllocInfo aa = do
-  let info = asInfoPlace aa
-  -- This is sketchy. Figure out how it should really work.
-  i <- infoForTyVar (asTyVar aa)
-  pure (info, i)
+hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ClosureDecl
+hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
+  (env', params', body') <- inClosure env [] xs $ hoist body
+  pure (ClosureDecl kdecl env' params' body')
 
-envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvAllocArg
-envAllocField recNames (x, s) = case Set.member x recNames of
-  False -> EnvFreeArg (asPlace s x) <$> hoistVarOcc x
-  True -> EnvRecArg (asPlace s x) <$> hoistVarOcc x
+hoistAbsClosure :: (ClosureName, C.AbsClosureDef) -> HoistM ClosureDecl
+hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
+  (env', params', body') <- inClosure env as ks $ hoist body
+  pure (ClosureDecl fdecl env' params' body')
 
+
+declareClosureNames :: (a -> C.Name) -> (a -> ThunkType) -> [a] -> HoistM [(ClosureName, a)]
+declareClosureNames closureName closureThunkType cs =
+  for cs $ \def -> do
+    let
+      pickName f ds =
+        let d = asDeclName f in
+        case Map.lookup d ds of
+          Nothing -> let ty = closureThunkType def in (d, Map.insert d ty ds)
+          Just _ty -> pickName (C.prime f) ds
+    decls <- get
+    let (d, decls') = pickName (closureName def) decls
+    put decls'
+    pure (d, def)
+
+-- | Replace the set of fields and places in the environment, while leaving the
+-- set of declaration names intact. This is because inside a closure, all names
+-- refer to either a local variable/parameter (a place), a captured variable (a
+-- field), or to a closure that has been hoisted to the top level (a decl)
+inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [ClosureParam], a)
+inClosure (C.EnvDef tyfields fields) typlaces places m = do
+  -- Because this is a new top-level context, we do not have to worry about shadowing anything.
+  -- TODO: This mess of let-bindings can probably be simplified
+  let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
+  let places' = map (\ (x, s) -> (x, asPlace s x)) places
+  let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
+  let typlaces' = map (\aa -> (asTyVar aa, asInfoPlace aa)) typlaces
+  let newLocals = Scope (Map.fromList places') (Map.fromList typlaces')
+  let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
+  let replaceEnv _oldEnv = HoistEnv newLocals newEnv
+  r <- local replaceEnv m
+  let inScopeNames = map (placeName . snd) fields' ++ map (placeName . snd) places' ++ map (infoName . snd) tyfields' ++ map (infoName . snd) typlaces'
+  let name = pickEnvironmentName (Set.fromList inScopeNames)
+
+  let mkFieldInfo' f = infoForSort (placeSort f)
+  fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
+  let params = map (TypeParam . snd) typlaces' ++ map (PlaceParam . snd) places'
+  -- TODO: Convert tyfields' to [InfoPlace2]
+  let envd = EnvDecl (map snd tyfields') fieldsWithInfo
+  pure ((name, envd), params, r)
+
+-- | Pick a name for the environment parameter, that will not clash with
+-- anything already in scope.
+pickEnvironmentName :: Set Id -> Id
+pickEnvironmentName sc = go (0 :: Int)
+  where
+    go i =
+      let envp = Id ("env" ++ show i) in
+      if Set.member envp sc then go (i+1) else envp
 
 hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> TermC -> HoistM TermH
 hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
@@ -482,20 +528,24 @@ placesForClosureAllocs closureName closureSort cdecls kont = do
   let extend (HoistEnv (Scope _ fields) env) = HoistEnv (Scope scope' fields) env
   local extend (kont cplaces)
 
+hoistEnvDef :: Set C.Name -> C.EnvDef -> HoistM EnvAlloc
+hoistEnvDef recNames (C.EnvDef tys fields) = do
+  tyfields <- traverse envAllocInfo tys
+  fields' <- traverse (envAllocField recNames) fields
+  pure (EnvAlloc tyfields fields')
 
-declareClosureNames :: (a -> C.Name) -> (a -> ThunkType) -> [a] -> HoistM [(ClosureName, a)]
-declareClosureNames closureName closureThunkType cs =
-  for cs $ \def -> do
-    let
-      pickName f ds =
-        let d = asDeclName f in
-        case Map.lookup d ds of
-          Nothing -> let ty = closureThunkType def in (d, Map.insert d ty ds)
-          Just _ty -> pickName (C.prime f) ds
-    decls <- get
-    let (d, decls') = pickName (closureName def) decls
-    put decls'
-    pure (d, def)
+envAllocInfo :: C.TyVar -> HoistM (InfoPlace, Info)
+envAllocInfo aa = do
+  let info = asInfoPlace aa
+  -- This is sketchy. Figure out how it should really work.
+  i <- infoForTyVar (asTyVar aa)
+  pure (info, i)
+
+envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvAllocArg
+envAllocField recNames (x, s) = case Set.member x recNames of
+  False -> EnvFreeArg (asPlace s x) <$> hoistVarOcc x
+  True -> EnvRecArg (asPlace s x) <$> hoistVarOcc x
+
 
 
 hoistValue :: ValueC -> HoistM ValueH
@@ -521,55 +571,6 @@ hoistCmp (LeC x y) = PrimLeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
-
-hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ClosureDecl
-hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
-  (env', params', body') <- inClosure env [] (xs ++ ks) $ hoist body
-  pure (ClosureDecl fdecl env' params' body')
-
-hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ClosureDecl
-hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
-  (env', params', body') <- inClosure env [] xs $ hoist body
-  pure (ClosureDecl kdecl env' params' body')
-
-hoistAbsClosure :: (ClosureName, C.AbsClosureDef) -> HoistM ClosureDecl
-hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
-  (env', params', body') <- inClosure env as ks $ hoist body
-  pure (ClosureDecl fdecl env' params' body')
-
--- | Pick a name for the environment parameter, that will not clash with
--- anything already in scope.
-pickEnvironmentName :: Set Id -> Id
-pickEnvironmentName sc = go (0 :: Int)
-  where
-    go i =
-      let envp = Id ("env" ++ show i) in
-      if Set.member envp sc then go (i+1) else envp
-
--- | Replace the set of fields and places in the environment, while leaving the
--- set of declaration names intact. This is because inside a closure, all names
--- refer to either a local variable/parameter (a place), a captured variable (a
--- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [ClosureParam], a)
-inClosure (C.EnvDef tyfields fields) typlaces places m = do
-  -- Because this is a new top-level context, we do not have to worry about shadowing anything.
-  let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
-  let places' = map (\ (x, s) -> (x, asPlace s x)) places
-  let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
-  let typlaces' = map (\aa -> (asTyVar aa, asInfoPlace aa)) typlaces
-  let newLocals = Scope (Map.fromList places') (Map.fromList typlaces')
-  let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
-  let replaceEnv _oldEnv = HoistEnv newLocals newEnv
-  r <- local replaceEnv m
-  let inScopeNames = map (placeName . snd) fields' ++ map (placeName . snd) places' ++ map (infoName . snd) tyfields' ++ map (infoName . snd) typlaces'
-  let name = pickEnvironmentName (Set.fromList inScopeNames)
-
-  let mkFieldInfo' f = infoForSort (placeSort f)
-  fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
-  let params = map (TypeParam . snd) typlaces' ++ map (PlaceParam . snd) places'
-  -- TODO: Convert tyfields' to [InfoPlace2]
-  let envd = EnvDecl (map snd tyfields') fieldsWithInfo
-  pure ((name, envd), params, r)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.

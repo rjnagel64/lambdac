@@ -32,15 +32,14 @@ deriving newtype instance MonadState Signature TC
 data Signature = Signature { sigClosures :: Map ClosureName ClosureDeclType }
 
 -- | Represents the type signature 'code[aa+](t; S)'
-data ClosureDeclType = ClosureDeclType [TyVar] EnvDeclType ParamTele
+data ClosureDeclType = ClosureDeclType [TyVar] EnvDeclType [ClosureTele]
 
 type EnvDeclType = ([Sort], [Sort]) -- info types, value types. Maybe use sum type instead?
 
-data ParamTele
-  = TeleEnd -- .
-  | TypeTele TyVar ParamTele -- forall aa, S
-  | InfoTele Sort ParamTele -- info t, S
-  | ValueTele Sort ParamTele -- t, S
+data ClosureTele
+  = TypeTele TyVar
+  | InfoTele Sort
+  | ValueTele Sort
 
 -- | The typing context is split into two scopes: local information and
 -- environment information.
@@ -56,6 +55,7 @@ data TCError
   = TypeMismatch Sort Sort
   | NameNotInScope Id
   | TyVarNotInScope TyVar
+  | ClosureNotInScope ClosureName
   | InfoNotInScope Id
   | NotImplemented String
   | IncorrectInfo
@@ -105,6 +105,13 @@ lookupTyVar (TyVar aa) = do
     True -> pure ()
     False -> throwError $ TyVarNotInScope (TyVar aa)
 
+lookupCodeDecl :: ClosureName -> TC ClosureDeclType
+lookupCodeDecl c = do
+  sig <- gets sigClosures
+  case Map.lookup c sig of
+    Just t -> pure t
+    Nothing -> throwError $ ClosureNotInScope c
+
 equalSorts :: Sort -> Sort -> TC ()
 equalSorts expected actual =
   when (expected /= actual) $
@@ -119,6 +126,13 @@ withPlace p m = do
 withInfo :: InfoPlace -> TC a -> TC a
 withInfo i m = local extend m
   where extend (Context locals env) = Context (bindInfo i locals) env
+
+
+
+checkName :: Name -> Sort -> TC ()
+checkName x s = do
+  s' <- lookupName x
+  equalSorts s s'
 
 
 checkProgram :: [ClosureDecl] -> TermH -> TC ()
@@ -138,9 +152,9 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   -- Extend signature
   let envTy = ([], [])
   let
-    addParam (PlaceParam p) tele = ValueTele (placeSort p) tele
-    addParam (TypeParam (InfoPlace (Id aa))) tele = TypeTele (TyVar aa) tele
-  let tele = foldr addParam TeleEnd params
+    mkParam (PlaceParam p) = ValueTele (placeSort p)
+    mkParam (TypeParam (InfoPlace (Id aa))) = TypeTele (TyVar aa)
+  let tele = map mkParam params
   let declTy = ClosureDeclType [] envTy tele
   modify (declareClosure cl declTy)
 
@@ -154,6 +168,7 @@ checkParams [] = pure emptyScope
 checkParams (PlaceParam p : params) = withPlace p $ fmap (bindPlace p) (checkParams params)
 checkParams (TypeParam i : params) = withInfo i $ fmap (bindInfo i) (checkParams params)
 
+-- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkClosureBody :: TermH -> TC ()
 checkClosureBody (LetValH p v e) = do
   checkSort (placeSort p)
@@ -181,12 +196,19 @@ checkClosureBody (AllocClosure cs e) = do
   let binds = map closurePlace cs
   -- withPlaces binds $
   for_ cs $ \ (ClosureAlloc p c env) -> do
-    -- Look up type of closure decl ([polymorphic] code type)
-    -- Use closure type to check environment allocation
-    -- check that place sort matches code type?
-    throwError (NotImplemented "checking closure alloc")
+    ClosureDeclType aas envTy tele <- lookupCodeDecl c
+    -- instantiate aas (not yet present in Hoist)
+    -- _
+    -- check envTy
+    checkEnvAlloc env envTy
+    -- check tele matches (placeSort p)
+    -- alpha-equality aaaaaa
+    throwError (NotImplemented "checkClosureBody ClosureAlloc check tele")
   -- withPlaces binds $
   checkClosureBody e
+
+checkEnvAlloc :: EnvAlloc -> EnvDeclType -> TC ()
+checkEnvAlloc env envTy = throwError (NotImplemented "checkEnvAlloc")
 
 -- | Check that a primitive operation has correct argument sorts, and yield its
 -- return sort.
@@ -233,11 +255,6 @@ checkValue (ListConsH i x xs) (ListH t) = do
   checkName x t
   checkName xs (ListH t) 
 checkValue (ListConsH _ _ _) _ = throwError BadValue
-
-checkName :: Name -> Sort -> TC ()
-checkName x s = do
-  s' <- lookupName x
-  equalSorts s s'
 
 -- | Check that a sort is well-formed w.r.t. the context
 checkSort :: Sort -> TC ()
