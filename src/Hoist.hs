@@ -480,24 +480,24 @@ inClosure (C.EnvDef tyfields fields) typlaces places m = do
   let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
   let replaceEnv _oldEnv = HoistEnv newLocals newEnv
   r <- local replaceEnv m
-  let inScopeNames = map (placeName . snd) fields' ++ map (placeName . snd) places' ++ map (infoName . snd) tyfields' ++ map (infoName . snd) typlaces'
-  let name = pickEnvironmentName (Set.fromList inScopeNames)
+  envp <- pickEnvironmentName
 
   let mkFieldInfo' f = infoForSort (placeSort f)
   fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
   let params = map (TypeParam . snd) typlaces' ++ map (PlaceParam . snd) places'
   -- TODO: Convert tyfields' to [InfoPlace2]
   let envd = EnvDecl (map snd tyfields') fieldsWithInfo
-  pure ((name, envd), params, r)
+  pure ((envp, envd), params, r)
 
 -- | Pick a name for the environment parameter, that will not clash with
 -- anything already in scope.
-pickEnvironmentName :: Set Id -> Id
-pickEnvironmentName sc = go (0 :: Int)
-  where
-    go i =
-      let envp = Id ("env" ++ show i) in
-      if Set.member envp sc then go (i+1) else envp
+pickEnvironmentName :: HoistM Id
+pickEnvironmentName = do
+  HoistEnv locals env <- ask
+  let scopeNames (Scope places infos) = foldMap (Set.singleton . placeName) places <> foldMap (Set.singleton . infoName) infos
+  let scope = scopeNames locals <> scopeNames env
+  let go i = let envp = Id ("env" ++ show i) in if Set.member envp scope then go (i+1) else envp
+  pure (go (0 :: Int))
 
 hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> TermC -> HoistM TermH
 hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
