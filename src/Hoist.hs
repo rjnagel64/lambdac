@@ -19,6 +19,7 @@ module Hoist
     , ValueH(..)
     , PrimOp(..)
     , Sort(..)
+    , ClosureTele(..)
     , Name(..)
     , Info(..)
     , Id(..)
@@ -212,20 +213,13 @@ data Sort
   | SumH
   | ProductH Sort Sort
   | ListH Sort
-  -- TODO: Sort.ClosureH should have type/info parameters (It should be a telescope)
-  | ClosureH [Sort]
+  | ClosureH ClosureTele
   | AllocH TyVar
-  deriving (Eq, Ord)
+  deriving Eq -- Needed for Hoist.TypeCheck.equalSorts
 
--- TODO: A better name for ClosureSortParam
--- ClosureParam and ClosureArg are already used
--- ClosureTele isn't quite right, because we have [ClosureTele], not
--- ClosureTele by itself. (I want to have [whatever] so that 'map' keeps
--- working, at least for the moment)
--- data ClosureSortParam
---   = ClosureValueParam Sort
---   | ClosureTypeParam TyVar
---   | ClosureInfoParam Sort
+-- TODO: ClosureTele should have type/info parameters (It should be a telescope)
+newtype ClosureTele = ClosureTele [Sort]
+  deriving Eq -- Should probably hand-roll, because alpha-equality
 
 sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH
@@ -234,7 +228,7 @@ sortOf C.Unit = UnitH
 sortOf C.Sum = SumH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.List t) = ListH (sortOf t)
-sortOf (C.Closure ss) = ClosureH (map sortOf ss)
+sortOf (C.Closure ss) = ClosureH (ClosureTele (map sortOf ss))
 sortOf (C.Alloc aa) = AllocH (asTyVar aa)
 
 -- | 'Info' is used to represent @type_info@ values that are passed at runtime.
@@ -303,7 +297,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     argcode (ThunkValueArg s) = tycode s
     -- This scheme will almost certainly break down as types get fancier.
     tycode :: Sort -> String
-    tycode (ClosureH ss) = 'C' : show (length ss) ++ concatMap tycode ss
+    tycode (ClosureH (ClosureTele ss)) = 'C' : show (length ss) ++ concatMap tycode ss
     tycode IntegerH = "V"
     tycode (AllocH _) = "A"
     tycode SumH = "S"
@@ -358,7 +352,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     thunkTypesOf BooleanH = Set.empty
     thunkTypesOf SumH = Set.empty
     thunkTypesOf UnitH = Set.empty
-    thunkTypesOf (ClosureH ss) = Set.insert (ThunkType (map ThunkValueArg ss)) (foldMap thunkTypesOf ss)
+    thunkTypesOf (ClosureH (ClosureTele ss)) = Set.insert (ThunkType (map ThunkValueArg ss)) (foldMap thunkTypesOf ss)
     thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
     thunkTypesOf (ListH t) = thunkTypesOf t
 
@@ -372,15 +366,15 @@ hoist (HaltC x) = do
   i <- infoForSort s
   pure (HaltH s x' i)
 hoist (JumpC k xs) = do
-  (k', ss) <- hoistCall k
+  (k', ClosureTele ss) <- hoistCall k
   ys <- hoistArgList xs
   pure (OpenH k' (ThunkType (map ThunkValueArg ss)) ys)
 hoist (CallC f xs ks) = do
-  (f', ss) <- hoistCall f
+  (f', ClosureTele ss) <- hoistCall f
   ys <- hoistArgList (xs ++ ks)
   pure (OpenH f' (ThunkType (map ThunkValueArg ss)) ys)
 hoist (InstC f ts ks) = do
-  (f', ss) <- hoistCall f
+  (f', ClosureTele ss) <- hoistCall f
   ys <- hoistArgList ks
   let infoSorts = replicate (length ts) ThunkInfoArg
   let ty = ThunkType (infoSorts ++ map ThunkValueArg ss)
@@ -592,7 +586,7 @@ hoistVarOccSort x = do
       Just (Place s x') -> pure (EnvName x', s)
       Nothing -> error ("not in scope: " ++ show x)
 
-hoistCall :: C.Name -> HoistM (Name, [Sort])
+hoistCall :: C.Name -> HoistM (Name, ClosureTele)
 hoistCall x = do
   ps <- asks (scopePlaces . localScope)
   fs <- asks (scopePlaces . envScope)
@@ -765,5 +759,5 @@ pprintSort UnitH = "unit"
 pprintSort SumH = "sum"
 pprintSort (ListH t) = "list " ++ pprintSort t
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
-pprintSort (ClosureH ss) = "closure(" ++ intercalate ", " (map pprintSort ss) ++ ")"
+pprintSort (ClosureH (ClosureTele ss)) = "closure(" ++ intercalate ", " (map pprintSort ss) ++ ")"
 pprintSort (AllocH aa) = "alloc(" ++ show aa ++ ")"

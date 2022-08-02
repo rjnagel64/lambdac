@@ -32,11 +32,11 @@ deriving newtype instance MonadState Signature TC
 data Signature = Signature { sigClosures :: Map ClosureName ClosureDeclType }
 
 -- | Represents the type signature 'code[aa+](t; S)'
-data ClosureDeclType = ClosureDeclType [TyVar] EnvDeclType [ClosureTele]
+data ClosureDeclType = ClosureDeclType [TyVar] EnvDeclType [TeleEntry']
 
 type EnvDeclType = ([Sort], [Sort]) -- info types, value types. Maybe use sum type instead?
 
-data ClosureTele
+data TeleEntry'
   = TypeTele TyVar
   | InfoTele Sort
   | ValueTele Sort
@@ -265,7 +265,7 @@ checkSort BooleanH = pure ()
 checkSort SumH = pure ()
 checkSort (ProductH t s) = checkSort t *> checkSort s
 checkSort (ListH t) = checkSort t
-checkSort (ClosureH ss) = traverse_ checkSort ss
+checkSort (ClosureH (ClosureTele ss)) = traverse_ checkSort ss
 
 -- | Given info @i@ and sort @s@, check that @Γ |- i : info s@.
 checkInfo :: Info -> Sort -> TC ()
