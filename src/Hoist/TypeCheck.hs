@@ -265,7 +265,10 @@ checkSort BooleanH = pure ()
 checkSort SumH = pure ()
 checkSort (ProductH t s) = checkSort t *> checkSort s
 checkSort (ListH t) = checkSort t
-checkSort (ClosureH (ClosureTele ss)) = traverse_ checkSort ss
+checkSort (ClosureH tele) = checkTele tele
+
+checkTele :: ClosureTele -> TC ()
+checkTele (ClosureTele ss) = traverse_ checkSort ss
 
 -- | Given info @i@ and sort @s@, check that @Γ |- i : info s@.
 checkInfo :: Info -> Sort -> TC ()

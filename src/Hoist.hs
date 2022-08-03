@@ -221,6 +221,9 @@ data Sort
 newtype ClosureTele = ClosureTele [Sort]
   deriving Eq -- Should probably hand-roll, because alpha-equality
 
+closureThunkType :: ClosureTele -> ThunkType
+closureThunkType (ClosureTele ss) = ThunkType (map ThunkValueArg ss)
+
 sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH
 sortOf C.Boolean = BooleanH
@@ -297,7 +300,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     argcode (ThunkValueArg s) = tycode s
     -- This scheme will almost certainly break down as types get fancier.
     tycode :: Sort -> String
-    tycode (ClosureH (ClosureTele ss)) = 'C' : show (length ss) ++ concatMap tycode ss
+    tycode (ClosureH tele) = 'C' : telecode tele
     tycode IntegerH = "V"
     tycode (AllocH _) = "A"
     tycode SumH = "S"
@@ -305,6 +308,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     tycode (ProductH s t) = 'Q' : tycode s ++ tycode t
     tycode UnitH = "U"
     tycode (ListH s) = 'L' : tycode s
+    telecode (ClosureTele ss) = show (length ss) ++ concatMap tycode ss
 
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
@@ -338,6 +342,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     closureThunkTypes :: ClosureDecl -> Set ThunkType
     closureThunkTypes (ClosureDecl _ _ params _) = Set.insert ty (foldMap paramThunkTypes params)
       where
+        -- ty = closureThunkType (closureParamTele params)
         ty = ThunkType (map f params)
         f (TypeParam i) = ThunkInfoArg
         f (PlaceParam p) = ThunkValueArg (placeSort p)
@@ -352,9 +357,15 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     thunkTypesOf BooleanH = Set.empty
     thunkTypesOf SumH = Set.empty
     thunkTypesOf UnitH = Set.empty
-    thunkTypesOf (ClosureH (ClosureTele ss)) = Set.insert (ThunkType (map ThunkValueArg ss)) (foldMap thunkTypesOf ss)
+    thunkTypesOf (ClosureH tele) = Set.insert (teleThunkType tele) (teleThunkTypes tele)
     thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
     thunkTypesOf (ListH t) = thunkTypesOf t
+
+    teleThunkType :: ClosureTele -> ThunkType
+    teleThunkType (ClosureTele ss) = ThunkType (map ThunkValueArg ss)
+
+    teleThunkTypes :: ClosureTele -> Set ThunkType
+    teleThunkTypes (ClosureTele ss) = foldMap thunkTypesOf ss
 
 
 -- | After closure conversion, the code for each function and continuation can
@@ -366,19 +377,21 @@ hoist (HaltC x) = do
   i <- infoForSort s
   pure (HaltH s x' i)
 hoist (JumpC k xs) = do
-  (k', ClosureTele ss) <- hoistCall k
+  (k', tele) <- hoistCall k
   ys <- hoistArgList xs
-  pure (OpenH k' (ThunkType (map ThunkValueArg ss)) ys)
+  pure (OpenH k' (closureThunkType tele) ys)
 hoist (CallC f xs ks) = do
-  (f', ClosureTele ss) <- hoistCall f
+  (f', tele) <- hoistCall f
   ys <- hoistArgList (xs ++ ks)
-  pure (OpenH f' (ThunkType (map ThunkValueArg ss)) ys)
+  pure (OpenH f' (closureThunkType tele) ys)
 hoist (InstC f ts ks) = do
-  (f', ClosureTele ss) <- hoistCall f
+  (f', tele) <- hoistCall f
   ys <- hoistArgList ks
-  let infoSorts = replicate (length ts) ThunkInfoArg
-  let ty = ThunkType (infoSorts ++ map ThunkValueArg ss)
   ts' <- traverse (infoForSort . sortOf) ts
+  let ThunkType ss = closureThunkType tele
+  -- Patch the thunktype, because closure types don't know about type arguments yet.
+  let infoSorts = replicate (length ts) ThunkInfoArg
+  let ty = ThunkType (infoSorts ++ ss)
   pure (OpenH f' ty (map TypeArg ts' ++ ys))
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x

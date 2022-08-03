@@ -15,6 +15,8 @@ module Loc
     , rundl
     ) where
 
+-- TODO: This module is very similar to Data.Loc, from package srcloc on Hackage. Consider using that.
+
 import Prelude hiding (span)
 
 -- | Source locations.
