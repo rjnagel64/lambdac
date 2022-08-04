@@ -195,7 +195,7 @@ checkClosureBody (CaseH x kind ks) = throwError (NotImplemented "checkClosureBod
 checkClosureBody (AllocClosure cs e) = do
   let binds = map closurePlace cs
   -- withPlaces binds $
-  for_ cs $ \ (ClosureAlloc p c env) -> do
+  for_ cs $ \ (ClosureAlloc p c envPlace env) -> do
     ClosureDeclType aas envTy tele <- lookupCodeDecl c
     -- instantiate aas (not yet present in Hoist)
     -- _

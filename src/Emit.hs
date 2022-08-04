@@ -387,40 +387,48 @@ emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
 emitPrimCall :: EnvPtr -> String -> [Name] -> String
 emitPrimCall envp fn xs = fn ++ "(" ++ commaSep (map (emitName envp) xs) ++ ")"
 
+-- | Allocate a group of (mutually recursive) closures.
+--
+-- This is a three-step process.
+-- - First, each closure's environment is allocated. Cyclic references are
+--   initialized with @NULL@.
+-- - Second, the closures are allocated using the environments from step 1.
+-- - Third, the @NULL@s in the environments are patched to refer to the
+-- freshly-allocated closures.
 emitAllocGroup :: EnvPtr -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
-  let envTy = envTypeName . closureEnvName . namesForClosure in
-  map (emitAlloc envp) closures ++
-  concatMap (\ (ClosureAlloc p d env) -> emitPatch (envTy d) p env) closures
+  map (allocEnv envp) closures ++
+  map allocClosure closures ++
+  concatMap patchEnv closures
 
-emitAlloc :: EnvPtr -> ClosureAlloc -> String
-emitAlloc envp (ClosureAlloc p d (EnvAlloc info fields)) =
+allocEnv :: EnvPtr -> ClosureAlloc -> String
+allocEnv envp (ClosureAlloc _p d envPlace (EnvAlloc info fields)) =
+  "    struct " ++ envTypeName ns' ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
+  where
+    ns' = closureEnvName (namesForClosure d)
+
+    call = envAllocName ns' ++ "(" ++ commaSep args ++ ")"
+    args = map (emitInfo envp . snd) info ++ map emitAllocArg fields
+    emitAllocArg (EnvFreeArg _ x) = emitName envp x
+    emitAllocArg (EnvRecArg _ _) = "NULL"
+
+allocClosure :: ClosureAlloc -> String
+allocClosure (ClosureAlloc p d envPlace _env) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep args ++ ");"
   where
     ns = namesForClosure d
     ns' = closureEnvName ns
     args = [envArg, traceArg, enterArg]
-    envArg = asAlloc (envAllocName ns' ++ "(" ++ commaSep envAllocArgs ++ ")")
+    envArg = asAlloc (show envPlace)
     traceArg = envInfoName ns'
     enterArg = closureEnterName ns
 
-    -- Recursive/cyclic environment references are initialized to NULL, and
-    -- then patched once all the closures have been allocated.
-    envAllocArgs = map (emitInfo envp . snd) info ++ map emitAllocArg fields
-
-    emitAllocArg (EnvFreeArg _ x) = emitName envp x
-    emitAllocArg (EnvRecArg _ _) = "NULL"
-
-emitPatch :: String -> Place -> EnvAlloc -> [String]
-emitPatch envName (Place _ closureId) (EnvAlloc _info fields) =
-  concatMap patchField fields
+patchEnv :: ClosureAlloc -> [String]
+patchEnv (ClosureAlloc _ _ envPlace (EnvAlloc _info fields)) = concatMap patchField fields
   where
-    -- If closure environments had their own Id/Place, this casting would not
-    -- be necessary.
-    env = "((struct " ++ envName ++ " *)" ++ show closureId ++ "->env)"
     patchField (EnvFreeArg _ _) = []
     patchField (EnvRecArg (Place _ f) (LocalName x)) =
-      ["    " ++ env ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
+      ["    " ++ show envPlace ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
     -- Patching recursive closures should only ever involve local names.
     -- Additionally, we do not have access to an environment pointer in this function.
     patchField (EnvRecArg _ (EnvName _)) = []

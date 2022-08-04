@@ -167,9 +167,9 @@ caseKind (C.CaseList a) = CaseList (sortOf a)
 
 data ClosureAlloc
   = ClosureAlloc {
-    -- TODO: Make ClosureAlloc contain a Place for the environment
     closurePlace :: Place
   , closureDecl :: ClosureName
+  , closureEnvPlace :: Id
   , closureEnv :: EnvAlloc
   }
 
@@ -503,17 +503,24 @@ pickEnvironmentName = do
   let go i = let envp = Id ("env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
 
+pickEnvironmentPlace :: Id -> HoistM Id
+pickEnvironmentPlace (Id cl) = do
+  HoistEnv locals env <- ask
+  let scopeNames (Scope places infos) = foldMap (Set.singleton . placeName) places <> foldMap (Set.singleton . infoName) infos
+  let scope = scopeNames locals <> scopeNames env
+  let go i = let envp = Id (cl ++ "_env" ++ show i) in if Set.member envp scope then go (i+1) else envp
+  pure (go (0 :: Int))
+
 hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> TermC -> HoistM TermH
 hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
   placesForClosureAllocs closureName closureSort cdecls $ \cplaces -> do
     cs' <- for cplaces $ \ (p, d, def) -> do
       env' <- hoistEnvDef (Set.fromList (map (closureName . snd) cdecls)) (closureEnvDef def)
-      -- TODO: Give name to environment allocations as well
-      pure (ClosureAlloc p d env')
+      envPlace <- pickEnvironmentPlace (placeName p)
+      pure (ClosureAlloc p d envPlace env')
     e' <- hoist e
     pure (AllocClosure cs' e')
 
--- TODO: Generate places for environment allocations in placesForClosureAllocs?
 -- TODO: Compute thunk types in placesForClosureAllocs?
 -- Hmm. The return type here could possibly use a helper type.
 placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(ClosureName, a)] -> ([(Place, ClosureName, a)] -> HoistM r) -> HoistM r
@@ -742,7 +749,7 @@ pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
     valueFields = intercalate ", " (map (pprintPlace . fst) fs)
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
-pprintClosureAlloc n (ClosureAlloc p d env) =
+pprintClosureAlloc n (ClosureAlloc p d _envPlace env) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ pprintEnvAlloc env ++ "\n"
 
 pprintEnvAlloc :: EnvAlloc -> String
