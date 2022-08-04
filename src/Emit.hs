@@ -394,7 +394,7 @@ emitPrimCall envp fn xs = fn ++ "(" ++ commaSep (map (emitName envp) xs) ++ ")"
 --   initialized with @NULL@.
 -- - Second, the closures are allocated using the environments from step 1.
 -- - Third, the @NULL@s in the environments are patched to refer to the
--- freshly-allocated closures.
+--   freshly-allocated closures.
 emitAllocGroup :: EnvPtr -> [ClosureAlloc] -> [String]
 emitAllocGroup envp closures =
   map (allocEnv envp) closures ++

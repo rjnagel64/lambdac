@@ -61,6 +61,7 @@ data TCError
   | IncorrectInfo
   | BadValue
   | BadProjection Sort Projection
+  | BadCase CaseKind [Name]
 
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
@@ -189,7 +190,7 @@ checkClosureBody (HaltH s x i) = do
   checkName x s
   checkInfo i s
 checkClosureBody (OpenH f ty args) = throwError (NotImplemented "checkClosureBody OpenH")
-checkClosureBody (CaseH x kind ks) = throwError (NotImplemented "checkClosureBody CaseH")
+checkClosureBody (CaseH x kind ks) = checkCase x kind ks
 -- Extend env with places for each closure
 -- type check each closure/env application
 checkClosureBody (AllocClosure cs e) = do
@@ -255,6 +256,21 @@ checkValue (ListConsH i x xs) (ListH t) = do
   checkName x t
   checkName xs (ListH t) 
 checkValue (ListConsH _ _ _) _ = throwError BadValue
+
+checkCase :: Name -> CaseKind -> [Name] -> TC ()
+checkCase x CaseBool [kf, kt] = do
+  checkName x BooleanH
+  checkName kf (ClosureH (ClosureTele []))
+  checkName kt (ClosureH (ClosureTele []))
+checkCase x (CaseSum a b) [kl, kr] = do
+  checkName x SumH
+  checkName kl (ClosureH (ClosureTele [a]))
+  checkName kr (ClosureH (ClosureTele [b]))
+checkCase x (CaseList a) [kn, kc] = do
+  checkName x (ListH a)
+  checkName kn (ClosureH (ClosureTele []))
+  checkName kc (ClosureH (ClosureTele [a, ListH a]))
+checkCase _ kind ks = throwError (BadCase kind ks)
 
 -- | Check that a sort is well-formed w.r.t. the context
 checkSort :: Sort -> TC ()
