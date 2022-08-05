@@ -123,11 +123,6 @@ asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 emitMarkGray :: EnvPtr -> Name -> Info -> String
 emitMarkGray envp x s = "mark_gray(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp s ++ ")"
 
-mapWithIndex :: (Int -> a -> b) -> [a] -> [b]
-mapWithIndex f = zipWith f [0..]
-
--- TODO: Build auxiliary structure that contains information necessary to emit
--- thunk types. (provide, not reconstruct)
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
   let ns = namesForThunk t in
@@ -139,53 +134,72 @@ emitThunkType :: ThunkNames -> ThunkType -> [String]
 emitThunkType ns (ThunkType ss) =
   ["struct " ++ thunkTypeName ns ++ " {"
   ,"    struct thunk header;"] ++
-  concat (mapWithIndex mkField ss) ++
+  makeFields 0 0 ss ++
   ["};"]
   where
-    mkField i ThunkInfoArg =
-      ["    type_info arg" ++ show i ++ ";"]
-    mkField i (ThunkValueArg s) =
-      ["    " ++ emitPlace (Place s (Id ("arg" ++ show i))) ++ ";"
-      ,"    " ++ emitInfoPlace (InfoPlace (Id ("info" ++ show i))) ++ ";"]
+    makeFields :: Int -> Int -> [ThunkArg] -> [String]
+    makeFields i j (ThunkInfoArg : ss') =
+      ("    type_info info" ++ show i ++ ";") :
+      makeFields i (j+1) ss'
+    makeFields i j (ThunkValueArg s : ss') =
+      ("    " ++ emitPlace (Place s (Id ("arg" ++ show i))) ++ ";") :
+      ("    " ++ emitInfoPlace (InfoPlace (Id ("arginfo" ++ show i))) ++ ";") :
+      makeFields (i+1) j ss'
+    makeFields _ _ [] = []
 
 emitThunkTrace :: ThunkNames -> ThunkType -> [String]
 emitThunkTrace ns (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"] ++
-  concat (mapWithIndex traceField ss) ++
+  traceFields 0 0 ss ++
   ["}"]
   where
-    traceField _ ThunkInfoArg = []
-    traceField i (ThunkValueArg _) =
+    traceFields :: Int -> Int -> [ThunkArg] -> [String]
+    traceFields i j (ThunkInfoArg : ss') = traceFields i (j+1) ss'
+    traceFields i j (ThunkValueArg _ : ss') =
       let arg = EnvName (Id ("arg" ++ show i)) in
-      let info = EnvInfo (Id ("info" ++ show i)) in
-      ["    " ++ emitMarkGray (Id "next") arg info ++ ";"]
+      let info = EnvInfo (Id ("arginfo" ++ show i)) in
+      ("    " ++ emitMarkGray (Id "next") arg info ++ ";") :
+      traceFields (i+1) j ss'
+    traceFields _ _ [] = []
 
 emitThunkSuspend :: ThunkNames -> ThunkType -> [String]
 emitThunkSuspend ns (ThunkType ss) =
-  ["void " ++ thunkSuspendName ns ++ "(" ++ paramList ++ ") {"
+  ["void " ++ thunkSuspendName ns ++ "(" ++ commaSep paramList ++ ") {"
   ,"    struct " ++ thunkTypeName ns ++ " *next = realloc(next_step, sizeof(struct " ++ thunkTypeName ns ++ "));"
   ,"    next->header.enter = closure->enter;"
   ,"    next->header.trace = " ++ thunkTraceName ns ++ ";"
   ,"    next_closure = closure;"] ++
-  concat (mapWithIndex assignField ss) ++
+  assignFields 0 0 ss ++
   ["    next_step = (struct thunk *)next;"
   ,"}"]
   where
-    paramList = commaSep ("struct closure *closure" : concat (mapWithIndex makeParam ss))
-    makeParam i ThunkInfoArg = ["type_info arg" ++ show i]
-    makeParam i (ThunkValueArg s) = case s of
-      AllocH _ -> ["struct alloc_header *arg" ++ show i, "type_info info" ++ show i]
-      _ -> [emitPlace (Place s (Id ("arg" ++ show i)))]
+    paramList = "struct closure *closure" : makeParams 0 0 ss
 
-    assignField i ThunkInfoArg =
-      ["    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"]
-    assignField i (ThunkValueArg s) =
-      ["    next->arg" ++ show i ++ " = arg" ++ show i ++ ";"
-      ,"    next->info" ++ show i ++ " = " ++ emitInfo (Id "next") info ++ ";"]
+    makeParams :: Int -> Int -> [ThunkArg] -> [String]
+    makeParams i j (ThunkInfoArg : ss') =
+      ("type_info info" ++ show j) :
+      makeParams i (j+1) ss'
+    makeParams i j (ThunkValueArg (AllocH _) : ss') =
+      ("struct alloc_header *arg" ++ show i) :
+      ("type_info arginfo" ++ show i) :
+      makeParams (i+1) j ss'
+    makeParams i j (ThunkValueArg s : ss') =
+      emitPlace (Place s (Id ("arg" ++ show i))) :
+      makeParams (i+1) j ss'
+    makeParams _ _ [] = []
+
+    assignFields :: Int -> Int -> [ThunkArg] -> [String]
+    assignFields i j (ThunkInfoArg : ss') =
+      ("    next->info" ++ show j ++ " = info" ++ show j ++ ";") :
+      assignFields i (j+1) ss'
+    assignFields i j (ThunkValueArg s : ss') =
+      ("    next->arg" ++ show i ++ " = arg" ++ show i ++ ";") :
+      ("    next->arginfo" ++ show i ++ " = " ++ emitInfo (Id "NULL") info ++ ";") :
+      assignFields (i+1) j ss'
       where
         info = case s of
-          AllocH _ -> EnvInfo (Id ("info" ++ show i))
+          AllocH _ -> LocalInfo (Id ("arginfo" ++ show i))
           IntegerH -> Int64Info
           BooleanH -> BoolInfo
           UnitH -> UnitInfo
@@ -193,6 +207,7 @@ emitThunkSuspend ns (ThunkType ss) =
           ProductH _ _ -> ProductInfo
           ListH _ -> ListInfo
           ClosureH _ -> ClosureInfo
+    assignFields _ _ [] = []
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
@@ -262,7 +277,11 @@ emitClosureEnter ns ty@(ThunkType ss) =
   where
     thunkTy = "struct " ++ thunkTypeName (namesForThunk ty) ++ " *"
     envTy = "struct " ++ envTypeName (closureEnvName ns) ++ " *"
-    argList = "env" : mapWithIndex (\i _ -> "next->arg" ++ show i) ss
+    argList = "env" : makeArgList 0 0 ss
+    makeArgList :: Int -> Int -> [ThunkArg] -> [String]
+    makeArgList i j (ThunkInfoArg : ss') = ("next->info" ++ show j) : makeArgList i (j+1) ss'
+    makeArgList i j (ThunkValueArg _ : ss') = ("next->arg" ++ show i) : makeArgList (i+1) j ss'
+    makeArgList _ _ [] = []
 
 emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
