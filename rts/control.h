@@ -20,4 +20,16 @@ struct alloc_header *result_value;
 type_info result_info;
 void halt_with(struct alloc_header *x, type_info info);
 
+struct value_arg {
+    struct alloc_header *alloc;
+    type_info info;
+};
+struct value_arg *value_args;
+type_info *info_args;
+
+void init_args(void);
+void destroy_args(void);
+void reserve_args(size_t num_values, size_t num_infos);
+void trace_args(void);
+
 #endif

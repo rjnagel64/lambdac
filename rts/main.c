@@ -12,6 +12,9 @@ void program_entry(void);
 int main(void) {
     // Initialize the locals vector.
     init_locals();
+    
+    // Initialize the argument arrays.
+    init_args();
 
     // Prepare the main driver loop
     result_value = NULL;
@@ -36,6 +39,7 @@ int main(void) {
     string_buf_destroy(sb);
 
     // Cleanup.
+    destroy_args();
     destroy_locals();
     sweep_all_allocations();
 }
