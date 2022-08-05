@@ -14,6 +14,7 @@ struct thunk {
 
 // Next action to take. A GC root. A delayed function/continuation application.
 struct thunk *next_step;
+struct closure *next_closure;
 void mark_root(void);
 
 struct alloc_header *result_value;

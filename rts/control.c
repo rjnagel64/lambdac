@@ -5,6 +5,7 @@
 void (*trace_roots)(void) = mark_root;
 
 void mark_root(void) {
+    mark_gray(AS_ALLOC(next_closure), closure_info);
     next_step->trace();
 }
 

@@ -138,8 +138,7 @@ emitThunkDecl t =
 emitThunkType :: ThunkNames -> ThunkType -> [String]
 emitThunkType ns (ThunkType ss) =
   ["struct " ++ thunkTypeName ns ++ " {"
-  ,"    struct thunk header;"
-  ,"    struct closure *closure;"] ++
+  ,"    struct thunk header;"] ++
   concat (mapWithIndex mkField ss) ++
   ["};"]
   where
@@ -152,8 +151,7 @@ emitThunkType ns (ThunkType ss) =
 emitThunkTrace :: ThunkNames -> ThunkType -> [String]
 emitThunkTrace ns (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
-  ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    " ++ emitMarkGray (Id "next") (EnvName (Id "closure")) ClosureInfo ++ ";"] ++
+  ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"] ++
   concat (mapWithIndex traceField ss) ++
   ["}"]
   where
@@ -169,7 +167,7 @@ emitThunkSuspend ns (ThunkType ss) =
   ,"    struct " ++ thunkTypeName ns ++ " *next = realloc(next_step, sizeof(struct " ++ thunkTypeName ns ++ "));"
   ,"    next->header.enter = closure->enter;"
   ,"    next->header.trace = " ++ thunkTraceName ns ++ ";"
-  ,"    next->closure = closure;"] ++
+  ,"    next_closure = closure;"] ++
   concat (mapWithIndex assignField ss) ++
   ["    next_step = (struct thunk *)next;"
   ,"}"]
@@ -258,7 +256,7 @@ emitClosureEnter :: ClosureNames -> ThunkType -> [String]
 emitClosureEnter ns ty@(ThunkType ss) =
   ["void " ++ closureEnterName ns ++ "(void) {"
   ,"    " ++ thunkTy ++ "next = (" ++ thunkTy ++ ")next_step;"
-  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")next->closure->env;"
+  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")next_closure->env;"
   ,"    " ++ closureCodeName ns ++ "(" ++ commaSep argList ++ ");"
   ,"}"]
   where
