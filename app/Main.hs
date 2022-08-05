@@ -46,6 +46,7 @@ data DriverArgs
   , driverDumpEmit :: Bool
   , driverNoExe :: Bool
   , driverCheckCPS :: Bool
+  , driverASAN :: Bool
   }
 
 driver :: Parser DriverArgs
@@ -58,6 +59,7 @@ driver = DriverArgs
   <*> switch (long "dump-emit" <> help "whether to dump Emit C output")
   <*> switch (long "no-exe" <> help "do not invoke clang on the generated C output")
   <*> switch (long "check-cps" <> help "whether to run the typechecker on CPS IR")
+  <*> switch (long "with-asan" <> help "compile binaries with AddressSanitizer (developer tool)")
 
 opts :: ParserInfo DriverArgs
 opts = info (helper <*> driver) (fullDesc <> progDesc "Compile LambdaC")
@@ -112,7 +114,8 @@ main = do
 
   when (not $ driverNoExe args) $ do
     let clangArgs = ["-I./rts/", "-L./rts/", "-lrts", outputFile, "-o", executableFile]
-    let compileProcess = proc "clang" clangArgs
+    let clangArgs' = if driverASAN args then "-g" : "-fsanitize=address" : clangArgs else clangArgs
+    let compileProcess = proc "clang" clangArgs'
     exitCode <- runProcess compileProcess
     case exitCode of
       ExitSuccess -> pure ()
