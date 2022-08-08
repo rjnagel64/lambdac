@@ -109,7 +109,6 @@ data InfoPlace2 = InfoPlace2 { infoName2 :: Id, infoSort2 :: Sort }
 -- because they do not impact code generation. The type-checker, however, cares
 -- more.
 
-
 -- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
 data TyVar = TyVar String
   deriving (Eq, Ord)
@@ -120,9 +119,8 @@ instance Show TyVar where
 asTyVar :: C.TyVar -> TyVar
 asTyVar (C.TyVar aa) = TyVar aa
 
-
--- | 'DeclName's are used to refer to top-level functions and continuations.
--- They are introduced by (hoisting) function/continuation closure bingings,
+-- | 'ClosureName's are used to refer to top-level functions and continuations.
+-- They are introduced by (hoisting) function/continuation closure bindings,
 -- and used when allocating function/continuation closures.
 newtype ClosureName = ClosureName String
   deriving (Eq, Ord)
@@ -130,81 +128,10 @@ newtype ClosureName = ClosureName String
 instance Show ClosureName where
   show (ClosureName d) = d
 
-asDeclName :: C.Name -> ClosureName
-asDeclName (C.Name x i) = ClosureName (x ++ show i)
+asClosureName :: C.Name -> ClosureName
+asClosureName (C.Name x i) = ClosureName (x ++ show i)
 
 
--- Should ClosureDecl contain a ThunkType?
-data ClosureDecl
-  = ClosureDecl ClosureName (Id, EnvDecl) [ClosureParam] TermH
-
--- TODO: EnvDecl should use InfoPlace2
-data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
-
-data ClosureParam = PlaceParam Place | TypeParam InfoPlace
-
-data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
-
-data TermH
-  = LetValH Place ValueH TermH
-  | LetPrimH Place PrimOp TermH
-  -- 'let value x = fst y in e'
-  | LetProjectH Place Name Projection TermH
-  | HaltH Sort Name Info
-  | OpenH Name ThunkType [ClosureArg]
-  | CaseH Name CaseKind [Name]
-  -- Closures may be mutually recursive, so are allocated as a group.
-  | AllocClosure [ClosureAlloc] TermH
-
--- TODO(eventually): bring back generic case expressions
-data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
-
-data Projection = ProjectFst | ProjectSnd
-
-caseKind :: C.CaseKind -> CaseKind
-caseKind C.CaseBool = CaseBool
-caseKind (C.CaseSum a b) = CaseSum (sortOf a) (sortOf b)
-caseKind (C.CaseList a) = CaseList (sortOf a)
-
-data ClosureAlloc
-  = ClosureAlloc {
-    closurePlace :: Place
-  , closureDecl :: ClosureName
-  , closureEnvPlace :: Id
-  , closureEnv :: EnvAlloc
-  }
-
-data EnvAlloc
-  = EnvAlloc {
-    envAllocInfoArgs :: [(InfoPlace, Info)]
-  , envAllocValueArgs :: [EnvAllocArg]
-  }
-
-data EnvAllocArg
-  = EnvFreeArg Place Name
-  | EnvRecArg Place Name
-
-data ValueH
-  = IntH Int64
-  | BoolH Bool
-  | PairH Info Info Name Name
-  | NilH
-  | InlH Info Name
-  | InrH Info Name
-  | ListNilH
-  | ListConsH Info Name Name
-
-data PrimOp
-  = PrimAddInt64 Name Name
-  | PrimSubInt64 Name Name
-  | PrimMulInt64 Name Name
-  | PrimNegInt64 Name
-  | PrimEqInt64 Name Name
-  | PrimNeInt64 Name Name
-  | PrimLtInt64 Name Name
-  | PrimLeInt64 Name Name
-  | PrimGtInt64 Name Name
-  | PrimGeInt64 Name Name
 
 -- | A 'Sort' describes the runtime layout of a value. It is static information.
 data Sort
@@ -278,14 +205,78 @@ instance Show Info where
   show ClosureInfo = "$closure"
   show ListInfo = "$list"
 
-data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
 
-data Scope = Scope { scopePlaces :: Map C.Name Place, scopeInfos :: Map TyVar InfoPlace }
+data ClosureDecl
+  = ClosureDecl ClosureName (Id, EnvDecl) [ClosureParam] TermH
 
-newtype ClosureDecls = ClosureDecls [ClosureDecl]
+-- TODO: EnvDecl should use InfoPlace2
+data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
 
-deriving newtype instance Semigroup ClosureDecls
-deriving newtype instance Monoid ClosureDecls
+data ClosureParam = PlaceParam Place | TypeParam InfoPlace
+
+data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
+
+data TermH
+  = LetValH Place ValueH TermH
+  | LetPrimH Place PrimOp TermH
+  -- 'let value x = fst y in e'
+  | LetProjectH Place Name Projection TermH
+  | HaltH Sort Name Info
+  | OpenH Name ThunkType [ClosureArg]
+  | CaseH Name CaseKind [Name]
+  -- Closures may be mutually recursive, so are allocated as a group.
+  | AllocClosure [ClosureAlloc] TermH
+
+-- TODO(eventually): bring back generic case expressions
+data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
+
+data Projection = ProjectFst | ProjectSnd
+
+caseKind :: C.CaseKind -> CaseKind
+caseKind C.CaseBool = CaseBool
+caseKind (C.CaseSum a b) = CaseSum (sortOf a) (sortOf b)
+caseKind (C.CaseList a) = CaseList (sortOf a)
+
+data ClosureAlloc
+  = ClosureAlloc {
+    closurePlace :: Place
+  , closureDecl :: ClosureName
+  , closureEnvPlace :: Id
+  , closureEnv :: EnvAlloc
+  }
+
+data EnvAlloc
+  = EnvAlloc {
+    envAllocInfoArgs :: [(InfoPlace, Info)]
+  , envAllocValueArgs :: [EnvAllocArg]
+  }
+
+data EnvAllocArg
+  = EnvFreeArg Place Name
+  | EnvRecArg Place Name
+
+data ValueH
+  = IntH Int64
+  | BoolH Bool
+  | PairH Info Info Name Name
+  | NilH
+  | InlH Info Name
+  | InrH Info Name
+  | ListNilH
+  | ListConsH Info Name Name
+
+data PrimOp
+  = PrimAddInt64 Name Name
+  | PrimSubInt64 Name Name
+  | PrimMulInt64 Name Name
+  | PrimNegInt64 Name
+  | PrimEqInt64 Name Name
+  | PrimNeInt64 Name Name
+  | PrimLtInt64 Name Name
+  | PrimLeInt64 Name Name
+  | PrimGtInt64 Name Name
+  | PrimGeInt64 Name Name
+
 
 -- | A thunk type is a calling convention for closures: the set of arguments
 -- that must be provided to open it. This information is used to generate
@@ -325,6 +316,8 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
+
+
 -- Hmm. Instead of 'Writer', would an 'Update' monad be applicable here?
 newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set ClosureName) (Writer (ClosureDecls, Set ThunkType))) a }
 
@@ -334,6 +327,16 @@ deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter (ClosureDecls, Set ThunkType) HoistM
 deriving newtype instance MonadState (Set ClosureName) HoistM
+
+data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
+
+data Scope = Scope { scopePlaces :: Map C.Name Place, scopeInfos :: Map TyVar InfoPlace }
+
+newtype ClosureDecls = ClosureDecls [ClosureDecl]
+
+deriving newtype instance Semigroup ClosureDecls
+deriving newtype instance Monoid ClosureDecls
+
 
 runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
 runHoist =
@@ -378,6 +381,7 @@ tellClosures cs = tell (ClosureDecls cs, ts)
 
     entryThunkTypes :: TeleEntry -> Set ThunkType
     entryThunkTypes (ValueTele s) = thunkTypesOf s
+
 
 
 -- | After closure conversion, the code for each function and continuation can
@@ -465,13 +469,37 @@ hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
   (env', params', body') <- inClosure env as ks $ hoist body
   pure (ClosureDecl fdecl env' params' body')
 
+hoistValue :: ValueC -> HoistM ValueH
+hoistValue (IntC i) = pure (IntH (fromIntegral i))
+hoistValue (BoolC b) = pure (BoolH b)
+hoistValue (PairC x y) = (\ (x', i) (y', j) -> PairH i j x' y') <$> hoistVarOcc' x <*> hoistVarOcc' y
+hoistValue NilC = pure NilH
+hoistValue (InlC x) = (\ (x', i) -> InlH i x') <$> hoistVarOcc' x
+hoistValue (InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOcc' x
+hoistValue EmptyC = pure ListNilH
+hoistValue (ConsC x xs) = (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOcc' x <*> hoistVarOcc xs
+
+hoistArith :: ArithC -> HoistM PrimOp
+hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith (SubC x y) = PrimSubInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith (MulC x y) = PrimMulInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+
+hoistCmp :: CmpC -> HoistM PrimOp
+hoistCmp (EqC x y) = PrimEqInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (NeC x y) = PrimNeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (LtC x y) = PrimLtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (LeC x y) = PrimLeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+
+
 
 declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(ClosureName, a)]
 declareClosureNames closureName cs =
   for cs $ \def -> do
     let
       pickName f ds =
-        let d = asDeclName f in
+        let d = asClosureName f in
         case Set.member d ds of
           False -> (d, Set.insert d ds)
           True -> pickName (C.prime f) ds
@@ -571,30 +599,6 @@ envAllocField recNames (x, s) = case Set.member x recNames of
 
 
 
-hoistValue :: ValueC -> HoistM ValueH
-hoistValue (IntC i) = pure (IntH (fromIntegral i))
-hoistValue (BoolC b) = pure (BoolH b)
-hoistValue (PairC x y) = (\ (x', i) (y', j) -> PairH i j x' y') <$> hoistVarOcc' x <*> hoistVarOcc' y
-hoistValue NilC = pure NilH
-hoistValue (InlC x) = (\ (x', i) -> InlH i x') <$> hoistVarOcc' x
-hoistValue (InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOcc' x
-hoistValue EmptyC = pure ListNilH
-hoistValue (ConsC x xs) = (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOcc' x <*> hoistVarOcc xs
-
-hoistArith :: ArithC -> HoistM PrimOp
-hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistArith (SubC x y) = PrimSubInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistArith (MulC x y) = PrimMulInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-
-hoistCmp :: CmpC -> HoistM PrimOp
-hoistCmp (EqC x y) = PrimEqInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (NeC x y) = PrimNeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (LtC x y) = PrimLtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (LeC x y) = PrimLeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-
-
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
@@ -687,6 +691,7 @@ makePlace x s = do
     go v ps = case Map.lookup v ps of
       Nothing -> pure (asPlace s v)
       Just _ -> go (C.prime v) ps
+
 
 
 indent :: Int -> String -> String
