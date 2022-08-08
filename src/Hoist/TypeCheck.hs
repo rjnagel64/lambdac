@@ -37,9 +37,9 @@ data ClosureDeclType = ClosureDeclType [TyVar] EnvDeclType [TeleEntry']
 type EnvDeclType = ([Sort], [Sort]) -- info types, value types. Maybe use sum type instead?
 
 data TeleEntry'
-  = TypeTele TyVar
-  | InfoTele Sort
-  | ValueTele Sort
+  = TypeTele' TyVar
+  | InfoTele' Sort
+  | ValueTele' Sort
 
 -- | The typing context is split into two scopes: local information and
 -- environment information.
@@ -153,8 +153,8 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   -- Extend signature
   let envTy = ([], [])
   let
-    mkParam (PlaceParam p) = ValueTele (placeSort p)
-    mkParam (TypeParam (InfoPlace (Id aa))) = TypeTele (TyVar aa)
+    mkParam (PlaceParam p) = ValueTele' (placeSort p)
+    mkParam (TypeParam (InfoPlace (Id aa))) = TypeTele' (TyVar aa)
   let tele = map mkParam params
   let declTy = ClosureDeclType [] envTy tele
   modify (declareClosure cl declTy)
@@ -264,12 +264,12 @@ checkCase x CaseBool [kf, kt] = do
   checkName kt (ClosureH (ClosureTele []))
 checkCase x (CaseSum a b) [kl, kr] = do
   checkName x SumH
-  checkName kl (ClosureH (ClosureTele [a]))
-  checkName kr (ClosureH (ClosureTele [b]))
+  checkName kl (ClosureH (ClosureTele [ValueTele a]))
+  checkName kr (ClosureH (ClosureTele [ValueTele b]))
 checkCase x (CaseList a) [kn, kc] = do
   checkName x (ListH a)
   checkName kn (ClosureH (ClosureTele []))
-  checkName kc (ClosureH (ClosureTele [a, ListH a]))
+  checkName kc (ClosureH (ClosureTele [ValueTele a, ValueTele (ListH a)]))
 checkCase _ kind ks = throwError (BadCase kind ks)
 
 -- | Check that a sort is well-formed w.r.t. the context
@@ -284,7 +284,8 @@ checkSort (ListH t) = checkSort t
 checkSort (ClosureH tele) = checkTele tele
 
 checkTele :: ClosureTele -> TC ()
-checkTele (ClosureTele ss) = traverse_ checkSort ss
+checkTele (ClosureTele ss) = for_ ss $ \case
+  ValueTele s -> checkSort s
 
 -- | Given info @i@ and sort @s@, check that @Γ |- i : info s@.
 checkInfo :: Info -> Sort -> TC ()

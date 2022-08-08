@@ -20,6 +20,7 @@ module Hoist
     , PrimOp(..)
     , Sort(..)
     , ClosureTele(..)
+    , TeleEntry(..)
     , Name(..)
     , Info(..)
     , Id(..)
@@ -218,11 +219,21 @@ data Sort
   deriving Eq -- Needed for Hoist.TypeCheck.equalSorts
 
 -- TODO: ClosureTele should have type/info parameters (It should be a telescope)
-newtype ClosureTele = ClosureTele [Sort]
+-- It's a bit unfortunate, but I do need to have separate telescopes for
+-- parameters and types. The difference is that parameters need names for each
+-- value, but closure types ignore value parameter names, and also cannot infer
+-- those names.
+newtype ClosureTele = ClosureTele [TeleEntry]
+  deriving Eq -- Should probably hand-roll, because alpha-equality
+
+data TeleEntry
+  = ValueTele Sort
   deriving Eq -- Should probably hand-roll, because alpha-equality
 
 closureThunkType :: ClosureTele -> ThunkType
-closureThunkType (ClosureTele ss) = ThunkType (map ThunkValueArg ss)
+closureThunkType (ClosureTele ss) = ThunkType (map f ss)
+  where
+    f (ValueTele s) = ThunkValueArg s
 
 sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH
@@ -231,7 +242,7 @@ sortOf C.Unit = UnitH
 sortOf C.Sum = SumH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.List t) = ListH (sortOf t)
-sortOf (C.Closure ss) = ClosureH (ClosureTele (map sortOf ss))
+sortOf (C.Closure ss) = ClosureH (ClosureTele (map (ValueTele . sortOf) ss))
 sortOf (C.Alloc aa) = AllocH (asTyVar aa)
 
 -- | 'Info' is used to represent @type_info@ values that are passed at runtime.
@@ -308,7 +319,8 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     tycode (ProductH s t) = 'Q' : tycode s ++ tycode t
     tycode UnitH = "U"
     tycode (ListH s) = 'L' : tycode s
-    telecode (ClosureTele ss) = show (length ss) ++ concatMap tycode ss
+    telecode (ClosureTele ss) = show (length ss) ++ concatMap entrycode ss
+    entrycode (ValueTele s) = tycode s
 
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
@@ -357,15 +369,15 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     thunkTypesOf BooleanH = Set.empty
     thunkTypesOf SumH = Set.empty
     thunkTypesOf UnitH = Set.empty
-    thunkTypesOf (ClosureH tele) = Set.insert (teleThunkType tele) (teleThunkTypes tele)
+    thunkTypesOf (ClosureH tele) = Set.insert (closureThunkType tele) (teleThunkTypes tele)
     thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
     thunkTypesOf (ListH t) = thunkTypesOf t
 
-    teleThunkType :: ClosureTele -> ThunkType
-    teleThunkType (ClosureTele ss) = ThunkType (map ThunkValueArg ss)
-
     teleThunkTypes :: ClosureTele -> Set ThunkType
-    teleThunkTypes (ClosureTele ss) = foldMap thunkTypesOf ss
+    teleThunkTypes (ClosureTele ss) = foldMap entryThunkTypes ss
+
+    entryThunkTypes :: TeleEntry -> Set ThunkType
+    entryThunkTypes (ValueTele s) = thunkTypesOf s
 
 
 -- | After closure conversion, the code for each function and continuation can
@@ -779,5 +791,10 @@ pprintSort UnitH = "unit"
 pprintSort SumH = "sum"
 pprintSort (ListH t) = "list " ++ pprintSort t
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
-pprintSort (ClosureH (ClosureTele ss)) = "closure(" ++ intercalate ", " (map pprintSort ss) ++ ")"
+pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
 pprintSort (AllocH aa) = "alloc(" ++ show aa ++ ")"
+
+pprintTele :: ClosureTele -> String
+pprintTele (ClosureTele ss) = intercalate ", " (map f ss)
+  where
+    f (ValueTele s) = pprintSort s
