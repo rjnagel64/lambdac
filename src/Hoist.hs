@@ -155,12 +155,14 @@ newtype ClosureTele = ClosureTele [TeleEntry]
 
 data TeleEntry
   = ValueTele Sort
+  | TypeTele TyVar
   deriving Eq -- Should probably hand-roll, because alpha-equality
 
 closureThunkType :: ClosureTele -> ThunkType
 closureThunkType (ClosureTele ss) = ThunkType (map f ss)
   where
     f (ValueTele s) = ThunkValueArg s
+    f (TypeTele aa) = ThunkInfoArg -- Hmm. type args aren't really info args, though.
 
 sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH
@@ -291,6 +293,10 @@ data ThunkType = ThunkType [ThunkArg]
 -- ThunkType/ThunkArg are more for specifying the calling convention, an opaque
 -- "this closure expects an integer, an opaque value, and a closure" as
 -- arguments rather than the actual details of the argument types.
+--
+-- Another thing to consider is that closure sorts can now have type arguments.
+-- Is there really a meaningful distinction between a top-level type/info
+-- argument and a nested one?
 data ThunkArg
   = ThunkValueArg Sort
   | ThunkInfoArg
@@ -312,6 +318,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     tycode (ListH s) = 'L' : tycode s
     telecode (ClosureTele ss) = show (length ss) ++ concatMap entrycode ss
     entrycode (ValueTele s) = tycode s
+    entrycode (TypeTele aa) = "J" -- same as 'I', or different?
 
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
@@ -377,10 +384,13 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     thunkTypesOf (ListH t) = thunkTypesOf t
 
     teleThunkTypes :: ClosureTele -> Set ThunkType
+    -- We are looking for thunk types, so scoping doesn't matter and foldMap is
+    -- fine.
     teleThunkTypes (ClosureTele ss) = foldMap entryThunkTypes ss
 
     entryThunkTypes :: TeleEntry -> Set ThunkType
     entryThunkTypes (ValueTele s) = thunkTypesOf s
+    entryThunkTypes (TypeTele aa) = Set.empty
 
 
 
@@ -561,8 +571,6 @@ hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
     e' <- hoist e
     pure (AllocClosure cs' e')
 
--- TODO: Compute thunk types in placesForClosureAllocs?
--- Hmm. The return type here could possibly use a helper type.
 placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(ClosureName, a)] -> ([(Place, ClosureName, a)] -> HoistM r) -> HoistM r
 placesForClosureAllocs closureName closureSort cdecls kont = do
   scope <- asks (scopePlaces . localScope)
@@ -803,3 +811,4 @@ pprintTele :: ClosureTele -> String
 pprintTele (ClosureTele ss) = intercalate ", " (map f ss)
   where
     f (ValueTele s) = pprintSort s
+    f (TypeTele aa) = '@' : show aa
