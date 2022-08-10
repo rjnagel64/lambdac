@@ -58,6 +58,7 @@ data TCError
   | BadProjection Sort Projection
   | BadCase CaseKind [Name]
   | BadClosurePlace Id Sort
+  | BadOpen Name Sort
 
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
@@ -191,7 +192,15 @@ checkClosureBody (LetProjectH p x proj e) = do
 checkClosureBody (HaltH s x i) = do
   checkName x s
   checkInfo i s
-checkClosureBody (OpenH f ty args) = throwError (NotImplemented "checkClosureBody OpenH")
+checkClosureBody (OpenH f ty args) = do
+  -- Infer type of closure
+  tele <- lookupName f >>= \case
+    ClosureH tele -> pure tele
+    s -> throwError (BadOpen f s)
+  -- Check that thunk type matches closure type
+  -- Check that args match closure telescope
+  checkCallArgs tele args
+  throwError (NotImplemented "checkClosureBody OpenH")
 checkClosureBody (CaseH x kind ks) = checkCase x kind ks
 checkClosureBody (AllocClosure cs e) = do
   let binds = map closurePlace cs
@@ -213,6 +222,9 @@ checkClosureBody (AllocClosure cs e) = do
 
 checkEnvAlloc :: EnvAlloc -> EnvDeclType -> TC ()
 checkEnvAlloc env envTy = throwError (NotImplemented "checkEnvAlloc")
+
+checkCallArgs :: ClosureTele -> [ClosureArg] -> TC ()
+checkCallArgs tele args = throwError (NotImplemented "checkCallArgs")
 
 -- | Check that a primitive operation has correct argument sorts, and yield its
 -- return sort.
