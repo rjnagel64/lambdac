@@ -145,13 +145,18 @@ data Sort
   | AllocH TyVar
   deriving Eq -- Needed for Hoist.TypeCheck.equalSorts
 
--- TODO: ClosureTele should have type/info parameters (It should be a telescope)
 -- It's a bit unfortunate, but I do need to have separate telescopes for
 -- parameters and types. The difference is that parameters need names for each
 -- value, but closure types ignore value parameter names, and also cannot infer
 -- those names.
 newtype ClosureTele = ClosureTele [TeleEntry]
-  deriving Eq -- Should probably hand-roll, because alpha-equality
+
+instance Eq ClosureTele where
+  (==) = equalTele
+
+equalTele :: ClosureTele -> ClosureTele -> Bool
+-- Should probably hand-roll, because alpha-equality
+equalTele (ClosureTele tele) (ClosureTele tele') = tele == tele'
 
 data TeleEntry
   = ValueTele Sort

@@ -116,8 +116,9 @@ equalSorts expected actual =
   when (expected /= actual) $
     throwError (TypeMismatch expected actual)
 
-equalTele :: ClosureTele -> ClosureTele -> TC ()
-equalTele expected actual = throwError (NotImplemented "equalTele")
+equalTeles :: ClosureTele -> ClosureTele -> TC ()
+equalTeles expected actual = when (expected /= actual) $
+  throwError (NotImplemented "equalTeles")
 
 withPlace :: Place -> TC a -> TC a
 withPlace p m = do
@@ -215,7 +216,7 @@ checkClosureBody (AllocClosure cs e) = do
       tele' <- case placeSort p of
         ClosureH tele' -> pure tele'
         s -> throwError (BadClosurePlace (placeName p) s)
-      equalTele tele' tele
+      equalTeles tele' tele
     checkClosureBody e
 
 checkEnvAlloc :: EnvAlloc -> EnvDeclType -> TC ()
