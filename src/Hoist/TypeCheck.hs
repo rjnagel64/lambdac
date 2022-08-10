@@ -32,14 +32,9 @@ deriving newtype instance MonadState Signature TC
 data Signature = Signature { sigClosures :: Map ClosureName ClosureDeclType }
 
 -- | Represents the type signature 'code[aa+](t; S)'
-data ClosureDeclType = ClosureDeclType [TyVar] EnvDeclType [TeleEntry']
+data ClosureDeclType = ClosureDeclType [TyVar] EnvDeclType ClosureTele
 
 type EnvDeclType = ([Sort], [Sort]) -- info types, value types. Maybe use sum type instead?
-
-data TeleEntry'
-  = TypeTele' TyVar
-  | InfoTele' Sort
-  | ValueTele' Sort
 
 -- | The typing context is split into two scopes: local information and
 -- environment information.
@@ -62,6 +57,7 @@ data TCError
   | BadValue
   | BadProjection Sort Projection
   | BadCase CaseKind [Name]
+  | BadClosurePlace Id Sort
 
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
@@ -118,11 +114,17 @@ equalSorts expected actual =
   when (expected /= actual) $
     throwError (TypeMismatch expected actual)
 
+equalTele :: ClosureTele -> ClosureTele -> TC ()
+equalTele expected actual = throwError (NotImplemented "equalTele")
+
 withPlace :: Place -> TC a -> TC a
 withPlace p m = do
   checkSort (placeSort p)
   local extend m
   where extend (Context locals env) = Context (bindPlace p locals) env
+
+withPlaces :: [Place] -> TC a -> TC a
+withPlaces ps = foldr (.) id (map withPlace ps)
 
 withInfo :: InfoPlace -> TC a -> TC a
 withInfo i m = local extend m
@@ -153,9 +155,9 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   -- Extend signature
   let envTy = ([], [])
   let
-    mkParam (PlaceParam p) = ValueTele' (placeSort p)
-    mkParam (TypeParam (InfoPlace (Id aa))) = TypeTele' (TyVar aa)
-  let tele = map mkParam params
+    mkParam (PlaceParam p) = ValueTele (placeSort p)
+    mkParam (TypeParam (InfoPlace (Id aa))) = TypeTele (TyVar aa)
+  let tele = ClosureTele (map mkParam params)
   let declTy = ClosureDeclType [] envTy tele
   modify (declareClosure cl declTy)
 
@@ -191,22 +193,23 @@ checkClosureBody (HaltH s x i) = do
   checkInfo i s
 checkClosureBody (OpenH f ty args) = throwError (NotImplemented "checkClosureBody OpenH")
 checkClosureBody (CaseH x kind ks) = checkCase x kind ks
--- Extend env with places for each closure
--- type check each closure/env application
 checkClosureBody (AllocClosure cs e) = do
   let binds = map closurePlace cs
-  -- withPlaces binds $
-  for_ cs $ \ (ClosureAlloc p c envPlace env) -> do
-    ClosureDeclType aas envTy tele <- lookupCodeDecl c
-    -- instantiate aas (not yet present in Hoist)
-    -- _
-    -- check envTy
-    checkEnvAlloc env envTy
-    -- check tele matches (placeSort p)
-    -- alpha-equality aaaaaa
-    throwError (NotImplemented "checkClosureBody ClosureAlloc check tele")
-  -- withPlaces binds $
-  checkClosureBody e
+  withPlaces binds $ do
+    for_ cs $ \ (ClosureAlloc p c envPlace env) -> do
+      ClosureDeclType aas envTy tele <- lookupCodeDecl c
+      -- instantiate aas (not yet present in Hoist)
+      -- _
+      -- check envTy
+      checkEnvAlloc env envTy
+      tele' <- case placeSort p of
+        ClosureH tele' -> pure tele'
+        s -> throwError (BadClosurePlace (placeName p) s)
+      -- check that 'ClosureH tele' matches (placeSort p)
+      -- (alpha-equality aaaaaa)
+      equalTele tele' tele
+      throwError (NotImplemented "checkClosureBody ClosureAlloc check tele")
+    checkClosureBody e
 
 checkEnvAlloc :: EnvAlloc -> EnvDeclType -> TC ()
 checkEnvAlloc env envTy = throwError (NotImplemented "checkEnvAlloc")
