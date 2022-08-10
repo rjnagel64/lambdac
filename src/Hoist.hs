@@ -216,6 +216,12 @@ data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
 
 data ClosureParam = PlaceParam Place | TypeParam InfoPlace
 
+-- TODO: I don't like OpaqueArg.
+-- It is currently necessary because ThunkType:s can have free type variables.
+-- An alternate method would be to add a "pseudo-forall" to the thunk type, so
+-- that it is closed and the extra info args can be passed up front.
+--
+-- (This is the "closed thunk types" proposal that I need to write down)
 data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
 
 data TermH
@@ -226,7 +232,7 @@ data TermH
   | HaltH Sort Name Info
   | OpenH Name ThunkType [ClosureArg]
   | CaseH Name CaseKind [Name]
-  -- Closures may be mutually recursive, so are allocated as a group.
+  -- Closures may be mutually recursive, so they are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
 -- TODO(eventually): bring back generic case expressions

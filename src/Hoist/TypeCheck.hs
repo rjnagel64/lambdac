@@ -59,6 +59,7 @@ data TCError
   | BadCase CaseKind [Name]
   | BadClosurePlace Id Sort
   | BadOpen Name Sort
+  | WrongClosureArg
 
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
@@ -194,7 +195,7 @@ checkClosureBody (HaltH s x i) = do
   checkInfo i s
 checkClosureBody (OpenH f ty args) = do
   -- Infer type of closure
-  tele <- lookupName f >>= \case
+  ClosureTele tele <- lookupName f >>= \case
     ClosureH tele -> pure tele
     s -> throwError (BadOpen f s)
   -- Check that thunk type matches closure type
@@ -214,17 +215,20 @@ checkClosureBody (AllocClosure cs e) = do
       tele' <- case placeSort p of
         ClosureH tele' -> pure tele'
         s -> throwError (BadClosurePlace (placeName p) s)
-      -- check that 'ClosureH tele' matches (placeSort p)
-      -- (alpha-equality aaaaaa)
       equalTele tele' tele
-      throwError (NotImplemented "checkClosureBody ClosureAlloc check tele")
     checkClosureBody e
 
 checkEnvAlloc :: EnvAlloc -> EnvDeclType -> TC ()
 checkEnvAlloc env envTy = throwError (NotImplemented "checkEnvAlloc")
 
-checkCallArgs :: ClosureTele -> [ClosureArg] -> TC ()
-checkCallArgs tele args = throwError (NotImplemented "checkCallArgs")
+checkCallArgs :: [TeleEntry] -> [ClosureArg] -> TC ()
+checkCallArgs [] [] = pure ()
+checkCallArgs (ValueTele s : tele) (ValueArg x : args) = do
+  checkName x s
+  checkCallArgs tele args
+checkCallArgs (ValueTele s : tele) (_ : args) = throwError WrongClosureArg
+checkCallArgs tele args = do
+  throwError (NotImplemented "checkCallArgs")
 
 -- | Check that a primitive operation has correct argument sorts, and yield its
 -- return sort.
