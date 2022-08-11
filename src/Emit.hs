@@ -138,25 +138,23 @@ emitThunkType ns (ThunkType ss) =
   ,"    struct args *args;"
   ,"};"]
 
--- TODO: emitThunkTrace does not need to be specialized
+-- TODO: emitThunkTrace does not need to be exist
 emitThunkTrace :: ThunkNames -> ThunkType -> [String]
 emitThunkTrace ns (ThunkType ss) =
   ["void " ++ thunkTraceName ns ++ "(void) {"
-  ,"    struct " ++ thunkTypeName ns ++ " *next = (struct " ++ thunkTypeName ns ++ " *)next_step;"
-  ,"    trace_args(next->args);"
+  ,"    trace_args(next_step->args);"
   ,"}"]
 
 emitThunkSuspend :: ThunkNames -> ThunkType -> [String]
 emitThunkSuspend ns (ThunkType ss) =
   ["void " ++ thunkSuspendName ns ++ "(" ++ commaSep paramList ++ ") {"
   ,"    next_closure = closure;"
-  ,"    struct " ++ thunkTypeName ns ++ " *next = realloc(next_step, sizeof(struct " ++ thunkTypeName ns ++ "));"
-  ,"    next->header.enter = closure->enter;"
-  ,"    next->header.trace = " ++ thunkTraceName ns ++ ";"
-  ,"    next->args = make_args(" ++ show numValues ++ ", " ++ show numInfos ++ ");"] ++
+  ,"    next_step->enter = closure->enter;"
+  ,"    next_step->trace = " ++ thunkTraceName ns ++ ";"
+  ,"    destroy_args(next_step->args);"
+  ,"    next_step->args = make_args(" ++ show numValues ++ ", " ++ show numInfos ++ ");"] ++
   assignFields 0 0 ss ++
-  ["    next_step = (struct thunk *)next;"
-  ,"}"]
+  ["}"]
   where
     paramList = "struct closure *closure" : makeParams 0 0 ss
     (numValues, numInfos) = countParams 0 0 ss
@@ -181,11 +179,11 @@ emitThunkSuspend ns (ThunkType ss) =
 
     assignFields :: Int -> Int -> [ThunkArg] -> [String]
     assignFields i j (ThunkInfoArg : ss') =
-      ("    next->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
+      ("    next_step->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
       assignFields i (j+1) ss'
     assignFields i j (ThunkValueArg s : ss') =
-      ("    next->args->values[" ++ show i ++ "].alloc = " ++ asAlloc ("arg" ++ show i) ++ ";") :
-      ("    next->args->values[" ++ show i ++ "].info = " ++ emitInfo (Id "NULL") info ++ ";") :
+      ("    next_step->args->values[" ++ show i ++ "].alloc = " ++ asAlloc ("arg" ++ show i) ++ ";") :
+      ("    next_step->args->values[" ++ show i ++ "].info = " ++ emitInfo (Id "NULL") info ++ ";") :
       assignFields (i+1) j ss'
       where
         info = case s of
@@ -269,8 +267,8 @@ emitClosureEnter ns ty@(ThunkType ss) =
     envTy = "struct " ++ envTypeName (closureEnvName ns) ++ " *"
     argList = "env" : makeArgList 0 0 ss
     makeArgList :: Int -> Int -> [ThunkArg] -> [String]
-    makeArgList i j (ThunkInfoArg : ss') = ("next->args->infos[" ++ show j ++ "]") : makeArgList i (j+1) ss'
-    makeArgList i j (ThunkValueArg s : ss') = asSort s ("next->args->values[" ++ show i ++ "].alloc") : makeArgList (i+1) j ss'
+    makeArgList i j (ThunkInfoArg : ss') = ("next_step->args->infos[" ++ show j ++ "]") : makeArgList i (j+1) ss'
+    makeArgList i j (ThunkValueArg s : ss') = asSort s ("next_step->args->values[" ++ show i ++ "].alloc") : makeArgList (i+1) j ss'
     makeArgList _ _ [] = []
 
 emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [String]

@@ -6,7 +6,7 @@ void (*trace_roots)(void) = mark_root;
 
 void mark_root(void) {
     mark_gray(AS_ALLOC(next_closure), closure_info);
-    next_step->trace();
+    trace_args(next_step->args);
 }
 
 void halt_with(struct alloc_header *x, type_info info) {
@@ -24,6 +24,9 @@ struct args *make_args(size_t num_values, size_t num_infos) {
 }
 
 void destroy_args(struct args *args) {
+    if (args == NULL) {
+        return;
+    }
     free(args->values);
     free(args->infos);
     free(args);
