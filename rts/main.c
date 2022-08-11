@@ -13,12 +13,10 @@ int main(void) {
     // Initialize the locals vector.
     init_locals();
     
-    // Initialize the argument arrays.
-    init_args();
-
     // Prepare the main driver loop
     result_value = NULL;
     next_step = malloc(sizeof(struct thunk));
+    next_step->args = NULL;
 
     // Prime the pump, so that we have a chain of thunks to enter.
     program_entry();
@@ -39,7 +37,6 @@ int main(void) {
     string_buf_destroy(sb);
 
     // Cleanup.
-    destroy_args();
     destroy_locals();
     sweep_all_allocations();
 }

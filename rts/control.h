@@ -10,6 +10,7 @@
 struct thunk {
     void (*enter)(void);
     void (*trace)(void);
+    struct args *args;
 };
 
 // Next action to take. A GC root. A delayed function/continuation application.
@@ -25,12 +26,18 @@ struct value_arg {
     struct alloc_header *alloc;
     type_info info;
 };
-struct value_arg *value_args;
-type_info *info_args;
 
-void init_args(void);
-void destroy_args(void);
-void reserve_args(size_t num_values, size_t num_infos);
-void trace_args(void);
+struct args {
+    size_t num_values;
+    size_t num_infos;
+    struct value_arg *values;
+    type_info *infos;
+};
+
+struct args *make_args(size_t num_values, size_t num_infos);
+// TODO: Destroy old arguments when suspending new closure
+// (Or realloc args->values, args->infos)
+void destroy_args(struct args *args);
+void trace_args(struct args *args);
 
 #endif
