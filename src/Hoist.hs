@@ -90,6 +90,10 @@ asPlace :: C.Sort -> C.Name -> Place
 asPlace s (C.Name x i) = Place (sortOf s) (Id (x ++ show i))
 
 -- | A 'InfoPlace' is a location that can hold a @type_info@.
+--
+-- Hmm. Right now, @InfoPlace (Id "aa")@ beasically means `aa : info aa`. Aside
+-- from muddling term/info and type namespaces, it also overlaps with
+-- InfoPlace2 (denoting `i : info t`.
 data InfoPlace = InfoPlace { infoName :: Id }
 
 asInfoPlace :: C.TyVar -> InfoPlace

@@ -570,6 +570,27 @@ language with a bytecode VM to examine, too.
 
 [tao]: https://github.com/zesterer/tao
 
+I think I want a register VM rather than a stack VM, because my IRs are all
+pretty much in ANF (SSA).
+
+A code snippet like
+
+```
+let x : int = 17 in
+let y : int = -x in
+let f : closure(...) = #foo_code { y } in
+f(x, x)
+```
+
+might be compiled to
+
+```
+LOAD_INT r1 17
+NEGATE_INT r2 r1
+MAKE_CLOSURE r3 foo_code [r2]
+CALL r3 [r1, r1]
+```
+
 
 # Type, Effect, and Module System
 
