@@ -15,6 +15,7 @@ compiler_path = subprocess.run(["cabal", "exec", "which", "lambdac"], capture_ou
 proc = subprocess.run(["make", "rts/librts.a"])
 if proc.returncode != 0:
     print(f"{sys.argv[0]} RTS failed to build: not running tests")
+    sys.exit(1)
 
 failed_tests = []
 
