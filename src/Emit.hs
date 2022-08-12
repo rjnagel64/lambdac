@@ -125,25 +125,7 @@ emitMarkGray envp x s = "mark_gray(" ++ asAlloc (emitName envp x) ++ ", " ++ emi
 
 emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
-  let ns = namesForThunk t in
-  emitThunkType ns t ++
-  emitThunkTrace ns t ++
-  emitThunkSuspend ns t
-
--- TODO: emitThunkType does not need to be specialized
-emitThunkType :: ThunkNames -> ThunkType -> [String]
-emitThunkType ns (ThunkType ss) =
-  ["struct " ++ thunkTypeName ns ++ " {"
-  ,"    struct thunk header;"
-  ,"    struct args *args;"
-  ,"};"]
-
--- TODO: emitThunkTrace does not need to be exist
-emitThunkTrace :: ThunkNames -> ThunkType -> [String]
-emitThunkTrace ns (ThunkType ss) =
-  ["void " ++ thunkTraceName ns ++ "(void) {"
-  ,"    trace_args(next_step->args);"
-  ,"}"]
+  emitThunkSuspend (namesForThunk t) t
 
 emitThunkSuspend :: ThunkNames -> ThunkType -> [String]
 emitThunkSuspend ns (ThunkType ss) =
