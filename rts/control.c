@@ -14,6 +14,15 @@ void halt_with(struct alloc_header *x, type_info info) {
     result_info = info;
 }
 
+void destroy_args(struct args *args) {
+    if (args == NULL) {
+        return;
+    }
+    free(args->values);
+    free(args->infos);
+    free(args);
+}
+
 struct args *make_args(size_t num_values, size_t num_infos) {
     struct args *args = malloc(sizeof(struct args));
     args->num_values = num_values;
@@ -23,13 +32,9 @@ struct args *make_args(size_t num_values, size_t num_infos) {
     return args;
 }
 
-void destroy_args(struct args *args) {
-    if (args == NULL) {
-        return;
-    }
-    free(args->values);
-    free(args->infos);
-    free(args);
+void reserve_args(size_t num_values, size_t num_infos) {
+    destroy_args(next_step->args);
+    next_step->args = make_args(num_values, num_infos);
 }
 
 void trace_args(struct args *args) {

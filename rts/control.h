@@ -29,10 +29,7 @@ struct args {
     type_info *infos;
 };
 
-struct args *make_args(size_t num_values, size_t num_infos);
-// TODO: Destroy old arguments when suspending new closure
-// (Or realloc args->values, args->infos)
-void destroy_args(struct args *args);
+void reserve_args(size_t num_values, size_t num_infos);
 void trace_args(struct args *args);
 
 #endif
