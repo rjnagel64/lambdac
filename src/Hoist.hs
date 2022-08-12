@@ -264,6 +264,7 @@ data ClosureAlloc
 
 data EnvAlloc
   = EnvAlloc {
+    -- Do these really need to be 'Place's, or can they just be 'Id's?
     envAllocInfoArgs :: [(InfoPlace, Info)]
   , envAllocValueArgs :: [EnvAllocArg]
   }
@@ -661,11 +662,9 @@ hoistCall x = do
 hoistArgList :: [C.Name] -> HoistM [ClosureArg]
 hoistArgList xs = traverse f xs
   where
-    f x = hoistVarOccSort x >>= \ (x', s) -> case s of
-      AllocH _ -> do
-        i <- infoForSort s
-        pure (OpaqueArg x' i)
-      _ -> pure (ValueArg x')
+    f x = hoistVarOccSort x >>= \case
+      (x', AllocH aa) -> OpaqueArg x' <$> infoForTyVar aa
+      (x', _) -> pure (ValueArg x')
 
 -- | Hoist a variable occurrence, and also retrieve the @type_info@ that describes it.
 hoistVarOcc' :: C.Name -> HoistM (Name, Info)

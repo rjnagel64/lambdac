@@ -33,6 +33,7 @@ struct args *make_args(size_t num_values, size_t num_infos) {
 }
 
 void reserve_args(size_t num_values, size_t num_infos) {
+    // TODO: Directly reallocate args
     destroy_args(next_step->args);
     next_step->args = make_args(num_values, num_infos);
 }
