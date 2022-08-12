@@ -204,7 +204,7 @@ type_info unit_info = { trace_unit, display_unit };
 
 
 void collect(void) {
-    // Alternatively, malloc at startup, realloc/resize here.
+    // TODO: malloc gray list at startup, realloc/resize when collecting.
     // That probably would be better, GC happens when there isn't much memory
     // available to allocate for the gray list.
     gray_capacity = 8;

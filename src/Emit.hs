@@ -150,7 +150,6 @@ emitThunkSuspend ns (ThunkType ss) =
   ["void " ++ thunkSuspendName ns ++ "(" ++ commaSep paramList ++ ") {"
   ,"    next_closure = closure;"
   ,"    next_step->enter = closure->enter;"
-  ,"    next_step->trace = " ++ thunkTraceName ns ++ ";"
   ,"    destroy_args(next_step->args);"
   ,"    next_step->args = make_args(" ++ show numValues ++ ", " ++ show numInfos ++ ");"] ++
   assignFields 0 0 ss ++
