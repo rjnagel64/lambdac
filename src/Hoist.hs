@@ -383,7 +383,6 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     closureThunkTypes :: ClosureDecl -> Set ThunkType
     closureThunkTypes (ClosureDecl _ _ params _) = Set.insert ty (foldMap paramThunkTypes params)
       where
-        -- ty = closureThunkType (closureParamTele params)
         ty = ThunkType (map f params)
         f (TypeParam i) = ThunkInfoArg
         f (PlaceParam p) = ThunkValueArg (placeSort p)
@@ -422,18 +421,17 @@ hoist (HaltC x) = do
   i <- infoForSort s
   pure (HaltH s x' i)
 hoist (JumpC k xs) = do
-  (k', tele) <- hoistCall k
+  (k', ty) <- hoistCall k
   ys <- hoistArgList xs
-  pure (OpenH k' (closureThunkType tele) ys)
+  pure (OpenH k' ty ys)
 hoist (CallC f xs ks) = do
-  (f', tele) <- hoistCall f
+  (f', ty) <- hoistCall f
   ys <- hoistArgList (xs ++ ks)
-  pure (OpenH f' (closureThunkType tele) ys)
+  pure (OpenH f' ty ys)
 hoist (InstC f ts ks) = do
-  (f', tele) <- hoistCall f
+  (f', ty) <- hoistCall f
   ys <- hoistArgList ks
   ts' <- traverse (infoForSort . sortOf) ts
-  let ty = closureThunkType tele
   pure (OpenH f' ty (map TypeArg ts' ++ ys))
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
@@ -646,7 +644,7 @@ hoistVarOccSort x = do
       Just (Place s x') -> pure (EnvName x', s)
       Nothing -> error ("not in scope: " ++ show x)
 
-hoistCall :: C.Name -> HoistM (Name, ClosureTele)
+hoistCall :: C.Name -> HoistM (Name, ThunkType)
 hoistCall x = do
   ps <- asks (scopePlaces . localScope)
   fs <- asks (scopePlaces . envScope)
@@ -656,7 +654,7 @@ hoistCall x = do
       Just (Place s x') -> pure (EnvName x', s)
       Nothing -> error ("not in scope: " ++ show x)
   case s of
-    ClosureH ss -> pure (x', ss)
+    ClosureH tele -> pure (x', closureThunkType tele)
     _ -> error ("called a non-closure: " ++ show x ++ " : " ++ pprintSort s)
 
 hoistArgList :: [C.Name] -> HoistM [ClosureArg]
