@@ -23,6 +23,7 @@ module CC
   , CmpC(..)
   , BranchType(..)
   , Sort(..)
+  , TeleEntry(..)
   , TyVar(..)
 
   , cconv
@@ -110,7 +111,7 @@ tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
 -- Eventually, I may want to distinguish between named and anonymous product
 -- types.
 data Sort
-  = Closure [Sort]
+  = Closure [TeleEntry]
   | Integer
   | Alloc TyVar
   | Sum
@@ -130,6 +131,16 @@ instance Show Sort where
   show (Pair s t) = "pair " ++ show s ++ " " ++ show t
   show Unit = "unit"
 
+-- TODO: Closure telescopes need alpha-equality, because type variables.
+data TeleEntry
+  = ValueTele Sort
+  | TypeTele TyVar
+  deriving (Eq, Ord)
+
+instance Show TeleEntry where
+  show (ValueTele s) = show s
+  show (TypeTele aa) = show aa
+
 sortOf :: K.TypeK -> Sort
 sortOf (K.SumK _ _) = Sum
 sortOf K.BoolK = Boolean
@@ -137,12 +148,12 @@ sortOf (K.ProdK t1 t2) = Pair (sortOf t1) (sortOf t2)
 sortOf K.UnitK = Unit
 sortOf K.IntK = Integer
 sortOf (K.ListK t) = List (sortOf t)
-sortOf (K.FunK ts ss) = Closure (map sortOf ts ++ map coSortOf ss)
+sortOf (K.FunK ts ss) = Closure (map (ValueTele . sortOf) ts ++ map (ValueTele . coSortOf) ss)
 sortOf (K.TyVarOccK aa) = Alloc (tyVar aa)
-sortOf (K.AllK aas ss) = Closure (map coSortOf ss) -- TODO: 'Closure' is insufficient
+sortOf (K.AllK aas ss) = Closure (map (TypeTele . tyVar) aas ++ map (ValueTele . coSortOf) ss)
 
 coSortOf :: K.CoTypeK -> Sort
-coSortOf (K.ContK ss) = Closure (map sortOf ss)
+coSortOf (K.ContK ss) = Closure (map (ValueTele . sortOf) ss)
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -203,7 +214,8 @@ data FunClosureDef
   }
 
 funClosureSort :: FunClosureDef -> Sort
-funClosureSort (FunClosureDef _ _ params conts _) = Closure (map snd params ++ map snd conts)
+funClosureSort (FunClosureDef _ _ params conts _) =
+  Closure (map (ValueTele . snd) params ++ map (ValueTele . snd) conts)
 
 data ContClosureDef
   = ContClosureDef {
@@ -214,7 +226,7 @@ data ContClosureDef
   }
 
 contClosureSort :: ContClosureDef -> Sort
-contClosureSort (ContClosureDef _ _ params _) = Closure (map snd params)
+contClosureSort (ContClosureDef _ _ params _) = Closure (map (ValueTele . snd) params)
 
 data AbsClosureDef
   = AbsClosureDef {
@@ -226,7 +238,7 @@ data AbsClosureDef
   }
 
 absClosureSort :: AbsClosureDef -> Sort
-absClosureSort (AbsClosureDef _ _ types conts _) = Closure (map snd conts)
+absClosureSort (AbsClosureDef _ _ types conts _) = Closure (map TypeTele types ++ map (ValueTele . snd) conts)
 
 -- | Closures environments capture two sets of names: those from outer scopes,
 -- and those from the same recursive bind group.

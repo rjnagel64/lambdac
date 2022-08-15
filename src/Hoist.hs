@@ -180,7 +180,10 @@ sortOf C.Unit = UnitH
 sortOf C.Sum = SumH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.List t) = ListH (sortOf t)
-sortOf (C.Closure ss) = ClosureH (ClosureTele (map (ValueTele . sortOf) ss))
+sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
+  where
+    f (C.ValueTele s) = ValueTele (sortOf s)
+    f (C.TypeTele aa) = TypeTele (asTyVar aa)
 sortOf (C.Alloc aa) = AllocH (asTyVar aa)
 
 -- | 'Info' is used to represent @type_info@ values that are passed at runtime.
@@ -430,10 +433,7 @@ hoist (InstC f ts ks) = do
   (f', tele) <- hoistCall f
   ys <- hoistArgList ks
   ts' <- traverse (infoForSort . sortOf) ts
-  let ThunkType ss = closureThunkType tele
-  -- Patch the thunktype, because closure types don't know about type arguments yet.
-  let infoSorts = replicate (length ts) ThunkInfoArg
-  let ty = ThunkType (infoSorts ++ ss)
+  let ty = closureThunkType tele
   pure (OpenH f' ty (map TypeArg ts' ++ ys))
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
@@ -773,7 +773,7 @@ pprintInfo (InfoPlace aa) = show aa
 
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
-pprintParam (TypeParam i) = pprintInfo i
+pprintParam (TypeParam i) = '@' : pprintInfo i
 
 pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = "let {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
