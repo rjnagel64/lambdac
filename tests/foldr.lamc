@@ -1,11 +1,25 @@
 
-letrec foldr : forall a. forall b. (a -> b -> b) -> b -> list a -> b =
-  \ @a -> \ @b -> \ (f : a -> b -> b) -> \ (z : b) -> \ (xs : list a) ->
-  case uncons xs return b of {
-    nil -> z;
-    cons (y : a) (ys : list a) -> f y (foldr @a @b f z ys)
-  };
+let foldr : forall a. forall b. (a -> b -> b) -> b -> list a -> b =
+  \ @a -> \ @b ->
+  \ (f : a -> b -> b) -> \ (z : b) ->
+  letrec go : list a -> b =
+    \ (xs : list a) -> case uncons xs return b of {
+      nil -> z;
+      cons (y : a) (ys : list a) -> f y (go ys)
+    };
+  in
+  go
 in
+-- TODO: Support recursive type-lambdas
+-- letrec foldr : forall a. forall b. (a -> b -> b) -> b -> list a -> b =
+--   \ @a -> \ @b -> \ (f : a -> b -> b) -> \ (z : b) -> \ (xs : list a) ->
+--   case uncons xs return b of {
+--     nil -> z;
+--     cons (y : a) (ys : list a) -> f y (foldr @a @b f z ys)
+--   };
+-- in
 -- maximum [4, 7, 2, 5] : int
-foldr @int @int (\ (elem : int) -> \ (acc : int) -> if elem > acc return int then elem else acc)
+foldr @int @int
+(\ (elem : int) -> \ (acc : int) -> if elem > acc return int then elem else acc)
+0
 (cons 4 (cons 7 (cons 2 (cons 5 (nil @int)))))
