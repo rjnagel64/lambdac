@@ -122,9 +122,9 @@ data Sort
   deriving (Eq, Ord)
 
 instance Show Sort where
-  show (Closure ss) = "closure " ++ show ss
-  show Integer = "value"
-  show (Alloc aa) = "alloc"
+  show (Closure ss) = "(" ++ intercalate ", " (map show ss) ++ ") -> !"
+  show Integer = "int"
+  show (Alloc aa) = "alloc(" ++ show aa ++ ")"
   show Sum = "sum"
   show Boolean = "bool"
   show (List s) = "list " ++ show s
@@ -139,7 +139,7 @@ data TeleEntry
 
 instance Show TeleEntry where
   show (ValueTele s) = show s
-  show (TypeTele aa) = show aa
+  show (TypeTele aa) = '@' : show aa
 
 sortOf :: K.TypeK -> Sort
 sortOf (K.SumK _ _) = Sum
@@ -183,7 +183,7 @@ caseKind :: K.TypeK -> CaseKind
 caseKind K.BoolK = CaseBool
 caseKind (K.SumK a b) = CaseSum (sortOf a) (sortOf b)
 caseKind (K.ListK a) = CaseList (sortOf a)
-caseKind a = error "cannot perform case analysis on this type"
+caseKind _ = error "cannot perform case analysis on this type"
 
 -- | A 'BranchType' specifies the argument sorts expected by a case branch.
 newtype BranchType = BranchType [Sort]
@@ -591,7 +591,7 @@ pprintTerm n (LetCompareC x cmp e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 
 pprintPlace :: (Name, Sort) -> String
-pprintPlace (x, s) = show s ++ " " ++ show x
+pprintPlace (x, s) = show x ++ " : " ++ show s
 
 pprintValue :: ValueC -> String
 pprintValue NilC = "()"
@@ -640,4 +640,4 @@ pprintAbsClosureDef n (AbsClosureDef f env as ks e) =
 pprintEnvDef :: Int -> EnvDef -> String
 pprintEnvDef n (EnvDef tys free) = indent n $ "{" ++ intercalate ", " vars ++ "}\n"
   where
-    vars = map (\v -> "@" ++ show v) tys ++ map (\ (v, s) -> show s ++ " " ++ show v) free
+    vars = map (\v -> "@" ++ show v) tys ++ map pprintPlace free

@@ -10,6 +10,9 @@ let foldr : forall a. forall b. (a -> b -> b) -> b -> list a -> b =
   in
   go
 in
+let max2 : int -> int -> int =
+  \ (elem : int) -> \ (acc : int) -> if elem > acc return int then elem else acc
+in
 -- TODO: Support recursive type-lambdas
 -- letrec foldr : forall a. forall b. (a -> b -> b) -> b -> list a -> b =
 --   \ @a -> \ @b -> \ (f : a -> b -> b) -> \ (z : b) -> \ (xs : list a) ->
@@ -19,7 +22,5 @@ in
 --   };
 -- in
 -- maximum [4, 7, 2, 5] : int
-foldr @int @int
-(\ (elem : int) -> \ (acc : int) -> if elem > acc return int then elem else acc)
-0
+foldr @int @int max2 0
 (cons 4 (cons 7 (cons 2 (cons 5 (nil @int)))))
