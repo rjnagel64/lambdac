@@ -415,6 +415,22 @@ fieldsForTy (K.AllK aas ss) = bindTys aas (foldMap fieldsForCoTy ss)
 fieldsForCoTy :: K.CoTypeK -> FieldsFor
 fieldsForCoTy (K.ContK ss) = foldMap fieldsForTy ss
 
+-- | Compute the free type variables of a 'Sort'.
+-- Kind of a hack; used to make sure that environments contain all the type
+-- variables needed by their value fields.
+ftv :: Sort -> Set TyVar
+ftv (Alloc aa) = Set.singleton aa
+ftv (Closure tele) = foldr f Set.empty tele
+  where
+    f (ValueTele s) acc = ftv s <> acc
+    f (TypeTele aa) acc = Set.delete aa acc
+ftv Integer = Set.empty
+ftv Unit = Set.empty
+ftv Sum = Set.empty
+ftv Boolean = Set.empty
+ftv (Pair t s) = ftv t <> ftv s
+ftv (List s) = ftv s
+
 -- TODO: The typing context for ConvM should be
 -- '(Map K.TmVar (Name, Sort), Map K.CoVar (Name, Sort), Map K.TyVar TyVar)'
 newtype ConvM a = ConvM { runConvM :: Reader Context a }
@@ -508,7 +524,8 @@ cconvEnvDef :: (a -> FieldsFor) -> a -> ConvM EnvDef
 cconvEnvDef fieldsForDef def = do
   ctx <- ask
   let (fields, tyfields) = runFieldsFor (fieldsForDef def) ctx
-  let env = EnvDef (Set.toList tyfields) (map freeOcc $ Set.toList fields)
+  let tyfields' = foldr (\occ tys -> ftv (freeOccSort occ) <> tys) tyfields (Set.toList fields)
+  let env = EnvDef (Set.toList tyfields') (map freeOcc $ Set.toList fields)
   pure env
 
 cconvTmVar :: K.TmVar -> ConvM Name
