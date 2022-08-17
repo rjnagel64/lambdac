@@ -126,34 +126,34 @@ instance Show TyVar where
 
 -- | Alpha-equality of two types
 eqType :: Type -> Type -> Bool
-eqType = eqType' Map.empty Map.empty
+eqType = eqType' 0 Map.empty Map.empty
 
-eqType' :: Map TyVar TyVar -> Map TyVar TyVar -> Type -> Type -> Bool
-eqType' fw bw (TyVarOcc x) (TyVarOcc y) = case (Map.lookup x fw, Map.lookup y bw) of
-  -- Both bound: check that bijection holds
-  (Just y', Just x') -> y' == y && x' == x
+eqType' :: Int -> Map TyVar Int -> Map TyVar Int -> Type -> Type -> Bool
+eqType' _ fw bw (TyVarOcc x) (TyVarOcc y) = case (Map.lookup x fw, Map.lookup y bw) of
+  -- Both bound: should be bound at the same level
+  (Just xl, Just yl) -> xl == yl
   -- Both free: require exact equality
   (Nothing, Nothing) -> x == y
   -- Cannot be equal if one free but the other is bound
   _ -> False
-eqType' _ _ (TyVarOcc _) _ = False
-eqType' _ _ TyUnit TyUnit = True
-eqType' _ _ TyUnit _ = False
-eqType' _ _ TyBool TyBool = True
-eqType' _ _ TyBool _ = False
-eqType' _ _ TyInt TyInt = True
-eqType' _ _ TyInt _ = False
-eqType' fw bw (TyProd t1 t2) (TyProd t3 t4) = eqType' fw bw t1 t3 && eqType' fw bw t2 t4
-eqType' _ _ (TyProd _ _) _ = False
-eqType' fw bw (TySum t1 t2) (TySum t3 t4) = eqType' fw bw t1 t3 && eqType' fw bw t2 t4
-eqType' _ _ (TySum _ _) _ = False
-eqType' fw bw (TyArr arg1 ret1) (TyArr arg2 ret2) =
-  eqType' fw bw arg1 arg2 && eqType' fw bw ret1 ret2
-eqType' _ _ (TyArr _ _) _ = False
-eqType' fw bw (TyAll x t) (TyAll y s) = eqType' (Map.insert x y fw) (Map.insert y x bw) t s
-eqType' _ _ (TyAll _ _) _ = False
-eqType' fw bw (TyList a) (TyList b) = eqType' fw bw a b
-eqType' _ _ (TyList _) _ = False
+eqType' _ _ _ (TyVarOcc _) _ = False
+eqType' _ _ _ TyUnit TyUnit = True
+eqType' _ _ _ TyUnit _ = False
+eqType' _ _ _ TyBool TyBool = True
+eqType' _ _ _ TyBool _ = False
+eqType' _ _ _ TyInt TyInt = True
+eqType' _ _ _ TyInt _ = False
+eqType' l fw bw (TyProd t1 t2) (TyProd t3 t4) = eqType' l fw bw t1 t3 && eqType' l fw bw t2 t4
+eqType' _ _ _ (TyProd _ _) _ = False
+eqType' l fw bw (TySum t1 t2) (TySum t3 t4) = eqType' l fw bw t1 t3 && eqType' l fw bw t2 t4
+eqType' _ _ _ (TySum _ _) _ = False
+eqType' l fw bw (TyArr arg1 ret1) (TyArr arg2 ret2) =
+  eqType' l fw bw arg1 arg2 && eqType' l fw bw ret1 ret2
+eqType' _ _ _ (TyArr _ _) _ = False
+eqType' l fw bw (TyAll x t) (TyAll y s) = eqType' (l+1) (Map.insert x l fw) (Map.insert y l bw) t s
+eqType' _ _ _ (TyAll _ _) _ = False
+eqType' l fw bw (TyList a) (TyList b) = eqType' l fw bw a b
+eqType' _ _ _ (TyList _) _ = False
 
 -- | Perform a substitution, @subst aa t t' === t'[aa := t]@.
 subst :: TyVar -> Type -> Type -> Type
