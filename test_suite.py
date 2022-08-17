@@ -66,6 +66,7 @@ standard_test("duparg", "true")
 standard_test("polystate", "(55, 55)")
 standard_test("rank2poly", "true")
 standard_test("foldr", "7")
+standard_test("polycase", "17")
 
 
 for (test, out, err) in failed_tests:

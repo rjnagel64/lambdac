@@ -1,0 +1,6 @@
+
+-- Test that codegen behaves properly when dealing with polymorphic sums
+let foo : forall a. a -> a =
+  \ @a -> \ (x : a) -> case inr @a @a x return a of { inl (y : a) -> y; inr (z : a) -> z }
+in
+foo @int 17

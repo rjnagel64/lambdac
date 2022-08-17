@@ -314,7 +314,9 @@ emitCase kind envp x ks =
       let
         method = thunkSuspendName (namesForThunk ty)
         args = emitName envp k : map mkArg argNames
-        mkArg (argName, argSort) =
+        mkArg (argName, Nothing) =
+          ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName
+        mkArg (argName, Just argSort) =
           asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
@@ -324,7 +326,9 @@ emitCase kind envp x ks =
 data BranchInfo
   -- How to downcast to the constructor, what thunk type to suspend with, and
   -- the name/sort of each argument to extract.
-  = BranchInfo String ThunkType [(String, Sort)]
+  --
+  -- argSort is 'Just t' for a value argument, or 'Nothing' for an info argument.
+  = BranchInfo String ThunkType [(String, Maybe Sort)]
 
 caseInfoTable :: CaseKind -> [BranchInfo]
 caseInfoTable CaseBool =
@@ -332,12 +336,22 @@ caseInfoTable CaseBool =
   , BranchInfo "AS_BOOL_TRUE" (ThunkType []) []
   ]
 caseInfoTable (CaseSum t s) =
-  [ BranchInfo "AS_SUM_INL" (ThunkType [ThunkValueArg t]) [("payload", t)]
-  , BranchInfo "AS_SUM_INR" (ThunkType [ThunkValueArg s]) [("payload", s)]
+  -- If the field is polymorphic, we need to pass extra info arguments to the
+  -- suspend method.
+  let
+    makeArg name info sort@(AllocH _) = [(name, Just sort), (info, Nothing)]
+    makeArg name _ sort = [(name, Just sort)]
+  in
+  [ BranchInfo "AS_SUM_INL" (ThunkType [ThunkValueArg t]) (makeArg "payload" "info" t)
+  , BranchInfo "AS_SUM_INR" (ThunkType [ThunkValueArg s]) (makeArg "payload" "info" s)
   ]
 caseInfoTable (CaseList t) =
+  let
+    makeArg name info sort@(AllocH _) = [(name, Just sort), (info, Nothing)]
+    makeArg name _ sort = [(name, Just sort)]
+  in
   [ BranchInfo "AS_LIST_NIL" (ThunkType []) []
-  , BranchInfo "AS_LIST_CONS" consThunkTy [("head", t), ("tail", ListH t)]
+  , BranchInfo "AS_LIST_CONS" consThunkTy (makeArg "head" "head_info" t ++ makeArg "tail" "" (ListH t))
   ]
   where consThunkTy = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
 
