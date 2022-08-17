@@ -117,7 +117,10 @@ data TermK a
 
 -- Hmm. Idle thought:
 -- (in the long run) I think I should merge FunDef and AbsDef, using a
--- telescope of parameters for both.
+-- telescope of parameters for both. This is partly because 'letrec'
+-- expressions in 'Source' can contain mixed term and type lambdas, and partly
+-- because arity raising/uncurrying may merge together mixed term and type
+-- parameters.
 --
 -- Meanwhile, ContDef can/should have type parameters, then value parameters,
 -- akin to GHC's join points.
@@ -188,34 +191,67 @@ data TypeK
   | AllK [TyVar] [CoTypeK]
   | TyVarOccK TyVar
 
--- TODO: 'eqTypeK' needs to handle alpha-equality, since AllK and TyVarOccK exist
-eqTypeK :: TypeK -> TypeK -> Bool
-eqTypeK UnitK UnitK = True
-eqTypeK UnitK _ = False
-eqTypeK IntK IntK = True
-eqTypeK IntK _ = False
-eqTypeK BoolK BoolK = True
-eqTypeK BoolK _ = False
-eqTypeK (ProdK t1 s1) (ProdK t2 s2) = eqTypeK t1 t2 && eqTypeK s1 s2
-eqTypeK (ProdK _ _) _ = False
-eqTypeK (SumK t1 s1) (SumK t2 s2) = eqTypeK t1 t2 && eqTypeK s1 s2
-eqTypeK (SumK _ _) _ = False
-eqTypeK (ListK t1) (ListK t2) = eqTypeK t1 t2
-eqTypeK (ListK _) _ = False
-eqTypeK (FunK ts1 ss1) (FunK ts2 ss2) = go1 ts1 ts2 && go2 ss1 ss2
-  where
-    go1 [] [] = True
-    go1 (a:as) (b:bs) = eqTypeK a b && go1 as bs
-    go1 _ _ = False
-    go2 [] [] = True
-    go2 (a:as) (b:bs) = eqCoTypeK a b && go2 as bs
-    go2 _ _ = False
-eqTypeK (FunK _ _) _ = False
-
+-- | A co-type is the type of a continuation.
 newtype CoTypeK = ContK [TypeK]
 
+-- | Test two types for alpha-equality.
+eqTypeK :: TypeK -> TypeK -> Bool
+eqTypeK t s = eqTypeK' (Alpha 0 Map.empty Map.empty) t s
+
+eqTypeK' :: Alpha -> TypeK -> TypeK -> Bool
+eqTypeK' sc (TyVarOccK aa) (TyVarOccK bb) = testAlpha aa bb sc
+eqTypeK' _ (TyVarOccK _) _ = False
+eqTypeK' sc (AllK aas ts) (AllK bbs ss) = case bindAlpha aas bbs sc of
+  Nothing -> False
+  Just sc' -> allEqual (eqCoTypeK' sc') ts ss
+eqTypeK' _ (AllK _ _) _ = False
+eqTypeK' _ UnitK UnitK = True
+eqTypeK' _ UnitK _ = False
+eqTypeK' _ IntK IntK = True
+eqTypeK' _ IntK _ = False
+eqTypeK' _ BoolK BoolK = True
+eqTypeK' _ BoolK _ = False
+eqTypeK' sc (ProdK t1 s1) (ProdK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
+eqTypeK' _ (ProdK _ _) _ = False
+eqTypeK' sc (SumK t1 s1) (SumK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
+eqTypeK' _ (SumK _ _) _ = False
+eqTypeK' sc (ListK t1) (ListK t2) = eqTypeK' sc t1 t2
+eqTypeK' _ (ListK _) _ = False
+eqTypeK' sc (FunK ts1 ss1) (FunK ts2 ss2) =
+  allEqual (eqTypeK' sc) ts1 ts2 && allEqual (eqCoTypeK' sc) ss1 ss2
+eqTypeK' _ (FunK _ _) _ = False
+
+-- | Test two co-types for alpha-equality.
 eqCoTypeK :: CoTypeK -> CoTypeK -> Bool
-eqCoTypeK (ContK ts) (ContK ss) = and (zipWith eqTypeK ts ss)
+eqCoTypeK t s = eqCoTypeK' (Alpha 0 Map.empty Map.empty) t s
+
+eqCoTypeK' :: Alpha -> CoTypeK -> CoTypeK -> Bool
+eqCoTypeK' sc (ContK ts) (ContK ss) = allEqual (eqTypeK' sc) ts ss
+
+data Alpha = Alpha Int (Map TyVar Int) (Map TyVar Int)
+
+bindAlpha :: [TyVar] -> [TyVar] -> Alpha -> Maybe Alpha
+bindAlpha aas bbs sc = go aas bbs sc
+  where
+    go [] [] sc' = Just sc'
+    go (aa:aas') (bb:bbs') sc' = go aas' bbs' (bind aa bb sc')
+    go _ _ _ = Nothing
+
+    bind :: TyVar -> TyVar -> Alpha -> Alpha
+    bind aa bb (Alpha l ls rs) = Alpha (l+1) (Map.insert aa l ls) (Map.insert bb l rs)
+
+testAlpha :: TyVar -> TyVar -> Alpha -> Bool
+testAlpha aa bb (Alpha _ ls rs) = case (Map.lookup aa ls, Map.lookup bb rs) of
+  (Just la, Just lb) -> la == lb
+  (Nothing, Nothing) -> aa == bb
+  _ -> False
+
+-- Hmm. This might just be 'Eq1.liftEq'
+allEqual :: (a -> a -> Bool) -> [a] -> [a] -> Bool
+allEqual _ [] [] = True
+allEqual eq (x:xs) (y:ys) = eq x y && allEqual eq xs ys
+allEqual _ _ _ = False
+
 
 cpsType :: S.Type -> TypeK
 cpsType S.TyUnit = UnitK
