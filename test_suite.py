@@ -22,7 +22,9 @@ failed_tests = []
 def standard_test(name, result):
     path = f"./tests/{name}.lamc"
     exe_path = f"./tests/bin/{name}"
-    proc = subprocess.run([compiler_path, path, "-o", exe_path], capture_output=True, encoding="utf8")
+    compile_command = [compiler_path, path, "-o", exe_path]
+    # compile_command = [compiler_path, path, "-o", exe_path, "--check-cps"]
+    proc = subprocess.run(compile_command, capture_output=True, encoding="utf8")
     if proc.returncode != 0:
         print(f"{name} FAIL")
         failed_tests.append((name, proc.stdout, proc.stderr))
