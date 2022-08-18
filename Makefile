@@ -1,5 +1,5 @@
 
-RTSFLAGS = -O0
+RTSFLAGS = -O2
 
 rts/librts.a: rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/string_buf.o rts/main.o
 	ar -crs rts/librts.a rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/string_buf.o rts/main.o
