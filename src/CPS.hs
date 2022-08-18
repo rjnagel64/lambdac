@@ -13,8 +13,10 @@ module CPS
 
     , TypeK(..)
     , eqTypeK
+    , substTypeK
     , CoTypeK(..)
     , eqCoTypeK
+    , substCoTypeK
 
     , cpsMain
     , pprintTerm
@@ -185,21 +187,29 @@ data TypeK
   | ProdK TypeK TypeK
   -- σ + τ
   | SumK TypeK TypeK
+  -- (τ+) -> ((σ+) -> !)+
   | FunK [TypeK] [CoTypeK]
   -- List σ
   | ListK TypeK
+  -- forall aa+. ((σ+) -> !)+
   | AllK [TyVar] [CoTypeK]
+  -- aa
   | TyVarOccK TyVar
 
 -- | A co-type is the type of a continuation.
+-- @(τ+) -> !@
 newtype CoTypeK = ContK [TypeK]
 
 -- | Test two types for alpha-equality.
 eqTypeK :: TypeK -> TypeK -> Bool
 eqTypeK t s = eqTypeK' (Alpha 0 Map.empty Map.empty) t s
 
+-- | Test two co-types for alpha-equality.
+eqCoTypeK :: CoTypeK -> CoTypeK -> Bool
+eqCoTypeK t s = eqCoTypeK' (Alpha 0 Map.empty Map.empty) t s
+
 eqTypeK' :: Alpha -> TypeK -> TypeK -> Bool
-eqTypeK' sc (TyVarOccK aa) (TyVarOccK bb) = testAlpha aa bb sc
+eqTypeK' sc (TyVarOccK aa) (TyVarOccK bb) = varAlpha aa bb sc
 eqTypeK' _ (TyVarOccK _) _ = False
 eqTypeK' sc (AllK aas ts) (AllK bbs ss) = case bindAlpha aas bbs sc of
   Nothing -> False
@@ -221,10 +231,6 @@ eqTypeK' sc (FunK ts1 ss1) (FunK ts2 ss2) =
   allEqual (eqTypeK' sc) ts1 ts2 && allEqual (eqCoTypeK' sc) ss1 ss2
 eqTypeK' _ (FunK _ _) _ = False
 
--- | Test two co-types for alpha-equality.
-eqCoTypeK :: CoTypeK -> CoTypeK -> Bool
-eqCoTypeK t s = eqCoTypeK' (Alpha 0 Map.empty Map.empty) t s
-
 eqCoTypeK' :: Alpha -> CoTypeK -> CoTypeK -> Bool
 eqCoTypeK' sc (ContK ts) (ContK ss) = allEqual (eqTypeK' sc) ts ss
 
@@ -240,17 +246,87 @@ bindAlpha aas bbs sc = go aas bbs sc
     bind :: TyVar -> TyVar -> Alpha -> Alpha
     bind aa bb (Alpha l ls rs) = Alpha (l+1) (Map.insert aa l ls) (Map.insert bb l rs)
 
-testAlpha :: TyVar -> TyVar -> Alpha -> Bool
-testAlpha aa bb (Alpha _ ls rs) = case (Map.lookup aa ls, Map.lookup bb rs) of
+varAlpha :: TyVar -> TyVar -> Alpha -> Bool
+varAlpha aa bb (Alpha _ ls rs) = case (Map.lookup aa ls, Map.lookup bb rs) of
   (Just la, Just lb) -> la == lb
   (Nothing, Nothing) -> aa == bb
   _ -> False
 
--- Hmm. This might just be 'Eq1.liftEq'
+-- Hmm. This might be 'Eq1.liftEq' in disguise
 allEqual :: (a -> a -> Bool) -> [a] -> [a] -> Bool
 allEqual _ [] [] = True
 allEqual eq (x:xs) (y:ys) = eq x y && allEqual eq xs ys
 allEqual _ _ _ = False
+
+
+-- | Compute the free type variables of a type.
+typeFV :: TypeK -> Set TyVar
+typeFV (TyVarOccK aa) = Set.singleton aa
+typeFV (AllK aas ss) = Set.unions (map coTypeFV ss) Set.\\ Set.fromList aas
+typeFV (FunK ts ss) = Set.unions (map typeFV ts) <> Set.unions (map coTypeFV ss)
+typeFV (ProdK t s) = typeFV t <> typeFV s
+typeFV (SumK t s) = typeFV t <> typeFV s
+typeFV (ListK t) = typeFV t
+typeFV UnitK = Set.empty
+typeFV IntK = Set.empty
+typeFV BoolK = Set.empty
+
+-- | Compute the free type variables of a co-type.
+coTypeFV :: CoTypeK -> Set TyVar
+coTypeFV (ContK ts) = Set.unions (map typeFV ts)
+
+
+-- | Apply a substitution to a type.
+substTypeK :: [(TyVar, TypeK)] -> TypeK -> TypeK
+substTypeK sub t = substTypeK' (Subst (Map.fromList sub) (typeFV t)) t
+
+-- | Apply a substitution to a co-type.
+substCoTypeK :: [(TyVar, TypeK)] -> CoTypeK -> CoTypeK
+substCoTypeK sub t = substCoTypeK' (Subst (Map.fromList sub) (coTypeFV t)) t
+
+substTypeK' :: Subst -> TypeK -> TypeK
+substTypeK' sub (TyVarOccK aa) = substVar sub aa
+substTypeK' sub (AllK aas ss) =
+  let (aas', sub') = bindSubst aas sub in
+  AllK aas' (map (substCoTypeK' sub') ss)
+substTypeK' sub (FunK ts ss) = FunK (map (substTypeK' sub) ts) (map (substCoTypeK' sub) ss)
+substTypeK' sub (ProdK t s) = ProdK (substTypeK' sub t) (substTypeK' sub s)
+substTypeK' sub (SumK t s) = SumK (substTypeK' sub t) (substTypeK' sub s)
+substTypeK' sub (ListK t) = ListK (substTypeK' sub t)
+substTypeK' _ UnitK = UnitK
+substTypeK' _ IntK = IntK
+substTypeK' _ BoolK = BoolK
+
+substCoTypeK' :: Subst -> CoTypeK -> CoTypeK
+substCoTypeK' sub (ContK ss) = ContK (map (substTypeK' sub) ss)
+
+data Subst = Subst (Map TyVar TypeK) (Set TyVar)
+
+substVar :: Subst -> TyVar -> TypeK
+substVar (Subst sub _) aa = case Map.lookup aa sub of
+  Nothing -> TyVarOccK aa
+  Just t -> t
+
+bindSubst :: [TyVar] -> Subst -> ([TyVar], Subst)
+bindSubst aas sub = (aas', sub')
+  where
+    (sub', aas') = mapAccumL bindOne sub aas
+
+    bindOne :: Subst -> TyVar -> (Subst, TyVar)
+    bindOne (Subst s sc) aa =
+      if Set.member aa sc then
+        let aa' = freshen sc aa in
+        (Subst (Map.insert aa (TyVarOccK aa') s) (Set.insert aa' sc), aa')
+      else
+        (Subst s (Set.insert aa sc), aa)
+
+    freshen :: Set TyVar -> TyVar -> TyVar
+    freshen sc (TyVar aa i) =
+      -- 'freshen' is only called when 'aa' shadows something in scope, so we
+      -- always need to increment at least once.
+      let aa' = TyVar aa (i+1) in
+      if Set.member aa' sc then freshen sc aa' else aa'
+
 
 
 cpsType :: S.Type -> TypeK

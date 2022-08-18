@@ -29,6 +29,7 @@ data TypeError
   | BadValue ValueK TypeK
   | BadProjection TypeK
   | CannotCall TmVar TypeK
+  | CannotInst TmVar TypeK
 
 instance Show TypeError where
   show (TmNotInScope x) = "term variable " ++ show x ++ " not in scope"
@@ -49,7 +50,10 @@ instance Show TypeError where
   show (BadValue v t) = "value " ++ pprintValue v ++ " does not have expected type " ++ pprintType t
   show (BadProjection t) = "cannot project a field from value of type " ++ pprintType t
   show (CannotCall f t) = 
-    "variable " ++ show f ++ " is applied to arguments but it's type is not a function: "
+    "variable " ++ show f ++ " is applied to arguments but its type is not a function: "
+    ++ pprintType t
+  show (CannotInst f t) = 
+    "variable " ++ show f ++ " is applied to type arguments but its type is not a forall: "
     ++ pprintType t
 
 newtype M a = M { getM :: ReaderT Context (Except TypeError) a }
@@ -100,17 +104,27 @@ lookupTyVar x = asks tyContext >>= bool err (pure ()) . Set.member x
   where err = throwError (TyNotInScope x)
 
 equalTypes :: TypeK -> TypeK -> M ()
-equalTypes exp act = when (not (eqTypeK exp act)) $ throwError (TypeMismatch exp act)
+equalTypes expected actual =
+  unless (eqTypeK expected actual) $ throwError (TypeMismatch expected actual)
 
 equalCoTypes :: CoTypeK -> CoTypeK -> M ()
-equalCoTypes exp act = when (not (eqCoTypeK exp act)) $ throwError (CoTypeMismatch exp act)
+equalCoTypes expected actual =
+  unless (eqCoTypeK expected actual) $ throwError (CoTypeMismatch expected actual)
+
+instantiate :: [TyVar] -> [TypeK] -> [CoTypeK] -> M [CoTypeK]
+instantiate aas ts ss = do
+  sub <- go aas ts
+  pure (map (substCoTypeK sub) ss)
+  where
+    go [] [] = pure []
+    go (aa:aas') (t:ts') = (:) (aa, t) <$> go aas' ts'
+    go _ _ = throwError ArityMismatch
 
 
 checkProgram :: TermK () -> Either TypeError ()
 checkProgram e = runM (check e)
 
 
--- TODO: Type-Checking for CPSed System F
 check :: TermK a -> M ()
 check (HaltK x) = do
   _ <- lookupTmVar x
@@ -124,6 +138,12 @@ check (CallK f xs ks) = do
     t -> throwError (CannotCall f t)
   checkTmArgs xs ts
   checkCoArgs ks ss
+check (InstK f ts ks) = do
+  (aas, ss) <- lookupTmVar f >>= \case
+    AllK aas ss -> pure (aas, ss)
+    t -> throwError (CannotInst f t)
+  ss' <- instantiate aas ts ss
+  checkCoArgs ks ss'
 check (CaseK x s ks) = case (s, ks) of
   (BoolK, [k1, k2]) ->
     checkCoVar k1 (ContK []) *> checkCoVar k2 (ContK [])
@@ -143,6 +163,12 @@ check (LetFunK fs e) = do
   withTmVars defs $ do
     for_ fs $ \ (FunDef _ _ xs ks e') -> do
       withTmVars xs $ withCoVars ks $ check e'
+    check e
+check (LetAbsK fs e) = do
+  let defs = [(f, AllK aas (map snd ks)) | AbsDef _ f aas ks _ <- fs]
+  withTmVars defs $ do
+    for_ fs $ \ (AbsDef _ _ aas ks e') -> do
+      withTyVars aas $ withCoVars ks $ check e'
     check e
 check (LetValK x t v e) = do
   checkValue v t
