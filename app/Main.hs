@@ -114,8 +114,8 @@ main = do
 
   when (not $ driverNoExe args) $ do
     let clangArgs = ["-I./rts/", "-L./rts/", "-lrts", outputFile, "-o", executableFile]
-    let clangArgs' = if driverASAN args then "-g" : "-fsanitize=address" : clangArgs else clangArgs
-    let compileProcess = proc "clang" clangArgs'
+    let optArgs = if driverASAN args then ["-g", "-fsanitize=address"] else ["-O2"]
+    let compileProcess = proc "clang" (optArgs ++ clangArgs)
     exitCode <- runProcess compileProcess
     case exitCode of
       ExitSuccess -> pure ()
