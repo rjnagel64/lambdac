@@ -450,7 +450,7 @@ cps (TmLam x argTy e) k =
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
         (e', retTy) <- cpsTail e k'
         let s' = cpsType retTy
-        let fun = FunDef () f (map (second cpsType . snd) bs) [(k', ContK [s'])] e'
+        let fun = FunDef () f bs [(k', ContK [s'])] e'
         pure (fun, S.TyArr argTy retTy)
       (e'', t'') <- k f ty
       pure (LetFunK [fun] e'', t'')
@@ -468,7 +468,7 @@ cps (TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
     (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
       (e2', t2') <- cps e2 k
-      let kont = ContDef () j (map (second cpsType . snd) bs) e2'
+      let kont = ContDef () j bs e2'
       pure (kont, t2')
     (e1', _t1') <- cpsTail e1 j
     pure (LetContK [kont] e1', t2')
@@ -568,7 +568,7 @@ cpsFun (TmFun f x t s e) =
       Just (f', _) -> pure f'
     fun <- freshenVarBinds [(x, t)] $ \bs -> do
       (e', _s') <- cpsTail e k
-      pure (FunDef () f' (map (second cpsType . snd) bs) [(k, ContK [cpsType s])] e')
+      pure (FunDef () f' bs [(k, ContK [cpsType s])] e')
     pure fun
 
 -- | CPS-convert a term in tail position.
@@ -586,7 +586,7 @@ cpsTail (TmLam x argTy e) k =
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
         (e', retTy) <- cpsTail e k'
         let s' = cpsType retTy
-        let fun = FunDef () f (map (second cpsType . snd) bs) [(k', ContK [s'])] e'
+        let fun = FunDef () f bs [(k', ContK [s'])] e'
         pure (fun, S.TyArr argTy retTy)
       let res = LetFunK [fun] (JumpK k [f])
       pure (res, ty)
@@ -742,7 +742,7 @@ cpsMain e = flip runReader emptyEnv . runCPS $
 cpsBranch :: CoVar -> [(S.TmVar, S.Type)] -> Term -> CoVar -> CPS (ContDef (), S.Type)
 cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
   (e', s') <- cpsTail e j
-  pure (ContDef () k (map (second cpsType . snd) xs') e', s')
+  pure (ContDef () k xs' e', s')
 
 -- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
 -- and a list of branches with bound variables.
@@ -828,7 +828,7 @@ freshTy x k = do
   local extend (k x')
 
 -- | Rename a sequence of variable bindings and bring them in to scope.
-freshenVarBinds :: [(S.TmVar, S.Type)] -> ([(S.TmVar, (TmVar, S.Type))] -> CPS a) -> CPS a
+freshenVarBinds :: [(S.TmVar, S.Type)] -> ([(TmVar, TypeK)] -> CPS a) -> CPS a
 freshenVarBinds bs k = do
   scope <- asks cpsEnvScope
   let
@@ -838,7 +838,8 @@ freshenVarBinds bs k = do
       (Map.insert x (i+1) sc, (S.TmVar x, (x', t)))
     (sc', bs') = mapAccumL pick scope bs
   let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (foldr (uncurry Map.insert) ctx bs') tys
-  local extend (k bs')
+  let bs'' = map (second cpsType . snd) bs'
+  local extend (k bs'')
 
 -- | Rename a sequence of function bindings and bring them in to scope.
 freshenFunBinds :: [TmFun] -> CPS a -> CPS a
