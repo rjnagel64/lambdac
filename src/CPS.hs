@@ -351,6 +351,11 @@ cpsCoType :: S.Type -> CoTypeK
 cpsCoType s = ContK [cpsType s]
 
 
+cpsTypeM :: S.Type -> CPS TypeK
+-- TODO: Fill in TyVarOcc and TyAll cases of cpsTypeM with non-shadowing
+-- TODO: Fill in other cases of cpsTypeM
+cpsTypeM t = pure (cpsType t)
+
 -- Note: Failure modes of CPS
 -- Before CPS, the source program is type-checked. This also checks that all
 -- variables are properly scoped, and that letrec bindings have a lambda form
@@ -766,42 +771,22 @@ cpsCase z t j bs = do
   pure res
 
 
-data TCError
-  = NotInScope S.TmVar
-  | TypeMismatch S.Type S.Type -- expected, actual
-  | CannotProject S.Type
-  | CannotApply S.Type
-  | BadListCase S.Type
-  | InvalidLetRec S.TmVar
-
-instance Show TCError where
-  show (TypeMismatch expected actual) = unlines
-    ["type mismatch:"
-    ,"expected: " ++ S.pprintType 0 expected
-    ,"actual:   " ++ S.pprintType 0 actual
-    ]
-  show (NotInScope x) = "variable not in scope: " ++ show x
-  show (CannotApply t) = "value of type " ++ S.pprintType 0 t ++ " cannot have an argument applied to it"
-  show (CannotProject t) = "cannot project field from value of type " ++ S.pprintType 0 t
-  show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
-  show (BadListCase t) = "cannot perform list case analysis on type " ++ S.pprintType 0 t
-
-data CPSEnv
-  = CPSEnv {
-    cpsEnvScope :: Map String Int
-  , cpsEnvCtx :: Map S.TmVar (TmVar, S.Type)
-  , cpsEnvTyCtx :: Set S.TyVar -- TODO: This should probably be 'Map S.TyVar TyVar'
-  }
-
-emptyEnv :: CPSEnv
-emptyEnv = CPSEnv Map.empty Map.empty Set.empty
-
 newtype CPS a = CPS { runCPS :: Reader CPSEnv a }
 
 deriving newtype instance Functor CPS
 deriving newtype instance Applicative CPS
 deriving newtype instance Monad CPS
 deriving newtype instance MonadReader CPSEnv CPS
+
+data CPSEnv
+  = CPSEnv {
+    cpsEnvScope :: Map String Int
+  , cpsEnvCtx :: Map S.TmVar (TmVar, S.Type)
+  , cpsEnvTyCtx :: Map S.TyVar TyVar
+  }
+
+emptyEnv :: CPSEnv
+emptyEnv = CPSEnv Map.empty Map.empty Map.empty
 
 freshTm :: String -> (TmVar -> CPS a) -> CPS a
 freshTm x k = do
@@ -827,6 +812,9 @@ freshTy x k = do
   let extend (CPSEnv sc ctx tys) = CPSEnv (Map.insert x (i+1) sc) ctx tys
   local extend (k x')
 
+insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
+insertMany xs m = foldr (uncurry Map.insert) m xs
+
 -- | Rename a sequence of variable bindings and bring them in to scope.
 freshenVarBinds :: [(S.TmVar, S.Type)] -> ([(TmVar, TypeK)] -> CPS a) -> CPS a
 freshenVarBinds bs k = do
@@ -837,7 +825,7 @@ freshenVarBinds bs k = do
       let x' = TmVar x i in
       (Map.insert x (i+1) sc, (S.TmVar x, (x', t)))
     (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (foldr (uncurry Map.insert) ctx bs') tys
+  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (insertMany bs' ctx) tys
   let bs'' = map (second cpsType . snd) bs'
   local extend (k bs'')
 
@@ -852,7 +840,7 @@ freshenFunBinds fs m = do
       let f' = TmVar f i in
       (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyArr argTy retTy)))
     (sc', binds) = mapAccumL pick scope fs
-  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds) tys
+  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (insertMany binds ctx) tys
   local extend m
 
 freshenRecBinds :: [(S.TmVar, S.Type, S.Term)] -> ([TmFun] -> CPS a) -> CPS a
@@ -865,7 +853,7 @@ freshenRecBinds fs k = do
       let f' = TmVar f i in
       (Map.insert f (i+1) sc, (S.TmVar f, (f', ty)))
     (sc', binds) = mapAccumL pick scope fs
-  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (foldr (uncurry Map.insert) ctx binds) tys
+  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (insertMany binds ctx) tys
   fs' <- for fs $ \ (f, ty, rhs) -> do
     case (ty, rhs) of
       (S.TyArr _t s, S.TmLam x t' body) -> do
@@ -874,17 +862,18 @@ freshenRecBinds fs k = do
   local extend (k fs')
 
 freshenTyVarBinds :: [S.TyVar] -> ([TyVar] -> CPS a) -> CPS a
-freshenTyVarBinds aas k = do
+freshenTyVarBinds bs k = do
   scope <- asks cpsEnvScope
   let
-    pick :: Map String Int -> S.TyVar -> (Map String Int, TyVar)
+    pick :: Map String Int -> S.TyVar -> (Map String Int, (S.TyVar, TyVar))
     pick sc (S.TyVar aa) =
       let i = fromMaybe 0 (Map.lookup aa scope) in
       let aa' = TyVar aa i in
-      (Map.insert aa (i+1) sc, aa')
-    (sc', binds) = mapAccumL pick scope aas
-  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' ctx (foldr Set.insert tys aas)
-  local extend (k binds)
+      (Map.insert aa (i+1) sc, (S.TyVar aa, aa'))
+    (sc', bs') = mapAccumL pick scope bs
+  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' ctx (insertMany bs' tys)
+  let bs'' = map snd bs'
+  local extend (k bs'')
 
 
 -- Pretty-printing
