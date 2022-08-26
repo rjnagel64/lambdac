@@ -352,9 +352,22 @@ cpsCoType s = ContK [cpsType s]
 
 
 cpsTypeM :: S.Type -> CPS TypeK
--- TODO: Fill in TyVarOcc and TyAll cases of cpsTypeM with non-shadowing
--- TODO: Fill in other cases of cpsTypeM
-cpsTypeM t = pure (cpsType t)
+cpsTypeM (S.TyVarOcc aa) = do
+  env <- asks cpsEnvTyCtx
+  case Map.lookup aa env of
+    Nothing -> error "scope error"
+    Just aa' -> pure (TyVarOccK aa')
+cpsTypeM (S.TyAll aa t) = freshenTyVarBinds [aa] $ \bs -> (\t' -> AllK bs [t']) <$> cpsCoTypeM t
+cpsTypeM S.TyUnit = pure UnitK
+cpsTypeM S.TyInt = pure IntK
+cpsTypeM S.TyBool = pure BoolK
+cpsTypeM (S.TySum a b) = SumK <$> cpsTypeM a <*> cpsTypeM b
+cpsTypeM (S.TyProd a b) = ProdK <$> cpsTypeM a <*> cpsTypeM b
+cpsTypeM (S.TyArr a b) = (\a' b' -> FunK [a'] [b']) <$> cpsTypeM a <*> cpsCoTypeM b
+cpsTypeM (S.TyList a) = ListK <$> cpsTypeM a
+
+cpsCoTypeM :: S.Type -> CPS CoTypeK
+cpsCoTypeM s = (\s' -> ContK [s']) <$> cpsTypeM s
 
 -- Note: Failure modes of CPS
 -- Before CPS, the source program is type-checked. This also checks that all
@@ -388,7 +401,8 @@ cps TmNil k =
 cps (TmEmpty s) k =
   freshTm "x" $ \x -> do
     (e', t') <- k x (S.TyList s)
-    let res = LetValK x (ListK (cpsType s)) EmptyK e'
+    let s' = ListK $ cpsType s
+    let res = LetValK x s' EmptyK e'
     pure (res, t')
 cps (TmInt i) k =
   freshTm "x" $ \x -> do
@@ -426,36 +440,40 @@ cps (TmPair e1 e2) k =
       freshTm "x" $ \x -> do
         let ty = S.TyProd t1 t2
         (e', t') <- k x ty
-        let res = LetValK x (cpsType ty) (PairK v1 v2) e'
+        let ty' = cpsType ty
+        let res = LetValK x ty' (PairK v1 v2) e'
         pure (res, t')
 cps (TmCons e1 e2) k =
   cps e1 $ \v1 _t1 ->
     cps e2 $ \v2 t2 -> do
       freshTm "x" $ \x -> do
         (e', t') <- k x t2
-        let res = LetValK x (cpsType t2) (ConsK v1 v2) e'
+        let t2' = cpsType t2
+        let res = LetValK x t2' (ConsK v1 v2) e'
         pure (res, t')
 cps (TmInl a b e) k =
   cps e $ \z _t -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       (e', t') <- k x ty
-      let res = LetValK x (cpsType ty) (InlK z) e'
+      let ty' = cpsType ty
+      let res = LetValK x ty' (InlK z) e'
       pure (res, t')
 cps (TmInr a b e) k =
   cps e $ \z _t -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       (e', t') <- k x ty
-      let res = LetValK x (cpsType ty) (InrK z) e'
+      let ty' = cpsType ty
+      let res = LetValK x ty' (InrK z) e'
       pure (res, t')
 cps (TmLam x argTy e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
         (e', retTy) <- cpsTail e k'
-        let s' = cpsType retTy
-        let fun = FunDef () f bs [(k', ContK [s'])] e'
+        let s' = cpsCoType retTy
+        let fun = FunDef () f bs [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
       (e'', t'') <- k f ty
       pure (LetFunK [fun] e'', t'')
@@ -464,8 +482,8 @@ cps (TmTLam aa e) k =
     freshCo "k" $ \k' -> do
       (def, ty) <- freshenTyVarBinds [aa] $ \bs -> do
         (e', retTy) <- cpsTail e k'
-        let s' = cpsType retTy
-        let def = AbsDef () f bs [(k', ContK [s'])] e'
+        let s' = cpsCoType retTy
+        let def = AbsDef () f bs [(k', s')] e'
         pure (def, S.TyAll aa retTy)
       (e'', t'') <- k f ty
       pure (LetAbsK [def] e'', t'')
@@ -531,7 +549,8 @@ cps (TmApp e1 e2) k =
       freshCo "k" $ \kv ->
         freshTm "x" $ \xv -> do
           (e', t') <- k xv retTy
-          let res = LetContK [ContDef () kv [(xv, cpsType retTy)] e'] (CallK v1 [v2] [kv])
+          let retTy' = cpsType retTy
+          let res = LetContK [ContDef () kv [(xv, retTy')] e'] (CallK v1 [v2] [kv])
           pure (res, t')
 cps (TmTApp e t) k =
   cps e $ \v1 t1 -> do
@@ -542,7 +561,9 @@ cps (TmTApp e t) k =
       freshTm "f" $ \fv -> do
         let instTy = S.subst aa t t1'
         (e'', t'') <- k fv instTy
-        let res = LetContK [ContDef () kv [(fv, cpsType instTy)] e''] (InstK v1 [cpsType t] [kv])
+        let instTy' = cpsType instTy
+        let t' = cpsType t
+        let res = LetContK [ContDef () kv [(fv, instTy')] e''] (InstK v1 [t'] [kv])
         pure (res, t'')
 cps (TmFst e) k =
   cps e $ \v t ->  do
@@ -551,7 +572,8 @@ cps (TmFst e) k =
       _ -> error "type error"
     freshTm "x" $ \x -> do
       (e', t') <- k x ta
-      let res = LetFstK x (cpsType ta) v e'
+      let ta' = cpsType ta
+      let res = LetFstK x ta' v e'
       pure (res, t')
 cps (TmSnd e) k =
   cps e $ \v t -> do
@@ -560,7 +582,8 @@ cps (TmSnd e) k =
       _ -> error "type error"
     freshTm "x" $ \x -> do
       (e', t') <- k x tb
-      let res = LetSndK x (cpsType tb) v e'
+      let tb' = cpsType tb
+      let res = LetSndK x tb' v e'
       pure (res, t')
 
 cpsFun :: TmFun -> CPS (FunDef ())
@@ -573,7 +596,8 @@ cpsFun (TmFun f x t s e) =
       Just (f', _) -> pure f'
     fun <- freshenVarBinds [(x, t)] $ \bs -> do
       (e', _s') <- cpsTail e k
-      pure (FunDef () f' bs [(k, ContK [cpsType s])] e')
+      let s' = cpsCoType s
+      pure (FunDef () f' bs [(k, s')] e')
     pure fun
 
 -- | CPS-convert a term in tail position.
@@ -590,8 +614,8 @@ cpsTail (TmLam x argTy e) k =
     freshCo "k" $ \k' -> do
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
         (e', retTy) <- cpsTail e k'
-        let s' = cpsType retTy
-        let fun = FunDef () f bs [(k', ContK [s'])] e'
+        let s' = cpsCoType retTy
+        let fun = FunDef () f bs [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
       let res = LetFunK [fun] (JumpK k [f])
       pure (res, ty)
@@ -600,8 +624,8 @@ cpsTail (TmTLam aa e) k =
     freshCo "k" $ \k' -> do
       (def, ty) <- freshenTyVarBinds [aa] $ \bs -> do
         (e', retTy) <- cpsTail e k'
-        let s' = cpsType retTy
-        let def = AbsDef () f bs [(k', ContK [s'])] e'
+        let s' = cpsCoType retTy
+        let def = AbsDef () f bs [(k', s')] e'
         pure (def, S.TyAll aa retTy)
       let res = LetAbsK [def] (JumpK k [f])
       pure (res, ty)
@@ -634,7 +658,8 @@ cpsTail TmNil k =
     pure (res, S.TyUnit)
 cpsTail (TmEmpty a) k =
   freshTm "x" $ \x -> do
-    let res = LetValK x (ListK (cpsType a)) EmptyK (JumpK k [x])
+    let a' = ListK $ cpsType a
+    let res = LetValK x a' EmptyK (JumpK k [x])
     pure (res, S.TyList a)
 cpsTail (TmInt i) k =
   freshTm "x" $ \x -> do
@@ -665,25 +690,29 @@ cpsTail (TmPair e1 e2) k =
     cps e2 $ \v2 t2 ->
       freshTm "x" $ \x -> do
         let ty = S.TyProd t1 t2
-        let res = LetValK x (cpsType ty) (PairK v1 v2) (JumpK k [x])
+        let ty' = cpsType ty
+        let res = LetValK x ty' (PairK v1 v2) (JumpK k [x])
         pure (res, ty)
 cpsTail (TmCons e1 e2) k =
   cps e1 $ \v1 t1 ->
     cps e2 $ \v2 t2 -> do
       freshTm "x" $ \x -> do
-        let res = LetValK x (ListK (cpsType t1)) (ConsK v1 v2) (JumpK k [x])
+        let t1' = ListK $ cpsType t1
+        let res = LetValK x t1' (ConsK v1 v2) (JumpK k [x])
         pure (res, t2)
 cpsTail (TmInl a b e) k =
   cps e $ \z _ -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
-      let res = LetValK x (cpsType ty) (InlK z) (JumpK k [x])
+      let ty' = cpsType ty
+      let res = LetValK x ty' (InlK z) (JumpK k [x])
       pure (res, ty)
 cpsTail (TmInr a b e) k =
   cps e $ \z _ -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
-      let res = LetValK x (cpsType ty) (InrK z) (JumpK k [x])
+      let ty' = cpsType ty
+      let res = LetValK x ty' (InrK z) (JumpK k [x])
       pure (res, ty)
 cpsTail (TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
@@ -716,7 +745,8 @@ cpsTail (TmTApp e t) k =
       S.TyAll aa t1' -> pure (aa, t1')
       _ -> error "type error"
     let instTy = S.subst aa t t1'
-    let res = InstK v1 [cpsType t] [k]
+    let t' = cpsType t
+    let res = InstK v1 [t'] [k]
     pure (res, instTy)
 cpsTail (TmFst e) k =
   cps e $ \z t -> do
@@ -724,7 +754,8 @@ cpsTail (TmFst e) k =
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
-      let res = LetFstK x (cpsType ta) z (JumpK k [x])
+      let ta' = cpsType ta
+      let res = LetFstK x ta' z (JumpK k [x])
       pure (res, ta)
 cpsTail (TmSnd e) k =
   cps e $ \z t -> do
@@ -732,7 +763,8 @@ cpsTail (TmSnd e) k =
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
-      let res = LetSndK x (cpsType tb) z (JumpK k [x])
+      let tb' = cpsType tb
+      let res = LetSndK x tb' z (JumpK k [x])
       pure (res, tb)
 
 cpsMain :: Term -> (TermK (), S.Type)
@@ -767,7 +799,8 @@ cpsCase z t j bs = do
     (kont, _s') <- cpsBranch k xs e j
     pure (k, kont)
   -- Assemble the result term
-  let res = foldr (LetContK . (:[])) (CaseK z (cpsType t) ks) konts
+  let t' = cpsType t
+  let res = foldr (LetContK . (:[])) (CaseK z t' ks) konts
   pure res
 
 
