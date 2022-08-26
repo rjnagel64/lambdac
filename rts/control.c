@@ -23,19 +23,16 @@ void destroy_args(struct args *args) {
     free(args);
 }
 
-struct args *make_args(size_t num_values, size_t num_infos) {
-    struct args *args = malloc(sizeof(struct args));
-    args->num_values = num_values;
-    args->values = malloc(num_values * sizeof(struct value_arg));
-    args->num_infos = num_infos;
-    args->infos = malloc(num_infos * sizeof(type_info));
-    return args;
-}
-
 void reserve_args(size_t num_values, size_t num_infos) {
-    // TODO: Directly reallocate args
-    destroy_args(next_step->args);
-    next_step->args = make_args(num_values, num_infos);
+    if (next_step->args == NULL) {
+        next_step->args = malloc(sizeof(struct args));
+    }
+    // I could save the capacity and then only realloc when expanding, but I
+    // don't really care.
+    next_step->args->num_values = num_values;
+    next_step->args->values = realloc(next_step->args->values, num_values * sizeof(struct value_arg));
+    next_step->args->num_infos = num_infos;
+    next_step->args->infos = realloc(next_step->args->infos, num_infos * sizeof(type_info));
 }
 
 void trace_args(struct args *args) {
