@@ -224,6 +224,7 @@ data ClosureDecl
   = ClosureDecl ClosureName (Id, EnvDecl) [ClosureParam] TermH
 
 -- TODO: EnvDecl should use InfoPlace2
+-- Hmm. Maybe EnvDecl should use 'Id' for the fields?
 data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
 
 data ClosureParam = PlaceParam Place | TypeParam InfoPlace
@@ -540,21 +541,23 @@ inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM (
 inClosure (C.EnvDef tyfields fields) typlaces places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
   -- TODO: This mess of let-bindings can probably be simplified
-  let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
   let places' = map (\ (x, s) -> (x, asPlace s x)) places
-  let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
   let typlaces' = map (\aa -> (asTyVar aa, asInfoPlace aa)) typlaces
   let newLocals = Scope (Map.fromList places') (Map.fromList typlaces')
+  let params = map (TypeParam . snd) typlaces' ++ map (PlaceParam . snd) places'
+
+  let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
+  let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
   let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
+  let mkFieldInfo' f = infoForSort (placeSort f)
+  fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
+  -- TODO: Convert tyfields' to [InfoPlace2]
+  let envd = EnvDecl (map snd tyfields') fieldsWithInfo
+
   let replaceEnv _oldEnv = HoistEnv newLocals newEnv
   r <- local replaceEnv m
   envp <- pickEnvironmentName
 
-  let mkFieldInfo' f = infoForSort (placeSort f)
-  fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
-  let params = map (TypeParam . snd) typlaces' ++ map (PlaceParam . snd) places'
-  -- TODO: Convert tyfields' to [InfoPlace2]
-  let envd = EnvDecl (map snd tyfields') fieldsWithInfo
   pure ((envp, envd), params, r)
 
 -- | Pick a name for the environment parameter, that will not clash with
