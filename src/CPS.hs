@@ -59,6 +59,16 @@ import Source (Term(..), TmFun(..), TmArith(..), TmCmp(..))
 -- continuation. shift/reset: need to split, compose, and invoke continuations)
 
 
+-- Interesting idea: "Revisiting the CPS Transformation and its Implementation"
+-- combines 'cps' and 'cpsTail' by using a sum type as the continuation
+-- argument:
+-- type Cont = ObjectCont CoVar | MetaCont (TmVar -> m TermK)
+-- There's also a helper function 'apply :: Cont -> TermK -> TermK'
+-- This substantially deduplicates large portions of cps/cpsTail
+-- I think that I could easily add a third variant 'HaltCont :: Cont' so that I
+-- don't need to generate a contdef for 'halt' all the time.
+
+
 -- All sorts of variables exist in the same namespace.
 -- Continuations are second-class, so they get a different type. (I collapse
 -- the distinction between them later on, but maybe there's a more efficient
@@ -744,6 +754,11 @@ cpsTail (TmSnd e) k =
       let res = LetSndK x tb' z (JumpK k [x])
       pure (res, tb)
 
+-- | CPS-convert a source program. Returns an equivalent CPS program, and the
+-- source type of the program.
+--
+-- Unfortunately, even though 'e' is in tail position, I cannot use 'cpsTail'
+-- This is because 'HaltK' is not a 'CoVar'.
 cpsMain :: Term -> (TermK (), S.Type)
 cpsMain e = flip runReader emptyEnv . runCPS $
   cps e (\z t -> pure (HaltK z, t))

@@ -217,7 +217,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
   ,"    return _env;"
   ,"}"]
   where
-    paramList = if null is && null fs then "void" else commaSep params
+    paramList = if null params then "void" else commaSep params
     params = map emitInfoPlace is ++ map (emitPlace . fst) fs
 
     assignInfo (InfoPlace aa) = "    _env->" ++ show aa ++ " = " ++ show aa ++ ";"
@@ -452,4 +452,11 @@ emitInfo _ SumInfo = "sum_info"
 emitInfo _ ProductInfo = "pair_info"
 emitInfo _ ClosureInfo = "closure_info"
 emitInfo _ ListInfo = "list_info"
+
+emitFunction :: String -> String -> [String] -> [String] -> [String]
+emitFunction retTy name params body =
+  -- Annoying: will add an extra space if retTy is a pointer.
+  [retTy ++ " " ++ name ++ "(" ++ commaSep params ++ ") {"] ++
+  map ("    " ++) body ++
+  ["}"]
 
