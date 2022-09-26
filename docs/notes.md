@@ -1,6 +1,9 @@
 
 Miscellaneous design notes that don't fit neatly in the code.
 
+TODO: The table of contents does not match the actual document structure
+(Re-organize by topic, etc.?)
+
 # Table of Contents
 
 * Code Generation & Runtime Representations
@@ -163,6 +166,9 @@ continuation to concretize the result. And of course, representing
 reabstraction thunks in the IR.
 
 
+I think I have managed to avoid the need for this, thankfully.
+
+
 ## Closure Representation
 
 This is the current (20f917d) closure representation:
@@ -296,6 +302,32 @@ void trace_foo_value(boxed self_) {
 ```
 
 Effectively, the calls to `get_existential_info` use deBruijn indices.
+
+Reflecting on this some more, an invariant I have is that type info for a HKT
+`T : * -> *` can be used to trace a value `v : T A`, for any type `A`. In
+particular, products and sums contain extra `type_info` arguments, and every
+`cons` cell in a list has its own copy of the element info. This isn't
+necessarily the most efficient, but it is simpler, and can support existential
+types easily, because `exists aa. T[aa]` can always be traced with the info for
+`T[_]`.
+
+## CPS for existential types
+
+Standard `exists aa.t[aa]`, `pack <t, e>` and `unpack e as <aa, x> in e'`
+constructs in source language.
+
+CPS target language treats `pack` as a value allocation, because it's basically
+a tuple. `unpack` is treated as being functionally equivalent to a
+`let`-expression, rather than `case`-analysis on a one-ctor type. This yields
+more straight-line code and fewer continuation definitions.
+
+
+```
+CPS-Ty[exists aa. t] := exists aa. CPS-Ty[t]
+
+CPS[pack <t, e> as t'] k := CPS[e] $ \x -> let x : t' = pack <CPS-Ty[t], y> in k[y]
+CPS[unpack e as <aa, x> in e'] k := CPS[e] $ \y -> let @aa, x = unpack y in CPS[e'] k
+```
 
 ## Nested/Polymorphic Recursion
 
