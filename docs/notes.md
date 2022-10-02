@@ -1415,3 +1415,94 @@ struct inv_value {
 };
 ```
 
+## CPS Storage Classes (3CPS)
+
+Interesting property: If call/cc is not present, CPS translation should not
+produce user lambdas that close over continuation variables ([Analyzing Binding
+Extent in 3CPS], ICFP 2022)
+
+Continuations, however, can and will capture continuation variables.
+
+This may be the piece I was missing, about how to exploit continuations'
+second-class nature. Maybe segregate `struct closure` into `struct closure`
+(continuations as parameters) and `struct cont_closure` (continuations in
+environment)?
+
+
+More generally, 3CPS seems quite interesting, because it deals with allocating
+fewer closure environments, instead relying on register and stack allocation.
+Of course, targeting C with trampolines makes things harder.
+(==> Don't use C stack, use a linked list of frames. Likewise, instead of ASM
+registers, use an array of values)
+
+
+
+Now that I think about it, my CPS IR isn't actually pure CPS, because it has
+local statements like `let x = y + z in ...`. I think this means that the
+second-class continuations property doesn't quite hold, and implementing 3CPS
+would require storage classes on local bindings, which is weird, but also
+entirely expected. ("Do I register-allocate or stack-allocate this local
+variable")
+
+
+A "true" CPS IR might look like
+
+```
+addk (x, 7) (cont (t0 : int) => mulk (t0, t0) (cont (t1 : int) => addk (t1, 1) RET))
+```
+
+instead of
+
+```
+let t0 = x + 7 in
+let t1 = t0 * t0 in
+let tmp = t1 + 1 in
+HALT tmp
+```
+
+There are extra continuations needed, but it is more uniform. (And
+theoretically, continuations are cheap, so it doesn't matter that much?)
+
+After analysis, functions/continuations can be named as before.
+
+```
+let cont k0 (t0 : int) =
+  let cont k1 (t1 : int) =
+    addk (t1, 1) RET
+  in
+  mulk (t0, t0) k1
+in
+addk (x, 7) k0
+```
+
+
+## Closed Thunk Types
+
+Idea: closed thunk types in the Hoist IR
+
+currently, thunk types can have free type variables.
+
+For example, `(a) -> !` contains the free type variable `a`.
+
+Consequently, when we suspend a trampoline, we need to be able to trace each
+argument to the thunk, which means being able to trace that variable of type
+`a`.
+
+Currently, I deal with this by passing every `AllocH aa` parameter as a pair of
+a pointer and a `type_info`. This is somewhat inelegant, and also redundant
+because `(a, a) -> !` will pass two copies of the `type_info` for `a`.
+
+An alternate method would to quantify thunk types with another "pseudo-forall",
+`forall a => (a, a) -> !`.
+
+This would give a prototype like
+```
+void suspend_AA(struct closure *cl, type_info a_info, struct alloc_header *arg0, struct alloc_header *arg1);
+```
+
+I think I would want to hold off on implementing this until I have
+properly-telescoped closure types in Hoist, though.
+
+I also need to consider how this "pseudo-forall" would be instantiated.
+
+ 
