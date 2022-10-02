@@ -127,55 +127,53 @@ emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
   emitThunkSuspend (namesForThunk t) t
 
+foldThunk :: (Int -> Sort -> b -> b) -> (Int -> b -> b) -> (Int -> Int -> b) -> ThunkType -> b
+foldThunk consValue consInfo nil (ThunkType ss) = go 0 0 ss
+  where
+    go i j [] = nil i j
+    go i j (ThunkValueArg s : ss') = consValue i s (go (i+1) j ss')
+    go i j (ThunkInfoArg : ss') = consInfo j (go i (j+1) ss')
+
 emitThunkSuspend :: ThunkNames -> ThunkType -> [String]
-emitThunkSuspend ns (ThunkType ss) =
+emitThunkSuspend ns ty =
   ["void " ++ thunkSuspendName ns ++ "(" ++ commaSep paramList ++ ") {"
   ,"    next_closure = closure;"
   ,"    next_step->enter = closure->enter;"
   ,"    reserve_args(" ++ show numValues ++ ", " ++ show numInfos ++ ");"] ++
-  assignFields 0 0 ss ++
+  assignFields ty ++
   ["}"]
   where
-    paramList = "struct closure *closure" : makeParams 0 0 ss
-    (numValues, numInfos) = countParams 0 0 ss
-    
-    countParams :: Int -> Int -> [ThunkArg] -> (Int, Int)
-    countParams i j [] = (i, j)
-    countParams i j (ThunkInfoArg : ss') = countParams i (j+1) ss'
-    countParams i j (ThunkValueArg _ : ss') = countParams (i+1) j ss'
-
-    makeParams :: Int -> Int -> [ThunkArg] -> [String]
-    makeParams i j (ThunkInfoArg : ss') =
-      ("type_info info" ++ show j) :
-      makeParams i (j+1) ss'
-    makeParams i j (ThunkValueArg (AllocH _) : ss') =
-      ("struct alloc_header *arg" ++ show i) :
-      ("type_info arginfo" ++ show i) :
-      makeParams (i+1) j ss'
-    makeParams i j (ThunkValueArg s : ss') =
-      emitPlace (Place s (Id ("arg" ++ show i))) :
-      makeParams (i+1) j ss'
-    makeParams _ _ [] = []
-
-    assignFields :: Int -> Int -> [ThunkArg] -> [String]
-    assignFields i j (ThunkInfoArg : ss') =
-      ("    next_step->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
-      assignFields i (j+1) ss'
-    assignFields i j (ThunkValueArg s : ss') =
-      ("    next_step->args->values[" ++ show i ++ "].alloc = " ++ asAlloc ("arg" ++ show i) ++ ";") :
-      ("    next_step->args->values[" ++ show i ++ "].info = " ++ emitInfo (Id "NULL") info ++ ";") :
-      assignFields (i+1) j ss'
+    paramList = "struct closure *closure" : foldThunk consValue consInfo (\_ _ -> []) ty
       where
-        info = case s of
-          AllocH _ -> LocalInfo (Id ("arginfo" ++ show i))
-          IntegerH -> Int64Info
-          BooleanH -> BoolInfo
-          UnitH -> UnitInfo
-          SumH -> SumInfo
-          ProductH _ _ -> ProductInfo
-          ListH _ -> ListInfo
-          ClosureH _ -> ClosureInfo
-    assignFields _ _ [] = []
+        consValue i (AllocH _) acc =
+          ("struct alloc_header *arg" ++ show i) : ("type_info arginfo" ++ show i) : acc
+        consValue i s acc = emitPlace (Place s (Id ("arg" ++ show i))) : acc
+        consInfo j acc = ("type_info info" ++ show j) : acc
+
+    (numValues, numInfos) = foldThunk (\_ _ acc -> acc) (\_ acc -> acc) (\i j -> (i, j)) ty
+
+    assignFields = foldThunk consValue consInfo nil
+      where
+        consValue i s acc =
+          let
+            info = case s of
+              AllocH _ -> LocalInfo (Id ("arginfo" ++ show i))
+              IntegerH -> Int64Info
+              BooleanH -> BoolInfo
+              UnitH -> UnitInfo
+              SumH -> SumInfo
+              ProductH _ _ -> ProductInfo
+              ListH _ -> ListInfo
+              ClosureH _ -> ClosureInfo
+          in
+          let lval = "next_step->args->values[" ++ show i ++ "]" in 
+          ("    " ++ lval ++ ".alloc = " ++ asAlloc ("arg" ++ show i) ++ ";") :
+          ("    " ++ lval ++ ".info = " ++ emitInfo (Id "NULL") info ++ ";") :
+          acc
+        consInfo j acc =
+          ("   next_step->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
+          acc
+        nil _ _ = []
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
@@ -236,7 +234,7 @@ emitEnvInfo ns (EnvDecl _is fs) =
     traceField (Place _ x, i) = "    " ++ emitMarkGray envName (EnvName x) i ++ ";"
 
 emitClosureEnter :: ClosureNames -> ThunkType -> [String]
-emitClosureEnter ns ty@(ThunkType ss) =
+emitClosureEnter ns ty =
   ["void " ++ closureEnterName ns ++ "(void) {"
   ,"    " ++ thunkTy ++ "next = (" ++ thunkTy ++ ")next_step;"
   ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")next_closure->env;"
@@ -245,11 +243,11 @@ emitClosureEnter ns ty@(ThunkType ss) =
   where
     thunkTy = "struct " ++ thunkTypeName (namesForThunk ty) ++ " *"
     envTy = "struct " ++ envTypeName (closureEnvName ns) ++ " *"
-    argList = "env" : makeArgList 0 0 ss
-    makeArgList :: Int -> Int -> [ThunkArg] -> [String]
-    makeArgList i j (ThunkInfoArg : ss') = ("next_step->args->infos[" ++ show j ++ "]") : makeArgList i (j+1) ss'
-    makeArgList i j (ThunkValueArg s : ss') = asSort s ("next_step->args->values[" ++ show i ++ "].alloc") : makeArgList (i+1) j ss'
-    makeArgList _ _ [] = []
+    argList = "env" : foldThunk consValue consInfo nil ty
+      where
+        consValue i s acc = asSort s ("next_step->args->values[" ++ show i ++ "].alloc") : acc
+        consInfo j acc = ("next_step->args->infos[" ++ show j ++ "]") : acc
+        nil _ _ = []
 
 emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
