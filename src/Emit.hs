@@ -127,10 +127,10 @@ emitThunkDecl :: ThunkType -> [String]
 emitThunkDecl t =
   emitThunkSuspend (namesForThunk t) t
 
-foldThunk :: (Int -> Sort -> b -> b) -> (Int -> b -> b) -> (Int -> Int -> b) -> ThunkType -> b
+foldThunk :: (Int -> Sort -> b -> b) -> (Int -> b -> b) -> b -> ThunkType -> b
 foldThunk consValue consInfo nil (ThunkType ss) = go 0 0 ss
   where
-    go i j [] = nil i j
+    go _ _ [] = nil
     go i j (ThunkValueArg s : ss') = consValue i s (go (i+1) j ss')
     go i j (ThunkInfoArg : ss') = consInfo j (go i (j+1) ss')
 
@@ -143,16 +143,17 @@ emitThunkSuspend ns ty =
   assignFields ty ++
   ["}"]
   where
-    paramList = "struct closure *closure" : foldThunk consValue consInfo (\_ _ -> []) ty
+    paramList = "struct closure *closure" : foldThunk consValue consInfo [] ty
       where
         consValue i (AllocH _) acc =
           ("struct alloc_header *arg" ++ show i) : ("type_info arginfo" ++ show i) : acc
         consValue i s acc = emitPlace (Place s (Id ("arg" ++ show i))) : acc
         consInfo j acc = ("type_info info" ++ show j) : acc
 
-    (numValues, numInfos) = foldThunk (\_ _ acc -> acc) (\_ acc -> acc) (\i j -> (i, j)) ty
+    numValues, numInfos :: Int
+    (numValues, numInfos) = foldThunk (\_ _ (i, j) -> (i+1, j)) (\_ (i, j) -> (i, j+1)) (0, 0) ty
 
-    assignFields = foldThunk consValue consInfo nil
+    assignFields = foldThunk consValue consInfo []
       where
         consValue i s acc =
           let
@@ -173,7 +174,6 @@ emitThunkSuspend ns ty =
         consInfo j acc =
           ("   next_step->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
           acc
-        nil _ _ = []
 
 emitClosureDecl :: H.ClosureDecl -> [String]
 emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
@@ -243,11 +243,10 @@ emitClosureEnter ns ty =
   where
     thunkTy = "struct " ++ thunkTypeName (namesForThunk ty) ++ " *"
     envTy = "struct " ++ envTypeName (closureEnvName ns) ++ " *"
-    argList = "env" : foldThunk consValue consInfo nil ty
+    argList = "env" : foldThunk consValue consInfo [] ty
       where
         consValue i s acc = asSort s ("next_step->args->values[" ++ show i ++ "].alloc") : acc
         consInfo j acc = ("next_step->args->infos[" ++ show j ++ "]") : acc
-        nil _ _ = []
 
 emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [String]
 emitClosureCode ns envName xs e =
