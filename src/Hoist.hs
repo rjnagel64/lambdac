@@ -498,12 +498,12 @@ hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
 hoistValue (BoolC b) = pure (BoolH b)
-hoistValue (PairC x y) = (\ (x', i) (y', j) -> PairH i j x' y') <$> hoistVarOcc' x <*> hoistVarOcc' y
+hoistValue (PairC x y) = (\ (x', i) (y', j) -> PairH i j x' y') <$> hoistVarOccInfo x <*> hoistVarOccInfo y
 hoistValue NilC = pure NilH
-hoistValue (InlC x) = (\ (x', i) -> InlH i x') <$> hoistVarOcc' x
-hoistValue (InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOcc' x
+hoistValue (InlC x) = (\ (x', i) -> InlH i x') <$> hoistVarOccInfo x
+hoistValue (InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOccInfo x
 hoistValue EmptyC = pure ListNilH
-hoistValue (ConsC x xs) = (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOcc' x <*> hoistVarOcc xs
+hoistValue (ConsC x xs) = (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOccInfo x <*> hoistVarOcc xs
 
 hoistArith :: ArithC -> HoistM PrimOp
 hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -625,18 +625,6 @@ envAllocField recNames (x, s) = case Set.member x recNames of
 
 
 
--- | Translate a variable reference into either a local reference or an
--- environment reference.
-hoistVarOcc :: C.Name -> HoistM Name
-hoistVarOcc x = do
-  ps <- asks (scopePlaces . localScope)
-  fs <- asks (scopePlaces . envScope)
-  case Map.lookup x ps of
-    Just (Place _ x') -> pure (LocalName x')
-    Nothing -> case Map.lookup x fs of
-      Just (Place _ x') -> pure (EnvName x')
-      Nothing -> error ("not in scope: " ++ show x)
-
 -- | Hoist a variable occurrence, and also retrieve its sort.
 hoistVarOccSort :: C.Name -> HoistM (Name, Sort)
 hoistVarOccSort x = do
@@ -648,19 +636,18 @@ hoistVarOccSort x = do
       Just (Place s x') -> pure (EnvName x', s)
       Nothing -> error ("not in scope: " ++ show x)
 
-hoistCall :: C.Name -> HoistM (Name, ThunkType)
-hoistCall x = do
-  ps <- asks (scopePlaces . localScope)
-  fs <- asks (scopePlaces . envScope)
-  (x', s) <- case Map.lookup x ps of
-    Just (Place s x') -> pure (LocalName x', s)
-    Nothing -> case Map.lookup x fs of
-      Just (Place s x') -> pure (EnvName x', s)
-      Nothing -> error ("not in scope: " ++ show x)
-  case s of
-    ClosureH tele -> pure (x', closureThunkType tele)
-    _ -> error ("called a non-closure: " ++ show x ++ " : " ++ pprintSort s)
+-- | Translate a variable reference into either a local reference or an
+-- environment reference.
+hoistVarOcc :: C.Name -> HoistM Name
+hoistVarOcc = fmap fst . hoistVarOccSort
 
+-- | Hoist a variable in call position and compute its thunk type
+hoistCall :: C.Name -> HoistM (Name, ThunkType)
+hoistCall x = hoistVarOccSort x >>= \case
+  (x', ClosureH tele) -> pure (x', closureThunkType tele)
+  (_, s) -> error ("called a non-closure: " ++ show x ++ " : " ++ pprintSort s)
+
+-- | Hoist a list of arguments.
 hoistArgList :: [C.Name] -> HoistM [ClosureArg]
 hoistArgList xs = traverse f xs
   where
@@ -669,8 +656,8 @@ hoistArgList xs = traverse f xs
       (x', _) -> pure (ValueArg x')
 
 -- | Hoist a variable occurrence, and also retrieve the @type_info@ that describes it.
-hoistVarOcc' :: C.Name -> HoistM (Name, Info)
-hoistVarOcc' x = do
+hoistVarOccInfo :: C.Name -> HoistM (Name, Info)
+hoistVarOccInfo x = do
   (x', s) <- hoistVarOccSort x
   s' <- infoForSort s
   pure (x', s')
