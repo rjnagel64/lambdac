@@ -1,5 +1,6 @@
 
 
+from collections import Counter
 import subprocess
 import sys
 
@@ -17,9 +18,12 @@ if proc.returncode != 0:
     print(f"{sys.argv[0]} RTS failed to build: not running tests")
     sys.exit(1)
 
+stats = Counter()
 failed_tests = []
 
 def standard_test(name, result):
+    global stats
+    stats["ran"] += 1
     path = f"./tests/{name}.lamc"
     exe_path = f"./tests/bin/{name}"
     compile_command = [compiler_path, path, "-o", exe_path]
@@ -27,18 +31,23 @@ def standard_test(name, result):
     proc = subprocess.run(compile_command, capture_output=True, encoding="utf8")
     if proc.returncode != 0:
         print(f"{name} FAIL")
+        stats["failed"] += 1
         failed_tests.append((name, proc.stdout, proc.stderr))
         return
 
     proc = subprocess.run([exe_path], capture_output=True, encoding="utf8")
     if proc.stdout != f"result = {result}\n":
         print(f"{name} FAIL")
+        stats["failed"] += 1
         failed_tests.append((name, proc.stdout, proc.stderr))
         return
     print(f"{name} OK")
+    stats["passed"] += 1
 
 def compile_fail(name, err):
+    stats["ran"] += 1
     print(f"{name} FAIL")
+    stats["failed"] += 1
     failed_tests.append((name, "compile-fail tests not implemented"))
     return
 
@@ -70,10 +79,11 @@ standard_test("rank2poly", "true")
 standard_test("foldr", "7")
 standard_test("polycase", "17")
 
-
 for (test, out, err) in failed_tests:
     print(f"--- FAILED: {test} ---")
     print(f"--- STDOUT: ---")
     print(out)
     print(f"--- STDERR: ---")
     print(err)
+
+print(f"{stats['ran']} tests ran; {stats['passed']} tests passed; {stats['failed']} tests failed")
