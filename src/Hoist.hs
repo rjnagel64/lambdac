@@ -361,23 +361,13 @@ deriving newtype instance Semigroup ClosureDecls
 deriving newtype instance Monoid ClosureDecls
 
 
-runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
-runHoist =
-  second (second Set.toList) .
-  runWriter .
-  flip evalStateT Set.empty .
-  flip runReaderT emptyEnv .
-  runHoistM
-  where
-    emptyEnv = HoistEnv emptyScope emptyScope
-    emptyScope = Scope Map.empty Map.empty
-
 -- TODO: Collect thunk types in 'hoistProgram', rather than on the fly?
 tellClosures :: [ClosureDecl] -> HoistM ()
-tellClosures cs = tell (ClosureDecls cs, ts)
-  where
-    ts = foldMap closureThunkTypes cs
+tellClosures cs = tell (ClosureDecls cs, collectThunkTypes cs)
 
+collectThunkTypes :: [ClosureDecl] -> Set ThunkType
+collectThunkTypes cs = foldMap closureThunkTypes cs
+  where
     closureThunkTypes :: ClosureDecl -> Set ThunkType
     closureThunkTypes (ClosureDecl _ _ params _) = Set.insert ty (foldMap paramThunkTypes params)
       where
@@ -413,6 +403,17 @@ hoistProgram :: TermC -> (TermH, [ClosureDecl], [ThunkType])
 hoistProgram srcC =
   let (srcH, (ClosureDecls cs, ts)) = runHoist (hoist srcC) in
   (srcH, cs, ts)
+
+runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
+runHoist =
+  second (second Set.toList) .
+  runWriter .
+  flip evalStateT Set.empty .
+  flip runReaderT emptyEnv .
+  runHoistM
+  where
+    emptyEnv = HoistEnv emptyScope emptyScope
+    emptyScope = Scope Map.empty Map.empty
 
 
 -- | After closure conversion, the code for each function and continuation can
