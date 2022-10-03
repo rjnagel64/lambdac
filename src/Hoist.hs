@@ -52,7 +52,6 @@ import Control.Monad.Reader
 import Control.Monad.Writer hiding (Sum)
 import Control.Monad.State
 
-import Data.Bifunctor
 import Data.Int (Int64)
 import Data.Traversable (for, mapAccumL)
 import Data.List (intercalate)
@@ -342,13 +341,13 @@ instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
 
 -- Hmm. Instead of 'Writer', would an 'Update' monad be applicable here?
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set ClosureName) (Writer (ClosureDecls, Set ThunkType))) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set ClosureName) (Writer ClosureDecls)) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
-deriving newtype instance MonadWriter (ClosureDecls, Set ThunkType) HoistM
+deriving newtype instance MonadWriter ClosureDecls HoistM
 deriving newtype instance MonadState (Set ClosureName) HoistM
 
 data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
@@ -361,9 +360,8 @@ deriving newtype instance Semigroup ClosureDecls
 deriving newtype instance Monoid ClosureDecls
 
 
--- TODO: Collect thunk types in 'hoistProgram', rather than on the fly?
 tellClosures :: [ClosureDecl] -> HoistM ()
-tellClosures cs = tell (ClosureDecls cs, collectThunkTypes cs)
+tellClosures cs = tell (ClosureDecls cs)
 
 collectThunkTypes :: [ClosureDecl] -> Set ThunkType
 collectThunkTypes cs = foldMap closureThunkTypes cs
@@ -401,12 +399,12 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
 
 hoistProgram :: TermC -> (TermH, [ClosureDecl], [ThunkType])
 hoistProgram srcC =
-  let (srcH, (ClosureDecls cs, ts)) = runHoist (hoist srcC) in
+  let (srcH, ClosureDecls cs) = runHoist (hoist srcC) in
+  let ts = Set.toList $ collectThunkTypes cs in
   (srcH, cs, ts)
 
-runHoist :: HoistM a -> (a, (ClosureDecls, [ThunkType]))
+runHoist :: HoistM a -> (a, ClosureDecls)
 runHoist =
-  second (second Set.toList) .
   runWriter .
   flip evalStateT Set.empty .
   flip runReaderT emptyEnv .
