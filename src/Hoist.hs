@@ -39,12 +39,8 @@ module Hoist
     , EnvAlloc(..)
     , EnvAllocArg(..)
 
-    , runHoist
-    , ClosureDecls(..)
-    , hoist
-    , pprintThunkTypes
-    , pprintClosures
-    , pprintTerm
+    , hoistProgram
+    , pprintProgram
     ) where
 
 import qualified Data.Map as Map
@@ -139,14 +135,14 @@ asClosureName (C.Name x i) = ClosureName (x ++ show i)
 
 -- | A 'Sort' describes the runtime layout of a value. It is static information.
 data Sort
-  = IntegerH
+  = AllocH TyVar
+  | IntegerH
   | BooleanH
   | UnitH
   | SumH
   | ProductH Sort Sort
   | ListH Sort
   | ClosureH ClosureTele
-  | AllocH TyVar
   deriving Eq -- Needed for Hoist.TypeCheck.equalSorts
 
 -- It's a bit unfortunate, but I do need to have separate telescopes for
@@ -376,6 +372,7 @@ runHoist =
     emptyEnv = HoistEnv emptyScope emptyScope
     emptyScope = Scope Map.empty Map.empty
 
+-- TODO: Collect thunk types in 'hoistProgram', rather than on the fly?
 tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs, ts)
   where
@@ -411,6 +408,11 @@ tellClosures cs = tell (ClosureDecls cs, ts)
     entryThunkTypes (ValueTele s) = thunkTypesOf s
     entryThunkTypes (TypeTele aa) = Set.empty
 
+
+hoistProgram :: TermC -> (TermH, [ClosureDecl], [ThunkType])
+hoistProgram srcC =
+  let (srcH, (ClosureDecls cs, ts)) = runHoist (hoist srcC) in
+  (srcH, cs, ts)
 
 
 -- | After closure conversion, the code for each function and continuation can
@@ -719,6 +721,9 @@ makePlace x s = do
 
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
+
+pprintProgram :: (TermH, [ClosureDecl], [ThunkType]) -> String
+pprintProgram (srcH, cs, ts) = pprintThunkTypes ts ++ pprintClosures cs ++ pprintTerm 0 srcH
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH _ x _) = indent n $ "HALT " ++ show x ++ ";\n"

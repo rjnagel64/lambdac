@@ -187,7 +187,9 @@ appropriate list of arguments. Calling a code pointer is therefore uncurried.
   Σ; Γ |- f(env; arg1, ..., argn) OK
 
 Instead of using code types directly, the translation of types introduces
-"closure types", which behave pretty much as you expect.
+"closure types", which behave pretty much as you expect: construct with a code
+pointer and an environment, eliminate with application to appropriate
+arguments.
 
   CC[(s1, ..., sn) -> !] = closure(s1, ..., sn)
 

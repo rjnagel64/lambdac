@@ -94,12 +94,12 @@ main = do
     putStrLn $ "--- Closure Conversion ---"
     putStrLn $ C.pprintTerm 0 srcC
 
-  let (srcH, (H.ClosureDecls closureDecls, thunkDecls2)) = H.runHoist $ H.hoist srcC
+  let (srcH, closureDecls, thunkDecls) = H.hoistProgram srcC
   when (driverDumpHoist args) $ do
     putStrLn $ "--- Hoisting ---"
-    putStrLn $ H.pprintThunkTypes thunkDecls2 ++ H.pprintClosures closureDecls ++ H.pprintTerm 0 srcH
+    putStrLn $ H.pprintProgram (srcH, closureDecls, thunkDecls)
 
-  let obj = unlines $ E.emitProgram (thunkDecls2, closureDecls, srcH)
+  let obj = unlines $ E.emitProgram (thunkDecls, closureDecls, srcH)
   when (driverDumpEmit args) $ do
     putStrLn $ "--- Code Generation ---"
     putStrLn obj
