@@ -3,7 +3,6 @@ module Emit (emitProgram) where
 
 import Data.List (intercalate)
 
-import qualified Hoist as H
 import Hoist
 
 -- TODO: Something smarter than string and list concatenation.
@@ -175,8 +174,8 @@ emitThunkSuspend ns ty =
           ("   next_step->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
           acc
 
-emitClosureDecl :: H.ClosureDecl -> [String]
-emitClosureDecl (H.ClosureDecl d (envName, envd) params e) =
+emitClosureDecl :: ClosureDecl -> [String]
+emitClosureDecl (ClosureDecl d (envName, envd) params e) =
   emitClosureEnv ns envd ++
   emitClosureCode ns envName params e ++
   emitClosureEnter ns ty
