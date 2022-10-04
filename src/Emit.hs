@@ -25,8 +25,9 @@ commaSep :: [String] -> String
 commaSep = intercalate ", "
 
 type EnvPtr = Id
+type Line = String
 
-emitProgram :: ([ThunkType], [ClosureDecl], TermH) -> [String]
+emitProgram :: ([ThunkType], [ClosureDecl], TermH) -> [Line]
 emitProgram (ts, cs, e) =
   prologue ++
   concatMap emitThunkDecl ts ++
@@ -69,10 +70,10 @@ namesForEnv (ClosureName f) =
   , envTraceName = "trace_" ++ f ++ "_env"
   }
 
-prologue :: [String]
+prologue :: [Line]
 prologue = ["#include \"rts.h\""]
 
-emitEntryPoint :: TermH -> [String]
+emitEntryPoint :: TermH -> [Line]
 emitEntryPoint e =
   ["void program_entry(void) {"] ++
   emitClosureBody (Id "NULL") e ++ -- There is no top-level environment. All names are local.
@@ -119,10 +120,10 @@ asSort (ListH _s) x = "AS_LIST(" ++ x ++ ")"
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
-emitMarkGray :: EnvPtr -> Name -> Info -> String
+emitMarkGray :: EnvPtr -> Name -> Info -> Line
 emitMarkGray envp x s = "mark_gray(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp s ++ ")"
 
-emitThunkDecl :: ThunkType -> [String]
+emitThunkDecl :: ThunkType -> [Line]
 emitThunkDecl t =
   emitThunkSuspend (namesForThunk t) t
 
@@ -133,7 +134,7 @@ foldThunk consValue consInfo nil (ThunkType ss) = go 0 0 ss
     go i j (ThunkValueArg s : ss') = consValue i s (go (i+1) j ss')
     go i j (ThunkInfoArg : ss') = consInfo j (go i (j+1) ss')
 
-emitThunkSuspend :: ThunkNames -> ThunkType -> [String]
+emitThunkSuspend :: ThunkNames -> ThunkType -> [Line]
 emitThunkSuspend ns ty =
   ["void " ++ thunkSuspendName ns ++ "(" ++ commaSep paramList ++ ") {"
   ,"    next_closure = closure;"
@@ -174,7 +175,7 @@ emitThunkSuspend ns ty =
           ("   next_step->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
           acc
 
-emitClosureDecl :: ClosureDecl -> [String]
+emitClosureDecl :: ClosureDecl -> [Line]
 emitClosureDecl (ClosureDecl d (envName, envd) params e) =
   emitClosureEnv ns envd ++
   emitClosureCode ns envName params e ++
@@ -186,14 +187,14 @@ emitClosureDecl (ClosureDecl d (envName, envd) params e) =
     f (TypeParam _) = ThunkInfoArg
     f (PlaceParam p) = ThunkValueArg (placeSort p)
 
-emitClosureEnv :: ClosureNames -> EnvDecl -> [String]
+emitClosureEnv :: ClosureNames -> EnvDecl -> [Line]
 emitClosureEnv ns envd =
   let ns' = closureEnvName ns in
   emitEnvDecl ns' envd ++
   emitEnvInfo ns' envd ++
   emitEnvAlloc ns' envd
 
-emitEnvDecl :: EnvNames -> EnvDecl -> [String]
+emitEnvDecl :: EnvNames -> EnvDecl -> [Line]
 emitEnvDecl ns (EnvDecl is fs) =
   ["struct " ++ envTypeName ns ++ " {"
   ,"    struct alloc_header header;"] ++
@@ -204,7 +205,7 @@ emitEnvDecl ns (EnvDecl is fs) =
     mkInfo i = "    " ++ emitInfoPlace i ++ ";"
     mkField (f, _) = "    " ++ emitPlace f ++ ";"
 
-emitEnvAlloc :: EnvNames -> EnvDecl -> [String]
+emitEnvAlloc :: EnvNames -> EnvDecl -> [Line]
 emitEnvAlloc ns (EnvDecl is fs) =
   ["struct " ++ envTypeName ns ++ " *" ++ envAllocName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ envTypeName ns ++ " *_env = malloc(sizeof(struct " ++ envTypeName ns ++ "));"]++
@@ -220,7 +221,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
     assignInfo (InfoPlace aa) = "    _env->" ++ show aa ++ " = " ++ show aa ++ ";"
     assignField (Place _ x, _) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
 
-emitEnvInfo :: EnvNames -> EnvDecl -> [String]
+emitEnvInfo :: EnvNames -> EnvDecl -> [Line]
 emitEnvInfo ns (EnvDecl _is fs) =
   ["void " ++ envTraceName ns ++ "(struct alloc_header *alloc) {"
   ,"    " ++ envTy ++ show envName ++ " = (" ++ envTy ++ ")alloc;"] ++
@@ -232,7 +233,7 @@ emitEnvInfo ns (EnvDecl _is fs) =
     envTy = "struct " ++ envTypeName ns ++ " *"
     traceField (Place _ x, i) = "    " ++ emitMarkGray envName (EnvName x) i ++ ";"
 
-emitClosureEnter :: ClosureNames -> ThunkType -> [String]
+emitClosureEnter :: ClosureNames -> ThunkType -> [Line]
 emitClosureEnter ns ty =
   ["void " ++ closureEnterName ns ++ "(void) {"
   ,"    " ++ thunkTy ++ "next = (" ++ thunkTy ++ ")next_step;"
@@ -247,7 +248,7 @@ emitClosureEnter ns ty =
         consValue i s acc = asSort s ("next_step->args->values[" ++ show i ++ "].alloc") : acc
         consInfo j acc = ("next_step->args->infos[" ++ show j ++ "]") : acc
 
-emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [String]
+emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
 emitClosureCode ns envName xs e =
   ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"] ++
   emitClosureBody envName e ++
@@ -258,7 +259,7 @@ emitClosureCode ns envName xs e =
     emitParam (TypeParam i) = emitInfoPlace i
     emitParam (PlaceParam p) = emitPlace p
 
-emitClosureBody :: EnvPtr -> TermH -> [String]
+emitClosureBody :: EnvPtr -> TermH -> [Line]
 emitClosureBody envp (LetValH x v e) =
   ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc envp v ++ ";"] ++
   emitClosureBody envp e
@@ -281,7 +282,7 @@ emitClosureBody envp (OpenH c ty args) =
 emitClosureBody envp (CaseH x kind ks) =
   emitCase kind envp x ks
 
-emitSuspend :: EnvPtr -> Name -> ThunkType -> [ClosureArg] -> String
+emitSuspend :: EnvPtr -> Name -> ThunkType -> [ClosureArg] -> Line
 emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep args ++ ");"
   where
     method = thunkSuspendName (namesForThunk ty)
@@ -297,7 +298,7 @@ emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep a
     makeArg _ _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
 
-emitCase :: CaseKind -> EnvPtr -> Name -> [Name] -> [String]
+emitCase :: CaseKind -> EnvPtr -> Name -> [Name] -> [Line]
 emitCase kind envp x ks =
   ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch (zip3 [0..] (caseInfoTable kind) ks) ++
@@ -390,13 +391,13 @@ emitPrimCall envp fn xs = fn ++ "(" ++ commaSep (map (emitName envp) xs) ++ ")"
 -- - Second, the closures are allocated using the environments from step 1.
 -- - Third, the @NULL@s in the environments are patched to refer to the
 --   freshly-allocated closures.
-emitAllocGroup :: EnvPtr -> [ClosureAlloc] -> [String]
+emitAllocGroup :: EnvPtr -> [ClosureAlloc] -> [Line]
 emitAllocGroup envp closures =
   map (allocEnv envp) closures ++
   map allocClosure closures ++
   concatMap patchEnv closures
 
-allocEnv :: EnvPtr -> ClosureAlloc -> String
+allocEnv :: EnvPtr -> ClosureAlloc -> Line
 allocEnv envp (ClosureAlloc _p d envPlace (EnvAlloc info fields)) =
   "    struct " ++ envTypeName ns' ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
   where
@@ -407,7 +408,7 @@ allocEnv envp (ClosureAlloc _p d envPlace (EnvAlloc info fields)) =
     emitAllocArg (EnvFreeArg _ x) = emitName envp x
     emitAllocArg (EnvRecArg _ _) = "NULL"
 
-allocClosure :: ClosureAlloc -> String
+allocClosure :: ClosureAlloc -> Line
 allocClosure (ClosureAlloc p d envPlace _env) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep args ++ ");"
   where
@@ -418,7 +419,7 @@ allocClosure (ClosureAlloc p d envPlace _env) =
     traceArg = envInfoName ns'
     enterArg = closureEnterName ns
 
-patchEnv :: ClosureAlloc -> [String]
+patchEnv :: ClosureAlloc -> [Line]
 patchEnv (ClosureAlloc _ _ envPlace (EnvAlloc _info fields)) = concatMap patchField fields
   where
     patchField (EnvFreeArg _ _) = []
@@ -449,7 +450,7 @@ emitInfo _ ProductInfo = "pair_info"
 emitInfo _ ClosureInfo = "closure_info"
 emitInfo _ ListInfo = "list_info"
 
-emitFunction :: String -> String -> [String] -> [String] -> [String]
+emitFunction :: String -> String -> [String] -> [Line] -> [Line]
 emitFunction retTy name params body =
   -- Annoying: will add an extra space if retTy is a pointer.
   [retTy ++ " " ++ name ++ "(" ++ commaSep params ++ ") {"] ++
