@@ -116,9 +116,6 @@ asSort (ListH _s) x = "AS_LIST(" ++ x ++ ")"
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
-emitMarkGray :: EnvPtr -> Name -> Info -> Line
-emitMarkGray envp x s = "mark_gray(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp s ++ ")"
-
 emitThunkDecl :: ThunkType -> [Line]
 emitThunkDecl t =
   emitThunkSuspend (namesForThunk t) t
@@ -224,7 +221,8 @@ emitEnvInfo ns (EnvDecl _is fs) =
   where
     envName = Id "env"
     envTy = "struct " ++ envTypeName ns ++ " *"
-    traceField (Place _ x, i) = "    " ++ emitMarkGray envName (EnvName x) i ++ ";"
+    traceField (Place _ x, i) =
+      "    mark_gray(" ++ asAlloc (emitName envName (EnvName x)) ++ ", " ++ emitInfo envName i ++ ");"
 
 emitClosureEnter :: ClosureNames -> ThunkType -> [Line]
 emitClosureEnter ns ty =
