@@ -172,16 +172,13 @@ emitThunkSuspend ns ty =
           acc
 
 emitClosureDecl :: ClosureDecl -> [Line]
-emitClosureDecl (ClosureDecl d (envName, envd) params e) =
+emitClosureDecl cd@(ClosureDecl d (envName, envd) params e) =
   emitClosureEnv ns envd ++
   emitClosureCode ns envName params e ++
   emitClosureEnter ns ty
   where
     ns = namesForClosure d
-    -- TODO: It's a bit inelegant to re-infer the thunk type here.
-    ty = ThunkType (map f params)
-    f (TypeParam _) = ThunkInfoArg
-    f (PlaceParam p) = ThunkValueArg (placeSort p)
+    ty = closureDeclType cd
 
 emitClosureEnv :: ClosureNames -> EnvDecl -> [Line]
 emitClosureEnv ns envd =
@@ -244,6 +241,8 @@ emitClosureEnter ns ty =
         consValue i s acc = asSort s ("next_step->args->values[" ++ show i ++ "].alloc") : acc
         consInfo j acc = ("next_step->args->infos[" ++ show j ++ "]") : acc
 
+-- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
+-- environment pointer.
 emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
 emitClosureCode ns envName xs e =
   ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"] ++

@@ -32,6 +32,8 @@ module Hoist
     , InfoPlace(..)
     , ClosureName(..)
     , ClosureDecl(..)
+    , closureDeclName
+    , closureDeclType
     , ClosureParam(..)
     , ClosureArg(..)
     , EnvDecl(..)
@@ -218,6 +220,15 @@ instance Show Info where
 data ClosureDecl
   = ClosureDecl ClosureName (Id, EnvDecl) [ClosureParam] TermH
 
+closureDeclName :: ClosureDecl -> ClosureName
+closureDeclName (ClosureDecl c _ _ _) = c 
+
+closureDeclType :: ClosureDecl -> ThunkType
+closureDeclType (ClosureDecl _ _ params _) = ThunkType (map f params)
+  where
+    f (PlaceParam p) = ThunkValueArg (placeSort p)
+    f (TypeParam i) = ThunkInfoArg
+
 -- TODO: EnvDecl should use InfoPlace2
 -- Hmm. Maybe EnvDecl should use 'Id' for the fields?
 data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
@@ -367,11 +378,9 @@ collectThunkTypes :: [ClosureDecl] -> Set ThunkType
 collectThunkTypes cs = foldMap closureThunkTypes cs
   where
     closureThunkTypes :: ClosureDecl -> Set ThunkType
-    closureThunkTypes (ClosureDecl _ _ params _) = Set.insert ty (foldMap paramThunkTypes params)
+    closureThunkTypes cd@(ClosureDecl _ _ params _) = Set.insert ty (foldMap paramThunkTypes params)
       where
-        ty = ThunkType (map f params)
-        f (TypeParam i) = ThunkInfoArg
-        f (PlaceParam p) = ThunkValueArg (placeSort p)
+        ty = closureDeclType cd
 
     paramThunkTypes :: ClosureParam -> Set ThunkType
     paramThunkTypes (TypeParam _) = Set.empty
