@@ -266,7 +266,7 @@ emitClosureBody envp (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp envp p ++ ";"] ++
   emitClosureBody envp e
 emitClosureBody envp (AllocClosure cs e) =
-  emitAllocGroup envp cs ++
+  emitClosureGroup envp cs ++
   emitClosureBody envp e
 emitClosureBody envp (HaltH _s x i) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp i ++ ");"]
@@ -384,8 +384,8 @@ emitPrimCall envp fn xs = fn ++ "(" ++ commaSep (map (emitName envp) xs) ++ ")"
 -- - Second, the closures are allocated using the environments from step 1.
 -- - Third, the @NULL@s in the environments are patched to refer to the
 --   freshly-allocated closures.
-emitAllocGroup :: EnvPtr -> [ClosureAlloc] -> [Line]
-emitAllocGroup envp closures =
+emitClosureGroup :: EnvPtr -> [ClosureAlloc] -> [Line]
+emitClosureGroup envp closures =
   map (allocEnv envp) closures ++
   map allocClosure closures ++
   concatMap patchEnv closures
