@@ -20,6 +20,7 @@ module Hoist
     , PrimOp(..)
     , Sort(..)
     , ClosureTele(..)
+    , closureThunkType
     , TeleEntry(..)
     , Name(..)
     , Info(..)
@@ -312,7 +313,7 @@ data PrimOp
 --
 -- Because 'ThunkType' is mostly concerned with the call site, it does not have
 -- a binding structure. (Or does it?)
-data ThunkType = ThunkType [ThunkArg]
+data ThunkType = ThunkType { thunkArgs :: [ThunkArg] }
 
 -- TODO: Does this need an 'OpaqueArg' analogue?
 -- More generally, is a 'Sort' really the right thing to use here?

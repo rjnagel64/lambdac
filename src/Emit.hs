@@ -2,6 +2,10 @@
 module Emit (emitProgram) where
 
 import Data.List (intercalate)
+import Data.Maybe (mapMaybe)
+
+import qualified Data.Map as Map
+import Data.Map (Map)
 
 import Hoist
 
@@ -27,12 +31,21 @@ commaSep = intercalate ", "
 type EnvPtr = Id
 type Line = String
 
+-- Associate each closure with its calling convention
+type ClosureSig = Map ClosureName ThunkType
+-- Associate closures in the local environment with their calling conventions.
+-- (Split into two parts, because of local declarations vs. declarations from
+-- the closure env)
+type ThunkEnv = (Map Id ThunkType, Map Id ThunkType)
+
 emitProgram :: ([ThunkType], [ClosureDecl], TermH) -> [Line]
 emitProgram (ts, cs, e) =
   prologue ++
   concatMap emitThunkDecl ts ++
-  concatMap emitClosureDecl cs ++
-  emitEntryPoint e
+  concatMap (emitClosureDecl closureSig) cs ++
+  emitEntryPoint closureSig e
+  where
+    closureSig = Map.fromList [(closureDeclName cd, closureDeclType cd) | cd <- cs]
 
 data ClosureNames
   = ClosureNames {
@@ -69,11 +82,18 @@ namesForEnv (ClosureName f) =
 prologue :: [Line]
 prologue = ["#include \"rts.h\""]
 
-emitEntryPoint :: TermH -> [Line]
-emitEntryPoint e =
+emitEntryPoint :: ClosureSig -> TermH -> [Line]
+emitEntryPoint csig e =
   ["void program_entry(void) {"] ++
-  emitClosureBody (Id "NULL") e ++ -- There is no top-level environment. All names are local.
+  -- There is no top-level environment. All names are local.
+  emitClosureBody csig thunkEnv envp e ++
   ["}"]
+  where
+    -- There is no environment pointer at the top level, because we are not in a closure.
+    envp = Id "NULL"
+    -- Likewise, there are no fields in the environment.
+    -- Also, we start with no local variables.
+    thunkEnv = (Map.empty, Map.empty)
 
 data ThunkNames
   = ThunkNames {
@@ -121,11 +141,11 @@ emitThunkDecl t =
   emitThunkSuspend (namesForThunk t) t
 
 foldThunk :: (Int -> Sort -> b -> b) -> (Int -> b -> b) -> b -> ThunkType -> b
-foldThunk consValue consInfo nil (ThunkType ss) = go 0 0 ss
+foldThunk consValue consInfo nil ty = go 0 0 (thunkArgs ty)
   where
     go _ _ [] = nil
-    go i j (ThunkValueArg s : ss') = consValue i s (go (i+1) j ss')
-    go i j (ThunkInfoArg : ss') = consInfo j (go i (j+1) ss')
+    go i j (ThunkValueArg s : ss) = consValue i s (go (i+1) j ss)
+    go i j (ThunkInfoArg : ss) = consInfo j (go i (j+1) ss)
 
 emitThunkSuspend :: ThunkNames -> ThunkType -> [Line]
 emitThunkSuspend ns ty =
@@ -168,14 +188,23 @@ emitThunkSuspend ns ty =
           ("   next_step->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
           acc
 
-emitClosureDecl :: ClosureDecl -> [Line]
-emitClosureDecl cd@(ClosureDecl d (envName, envd) params e) =
+emitClosureDecl :: ClosureSig -> ClosureDecl -> [Line]
+emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params e) =
   emitClosureEnv ns envd ++
-  emitClosureCode ns envName params e ++
+  emitClosureCode csig thunkEnv ns envName params e ++
   emitClosureEnter ns ty
   where
     ns = namesForClosure d
     ty = closureDeclType cd
+
+    thunkEnv = (Map.fromList $ mapMaybe f params, Map.fromList $ mapMaybe g places)
+    f (TypeParam _) = Nothing
+    f (PlaceParam p) = case placeSort p of
+      ClosureH tele -> Just (placeName p, closureThunkType tele)
+      _ -> Nothing
+    g (p, _) = case placeSort p of
+      ClosureH tele -> Just (placeName p, closureThunkType tele)
+      _ -> Nothing
 
 emitClosureEnv :: ClosureNames -> EnvDecl -> [Line]
 emitClosureEnv ns envd =
@@ -241,10 +270,10 @@ emitClosureEnter ns ty =
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.
-emitClosureCode :: ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
-emitClosureCode ns envName xs e =
+emitClosureCode :: ClosureSig -> ThunkEnv -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
+emitClosureCode csig tenv ns envName xs e =
   ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"] ++
-  emitClosureBody envName e ++
+  emitClosureBody csig tenv envName e ++
   ["}"]
   where
     paramList = commaSep (envParam : map emitParam xs)
@@ -252,34 +281,39 @@ emitClosureCode ns envName xs e =
     emitParam (TypeParam i) = emitInfoPlace i
     emitParam (PlaceParam p) = emitPlace p
 
-emitClosureBody :: EnvPtr -> TermH -> [Line]
-emitClosureBody envp (LetValH x v e) =
+
+emitClosureBody :: ClosureSig -> ThunkEnv -> EnvPtr -> TermH -> [Line]
+emitClosureBody csig tenv envp (LetValH x v e) =
   ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc envp v ++ ";"] ++
-  emitClosureBody envp e
-emitClosureBody envp (LetProjectH x y ProjectFst e) =
+  emitClosureBody csig tenv envp e
+emitClosureBody csig tenv envp (LetProjectH x y ProjectFst e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->fst") ++ ";"] ++
-  emitClosureBody envp e
-emitClosureBody envp (LetProjectH x y ProjectSnd e) =
+  emitClosureBody csig tenv envp e
+emitClosureBody csig tenv envp (LetProjectH x y ProjectSnd e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->snd") ++ ";"] ++
-  emitClosureBody envp e
-emitClosureBody envp (LetPrimH x p e) =
+  emitClosureBody csig tenv envp e
+emitClosureBody csig tenv envp (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp envp p ++ ";"] ++
-  emitClosureBody envp e
-emitClosureBody envp (AllocClosure cs e) =
+  emitClosureBody csig tenv envp e
+emitClosureBody csig tenv envp (AllocClosure cs e) =
   emitClosureGroup envp cs ++
-  emitClosureBody envp e
-emitClosureBody envp (HaltH _s x i) =
+  -- TODO: Extend thunkEnv here, using csig and cs.
+  let tenv' = extendThunkEnv csig tenv cs in
+  emitClosureBody csig tenv' envp e
+emitClosureBody _ _ envp (HaltH _s x i) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp i ++ ");"]
-emitClosureBody envp (OpenH c ty args) =
-  [emitSuspend envp c ty args]
-emitClosureBody envp (CaseH x kind ks) =
+emitClosureBody _ tenv envp (OpenH c ty args) =
+  [emitSuspend tenv envp c args]
+emitClosureBody _ _ envp (CaseH x kind ks) =
   emitCase kind envp x ks
 
-emitSuspend :: EnvPtr -> Name -> ThunkType -> [ClosureArg] -> Line
-emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep args ++ ");"
+emitSuspend :: ThunkEnv -> EnvPtr -> Name -> [ClosureArg] -> Line
+emitSuspend tenv envp cl xs =
+  "    " ++ method ++ "(" ++ commaSep args ++ ");"
   where
+    ty = lookupThunkTy tenv cl
     method = thunkSuspendName (namesForThunk ty)
-    args = emitName envp cl : zipWith makeArg ss xs
+    args = emitName envp cl : zipWith makeArg (thunkArgs ty) xs
 
     makeArg ThunkInfoArg (TypeArg i) = emitInfo envp i
     makeArg (ThunkValueArg (AllocH _)) (OpaqueArg y i) = emitName envp y ++ ", " ++ emitInfo envp i
@@ -289,6 +323,14 @@ emitSuspend envp cl ty@(ThunkType ss) xs = "    " ++ method ++ "(" ++ commaSep a
       error "'alloc' thunk args should be opaque values"
     makeArg (ThunkValueArg _) (ValueArg y) = emitName envp y
     makeArg _ _ = error "calling convention mismatch: type/value param paired with value/type arg"
+
+lookupThunkTy :: ThunkEnv -> Name -> ThunkType
+lookupThunkTy (localThunkTys, _) (LocalName x) = case Map.lookup x localThunkTys of
+  Nothing -> error ("missing thunk type for name " ++ show x)
+  Just ty -> ty
+lookupThunkTy (_, envThunkTys) (EnvName x) = case Map.lookup x envThunkTys of
+  Nothing -> error ("missing thunk type for name " ++ show x)
+  Just ty -> ty
 
 
 emitCase :: CaseKind -> EnvPtr -> Name -> [Name] -> [Line]
@@ -389,6 +431,18 @@ emitClosureGroup envp closures =
   map (allocEnv envp) closures ++
   map allocClosure closures ++
   concatMap patchEnv closures
+
+extendThunkEnv :: ClosureSig -> ThunkEnv -> [ClosureAlloc] -> ThunkEnv
+extendThunkEnv csig (localThunkTys, envThunkTys) closures =
+  (foldr (uncurry Map.insert) localThunkTys cs'', envThunkTys)
+  where
+    cs' :: [(Id, ClosureName)]
+    cs' = [(placeName (closurePlace c), closureDecl c) | c <- closures]
+    cs'' :: [(Id, ThunkType)]
+    cs'' = map f cs'
+    f (x, d) = case Map.lookup d csig of
+      Nothing -> error ("thunk type of closure " ++ show d ++ " is missing")
+      Just ty -> (x, ty)
 
 allocEnv :: EnvPtr -> ClosureAlloc -> Line
 allocEnv envp (ClosureAlloc _p d envPlace (EnvAlloc info fields)) =
