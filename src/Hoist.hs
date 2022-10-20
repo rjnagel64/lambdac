@@ -20,7 +20,6 @@ module Hoist
     , PrimOp(..)
     , Sort(..)
     , ClosureTele(..)
-    , closureThunkType
     , TeleEntry(..)
     , Name(..)
     , Info(..)
@@ -28,13 +27,13 @@ module Hoist
     , TyVar(..)
     , ThunkType(..)
     , ThunkArg(..)
+    , teleThunkType
     , thunkTypeCode
     , Place(..)
     , InfoPlace(..)
     , ClosureName(..)
     , ClosureDecl(..)
     , closureDeclName
-    , closureDeclType
     , ClosureParam(..)
     , ClosureArg(..)
     , EnvDecl(..)
@@ -165,12 +164,6 @@ data TeleEntry
   | TypeTele TyVar
   deriving Eq -- Should probably hand-roll, because alpha-equality
 
-closureThunkType :: ClosureTele -> ThunkType
-closureThunkType (ClosureTele ss) = ThunkType (map f ss)
-  where
-    f (ValueTele s) = ThunkValueArg s
-    f (TypeTele aa) = ThunkInfoArg -- Hmm. type args aren't really info args, though.
-
 sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH
 sortOf C.Boolean = BooleanH
@@ -224,12 +217,6 @@ data ClosureDecl
 closureDeclName :: ClosureDecl -> ClosureName
 closureDeclName (ClosureDecl c _ _ _) = c 
 
-closureDeclType :: ClosureDecl -> ThunkType
-closureDeclType (ClosureDecl _ _ params _) = ThunkType (map f params)
-  where
-    f (PlaceParam p) = ThunkValueArg (placeSort p)
-    f (TypeParam i) = ThunkInfoArg
-
 -- TODO: EnvDecl should use InfoPlace2
 -- Hmm. Maybe EnvDecl should use 'Id' for the fields?
 data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
@@ -250,7 +237,7 @@ data TermH
   -- 'let value x = fst y in e'
   | LetProjectH Place Name Projection TermH
   | HaltH Sort Name Info
-  | OpenH Name ThunkType [ClosureArg]
+  | OpenH Name [ClosureArg]
   | CaseH Name CaseKind [Name]
   -- Closures may be mutually recursive, so they are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
@@ -315,6 +302,12 @@ data PrimOp
 -- a binding structure. (Or does it?)
 data ThunkType = ThunkType { thunkArgs :: [ThunkArg] }
 
+teleThunkType :: ClosureTele -> ThunkType
+teleThunkType (ClosureTele ss) = ThunkType (map f ss)
+  where
+    f (ValueTele s) = ThunkValueArg s
+    f (TypeTele aa) = ThunkInfoArg -- Hmm. type args aren't really info args, though.
+
 -- TODO: Does this need an 'OpaqueArg' analogue?
 -- More generally, is a 'Sort' really the right thing to use here?
 -- ThunkType/ThunkArg are more for specifying the calling convention, an opaque
@@ -347,6 +340,9 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     entrycode (ValueTele s) = tycode s
     entrycode (TypeTele aa) = "J" -- same as 'I', or different?
 
+-- Hmm. This almost replicates the ordering-modulo-alpha-conversion thing.
+-- The only thing I would need to do would be to map type variables to levels,
+-- which requires the thunk types to be closed.
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
@@ -375,43 +371,11 @@ deriving newtype instance Monoid ClosureDecls
 tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs)
 
-collectThunkTypes :: [ClosureDecl] -> Set ThunkType
-collectThunkTypes cs = foldMap closureThunkTypes cs
-  where
-    closureThunkTypes :: ClosureDecl -> Set ThunkType
-    closureThunkTypes cd@(ClosureDecl _ _ params _) = Set.insert ty (foldMap paramThunkTypes params)
-      where
-        ty = closureDeclType cd
 
-    paramThunkTypes :: ClosureParam -> Set ThunkType
-    paramThunkTypes (TypeParam _) = Set.empty
-    paramThunkTypes (PlaceParam p) = thunkTypesOf (placeSort p)
-
-    thunkTypesOf :: Sort -> Set ThunkType
-    thunkTypesOf (AllocH _) = Set.empty
-    thunkTypesOf IntegerH = Set.empty
-    thunkTypesOf BooleanH = Set.empty
-    thunkTypesOf SumH = Set.empty
-    thunkTypesOf UnitH = Set.empty
-    thunkTypesOf (ClosureH tele) = Set.insert (closureThunkType tele) (teleThunkTypes tele)
-    thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
-    thunkTypesOf (ListH t) = thunkTypesOf t
-
-    teleThunkTypes :: ClosureTele -> Set ThunkType
-    -- We are looking for thunk types, so scoping doesn't matter and foldMap is
-    -- fine.
-    teleThunkTypes (ClosureTele ss) = foldMap entryThunkTypes ss
-
-    entryThunkTypes :: TeleEntry -> Set ThunkType
-    entryThunkTypes (ValueTele s) = thunkTypesOf s
-    entryThunkTypes (TypeTele aa) = Set.empty
-
-
-hoistProgram :: TermC -> (TermH, [ClosureDecl], [ThunkType])
+hoistProgram :: TermC -> (TermH, [ClosureDecl])
 hoistProgram srcC =
   let (srcH, ClosureDecls cs) = runHoist (hoist srcC) in
-  let ts = Set.toList $ collectThunkTypes cs in
-  (srcH, cs, ts)
+  (srcH, cs)
 
 runHoist :: HoistM a -> (a, ClosureDecls)
 runHoist =
@@ -433,18 +397,18 @@ hoist (HaltC x) = do
   i <- infoForSort s
   pure (HaltH s x' i)
 hoist (JumpC k xs) = do
-  (k', ty) <- hoistCall k
+  k' <- hoistVarOcc k
   ys <- hoistArgList xs
-  pure (OpenH k' ty ys)
+  pure (OpenH k' ys)
 hoist (CallC f xs ks) = do
-  (f', ty) <- hoistCall f
+  f' <- hoistVarOcc f
   ys <- hoistArgList (xs ++ ks)
-  pure (OpenH f' ty ys)
+  pure (OpenH f' ys)
 hoist (InstC f ts ks) = do
-  (f', ty) <- hoistCall f
+  f' <- hoistVarOcc f
   ys <- hoistArgList ks
   ts' <- traverse (infoForSort . sortOf) ts
-  pure (OpenH f' ty (map TypeArg ts' ++ ys))
+  pure (OpenH f' (map TypeArg ts' ++ ys))
 hoist (CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
@@ -651,12 +615,6 @@ hoistVarOccSort x = do
 hoistVarOcc :: C.Name -> HoistM Name
 hoistVarOcc = fmap fst . hoistVarOccSort
 
--- | Hoist a variable in call position and compute its thunk type
-hoistCall :: C.Name -> HoistM (Name, ThunkType)
-hoistCall x = hoistVarOccSort x >>= \case
-  (x', ClosureH tele) -> pure (x', closureThunkType tele)
-  (_, s) -> error ("called a non-closure: " ++ show x ++ " : " ++ pprintSort s)
-
 -- | Hoist a list of arguments.
 hoistArgList :: [C.Name] -> HoistM [ClosureArg]
 hoistArgList xs = traverse f xs
@@ -718,12 +676,12 @@ makePlace x s = do
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
-pprintProgram :: (TermH, [ClosureDecl], [ThunkType]) -> String
-pprintProgram (srcH, cs, ts) = pprintThunkTypes ts ++ pprintClosures cs ++ pprintTerm 0 srcH
+pprintProgram :: (TermH, [ClosureDecl]) -> String
+pprintProgram (srcH, cs) = pprintClosures cs ++ pprintTerm 0 srcH
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH _ x _) = indent n $ "HALT " ++ show x ++ ";\n"
-pprintTerm n (OpenH c _ args) =
+pprintTerm n (OpenH c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
   let branches = intercalate " | " (map show ks) in
@@ -803,15 +761,6 @@ pprintAllocInfo (info, i) = "@" ++ pprintInfo info ++ " = " ++ show i
 pprintAllocArg :: EnvAllocArg -> String
 pprintAllocArg (EnvFreeArg field x) = pprintPlace field ++ " = " ++ show x
 pprintAllocArg (EnvRecArg field x) = pprintPlace field ++ " = " ++ show x
-
-pprintThunkTypes :: [ThunkType] -> String
-pprintThunkTypes ts = unlines (map pprintThunkType ts)
-  where
-    pprintThunkType :: ThunkType -> String
-    pprintThunkType (ThunkType ss) = "thunk (" ++ intercalate ", " (map pprintThunkArg ss) ++ ") -> !"
-
-    pprintThunkArg (ThunkValueArg s) = pprintSort s
-    pprintThunkArg ThunkInfoArg = "info"
 
 pprintSort :: Sort -> String
 pprintSort IntegerH = "int"

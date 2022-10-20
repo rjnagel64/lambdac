@@ -194,12 +194,11 @@ checkClosureBody (LetProjectH p x proj e) = do
 checkClosureBody (HaltH s x i) = do
   checkName x s
   checkInfo i s
-checkClosureBody (OpenH f ty args) = do
+checkClosureBody (OpenH f args) = do
   -- Infer type of closure
   ClosureTele tele <- lookupName f >>= \case
     ClosureH tele -> pure tele
     s -> throwError (BadOpen f s)
-  -- Check that thunk type matches closure type
   -- Check that args match closure telescope
   checkCallArgs tele args
   throwError (NotImplemented "checkClosureBody OpenH")

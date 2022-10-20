@@ -6,6 +6,8 @@ import Data.Maybe (mapMaybe)
 
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 
 import Hoist
 
@@ -38,15 +40,6 @@ type ClosureSig = Map ClosureName ThunkType
 -- the closure env)
 type ThunkEnv = (Map Id ThunkType, Map Id ThunkType)
 
-emitProgram :: ([ThunkType], [ClosureDecl], TermH) -> [Line]
-emitProgram (ts, cs, e) =
-  prologue ++
-  concatMap emitThunkDecl ts ++
-  concatMap (emitClosureDecl closureSig) cs ++
-  emitEntryPoint closureSig e
-  where
-    closureSig = Map.fromList [(closureDeclName cd, closureDeclType cd) | cd <- cs]
-
 data ClosureNames
   = ClosureNames {
     closureEnvName :: EnvNames
@@ -78,22 +71,6 @@ namesForEnv (ClosureName f) =
   , envAllocName = "allocate_" ++ f ++ "_env"
   , envTraceName = "trace_" ++ f ++ "_env"
   }
-
-prologue :: [Line]
-prologue = ["#include \"rts.h\""]
-
-emitEntryPoint :: ClosureSig -> TermH -> [Line]
-emitEntryPoint csig e =
-  ["void program_entry(void) {"] ++
-  -- There is no top-level environment. All names are local.
-  emitClosureBody csig thunkEnv envp e ++
-  ["}"]
-  where
-    -- There is no environment pointer at the top level, because we are not in a closure.
-    envp = Id "NULL"
-    -- Likewise, there are no fields in the environment.
-    -- Also, we start with no local variables.
-    thunkEnv = (Map.empty, Map.empty)
 
 data ThunkNames
   = ThunkNames {
@@ -135,6 +112,74 @@ asSort (ListH _s) x = "AS_LIST(" ++ x ++ ")"
 
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
+
+
+closureDeclType :: ClosureDecl -> ThunkType
+closureDeclType (ClosureDecl _ _ params _) = ThunkType (map f params)
+  where
+    -- In theory, this function should just be 'thunkFromTele . closureDeclTele', however
+    -- ClosureTele uses TyVar for type arguments, while ClosureParam uses InfoPlace.
+    -- So, we must duplicate this function here until that mess can be sorted out.
+    f (PlaceParam p) = ThunkValueArg (placeSort p)
+    f (TypeParam i) = ThunkInfoArg
+
+collectThunkTypes :: [ClosureDecl] -> Set ThunkType
+collectThunkTypes cs = foldMap closureThunkTypes cs
+  where
+    closureThunkTypes :: ClosureDecl -> Set ThunkType
+    closureThunkTypes cd@(ClosureDecl _ _ params _) = Set.insert ty (foldMap paramThunkTypes params)
+      where ty = closureDeclType cd
+
+    paramThunkTypes :: ClosureParam -> Set ThunkType
+    paramThunkTypes (TypeParam _) = Set.empty
+    paramThunkTypes (PlaceParam p) = thunkTypesOf (placeSort p)
+
+    thunkTypesOf :: Sort -> Set ThunkType
+    thunkTypesOf (AllocH _) = Set.empty
+    thunkTypesOf IntegerH = Set.empty
+    thunkTypesOf BooleanH = Set.empty
+    thunkTypesOf SumH = Set.empty
+    thunkTypesOf UnitH = Set.empty
+    thunkTypesOf (ClosureH tele) = Set.insert (teleThunkType tele) (teleThunkTypes tele)
+    thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
+    thunkTypesOf (ListH t) = thunkTypesOf t
+
+    teleThunkTypes :: ClosureTele -> Set ThunkType
+    -- We are looking for thunk types, so scoping doesn't matter and foldMap is
+    -- fine.
+    teleThunkTypes (ClosureTele ss) = foldMap entryThunkTypes ss
+
+    entryThunkTypes :: TeleEntry -> Set ThunkType
+    entryThunkTypes (ValueTele s) = thunkTypesOf s
+    entryThunkTypes (TypeTele aa) = Set.empty
+
+
+
+emitProgram :: ([ClosureDecl], TermH) -> [Line]
+emitProgram (cs, e) =
+  prologue ++
+  concatMap emitThunkDecl ts ++
+  concatMap (emitClosureDecl closureSig) cs ++
+  emitEntryPoint closureSig e
+  where
+    closureSig = Map.fromList [(closureDeclName cd, closureDeclType cd) | cd <- cs]
+    ts = Set.toList $ collectThunkTypes cs
+
+prologue :: [Line]
+prologue = ["#include \"rts.h\""]
+
+emitEntryPoint :: ClosureSig -> TermH -> [Line]
+emitEntryPoint csig e =
+  ["void program_entry(void) {"] ++
+  -- There is no top-level environment. All names are local.
+  emitClosureBody csig thunkEnv envp e ++
+  ["}"]
+  where
+    -- There is no environment pointer at the top level, because we are not in a closure.
+    envp = Id "NULL"
+    -- Likewise, there are no fields in the environment.
+    -- Also, we start with no local variables.
+    thunkEnv = (Map.empty, Map.empty)
 
 emitThunkDecl :: ThunkType -> [Line]
 emitThunkDecl t =
@@ -200,10 +245,10 @@ emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params
     thunkEnv = (Map.fromList $ mapMaybe f params, Map.fromList $ mapMaybe g places)
     f (TypeParam _) = Nothing
     f (PlaceParam p) = case placeSort p of
-      ClosureH tele -> Just (placeName p, closureThunkType tele)
+      ClosureH tele -> Just (placeName p, teleThunkType tele)
       _ -> Nothing
     g (p, _) = case placeSort p of
-      ClosureH tele -> Just (placeName p, closureThunkType tele)
+      ClosureH tele -> Just (placeName p, teleThunkType tele)
       _ -> Nothing
 
 emitClosureEnv :: ClosureNames -> EnvDecl -> [Line]
@@ -297,12 +342,11 @@ emitClosureBody csig tenv envp (LetPrimH x p e) =
   emitClosureBody csig tenv envp e
 emitClosureBody csig tenv envp (AllocClosure cs e) =
   emitClosureGroup envp cs ++
-  -- TODO: Extend thunkEnv here, using csig and cs.
   let tenv' = extendThunkEnv csig tenv cs in
   emitClosureBody csig tenv' envp e
 emitClosureBody _ _ envp (HaltH _s x i) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp i ++ ");"]
-emitClosureBody _ tenv envp (OpenH c ty args) =
+emitClosureBody _ tenv envp (OpenH c args) =
   [emitSuspend tenv envp c args]
 emitClosureBody _ _ envp (CaseH x kind ks) =
   emitCase kind envp x ks
