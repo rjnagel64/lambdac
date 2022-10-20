@@ -1,6 +1,7 @@
 
 module Emit (emitProgram) where
 
+import Data.Function (on)
 import Data.List (intercalate)
 import Data.Maybe (mapMaybe)
 
@@ -72,13 +73,66 @@ namesForEnv (ClosureName f) =
   , envTraceName = "trace_" ++ f ++ "_env"
   }
 
+
+-- | A thunk type is a calling convention for closures: the set of arguments
+-- that must be provided to open it. This information is used to generate
+-- trampolined tail calls.
+--
+-- Because 'ThunkType' is mostly concerned with the call site, it does not have
+-- a binding structure. (Or does it?)
+data ThunkType = ThunkType { thunkArgs :: [ThunkArg] }
+
+
+-- TODO: Does this need an 'OpaqueArg' analogue?
+-- More generally, is a 'Sort' really the right thing to use here?
+-- ThunkType/ThunkArg are more for specifying the calling convention, an opaque
+-- "this closure expects an integer, an opaque value, and a closure" as
+-- arguments rather than the actual details of the argument types.
+--
+-- Another thing to consider is that closure sorts can now have type arguments.
+-- Is there really a meaningful distinction between a top-level type/info
+-- argument and a nested one?
+data ThunkArg
+  = ThunkValueArg Sort
+  | ThunkInfoArg
+-- Hmm. This almost replicates the ordering-modulo-alpha-conversion thing.
+-- The only thing I would need to do would be to map type variables to levels,
+-- which requires the thunk types to be closed.
+instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
+instance Ord ThunkType where compare = compare `on` thunkTypeCode
+
+-- | Construct a thunk type from a closure telescope.
+teleThunkType :: ClosureTele -> ThunkType
+teleThunkType (ClosureTele ss) = ThunkType (map f ss)
+  where
+    f (ValueTele s) = ThunkValueArg s
+    f (TypeTele aa) = ThunkInfoArg -- Hmm. type args aren't really info args, though.
+
+thunkTypeCode :: ThunkType -> String
+thunkTypeCode (ThunkType ts) = concatMap argcode ts
+  where
+    argcode ThunkInfoArg = "I"
+    argcode (ThunkValueArg s) = tycode s
+    -- This scheme will almost certainly break down as types get fancier.
+    tycode :: Sort -> String
+    tycode (ClosureH tele) = 'C' : telecode tele
+    tycode IntegerH = "V"
+    tycode (AllocH _) = "A"
+    tycode SumH = "S"
+    tycode BooleanH = "B"
+    tycode (ProductH s t) = 'Q' : tycode s ++ tycode t
+    tycode UnitH = "U"
+    tycode (ListH s) = 'L' : tycode s
+    telecode (ClosureTele ss) = show (length ss) ++ concatMap entrycode ss
+    entrycode (ValueTele s) = tycode s
+    entrycode (TypeTele aa) = "J" -- same as 'I', or different?
+
 data ThunkNames
   = ThunkNames {
     thunkTypeName :: String
   , thunkTraceName :: String
   , thunkSuspendName :: String
   }
-
 
 namesForThunk :: ThunkType -> ThunkNames
 namesForThunk ty =
@@ -89,6 +143,7 @@ namesForThunk ty =
   }
   where
     code = thunkTypeCode ty
+
 
 typeForSort :: Sort -> String
 typeForSort (AllocH _) = "struct alloc_header *"
@@ -114,12 +169,14 @@ asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
 
+-- | Compute the thunk type of a closure declaration.
+--
+-- In theory, this should just be computing the closure's telescope, then using
+-- 'teleThunkType', but 'ClosureParam' and 'TeleEntry' disagree about type
+-- variables versus info variables and it's a mess.
 closureDeclType :: ClosureDecl -> ThunkType
 closureDeclType (ClosureDecl _ _ params _) = ThunkType (map f params)
   where
-    -- In theory, this function should just be 'thunkFromTele . closureDeclTele', however
-    -- ClosureTele uses TyVar for type arguments, while ClosureParam uses InfoPlace.
-    -- So, we must duplicate this function here until that mess can be sorted out.
     f (PlaceParam p) = ThunkValueArg (placeSort p)
     f (TypeParam i) = ThunkInfoArg
 
@@ -540,11 +597,4 @@ emitInfo _ SumInfo = "sum_info"
 emitInfo _ ProductInfo = "pair_info"
 emitInfo _ ClosureInfo = "closure_info"
 emitInfo _ ListInfo = "list_info"
-
-emitFunction :: String -> String -> [String] -> [Line] -> [Line]
-emitFunction retTy name params body =
-  -- Annoying: will add an extra space if retTy is a pointer.
-  [retTy ++ " " ++ name ++ "(" ++ commaSep params ++ ") {"] ++
-  map ("    " ++) body ++
-  ["}"]
 
