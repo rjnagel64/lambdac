@@ -136,6 +136,11 @@ Argument sequence E has type telescope S
 RULES
 =====
 
+-- TODO: Reorder these sections, so that they actually flow in a natural way.
+-- Starting with telescopes definitely doesn't flow. 
+-- Rule for typing env lookups:
+-- Γ |- $.l_i : t if env : {(l : s)+} and (l_i : t) \in l+
+
 Typing rules for telescopes are standard, though value bindings are non-dependent.
 
   ------

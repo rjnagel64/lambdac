@@ -666,14 +666,14 @@ pprintPrim (PrimGtInt64 x y) = "prim_gtint64(" ++ show x ++ ", " ++ show y ++ ")
 pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintPlace :: Place -> String
-pprintPlace (Place s x) = pprintSort s ++ " " ++ show x
+pprintPlace (Place s x) = show x ++ " : " ++ pprintSort s
 
 pprintInfo :: InfoPlace -> String
-pprintInfo (InfoPlace aa) = show aa
+pprintInfo (InfoPlace aa) = '@' : show aa
 
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
-pprintParam (TypeParam i) = '@' : pprintInfo i
+pprintParam (TypeParam i) = pprintInfo i
 
 pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = "let {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
@@ -696,11 +696,11 @@ pprintEnvAlloc (EnvAlloc info fields) =
   "{" ++ intercalate ", " (map pprintAllocInfo info ++ map pprintAllocArg fields) ++ "}"
 
 pprintAllocInfo :: (InfoPlace, Info) -> String
-pprintAllocInfo (info, i) = "@" ++ pprintInfo info ++ " = " ++ show i
+pprintAllocInfo (info, i) = pprintInfo info ++ " = " ++ show i
 
 pprintAllocArg :: EnvAllocArg -> String
-pprintAllocArg (EnvFreeArg field x) = pprintPlace field ++ " = " ++ show x
-pprintAllocArg (EnvRecArg field x) = pprintPlace field ++ " = " ++ show x
+pprintAllocArg (EnvFreeArg field x) = show (placeName field) ++ " = " ++ show x
+pprintAllocArg (EnvRecArg field x) = show (placeName field) ++ " = " ++ show x
 
 pprintSort :: Sort -> String
 pprintSort IntegerH = "int"
@@ -710,10 +710,10 @@ pprintSort SumH = "sum"
 pprintSort (ListH t) = "list " ++ pprintSort t
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
-pprintSort (AllocH aa) = "alloc(" ++ show aa ++ ")"
+pprintSort (AllocH aa) = show aa
 
 pprintTele :: ClosureTele -> String
 pprintTele (ClosureTele ss) = intercalate ", " (map f ss)
   where
     f (ValueTele s) = pprintSort s
-    f (TypeTele aa) = '@' : show aa
+    f (TypeTele aa) = "forall " ++ show aa

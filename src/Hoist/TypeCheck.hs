@@ -45,6 +45,11 @@ data Context = Context { ctxLocals :: Scope, ctxEnv :: Scope }
 -- Type variables record their presence, @a : type@.
 -- Info variables record the sort they describe, @i : info t@.
 data Scope = Scope { scopePlaces :: Map Id Sort, scopeTypes :: Set Id, scopeInfos :: Map Id Sort }
+-- Hmm. A separate scope for the environment doesn't quite make sense.
+-- The environment is morally equivalent to an extra variable binding with a
+-- unique name and a record type.
+-- also, the environment doesn't really bind type variables, so it shouldn't
+-- really have a field for type variables.
 
 data TCError
   = TypeMismatch Sort Sort
@@ -102,6 +107,7 @@ lookupTyVar (TyVar aa) = do
   ctx <- asks (scopeTypes . ctxLocals)
   case Set.member aa' ctx of
     True -> pure ()
+    -- Hmm. Why don't we check the environment scope?
     False -> throwError $ TyVarNotInScope (TyVar aa)
 
 lookupCodeDecl :: ClosureName -> TC ClosureDeclType
