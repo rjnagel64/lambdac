@@ -201,7 +201,6 @@ checkClosureBody (OpenH f args) = do
     s -> throwError (BadOpen f s)
   -- Check that args match closure telescope
   checkCallArgs tele args
-  throwError (NotImplemented "checkClosureBody OpenH")
 checkClosureBody (CaseH x kind ks) = checkCase x kind ks
 checkClosureBody (AllocClosure cs e) = do
   let binds = map closurePlace cs
@@ -302,9 +301,14 @@ checkSort (ProductH t s) = checkSort t *> checkSort s
 checkSort (ListH t) = checkSort t
 checkSort (ClosureH tele) = checkTele tele
 
+-- | Check that a telescope is well-formed w.r.t the context.
+-- @Γ |- S@
 checkTele :: ClosureTele -> TC ()
-checkTele (ClosureTele ss) = for_ ss $ \case
-  ValueTele s -> checkSort s
+checkTele (ClosureTele ss) = go ss
+  where
+    go [] = pure ()
+    go (ValueTele s : ss') = checkSort s *> go ss'
+    go (TypeTele (TyVar aa) : ss') = withInfo (InfoPlace (Id aa)) $ go ss'
 
 -- | Given info @i@ and sort @s@, check that @Γ |- i : info s@.
 checkInfo :: Info -> Sort -> TC ()
