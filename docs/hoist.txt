@@ -75,6 +75,10 @@ t, s ::= unit | t × s | ∃a.t[a] | code(t; S)
 Telescopes/Parameter lists
 S ::= . | @a, S | t, S
 -- maybe forall a, S instead of @a, S?
+-- Hmm. Telescopes and parameter lists aren't quite the same thing.
+-- In a dependently-typed setting they are, but here they aren't, because
+-- parameter lists give names to each term variable, but telescopes do not
+-- include parameter names.
 
 Terms
 e ::=
@@ -147,18 +151,18 @@ Typing rules for telescopes are standard, though value bindings are non-dependen
 
 Telescopes are used to type argument lists.
 
-  ----------
-  Γ |- . : .
+  -------------
+  Σ; Γ |- . : .
 
-  Γ |- i : info t
-  Γ |- E : S[a := t]
-  ------------------
-  Γ |- i, E : @a, S
+  Σ; Γ |- i : info t
+  Σ; Γ |- E : S[a := t]
+  ---------------------
+  Σ; Γ |- i, E : @a, S
 
-  Γ |- x : t
-  Γ |- E : S
-  ----------------
-  Γ |- x, E : t, S
+  Σ; Γ |- x : t
+  Σ; Γ |- E : S
+  -------------------
+  Σ; Γ |- x, E : t, S
 
 The distinctive feature of CC and Hoist is that functions and closures are not
 the same thing. A closure has an environment for non-local names, whereas a
@@ -166,11 +170,9 @@ function (code pointer) is entirely closed. Code types consist of a type for
 the environment parameter and a telescope of argument types.
 
   Γ |- t
-  (Γ |- s_i)^i
-  -------------------------
-  Γ |- code(t; s1, ..., sn)
-
-TODO: the parameter types should form a telescope. (Because type parameters)
+  Γ |- S
+  ---------------
+  Γ |- code(t; S)
 
 Aside: It isn't actually necessary to distinguish the environment parameter
 from the rest, but eh, whatever. (As of commit fdc1afd, environment parameters
@@ -180,11 +182,11 @@ avoid excessive tuple-projecting)
 Code pointers can be called by providing a matching environment and an
 appropriate list of arguments. Calling a code pointer is therefore uncurried.
 
-  f : code(t; s1, ..., sn) ∈ Γ
+  f : code(t; S) ∈ Γ
   Σ; Γ |- env : t
-  (Σ; Γ |- arg_i : s_i)^i
-  ----------------------------------
-  Σ; Γ |- f(env; arg1, ..., argn) OK
+  Σ; Γ |- E : S
+  --------------------
+  Σ; Γ |- f(env; E) OK
 
 Instead of using code types directly, the translation of types introduces
 "closure types", which behave pretty much as you expect: construct with a code
@@ -193,15 +195,15 @@ arguments.
 
   CC[(s1, ..., sn) -> !] = closure(s1, ..., sn)
 
-  (Γ |- s_i)^i
-  -------------------------
-  Γ |- closure(s1, ..., sn)
+  Γ |- S
+  ---------------
+  Γ |- closure(S)
 
-  Σ |- #fn : code(t, s1, ..., sn)
+  Σ |- #fn : code(t, S)
   Σ; Γ |- env : t
-  Σ; Γ, f : closure(s1, ..., sn) |- e OK
-  ----------------------------------------------------------
-  Σ; Γ |- let f : closure(s1, ..., sn) = #fn { env } in e OK
+  Σ; Γ, f : closure(S) |- e OK
+  ------------------------------------------------
+  Σ; Γ |- let f : closure(S) = #fn { env } in e OK
 
 Note: closure allocation is a separate construct from value allocation because
 closures can be mutually recursive, but values cannot be.
@@ -209,15 +211,15 @@ closures can be mutually recursive, but values cannot be.
 TODO: Specify allocating multiple closures at once.
 TODO: Specify instantiation of polymorphic code
 
-  Σ; Γ |- f : closure(s1, ..., sn)
-  (Σ; Γ |- arg_i : s_i)^i
-  ----------------------------------
-  Σ; Γ |- call f(arg1, ..., argn) OK
+  Σ; Γ |- f : closure(S)
+  Σ; Γ |- E : S
+  ----------------------
+  Σ; Γ |- call f(E) OK
 
 The semantics of closure types, allocations, and calls are given by desugaring
 to existential products of an environment and a code pointer:
 
-  closure(s1, ..., sn) ::= ∃l.l × code(l; s1, ..., sn)
+  closure(S) ::= ∃l.l × code(l; S)
 
 The rules for existential types are entirely standard.
 
@@ -237,9 +239,9 @@ The rules for existential types are entirely standard.
 
 Closure construction involves creating an existential package:
 
-  let cl : closure(s1, ..., sn) = f { env } in e
+  let cl : closure(S) = f { env } in e
   ::=
-  let cl : ∃l.l × code(l; s1, ..., sn) = <typeof(env), (env, f)> in e
+  let cl : ∃l.l × code(l; S) = <typeof(env), (env, f)> in e
 
 And calling a closure unpacks the environment and code pointer.
 
