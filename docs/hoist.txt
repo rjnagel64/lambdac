@@ -70,15 +70,15 @@ Signatures
 Σ ::= . | Σ, global #fn : forall a+. code(t; S)
 
 Types
-t, s ::= unit | t × s | ∃a.t[a] | code(t; S)
+t, s ::= unit | t × s | ∃a.t[a] | code(t; S) | {(m : info t)+; (l : s)+}
 
 Telescopes/Parameter lists
-S ::= . | @a, S | t, S
--- maybe forall a, S instead of @a, S?
--- Hmm. Telescopes and parameter lists aren't quite the same thing.
--- In a dependently-typed setting they are, but here they aren't, because
--- parameter lists give names to each term variable, but telescopes do not
--- include parameter names.
+S ::= . | forall a, S | t, S
+
+Note:. Telescopes and parameter lists aren't quite the same thing.
+In a dependently-typed setting they are, but here they aren't, because
+parameter lists give names to each term variable, but telescopes do not
+include parameter names.
 
 Terms
 e ::=
@@ -95,7 +95,7 @@ Argument lists
 E ::= . | @t, E | x, E
 
 Values
-v, w ::= x | (v, w) | <t, v> | {(l = v)+} | inl x | inr x
+v, w ::= x | (v, w) | <t, v> | {(m = i)+; (l = v)+} | inl x | inr x
 
 Info values
 i, j ::= x | $unit_info | $pair_info | $sum_info
@@ -138,8 +138,8 @@ RULES
 
 -- TODO: Reorder these sections, so that they actually flow in a natural way.
 -- Starting with telescopes definitely doesn't flow. 
--- Rule for typing env lookups:
--- Γ |- $.l_i : t if env : {(l : s)+} and (l_i : t) \in l+
+-- WF types => Typing for terms => Typing for telescopes/arguments => Typing for info
+-- Somewhere, introduce syntactic sugar for closures, construction, and calls
 
 Typing rules for telescopes are standard, though value bindings are non-dependent.
 

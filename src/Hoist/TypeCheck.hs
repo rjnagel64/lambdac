@@ -32,13 +32,15 @@ deriving newtype instance MonadState Signature TC
 data Signature = Signature { sigClosures :: Map ClosureName ClosureDeclType }
 
 -- | Represents the type signature 'code[aa+](t; S)'
-data ClosureDeclType = ClosureDeclType [TyVar] EnvDeclType ClosureTele
+data ClosureDeclType = ClosureDeclType [TyVar] EnvType ClosureTele
 
-type EnvDeclType = ([Sort], [Sort]) -- info types, value types. Maybe use sum type instead?
+-- Hmm. Should probably use a Map here.
+-- Or not. EnvAlloc needs its arguments to be in order.
+data EnvType = EnvType { envTypeInfos :: [(Id, Sort)], envTypeFields :: [(Id, Sort)] }
 
 -- | The typing context is split into two scopes: local information and
 -- environment information.
-data Context = Context { ctxLocals :: Scope, ctxEnv :: Scope }
+data Context = Context { ctxLocals :: Scope, ctxEnv :: EnvType }
 
 -- | A scope contains information about each identifier in scope.
 -- Values record their sort, @x : t@.
@@ -69,7 +71,8 @@ data TCError
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
   where
-    emptyContext = Context { ctxLocals = emptyScope, ctxEnv = emptyScope }
+    emptyContext = Context { ctxLocals = emptyScope, ctxEnv = emptyEnv }
+    emptyEnv = EnvType { envTypeInfos = [], envTypeFields = [] }
 
 
 emptyScope :: Scope
@@ -96,8 +99,8 @@ lookupName (LocalName x) = do
     Just s -> pure s
     Nothing -> throwError $ NameNotInScope x
 lookupName (EnvName x) = do
-  ctx <- asks (scopePlaces . ctxEnv)
-  case Map.lookup x ctx of
+  ctx <- asks (envTypeFields . ctxEnv)
+  case lookup x ctx of
     Just s -> pure s
     Nothing -> throwError $ NameNotInScope x
 
@@ -157,12 +160,11 @@ checkEntryPoint e = checkClosureBody e
 checkClosure :: ClosureDecl -> TC ()
 checkClosure (ClosureDecl cl (envp, envd) params body) = do
   -- Check the environment and parameters to populate the typing context
-  envScope <- checkEnv envd
+  envTy <- checkEnv envd
   localScope <- checkParams params -- Pass ??? information from env to params??
   -- Use the new scopes to type-check the closure body
-  local (\ (Context _ _) -> Context localScope envScope) $ checkClosureBody body
+  local (\ (Context _ _) -> Context localScope envTy) $ checkClosureBody body
   -- Extend signature
-  let envTy = ([], [])
   let
     mkParam (PlaceParam p) = ValueTele (placeSort p)
     mkParam (TypeParam (InfoPlace (Id aa))) = TypeTele (TyVar aa)
@@ -170,7 +172,7 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   let declTy = ClosureDeclType [] envTy tele
   modify (declareClosure cl declTy)
 
-checkEnv :: EnvDecl -> TC Scope
+checkEnv :: EnvDecl -> TC EnvType
 checkEnv (EnvDecl tys places) = throwError (NotImplemented "checkEnv")
 
 -- | Closure parameters form a telescope, because info bindings bring type
@@ -223,7 +225,7 @@ checkClosureBody (AllocClosure cs e) = do
       equalTeles tele' tele
     checkClosureBody e
 
-checkEnvAlloc :: EnvAlloc -> EnvDeclType -> TC ()
+checkEnvAlloc :: EnvAlloc -> EnvType -> TC ()
 checkEnvAlloc env envTy = throwError (NotImplemented "checkEnvAlloc")
 
 checkCallArgs :: [TeleEntry] -> [ClosureArg] -> TC ()
@@ -324,8 +326,8 @@ checkInfo (LocalInfo i) s = do
     Nothing -> throwError (InfoNotInScope i)
     Just s' -> equalSorts s s'
 checkInfo (EnvInfo i) s = do
-  infos <- asks (scopeInfos . ctxEnv)
-  case Map.lookup i infos of
+  infos <- asks (envTypeInfos . ctxEnv)
+  case lookup i infos of
     Nothing -> throwError (InfoNotInScope i)
     Just s' -> equalSorts s s'
 checkInfo Int64Info IntegerH = pure ()
