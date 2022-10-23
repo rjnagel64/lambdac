@@ -138,7 +138,6 @@ data Sort
   | ProductH Sort Sort
   | ListH Sort
   | ClosureH ClosureTele
-  deriving Eq -- Needed for Hoist.TypeCheck.equalSorts
 
 -- It's a bit unfortunate, but I do need to have separate telescopes for
 -- parameters and types. The difference is that parameters need names for each
@@ -146,17 +145,57 @@ data Sort
 -- those names.
 newtype ClosureTele = ClosureTele [TeleEntry]
 
-instance Eq ClosureTele where
-  (==) = equalTele
-
-equalTele :: ClosureTele -> ClosureTele -> Bool
--- Should probably hand-roll, because alpha-equality
-equalTele (ClosureTele tele) (ClosureTele tele') = tele == tele'
-
 data TeleEntry
   = ValueTele Sort
   | TypeTele TyVar
-  deriving Eq -- Should probably hand-roll, because alpha-equality
+
+instance Eq Sort where
+  (==) = equalSort emptyAE
+
+instance Eq ClosureTele where
+  (==) = equalTele emptyAE
+
+-- | An environment used when checking alpha-equality.
+-- Contains the deBruijn level and a mapping from bound variables to levels for
+-- both the LHS and RHS.
+data AE = AE Int (Map TyVar Int) (Map TyVar Int)
+
+emptyAE :: AE
+emptyAE = AE 0 Map.empty Map.empty
+
+equalSort :: AE -> Sort -> Sort -> Bool
+equalSort (AE _ lhs rhs) (AllocH aa) (AllocH bb) = case (Map.lookup aa lhs, Map.lookup bb rhs) of
+  (Just la, Just lb) -> la == lb
+  (Nothing, Nothing) -> aa == bb
+  (_, _) -> False
+equalSort _ (AllocH _) _ = False
+equalSort _ IntegerH IntegerH = True
+equalSort _ IntegerH _ = False
+equalSort _ BooleanH BooleanH = True
+equalSort _ BooleanH _ = False
+equalSort _ UnitH UnitH = True
+equalSort _ UnitH _ = False
+equalSort _ SumH SumH = True
+equalSort _ SumH _ = False
+equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
+equalSort _ (ProductH _ _) _ = False
+equalSort ae (ListH s) (ListH t) = equalSort ae s t
+equalSort _ (ListH _) _ = False
+equalSort ae (ClosureH ss) (ClosureH ts) = equalTele ae ss ts
+equalSort _ (ClosureH _) _ = False
+
+equalTele :: AE -> ClosureTele -> ClosureTele -> Bool
+equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
+  where
+    go _ [] [] = True
+    go ae (ValueTele s : ls) (ValueTele t : rs) = equalSort ae s t && go ae ls rs
+    go _ (ValueTele _ : _) (_ : _) = False
+    go (AE l lhs rhs) (TypeTele aa : ls) (TypeTele bb : rs) =
+      go (AE (l+1) (Map.insert aa l lhs) (Map.insert bb l rhs)) ls rs
+    go _ (TypeTele _ : _) (_ : _) = False
+    go _ (_ : _) [] = False
+    go _ [] (_ : _) = False
+
 
 sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH
