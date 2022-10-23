@@ -32,10 +32,11 @@ deriving newtype instance MonadState Signature TC
 -- this only includes code declarations.
 data Signature = Signature { sigClosures :: Map ClosureName ClosureDeclType }
 
--- | Represents the type signature 'code[aa+](t; S)'
+-- | Represents the type of a closure, a code pointer with environment
+-- @code[aa+](t; S)@.
 data ClosureDeclType = ClosureDeclType [TyVar] EnvType ClosureTele
 
--- | Represents the type of a closure environment, '{(m : info t)+; (l : s)+}'.
+-- | Represents the type of a closure environment, @{(m : info t)+; (l : s)+}@.
 data EnvType = EnvType { envTypeInfos :: [(Id, Sort)], envTypeFields :: [(Id, Sort)] }
 
 -- | The typing context is split into two scopes: local information and
@@ -105,7 +106,6 @@ lookupTyVar (TyVar aa) = do
   ctx <- asks (scopeTypes . ctxLocals)
   case Set.member aa' ctx of
     True -> pure ()
-    -- Hmm. Why don't we check the environment scope?
     False -> throwError $ TyVarNotInScope (TyVar aa)
 
 lookupCodeDecl :: ClosureName -> TC ClosureDeclType
@@ -149,7 +149,7 @@ checkProgram :: [ClosureDecl] -> TermH -> TC ()
 checkProgram cs e = traverse_ checkClosure cs *> checkEntryPoint e
 
 checkEntryPoint :: TermH -> TC ()
-checkEntryPoint e = checkClosureBody e
+checkEntryPoint e = checkTerm e
 
 -- | Type-check a top-level code declaration and add it to the signature.
 checkClosure :: ClosureDecl -> TC ()
@@ -158,7 +158,7 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   envTy <- checkEnv envd
   localScope <- checkParams params -- Pass ??? information from env to params??
   -- Use the parameter list and environment to type-check the closure body.
-  local (\_ -> Context localScope envTy) $ checkClosureBody body
+  local (\_ -> Context localScope envTy) $ checkTerm body
   -- Extend signature
   let
     mkParam (PlaceParam p) = ValueTele (placeSort p)
@@ -185,34 +185,34 @@ checkParams (PlaceParam p : params) = withPlace p $ fmap (bindPlace p) (checkPar
 checkParams (TypeParam i : params) = withInfo i $ fmap (bindInfo i) (checkParams params)
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
-checkClosureBody :: TermH -> TC ()
-checkClosureBody (LetValH p v e) = do
+checkTerm :: TermH -> TC ()
+checkTerm (LetValH p v e) = do
   checkSort (placeSort p)
   checkValue v (placeSort p)
-  withPlace p $ checkClosureBody e
-checkClosureBody (LetPrimH p prim e) = do
+  withPlace p $ checkTerm e
+checkTerm (LetPrimH p prim e) = do
   s <- checkPrimOp prim
   equalSorts (placeSort p) s
-  withPlace p $ checkClosureBody e
-checkClosureBody (LetProjectH p x proj e) = do
+  withPlace p $ checkTerm e
+checkTerm (LetProjectH p x proj e) = do
   s <- lookupName x
   case (s, proj) of
     (ProductH s' _, ProjectFst) -> equalSorts (placeSort p) s'
     (ProductH _ t', ProjectSnd) -> equalSorts (placeSort p) t'
     (_, _) -> throwError (BadProjection s proj)
-  withPlace p $ checkClosureBody e
-checkClosureBody (HaltH s x i) = do
+  withPlace p $ checkTerm e
+checkTerm (HaltH s x i) = do
   checkName x s
   checkInfo i s
-checkClosureBody (OpenH f args) = do
+checkTerm (OpenH f args) = do
   -- Infer type of closure
   ClosureTele tele <- lookupName f >>= \case
     ClosureH tele -> pure tele
     s -> throwError (BadOpen f s)
   -- Check that args match closure telescope
   checkCallArgs tele args
-checkClosureBody (CaseH x kind ks) = checkCase x kind ks
-checkClosureBody (AllocClosure cs e) = do
+checkTerm (CaseH x kind ks) = checkCase x kind ks
+checkTerm (AllocClosure cs e) = do
   let binds = map closurePlace cs
   withPlaces binds $ do
     for_ cs $ \ (ClosureAlloc p c envPlace env) -> do
@@ -225,7 +225,7 @@ checkClosureBody (AllocClosure cs e) = do
         ClosureH tele' -> pure tele'
         s -> throwError (BadClosurePlace (placeName p) s)
       equalTeles tele' tele
-    checkClosureBody e
+    checkTerm e
 
 checkEnvAlloc :: EnvAlloc -> EnvType -> TC ()
 checkEnvAlloc env envTy = throwError (NotImplemented "checkEnvAlloc")
