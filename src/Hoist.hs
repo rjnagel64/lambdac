@@ -232,17 +232,6 @@ data Info
   -- @list_info@
   | ListInfo
 
-instance Show Info where
-  show (LocalInfo aa) = '$' : show aa
-  show (EnvInfo aa) = "$." ++ show aa
-  show Int64Info = "$int64"
-  show BoolInfo = "$bool"
-  show UnitInfo = "$unit"
-  show SumInfo = "$sum"
-  show ProductInfo = "$pair"
-  show ClosureInfo = "$closure"
-  show ListInfo = "$list"
-
 
 data ClosureDecl
   = ClosureDecl ClosureName (Id, EnvDecl) [ClosureParam] TermH
@@ -678,9 +667,9 @@ pprintTerm n (AllocClosure cs e) =
   indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
 
 pprintClosureArg :: ClosureArg -> String
-pprintClosureArg (TypeArg i) = '@' : show i
+pprintClosureArg (TypeArg i) = '@' : pprintInfo i
 pprintClosureArg (ValueArg x) = show x
-pprintClosureArg (OpaqueArg x i) = show x ++ "@" ++ show i
+pprintClosureArg (OpaqueArg x i) = show x ++ "@" ++ pprintInfo i
 
 pprintValue :: ValueH -> String
 pprintValue (PairH _ _ x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
@@ -707,12 +696,12 @@ pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")
 pprintPlace :: Place -> String
 pprintPlace (Place s x) = show x ++ " : " ++ pprintSort s
 
-pprintInfo :: InfoPlace -> String
-pprintInfo (InfoPlace aa) = '@' : show aa
+pprintInfoPlace :: InfoPlace -> String
+pprintInfoPlace (InfoPlace aa) = '@' : show aa
 
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
-pprintParam (TypeParam i) = pprintInfo i
+pprintParam (TypeParam i) = pprintInfoPlace i
 
 pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = "let {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
@@ -723,7 +712,7 @@ pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
   pprintTerm (n+2) e
   where
     env = show name ++ " : {" ++ infoFields ++ "; " ++ valueFields ++ "}"
-    infoFields = intercalate ", " (map pprintInfo is)
+    infoFields = intercalate ", " (map pprintInfoPlace is)
     valueFields = intercalate ", " (map (pprintPlace . fst) fs)
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
@@ -735,7 +724,7 @@ pprintEnvAlloc (EnvAlloc info fields) =
   "{" ++ intercalate ", " (map pprintAllocInfo info ++ map pprintAllocArg fields) ++ "}"
 
 pprintAllocInfo :: (InfoPlace, Info) -> String
-pprintAllocInfo (info, i) = pprintInfo info ++ " = " ++ show i
+pprintAllocInfo (ip, i) = pprintInfoPlace ip ++ " = " ++ pprintInfo i
 
 pprintAllocArg :: EnvAllocArg -> String
 pprintAllocArg (EnvFreeArg field x) = show (placeName field) ++ " = " ++ show x
@@ -750,6 +739,17 @@ pprintSort (ListH t) = "list " ++ pprintSort t
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
 pprintSort (AllocH aa) = show aa
+
+pprintInfo :: Info -> String
+pprintInfo (LocalInfo aa) = '$' : show aa
+pprintInfo (EnvInfo aa) = "$." ++ show aa
+pprintInfo Int64Info = "$int64"
+pprintInfo BoolInfo = "$bool"
+pprintInfo UnitInfo = "$unit"
+pprintInfo SumInfo = "$sum"
+pprintInfo ProductInfo = "$pair"
+pprintInfo ClosureInfo = "$closure"
+pprintInfo ListInfo = "$list"
 
 pprintTele :: ClosureTele -> String
 pprintTele (ClosureTele ss) = intercalate ", " (map f ss)
