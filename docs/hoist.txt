@@ -140,6 +140,9 @@ RULES
 -- Starting with telescopes definitely doesn't flow. 
 -- WF types => Typing for terms => Typing for telescopes/arguments => Typing for info
 -- Somewhere, introduce syntactic sugar for closures, construction, and calls
+-- TODO: Figure out when/where info terms are required in hoist formalism.
+-- In particular, this might let me eventually remove OpaqueArg
+-- Hmm. Maybe when calling a closure that has a pseudo-forall?
 
 Typing rules for telescopes are standard, though value bindings are non-dependent.
 

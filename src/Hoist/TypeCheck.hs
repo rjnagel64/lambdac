@@ -7,6 +7,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Data.Foldable (traverse_, for_)
+import Data.Traversable (for)
 
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -34,8 +35,7 @@ data Signature = Signature { sigClosures :: Map ClosureName ClosureDeclType }
 -- | Represents the type signature 'code[aa+](t; S)'
 data ClosureDeclType = ClosureDeclType [TyVar] EnvType ClosureTele
 
--- Hmm. Should probably use a Map here.
--- Or not. EnvAlloc needs its arguments to be in order.
+-- | Represents the type of a closure environment, '{(m : info t)+; (l : s)+}'.
 data EnvType = EnvType { envTypeInfos :: [(Id, Sort)], envTypeFields :: [(Id, Sort)] }
 
 -- | The typing context is split into two scopes: local information and
@@ -47,11 +47,6 @@ data Context = Context { ctxLocals :: Scope, ctxEnv :: EnvType }
 -- Type variables record their presence, @a : type@.
 -- Info variables record the sort they describe, @i : info t@.
 data Scope = Scope { scopePlaces :: Map Id Sort, scopeTypes :: Set Id, scopeInfos :: Map Id Sort }
--- Hmm. A separate scope for the environment doesn't quite make sense.
--- The environment is morally equivalent to an extra variable binding with a
--- unique name and a record type.
--- also, the environment doesn't really bind type variables, so it shouldn't
--- really have a field for type variables.
 
 data TCError
   = TypeMismatch Sort Sort
@@ -162,8 +157,8 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   -- Check the environment and parameters to populate the typing context
   envTy <- checkEnv envd
   localScope <- checkParams params -- Pass ??? information from env to params??
-  -- Use the new scopes to type-check the closure body
-  local (\ (Context _ _) -> Context localScope envTy) $ checkClosureBody body
+  -- Use the parameter list and environment to type-check the closure body.
+  local (\_ -> Context localScope envTy) $ checkClosureBody body
   -- Extend signature
   let
     mkParam (PlaceParam p) = ValueTele (placeSort p)
@@ -173,7 +168,14 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   modify (declareClosure cl declTy)
 
 checkEnv :: EnvDecl -> TC EnvType
-checkEnv (EnvDecl tys places) = throwError (NotImplemented "checkEnv")
+-- Check that all (info/field) labels are disjoint, and that each field type is
+-- well-formed.
+checkEnv (EnvDecl tys places) = do
+  infos <- for tys $ \ aa -> do
+    throwError (NotImplemented "checkEnv InfoPlace")
+  fields <- for places $ \ (p, i) -> do
+    throwError (NotImplemented "checkEnv Place, Info")
+  pure (EnvType infos fields)
 
 -- | Closure parameters form a telescope, because info bindings bring type
 -- variables into scope for subsequent bindings.
@@ -228,12 +230,15 @@ checkClosureBody (AllocClosure cs e) = do
 checkEnvAlloc :: EnvAlloc -> EnvType -> TC ()
 checkEnvAlloc env envTy = throwError (NotImplemented "checkEnvAlloc")
 
+-- | Check that an argument list matches a parameter telescope,
+-- @Σ; Γ |- E : S@.
 checkCallArgs :: [TeleEntry] -> [ClosureArg] -> TC ()
 checkCallArgs [] [] = pure ()
 checkCallArgs (ValueTele s : tele) (ValueArg x : args) = do
   checkName x s
   checkCallArgs tele args
-checkCallArgs (ValueTele s : tele) (_ : args) = throwError WrongClosureArg
+checkCallArgs (ValueTele _ : _) (_ : args) = throwError WrongClosureArg
+-- Cases for TypeTele TypeArg and cases for ValueTele OpaqueArg
 checkCallArgs tele args = do
   throwError (NotImplemented "checkCallArgs")
 
