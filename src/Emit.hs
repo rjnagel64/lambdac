@@ -304,7 +304,7 @@ emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params
     f (PlaceParam p) = case placeSort p of
       ClosureH tele -> Just (placeName p, teleThunkType tele)
       _ -> Nothing
-    g (p, _) = case placeSort p of
+    g p = case placeSort p of
       ClosureH tele -> Just (placeName p, teleThunkType tele)
       _ -> Nothing
 
@@ -324,7 +324,7 @@ emitEnvDecl ns (EnvDecl is fs) =
   ["};"]
   where
     mkInfo i = "    " ++ emitInfoPlace i ++ ";"
-    mkField (f, _) = "    " ++ emitPlace f ++ ";"
+    mkField f = "    " ++ emitPlace f ++ ";"
 
 emitEnvAlloc :: EnvNames -> EnvDecl -> [Line]
 emitEnvAlloc ns (EnvDecl is fs) =
@@ -337,13 +337,13 @@ emitEnvAlloc ns (EnvDecl is fs) =
   ,"}"]
   where
     paramList = if null params then "void" else commaSep params
-    params = map emitInfoPlace is ++ map (emitPlace . fst) fs
+    params = map emitInfoPlace is ++ map emitPlace fs
 
     assignInfo (InfoPlace aa) = "    _env->" ++ show aa ++ " = " ++ show aa ++ ";"
-    assignField (Place _ x, _) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
+    assignField (Place _ x) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
 
 emitEnvInfo :: EnvNames -> EnvDecl -> [Line]
-emitEnvInfo ns (EnvDecl _is fs) =
+emitEnvInfo ns (EnvDecl is fs) =
   ["void " ++ envTraceName ns ++ "(struct alloc_header *alloc) {"
   ,"    " ++ envTy ++ show envName ++ " = (" ++ envTy ++ ")alloc;"] ++
   map traceField fs ++
@@ -352,8 +352,27 @@ emitEnvInfo ns (EnvDecl _is fs) =
   where
     envName = Id "env"
     envTy = "struct " ++ envTypeName ns ++ " *"
-    traceField (Place _ x, i) =
+    traceField (Place s x) =
+      let i = infoFor s in
       "    mark_gray(" ++ asAlloc (emitName envName (EnvName x)) ++ ", " ++ emitInfo envName i ++ ");"
+
+    -- The set of type infos available in this environment, to be used for
+    -- tracing polymorphic fields.
+    typeInfos :: Map TyVar Info
+    typeInfos = Map.fromList $ [(TyVar aa, EnvInfo (Id aa)) | InfoPlace (Id aa) <- is]
+
+    -- Using the type infos in the environment, determine how to trace a field of sort 's'.
+    infoFor :: Sort -> Info
+    infoFor (AllocH aa) = case Map.lookup aa typeInfos of
+      Nothing -> error ("Missing info to trace polymorphic field of type " ++ show aa)
+      Just i -> i
+    infoFor IntegerH = Int64Info
+    infoFor BooleanH = BoolInfo
+    infoFor UnitH = UnitInfo
+    infoFor SumH = SumInfo
+    infoFor (ProductH _ _) = ProductInfo
+    infoFor (ListH _) = ListInfo
+    infoFor (ClosureH _) = ClosureInfo
 
 emitClosureEnter :: ClosureNames -> ThunkType -> [Line]
 emitClosureEnter ns ty =

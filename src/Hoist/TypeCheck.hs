@@ -154,16 +154,21 @@ checkEntryPoint e = checkTerm e
 -- | Type-check a top-level code declaration and add it to the signature.
 checkClosure :: ClosureDecl -> TC ()
 checkClosure (ClosureDecl cl (envp, envd) params body) = do
-  -- Check the environment and parameters to populate the typing context
+  -- Check the environment and parameters to populate the environment scope for
+  -- the typing context
   envTy <- checkEnv envd
-  localScope <- checkParams params -- Pass ??? information from env to params??
+  -- Check that the parameter list is well-formed, and extract the initial
+  -- contents of the local scope for the typing context.
+  localScope <- checkParams params
   -- Use the parameter list and environment to type-check the closure body.
   local (\_ -> Context localScope envTy) $ checkTerm body
-  -- Extend signature
+  -- Extend the signature with the new closure declaration.
   let
+    -- Compute a telescope from a parameter list.
+    -- Note how the muddled identifier sorts are messy here.
     mkParam (PlaceParam p) = ValueTele (placeSort p)
     mkParam (TypeParam (InfoPlace (Id aa))) = TypeTele (TyVar aa)
-  let tele = ClosureTele (map mkParam params)
+    tele = ClosureTele (map mkParam params)
   let declTy = ClosureDeclType [] envTy tele
   modify (declareClosure cl declTy)
 
@@ -171,9 +176,9 @@ checkEnv :: EnvDecl -> TC EnvType
 -- Check that all (info/field) labels are disjoint, and that each field type is
 -- well-formed.
 checkEnv (EnvDecl tys places) = do
-  infos <- for tys $ \ aa -> do
+  infos <- for tys $ \aa -> do
     throwError (NotImplemented "checkEnv InfoPlace")
-  fields <- for places $ \ (p, i) -> do
+  fields <- for places $ \p -> do
     throwError (NotImplemented "checkEnv Place, Info")
   pure (EnvType infos fields)
 

@@ -241,7 +241,7 @@ closureDeclName (ClosureDecl c _ _ _) = c
 
 -- TODO: EnvDecl should use InfoPlace2
 -- Hmm. Maybe EnvDecl should use 'Id' for the fields?
-data EnvDecl = EnvDecl [InfoPlace] [(Place, Info)]
+data EnvDecl = EnvDecl [InfoPlace] [Place]
 
 data ClosureParam = PlaceParam Place | TypeParam InfoPlace
 
@@ -492,10 +492,8 @@ inClosure (C.EnvDef tyfields fields) typlaces places m = do
   let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
   let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
   let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
-  let mkFieldInfo' f = infoForSort (placeSort f)
-  fieldsWithInfo <- traverse (\ (_, f) -> (,) <$> pure f <*> mkFieldInfo' f) fields'
   -- TODO: Convert tyfields' to [InfoPlace2]
-  let envd = EnvDecl (map snd tyfields') fieldsWithInfo
+  let envd = EnvDecl (map snd tyfields') (map snd fields')
 
   let replaceEnv _oldEnv = HoistEnv newLocals newEnv
   r <- local replaceEnv m
@@ -713,7 +711,7 @@ pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
   where
     env = show name ++ " : {" ++ infoFields ++ "; " ++ valueFields ++ "}"
     infoFields = intercalate ", " (map pprintInfoPlace is)
-    valueFields = intercalate ", " (map (pprintPlace . fst) fs)
+    valueFields = intercalate ", " (map pprintPlace fs)
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p d _envPlace env) =
