@@ -176,11 +176,26 @@ checkEnv :: EnvDecl -> TC EnvType
 -- Check that all (info/field) labels are disjoint, and that each field type is
 -- well-formed.
 checkEnv (EnvDecl tys places) = do
-  infos <- for tys $ \aa -> do
+  checkUniqueLabels [aa | InfoPlace aa <- tys]
+  checkUniqueLabels [placeName p | p <- places]
+
+  infos <- for tys $ \ (InfoPlace (Id aa)) -> do
+    -- Once InfoPlace is replaced by InfoPlace2, these two lines can go away.
+    let infoLabel = Id aa
+    let infoSort = AllocH (TyVar aa)
+    checkSort infoSort
+    pure (infoLabel, infoSort)
     throwError (NotImplemented "checkEnv InfoPlace")
-  fields <- for places $ \p -> do
-    throwError (NotImplemented "checkEnv Place, Info")
+  fields <- for places $ \ (Place s x) -> do
+    checkSort s
+    pure (x, s)
   pure (EnvType infos fields)
+
+-- | Use a Map to count muliplicity of each label.
+-- Report labels that appear more than once.
+-- (@DuplicateLabels :: [String] -> TCError@)
+checkUniqueLabels :: (Ord a, Show a) => [a] -> TC ()
+checkUniqueLabels ls = pure ()
 
 -- | Closure parameters form a telescope, because info bindings bring type
 -- variables into scope for subsequent bindings.
