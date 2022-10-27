@@ -63,6 +63,7 @@ data TCError
   | BadClosurePlace Id Sort
   | BadOpen Name Sort
   | WrongClosureArg
+  | DuplicateLabels [String]
 
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
@@ -185,7 +186,6 @@ checkEnv (EnvDecl tys places) = do
     let infoSort = AllocH (TyVar aa)
     checkSort infoSort
     pure (infoLabel, infoSort)
-    throwError (NotImplemented "checkEnv InfoPlace")
   fields <- for places $ \ (Place s x) -> do
     checkSort s
     pure (x, s)
@@ -193,9 +193,14 @@ checkEnv (EnvDecl tys places) = do
 
 -- | Use a Map to count muliplicity of each label.
 -- Report labels that appear more than once.
--- (@DuplicateLabels :: [String] -> TCError@)
 checkUniqueLabels :: (Ord a, Show a) => [a] -> TC ()
-checkUniqueLabels ls = pure ()
+checkUniqueLabels ls = do
+  let multiplicity = Map.fromListWith (+) [(l, 1 :: Int) | l <- ls]
+  let duplicates = Map.keys $ Map.filter (> 1) multiplicity
+  if null duplicates then
+    pure ()
+  else
+    throwError (DuplicateLabels (map show duplicates))
 
 -- | Closure parameters form a telescope, because info bindings bring type
 -- variables into scope for subsequent bindings.
