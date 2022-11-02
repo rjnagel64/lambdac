@@ -10,7 +10,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
-import Hoist
+import Hoist.IR
 
 -- TODO: Something smarter than string and list concatenation.
 -- builders? text? environment?
