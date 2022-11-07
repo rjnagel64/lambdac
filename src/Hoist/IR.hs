@@ -14,6 +14,12 @@ module Hoist.IR
     , TeleEntry(..)
     , Info(..)
 
+    , Scope
+    , emptyScope
+    , Subst
+    , singleSubst
+    , substSort
+
     , ClosureDecl(..)
     , closureDeclName
     , EnvDecl(..)
@@ -34,6 +40,8 @@ module Hoist.IR
 
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 
 import Data.Int (Int64)
 import Data.List (intercalate)
@@ -158,6 +166,54 @@ equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
 
 
 -- TODO: Implement substitution for Hoist types
+
+data Scope = Scope { scopeTyVars :: Set TyVar }
+
+emptyScope :: Scope
+emptyScope = Scope Set.empty
+
+-- scope from free vars?
+
+data Subst = Subst { substTyVars :: Map TyVar Sort }
+
+emptySubst :: Subst
+emptySubst = Subst Map.empty
+
+singleSubst :: TyVar -> Sort -> Subst
+singleSubst aa s = Subst (Map.singleton aa s)
+
+refresh :: Scope -> Subst -> TyVar -> (Scope, Subst, TyVar)
+refresh (Scope sc) (Subst sub) aa =
+  if Set.notMember aa sc then
+    (Scope (Set.insert aa sc), Subst sub, aa)
+  else
+    go 0
+  where
+    go i =
+      let TyVar aa' = aa in
+      let bb = TyVar (aa' ++ show (i :: Int)) in
+      if Set.notMember bb sc then
+        (Scope (Set.insert bb sc), Subst (Map.insert aa (AllocH bb) sub), bb)
+      else
+        go (i+1)
+
+substSort :: Scope -> Subst -> Sort -> Sort
+substSort sc sub (AllocH aa) = case Map.lookup aa (substTyVars sub) of
+  Nothing -> AllocH aa
+  Just s -> s
+substSort _ _ IntegerH = IntegerH
+substSort _ _ BooleanH = BooleanH
+substSort _ _ UnitH = UnitH
+substSort _ _ SumH = SumH
+substSort sc sub (ProductH s t) = ProductH (substSort sc sub s) (substSort sc sub t)
+substSort sc sub (ListH t) = ListH (substSort sc sub t)
+substSort sc sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele sc sub tele))
+
+substTele :: Scope -> Subst -> [TeleEntry] -> [TeleEntry]
+substTele _ _ [] = []
+substTele sc sub (ValueTele s : tele) = ValueTele (substSort sc sub s) : substTele sc sub tele
+substTele sc sub (TypeTele aa : tele) = case refresh sc sub aa of
+  (sc', sub', aa') -> TypeTele aa' : substTele sc' sub' tele
 
 
 -- | 'Info' is used to represent @type_info@ values that are passed at runtime.

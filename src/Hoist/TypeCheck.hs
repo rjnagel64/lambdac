@@ -38,20 +38,21 @@ data EnvType = EnvType { envTypeInfos :: [(Id, Sort)], envTypeFields :: [(Id, So
 
 -- | The typing context is split into two scopes: local information and
 -- environment information.
-data Context = Context { ctxLocals :: Scope, ctxEnv :: EnvType }
+data Context = Context { ctxLocals :: Locals, ctxEnv :: EnvType }
 
--- | A scope contains information about each identifier in scope.
+-- | The local scope contains information about each identifier in the context,
+-- except for the closure environment.
 -- Values record their sort, @x : t@.
 -- Type variables record their presence, @a : type@.
 -- Info variables record the sort they describe, @i : info t@.
-data Scope = Scope { scopePlaces :: Map Id Sort, scopeTypes :: Set Id, scopeInfos :: Map Id Sort }
+data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Set Id, localInfos :: Map Id Sort }
 
 data TCError
   = TypeMismatch Sort Sort
-  | NameNotInScope Id
-  | TyVarNotInScope TyVar
-  | ClosureNotInScope ClosureName
-  | InfoNotInScope Id
+  | NameNotInLocals Id
+  | TyVarNotInLocals TyVar
+  | ClosureNotInLocals ClosureName
+  | InfoNotInLocals Id
   | NotImplemented String
   | IncorrectInfo
   | BadValue
@@ -65,19 +66,19 @@ data TCError
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
   where
-    emptyContext = Context { ctxLocals = emptyScope, ctxEnv = emptyEnv }
+    emptyContext = Context { ctxLocals = emptyLocals, ctxEnv = emptyEnv }
     emptyEnv = EnvType { envTypeInfos = [], envTypeFields = [] }
 
 
-emptyScope :: Scope
-emptyScope = Scope Map.empty Set.empty Map.empty
+emptyLocals :: Locals
+emptyLocals = Locals Map.empty Set.empty Map.empty
 
-bindPlace :: Place -> Scope -> Scope
-bindPlace (Place s x) (Scope places tys infos) = Scope (Map.insert x s places) tys infos
+bindPlace :: Place -> Locals -> Locals
+bindPlace (Place s x) (Locals places tys infos) = Locals (Map.insert x s places) tys infos
 
 -- TODO: bindInfo is poorly named
-bindInfo :: InfoPlace -> Scope -> Scope
-bindInfo (InfoPlace aa) (Scope places tys infos) = Scope places (Set.insert aa tys) infos
+bindInfo :: InfoPlace -> Locals -> Locals
+bindInfo (InfoPlace aa) (Locals places tys infos) = Locals places (Set.insert aa tys) infos
 
 emptySignature :: Signature
 emptySignature = Signature { sigClosures = Map.empty }
@@ -88,30 +89,30 @@ declareClosure cl ty (Signature clos) = Signature (Map.insert cl ty clos)
 
 lookupName :: Name -> TC Sort
 lookupName (LocalName x) = do
-  ctx <- asks (scopePlaces . ctxLocals)
+  ctx <- asks (localPlaces . ctxLocals)
   case Map.lookup x ctx of
     Just s -> pure s
-    Nothing -> throwError $ NameNotInScope x
+    Nothing -> throwError $ NameNotInLocals x
 lookupName (EnvName x) = do
   ctx <- asks (envTypeFields . ctxEnv)
   case lookup x ctx of
     Just s -> pure s
-    Nothing -> throwError $ NameNotInScope x
+    Nothing -> throwError $ NameNotInLocals x
 
 lookupTyVar :: TyVar -> TC ()
 lookupTyVar (TyVar aa) = do
   let aa' = Id aa
-  ctx <- asks (scopeTypes . ctxLocals)
+  ctx <- asks (localTypes . ctxLocals)
   case Set.member aa' ctx of
     True -> pure ()
-    False -> throwError $ TyVarNotInScope (TyVar aa)
+    False -> throwError $ TyVarNotInLocals (TyVar aa)
 
 lookupCodeDecl :: ClosureName -> TC ClosureDeclType
 lookupCodeDecl c = do
   sig <- gets sigClosures
   case Map.lookup c sig of
     Just t -> pure t
-    Nothing -> throwError $ ClosureNotInScope c
+    Nothing -> throwError $ ClosureNotInLocals c
 
 equalSorts :: Sort -> Sort -> TC ()
 equalSorts expected actual =
@@ -201,8 +202,8 @@ checkUniqueLabels ls = do
 
 -- | Closure parameters form a telescope, because info bindings bring type
 -- variables into scope for subsequent bindings.
-checkParams :: [ClosureParam] -> TC Scope
-checkParams [] = pure emptyScope
+checkParams :: [ClosureParam] -> TC Locals
+checkParams [] = pure emptyLocals
 checkParams (PlaceParam p : params) = withPlace p $ fmap (bindPlace p) (checkParams params)
 checkParams (TypeParam i : params) = withInfo i $ fmap (bindInfo i) (checkParams params)
 
@@ -348,14 +349,14 @@ checkTele (ClosureTele ss) = go ss
 -- | Given info @i@ and sort @s@, check that @Γ |- i : info s@.
 checkInfo :: Info -> Sort -> TC ()
 checkInfo (LocalInfo i) s = do
-  infos <- asks (scopeInfos . ctxLocals)
+  infos <- asks (localInfos . ctxLocals)
   case Map.lookup i infos of
-    Nothing -> throwError (InfoNotInScope i)
+    Nothing -> throwError (InfoNotInLocals i)
     Just s' -> equalSorts s s'
 checkInfo (EnvInfo i) s = do
   infos <- asks (envTypeInfos . ctxEnv)
   case lookup i infos of
-    Nothing -> throwError (InfoNotInScope i)
+    Nothing -> throwError (InfoNotInLocals i)
     Just s' -> equalSorts s s'
 checkInfo Int64Info IntegerH = pure ()
 checkInfo Int64Info _ = throwError IncorrectInfo

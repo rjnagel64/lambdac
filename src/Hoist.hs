@@ -54,7 +54,7 @@ import Data.Traversable (for, mapAccumL)
 import qualified CC as C
 import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..))
 
-import Hoist.IR
+import Hoist.IR hiding (Scope, emptyScope, Subst, singleSubst, substSort)
 
 
 -- Note: Part of the confusion between type places and info places is that when
