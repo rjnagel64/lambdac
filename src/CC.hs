@@ -119,7 +119,6 @@ data Sort
   | Unit
   | Boolean
   | List Sort
-  deriving (Eq, Ord)
 
 instance Show Sort where
   show (Closure ss) = "(" ++ intercalate ", " (map show ss) ++ ") -> !"
@@ -131,11 +130,9 @@ instance Show Sort where
   show (Pair s t) = "pair " ++ show s ++ " " ++ show t
   show Unit = "unit"
 
--- TODO: Closure telescopes need alpha-equality, because type variables.
 data TeleEntry
   = ValueTele Sort
   | TypeTele TyVar
-  deriving (Eq, Ord)
 
 instance Show TeleEntry where
   show (ValueTele s) = show s
