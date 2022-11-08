@@ -261,6 +261,12 @@ checkCallArgs (ValueTele s : tele) (ValueArg x : args) = do
   checkName x s
   checkCallArgs tele args
 checkCallArgs (ValueTele _ : _) (_ : args) = throwError WrongClosureArg
+-- checkCallArgs (TypeTele aa : tele) (TypeArg i : args) = do
+--   checkSort s
+--   -- Aargh, this TypeArg passes an 'Info', not a Sort
+--   -- It's another example of the type param/type+info/info muddle
+--   let tele' = _
+--   checkCallArgs tele' args
 -- Cases for TypeTele TypeArg and cases for ValueTele OpaqueArg
 checkCallArgs tele args = do
   throwError (NotImplemented "checkCallArgs")
