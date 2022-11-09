@@ -1,6 +1,7 @@
 
 module CC2
     ( cconvProgram
+    , pprintProgram
     ) where
 
 import qualified Data.Map as Map
@@ -18,7 +19,7 @@ import Prelude hiding (cos)
 
 import qualified CPS as K
 import CPS (TermK(..))
-import CC hiding (cconvProgram)
+import CC
 
 
 

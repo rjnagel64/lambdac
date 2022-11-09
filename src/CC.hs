@@ -26,8 +26,7 @@ module CC
   , TeleEntry(..)
   , TyVar(..)
 
-  , cconvProgram
-  , pprintTerm
+  , pprintProgram
   ) where
 
 import qualified Data.Set as Set
@@ -577,6 +576,9 @@ cconvCmp (CmpGeK x y) = GeC <$> cconvTmVar x <*> cconvTmVar y
 
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
+
+pprintProgram :: TermC -> String
+pprintProgram e = pprintTerm 0 e
 
 pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
