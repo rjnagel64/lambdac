@@ -26,8 +26,7 @@ module CC
   , TeleEntry(..)
   , TyVar(..)
 
-  , cconv
-  , runConv
+  , cconvProgram
   , pprintTerm
   ) where
 
@@ -467,6 +466,9 @@ withTyBinds as kont = local extend (kont (map snd tybinds))
     tybinds = map (\a -> (a, tyVar a)) as
     extend (Context tms cos tys) = Context tms cos (insertMany tybinds tys)
 
+
+cconvProgram :: TermK a -> TermC
+cconvProgram e = runConv (cconv e)
 
 -- Idea: I could factor out the fieldsFor computation by doing a first
 -- annotation pass over the data, and then having

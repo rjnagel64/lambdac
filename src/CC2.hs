@@ -18,7 +18,7 @@ import Prelude hiding (cos)
 
 import qualified CPS as K
 import CPS (TermK(..))
-import CC hiding (runConv, cconv)
+import CC hiding (cconvProgram)
 
 
 
@@ -139,7 +139,10 @@ cconv (InstK f ts ks) = InstC <$> cconvTmVar f <*> traverse sortOf ts <*> traver
 cconv (CaseK x t ks) = CaseC <$> cconvTmVar x <*> caseKind t <*> traverse cconvCoVar ks
 cconv (LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
 cconv (LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
+cconv (LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e
+cconv (LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
 cconv (LetNegateK x y e) = withTm (x, K.IntK) $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
+cconv (LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
 cconv (LetFunK fs e) = do
   let funBinds = [(f, K.FunK (map snd xs) (map snd ks)) | K.FunDef _ f xs ks _ <- fs]
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
@@ -184,6 +187,29 @@ cconvContDef (K.ContDef _ k xs e) = do
   let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
   let contName (K.CoVar x i) = Name x i
   pure (ContClosureDef (contName k) env xs' e')
+
+cconvValue :: K.ValueK -> ConvM ValueC
+cconvValue K.NilK = pure NilC
+cconvValue (K.PairK x y) = PairC <$> cconvTmVar x <*> cconvTmVar y
+cconvValue (K.IntValK i) = pure (IntC i)
+cconvValue (K.BoolValK b) = pure (BoolC b)
+cconvValue (K.InlK x) = InlC <$> cconvTmVar x
+cconvValue (K.InrK y) = InrC <$> cconvTmVar y
+cconvValue K.EmptyK = pure EmptyC
+cconvValue (K.ConsK x y) = ConsC <$> cconvTmVar x <*> cconvTmVar y
+
+cconvArith :: K.ArithK -> ConvM ArithC
+cconvArith (K.AddK x y) = AddC <$> cconvTmVar x <*> cconvTmVar y
+cconvArith (K.SubK x y) = SubC <$> cconvTmVar x <*> cconvTmVar y
+cconvArith (K.MulK x y) = MulC <$> cconvTmVar x <*> cconvTmVar y
+
+cconvCmp :: K.CmpK -> ConvM CmpC
+cconvCmp (K.CmpEqK x y) = EqC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpNeK x y) = NeC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpLtK x y) = LtC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpLeK x y) = LeC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpGtK x y) = GtC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpGeK x y) = GeC <$> cconvTmVar x <*> cconvTmVar y
 
 
 cconvTmVar :: K.TmVar -> ConvM Name

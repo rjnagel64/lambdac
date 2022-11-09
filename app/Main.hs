@@ -89,7 +89,7 @@ main = do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK
 
-  let srcC = C.runConv $ C.cconv srcK
+  let srcC = C.cconvProgram srcK
   when (driverDumpCC args) $ do
     putStrLn $ "--- Closure Conversion ---"
     putStrLn $ C.pprintTerm 0 srcC
