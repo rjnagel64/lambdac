@@ -15,6 +15,7 @@ import qualified TypeCheck as T
 import qualified CPS as K
 import qualified CPS.TypeCheck as KT
 import qualified CC as C
+import qualified CC2 as C2
 import qualified Hoist as H
 import qualified Emit as E
 
@@ -89,7 +90,7 @@ main = do
     putStrLn $ "--- CPS Transform ---"
     putStrLn $ K.pprintTerm 0 srcK
 
-  let srcC = C.cconvProgram srcK
+  let srcC = C2.cconvProgram srcK
   when (driverDumpCC args) $ do
     putStrLn $ "--- Closure Conversion ---"
     putStrLn $ C.pprintTerm 0 srcC

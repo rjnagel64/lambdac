@@ -1,0 +1,7 @@
+let weird_id : forall b. b -> b =
+  \ @b -> \ (z : b) ->
+  -- Make sure that closure conversion collects FTV from the type of each
+  -- captured term variable.
+  if true return b then z else z
+in
+()

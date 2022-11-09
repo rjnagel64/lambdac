@@ -49,7 +49,20 @@ instance Monoid Fields where
   mempty = Fields $ \_ -> (Set.empty, Set.empty)
 
 singleOcc :: Name -> Sort -> Fields
-singleOcc x s = Fields $ \_ -> (Set.singleton (FreeOcc x s), Set.empty)
+singleOcc x s = Fields $ \_ -> (Set.singleton (FreeOcc x s), ftv s)
+  where
+    ftv :: Sort -> Set TyVar
+    ftv (Alloc aa) = Set.singleton aa
+    ftv (Closure tele) = foldr f Set.empty tele
+      where
+        f (ValueTele t) acc = ftv t <> acc
+        f (TypeTele aa) acc = Set.delete aa acc
+    ftv Integer = Set.empty
+    ftv Unit = Set.empty
+    ftv Sum = Set.empty
+    ftv Boolean = Set.empty
+    ftv (Pair t1 t2) = ftv t1 <> ftv t2
+    ftv (List t) = ftv t
 
 bindOccs :: Foldable t => t (Name, Sort) -> Fields -> Fields
 bindOccs bs flds = Fields $ \ctx ->
