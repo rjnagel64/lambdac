@@ -137,10 +137,18 @@ cconv (JumpK k xs) = JumpC <$> cconvCoVar k <*> traverse cconvTmVar xs
 cconv (CallK f xs ks) = CallC <$> cconvTmVar f <*> traverse cconvTmVar xs <*> traverse cconvCoVar ks
 cconv (InstK f ts ks) = InstC <$> cconvTmVar f <*> traverse sortOf ts <*> traverse cconvCoVar ks 
 cconv (CaseK x t ks) = CaseC <$> cconvTmVar x <*> caseKind t <*> traverse cconvCoVar ks
+cconv (LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
+cconv (LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
 cconv (LetNegateK x y e) = withTm (x, K.IntK) $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
 cconv (LetFunK fs e) = do
   let funBinds = [(f, K.FunK (map snd xs) (map snd ks)) | K.FunDef _ f xs ks _ <- fs]
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
+cconv (LetAbsK fs e) = do
+  let funBinds = [(f, K.AllK as (map snd ks)) | K.AbsDef _ f as ks _ <- fs]
+  withTms funBinds $ \_ -> LetAbsC <$> traverse cconvAbsDef fs <*> cconv e
+cconv (LetContK ks e) = do
+  let contBinds = [(k, K.ContK (map snd xs)) | K.ContDef _ k xs _ <- ks]
+  withCos contBinds $ \_ -> LetContC <$> traverse cconvContDef ks <*> cconv e
 
 cconvFunDef :: K.FunDef a -> ConvM FunClosureDef
 cconvFunDef (K.FunDef _ f xs ks e) = do
@@ -153,6 +161,29 @@ cconvFunDef (K.FunDef _ f xs ks e) = do
   let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
   let fnName (K.TmVar x i) = Name x i
   pure (FunClosureDef (fnName f) env xs' ks' e')
+
+cconvAbsDef :: K.AbsDef a -> ConvM AbsClosureDef
+cconvAbsDef (K.AbsDef _ f as ks e) = do
+  ((as', ks', e'), flds) <- listen $
+    withTys as $ \as' -> do
+      withCos ks $ \ks' -> do
+        e' <- cconv e
+        pure (as', ks', e')
+  (fields, tyfields) <- getFields flds <$> ask
+  let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
+  let fnName (K.TmVar x i) = Name x i
+  pure (AbsClosureDef (fnName f) env as' ks' e')
+
+cconvContDef :: K.ContDef a -> ConvM ContClosureDef
+cconvContDef (K.ContDef _ k xs e) = do
+  ((xs', e'), flds) <- listen $
+    withTms xs $ \xs' -> do
+      e' <- cconv e
+      pure (xs', e')
+  (fields, tyfields) <- getFields flds <$> ask
+  let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
+  let contName (K.CoVar x i) = Name x i
+  pure (ContClosureDef (contName k) env xs' e')
 
 
 cconvTmVar :: K.TmVar -> ConvM Name
