@@ -41,6 +41,7 @@ library
       CPS.Simpl
       CPS.TypeCheck
       CC
+      CC2
       Hoist
       Hoist.IR
       Hoist.TypeCheck
@@ -50,6 +51,9 @@ library
       StandaloneDeriving
       GeneralizedNewtypeDeriving
       DerivingVia
+      DeriveFunctor
+      DeriveFoldable
+      DeriveTraversable
       FlexibleInstances
       FlexibleContexts
       MultiParamTypeClasses

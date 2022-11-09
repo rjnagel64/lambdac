@@ -198,9 +198,8 @@ data CmpC
   | GtC Name Name
   | GeC Name Name
 
--- | @f {x+} y+ k+ = e@
--- Closures capture two sets of names: those from outer scopes, and those from
--- the same recursive bind group.
+-- | A function definition, @f {aa+; x+} y+ k+ = e@.
+-- TODO: Unify FunClosureDef and AbsClosureDef. Requires parameter telescopes for CC
 data FunClosureDef
   = FunClosureDef {
     funClosureName :: Name
@@ -214,6 +213,7 @@ funClosureSort :: FunClosureDef -> Sort
 funClosureSort (FunClosureDef _ _ params conts _) =
   Closure (map (ValueTele . snd) params ++ map (ValueTele . snd) conts)
 
+-- | A continuation definition, @k {aa+; x+} y+ = e@.
 data ContClosureDef
   = ContClosureDef {
     contClosureName :: Name
@@ -225,6 +225,7 @@ data ContClosureDef
 contClosureSort :: ContClosureDef -> Sort
 contClosureSort (ContClosureDef _ _ params _) = Closure (map (ValueTele . snd) params)
 
+-- | A (type) function definition, @f {aa+; x+} bb+ k+ = e@.
 data AbsClosureDef
   = AbsClosureDef {
     absClosureName :: Name
