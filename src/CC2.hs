@@ -41,16 +41,16 @@ instance Eq FreeOcc where
 instance Ord FreeOcc where
   compare = compare `on` freeOccName
 
-newtype Fields = Fields { getFields :: Context -> (Set FreeOcc, Set TyVar) }
+newtype Fields = Fields { getFields :: (Set FreeOcc, Set TyVar) }
 
 instance Semigroup Fields where
-  f <> g = Fields $ \ctx -> getFields f ctx <> getFields g ctx
+  f <> g = Fields $ getFields f <> getFields g
 
 instance Monoid Fields where
-  mempty = Fields $ \_ -> (Set.empty, Set.empty)
+  mempty = Fields (Set.empty, Set.empty)
 
 singleOcc :: Name -> Sort -> Fields
-singleOcc x s = Fields $ \_ -> (Set.singleton (FreeOcc x s), ftv s)
+singleOcc x s = Fields (Set.singleton (FreeOcc x s), ftv s)
   where
     ftv :: Sort -> Set TyVar
     ftv (Alloc aa) = Set.singleton aa
@@ -66,16 +66,18 @@ singleOcc x s = Fields $ \_ -> (Set.singleton (FreeOcc x s), ftv s)
     ftv (List t) = ftv t
 
 bindOccs :: Foldable t => t (Name, Sort) -> Fields -> Fields
-bindOccs bs flds = Fields $ \ctx ->
+bindOccs bs flds =
   let bs' = Set.fromList $ map (\ (x, s) -> FreeOcc x s) $ toList bs in
-  let (occs, tys) = getFields flds ctx in (occs Set.\\ bs', tys)
+  let (occs, tys) = getFields flds in
+  Fields (occs Set.\\ bs', tys)
 
 singleTyOcc :: TyVar -> Fields
-singleTyOcc aa = Fields $ \_ -> (Set.empty, Set.singleton aa)
+singleTyOcc aa = Fields (Set.empty, Set.singleton aa)
 
 bindTys :: [TyVar] -> Fields -> Fields
-bindTys aas flds = Fields $ \ctx ->
-  let (occs, tys) = getFields flds ctx in (occs, tys Set.\\ Set.fromList aas)
+bindTys aas flds =
+  let (occs, tys) = getFields flds in
+  Fields (occs, tys Set.\\ Set.fromList aas)
 
 newtype ConvM a = ConvM { runConvM :: ReaderT Context (Writer Fields) a }
 
@@ -174,7 +176,7 @@ cconvFunDef (K.FunDef _ f xs ks e) = do
       withCos ks $ \ks' -> do
         e' <- cconv e
         pure (xs', ks', e')
-  (fields, tyfields) <- getFields flds <$> ask
+  let (fields, tyfields) = getFields flds
   let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
   let fnName (K.TmVar x i) = Name x i
   pure (FunClosureDef (fnName f) env xs' ks' e')
@@ -186,7 +188,7 @@ cconvAbsDef (K.AbsDef _ f as ks e) = do
       withCos ks $ \ks' -> do
         e' <- cconv e
         pure (as', ks', e')
-  (fields, tyfields) <- getFields flds <$> ask
+  let (fields, tyfields) = getFields flds
   let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
   let fnName (K.TmVar x i) = Name x i
   pure (AbsClosureDef (fnName f) env as' ks' e')
@@ -197,7 +199,7 @@ cconvContDef (K.ContDef _ k xs e) = do
     withTms xs $ \xs' -> do
       e' <- cconv e
       pure (xs', e')
-  (fields, tyfields) <- getFields flds <$> ask
+  let (fields, tyfields) = getFields flds
   let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
   let contName (K.CoVar x i) = Name x i
   pure (ContClosureDef (contName k) env xs' e')
