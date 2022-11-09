@@ -83,7 +83,7 @@ insertMany xs m = foldr (uncurry Map.insert) m xs
 -- up.
 withTms :: Traversable t => t (K.TmVar, K.TypeK) -> (t (Name, Sort) -> ConvM a) -> ConvM a
 withTms xs k = do
-  xs' <- traverse (\ (x, t) -> sortOf' t >>= \t' -> pure (x, (tmVar x, t'))) xs
+  xs' <- traverse (\ (x, t) -> sortOf t >>= \t' -> pure (x, (tmVar x, t'))) xs
   let bs = fmap snd xs'
   let extend (Context tms cos tys) = Context (insertMany (toList xs') tms) cos tys
   censor (bindOccs bs) $ local extend $ k bs
@@ -98,7 +98,7 @@ withTms xs k = do
 -- up.
 withCos :: Traversable t => t (K.CoVar, K.CoTypeK) -> (t (Name, Sort) -> ConvM a) -> ConvM a
 withCos ks k = do
-  ks' <- traverse (\ (x, t) -> coSortOf' t >>= \t' -> pure (x, (coVar x, t'))) ks
+  ks' <- traverse (\ (x, t) -> coSortOf t >>= \t' -> pure (x, (coVar x, t'))) ks
   let bs = fmap snd ks'
   let extend (Context tms cos tys) = Context tms (insertMany (toList ks') cos) tys
   censor (bindOccs bs) $ local extend $ k bs
@@ -135,7 +135,7 @@ cconv :: TermK a -> ConvM TermC
 cconv (HaltK x) = HaltC <$> cconvTmVar x
 cconv (JumpK k xs) = JumpC <$> cconvCoVar k <*> traverse cconvTmVar xs
 cconv (CallK f xs ks) = CallC <$> cconvTmVar f <*> traverse cconvTmVar xs <*> traverse cconvCoVar ks
-cconv (InstK f ts ks) = InstC <$> cconvTmVar f <*> traverse sortOf' ts <*> traverse cconvCoVar ks 
+cconv (InstK f ts ks) = InstC <$> cconvTmVar f <*> traverse sortOf ts <*> traverse cconvCoVar ks 
 cconv (CaseK x t ks) = CaseC <$> cconvTmVar x <*> caseKind t <*> traverse cconvCoVar ks
 cconv (LetNegateK x y e) = withTm (x, K.IntK) $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
 cconv (LetFunK fs e) = do
@@ -177,32 +177,32 @@ cconvTyVar aa = do
     Just aa' -> writer (aa', singleTyOcc aa')
 
 
-sortOf' :: K.TypeK -> ConvM Sort
-sortOf' (K.TyVarOccK aa) = Alloc <$> cconvTyVar aa
-sortOf' (K.AllK aas ss) = do
+sortOf :: K.TypeK -> ConvM Sort
+sortOf (K.TyVarOccK aa) = Alloc <$> cconvTyVar aa
+sortOf (K.AllK aas ss) = do
   withTys aas $ \aas' -> do
-    ss' <- traverse coSortOf' ss
+    ss' <- traverse coSortOf ss
     let tele = map TypeTele aas' ++ map ValueTele ss'
     pure (Closure tele)
-sortOf' K.UnitK = pure Unit
-sortOf' K.IntK = pure Integer
-sortOf' K.BoolK = pure Boolean
-sortOf' (K.SumK _ _) = pure Sum
-sortOf' (K.ListK t) = List <$> sortOf' t
-sortOf' (K.ProdK t1 t2) = Pair <$> sortOf' t1 <*> sortOf' t2
-sortOf' (K.FunK ts ss) = f <$> traverse sortOf' ts <*> traverse coSortOf' ss
+sortOf K.UnitK = pure Unit
+sortOf K.IntK = pure Integer
+sortOf K.BoolK = pure Boolean
+sortOf (K.SumK _ _) = pure Sum
+sortOf (K.ListK t) = List <$> sortOf t
+sortOf (K.ProdK t1 t2) = Pair <$> sortOf t1 <*> sortOf t2
+sortOf (K.FunK ts ss) = f <$> traverse sortOf ts <*> traverse coSortOf ss
   where f ts' ss' = Closure (map ValueTele ts' ++ map ValueTele ss')
 
-coSortOf' :: K.CoTypeK -> ConvM Sort
-coSortOf' (K.ContK ss) = do
-  ss' <- traverse sortOf' ss
+coSortOf :: K.CoTypeK -> ConvM Sort
+coSortOf (K.ContK ss) = do
+  ss' <- traverse sortOf ss
   let tele = map ValueTele ss'
   pure (Closure tele)
 
 caseKind :: K.TypeK -> ConvM CaseKind
 caseKind K.BoolK = pure CaseBool
-caseKind (K.SumK a b) = CaseSum <$> sortOf' a <*> sortOf' b
-caseKind (K.ListK a) = CaseList <$> sortOf' a
+caseKind (K.SumK a b) = CaseSum <$> sortOf a <*> sortOf b
+caseKind (K.ListK a) = CaseList <$> sortOf a
 caseKind _ = error "cannot perform case analysis on this type"
 
 
