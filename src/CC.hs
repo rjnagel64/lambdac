@@ -21,7 +21,6 @@ module CC
   , ValueC(..)
   , ArithC(..)
   , CmpC(..)
-  , BranchType(..)
   , Sort(..)
   , TeleEntry(..)
   , TyVar(..)
@@ -31,7 +30,7 @@ module CC
 
 import Data.List (intercalate)
 
--- TODO: Eventually, this module should become essentially CC.IR
+-- TODO: Rename this module to CC.IR
 
 -- Closure conversion:
 -- https://gist.github.com/jozefg/652f1d7407b7f0266ae9
@@ -153,9 +152,6 @@ data CaseKind
   = CaseBool
   | CaseSum Sort Sort
   | CaseList Sort
-
--- | A 'BranchType' specifies the argument sorts expected by a case branch.
-newtype BranchType = BranchType [Sort]
 
 data ArithC
   = AddC Name Name

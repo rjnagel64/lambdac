@@ -1,4 +1,5 @@
 
+-- TODO: Rename this module to CC
 module CC2
     ( cconvProgram
     , pprintProgram

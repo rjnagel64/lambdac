@@ -266,17 +266,22 @@ declareClosureNames closureName cs =
 inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [ClosureParam], a)
 inClosure (C.EnvDef tyfields fields) typlaces places m = do
   -- Because this is a new top-level context, we do not have to worry about shadowing anything.
-  -- TODO: This mess of let-bindings can probably be simplified
-  let places' = map (\ (x, s) -> (x, asPlace s x)) places
-  let typlaces' = map (\aa -> (asTyVar aa, asInfoPlace aa)) typlaces
-  let newLocals = Scope (Map.fromList places') (Map.fromList typlaces')
-  let params = map (TypeParam . snd) typlaces' ++ map (PlaceParam . snd) places'
+  (newLocals, params) <- do
+    -- TODO: Instead of [C.TyVar], [(C.Name, C.Sort)] accept [C.ClosureParam]
+    -- (a parameter telescope)
+    let places' = map (\ (x, s) -> (x, asPlace s x)) places
+    let typlaces' = map (\aa -> (asTyVar aa, asInfoPlace aa)) typlaces
+    let newLocals = Scope (Map.fromList places') (Map.fromList typlaces')
+    let params = map (TypeParam . snd) typlaces' ++ map (PlaceParam . snd) places'
+    pure (newLocals, params)
 
-  let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
-  let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
-  let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
-  -- TODO: Convert tyfields' to [InfoPlace2]
-  let envd = EnvDecl (map snd tyfields') (map snd fields')
+  (newEnv, envd) <- do
+    let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
+    let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
+    let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
+    -- TODO: Convert tyfields' to [InfoPlace2]
+    let envd = EnvDecl (map snd tyfields') (map snd fields')
+    pure (newEnv, envd)
 
   let replaceEnv _oldEnv = HoistEnv newLocals newEnv
   r <- local replaceEnv m
