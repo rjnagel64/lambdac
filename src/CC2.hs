@@ -172,27 +172,27 @@ cconv (LetContK ks e) = do
 
 cconvFunDef :: K.FunDef a -> ConvM FunClosureDef
 cconvFunDef (K.FunDef _ f xs ks e) = do
-  ((xs', ks', e'), flds) <- listen $
+  ((params', e'), flds) <- listen $
     withTms xs $ \xs' -> do
       withCos ks $ \ks' -> do
         e' <- cconv e
-        pure (xs', ks', e')
+        pure (makeClosureParams [] (xs' ++ ks'), e')
   let (fields, tyfields) = getFields flds
   let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
   let fnName (K.TmVar x i) = Name x i
-  pure (FunClosureDef (fnName f) env xs' ks' e')
+  pure (FunClosureDef (fnName f) env params' e')
 
 cconvAbsDef :: K.AbsDef a -> ConvM AbsClosureDef
 cconvAbsDef (K.AbsDef _ f as ks e) = do
-  ((as', ks', e'), flds) <- listen $
+  ((params', e'), flds) <- listen $
     withTys as $ \as' -> do
       withCos ks $ \ks' -> do
         e' <- cconv e
-        pure (as', ks', e')
+        pure (makeClosureParams as' ks', e')
   let (fields, tyfields) = getFields flds
   let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
   let fnName (K.TmVar x i) = Name x i
-  pure (AbsClosureDef (fnName f) env as' ks' e')
+  pure (AbsClosureDef (fnName f) env params' e')
 
 cconvContDef :: K.ContDef a -> ConvM ContClosureDef
 cconvContDef (K.ContDef _ k xs e) = do

@@ -207,15 +207,13 @@ hoist (LetAbsC fs e) = do
   hoistClosureAllocs C.absClosureName C.absClosureSort C.absEnvDef fdecls e
 
 hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ClosureDecl
-hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
-  let tele = C.makeClosureParams [] (xs ++ ks)
+hoistFunClosure (fdecl, C.FunClosureDef _f env tele body) = do
   inClosure env tele $ \env' params' -> do
     body' <- hoist body
     pure (ClosureDecl fdecl env' params' body')
 
 hoistAbsClosure :: (ClosureName, C.AbsClosureDef) -> HoistM ClosureDecl
-hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
-  let tele = C.makeClosureParams as ks
+hoistAbsClosure (fdecl, C.AbsClosureDef _f env tele body) = do
   inClosure env tele $ \env' params' -> do
     body' <- hoist body
     pure (ClosureDecl fdecl env' params' body')

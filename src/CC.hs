@@ -174,26 +174,24 @@ data FunClosureDef
   = FunClosureDef {
     funClosureName :: Name
   , funEnvDef :: EnvDef
-  , funClosureParams :: [(Name, Sort)]
-  , funClosureConts :: [(Name, Sort)]
+  , funClosureParams :: [ClosureParam]
   , funClosureBody :: TermC
   }
 
 funClosureSort :: FunClosureDef -> Sort
-funClosureSort (FunClosureDef _ _ params conts _) = paramsSort (makeClosureParams [] (params ++ conts))
+funClosureSort (FunClosureDef _ _ params _) = paramsSort params
 
 -- | A (type) function definition, @f {aa+; x+} bb+ k+ = e@.
 data AbsClosureDef
   = AbsClosureDef {
     absClosureName :: Name
   , absEnvDef :: EnvDef
-  , absClosureTypes :: [TyVar]
-  , absClosureConts :: [(Name, Sort)]
+  , absClosureParams :: [ClosureParam]
   , absClosureBody :: TermC
   }
 
 absClosureSort :: AbsClosureDef -> Sort
-absClosureSort (AbsClosureDef _ _ types conts _) = paramsSort (makeClosureParams types conts)
+absClosureSort (AbsClosureDef _ _ params _) = paramsSort params
 
 data ClosureParam = TypeParam TyVar | ValueParam Name Sort
 
@@ -259,10 +257,10 @@ pprintTerm n (InstC f ss ks) =
   indent n $ intercalate " @" (show f : map show ss) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
-pprintTerm n (LetContC fs e) =
-  indent n "letcont\n" ++ concatMap (pprintContClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetAbsC fs e) =
   indent n "letabs\n" ++ concatMap (pprintAbsClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e 
+pprintTerm n (LetContC fs e) =
+  indent n "letcont\n" ++ concatMap (pprintContClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetValC x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFstC x y e) =
@@ -306,11 +304,14 @@ pprintCompare (GtC x y) = show x ++ " > " ++ show y
 pprintCompare (GeC x y) = show x ++ " >= " ++ show y
 
 pprintFunClosureDef :: Int -> FunClosureDef -> String
-pprintFunClosureDef n (FunClosureDef f env xs ks e) =
-  pprintEnvDef n env ++ indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
-  where
-    params = "(" ++ intercalate ", " args ++ ")"
-    args = map pprintPlace xs ++ map pprintPlace ks
+pprintFunClosureDef n (FunClosureDef f env params e) =
+  pprintEnvDef n env ++
+  indent n (show f ++ " (" ++ pprintClosureParams params ++ ") =\n") ++ pprintTerm (n+2) e
+  
+pprintAbsClosureDef :: Int -> AbsClosureDef -> String
+pprintAbsClosureDef n (AbsClosureDef f env params e) =
+  pprintEnvDef n env ++
+  indent n (show f ++ " (" ++ pprintClosureParams params ++ ") =\n") ++ pprintTerm (n+2) e
 
 pprintContClosureDef :: Int -> ContClosureDef -> String
 pprintContClosureDef n (ContClosureDef k env xs e) =
@@ -319,12 +320,11 @@ pprintContClosureDef n (ContClosureDef k env xs e) =
     params = "(" ++ intercalate ", " args ++ ")"
     args = map pprintPlace xs
 
-pprintAbsClosureDef :: Int -> AbsClosureDef -> String
-pprintAbsClosureDef n (AbsClosureDef f env as ks e) =
-  pprintEnvDef n env ++ indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
+pprintClosureParams :: [ClosureParam] -> String
+pprintClosureParams params = intercalate ", " (map f params)
   where
-    params = "(" ++ intercalate ", " args ++ ")"
-    args = map (\v -> "@" ++ show v) as ++ map pprintPlace ks
+    f (TypeParam aa) = "@" ++ show aa
+    f (ValueParam x s) = pprintPlace (x, s)
 
 pprintEnvDef :: Int -> EnvDef -> String
 pprintEnvDef n (EnvDef tys free) = indent n $ "{" ++ intercalate ", " vars ++ "}\n"
