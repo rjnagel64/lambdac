@@ -11,8 +11,6 @@ module CC
   , CaseKind(..)
   , FunClosureDef(..)
   , funClosureSort
-  , AbsClosureDef(..)
-  , absClosureSort
   , ClosureParam(..)
   , makeClosureParams
   , ContClosureDef(..)
@@ -142,7 +140,6 @@ data TermC
   | LetCompareC (Name, Sort) CmpC TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
-  | LetAbsC [AbsClosureDef] TermC
   -- Invoke a closure by providing values for the remaining arguments.
   | JumpC Name [Name] -- k x...
   | CallC Name [Name] [Name] -- f x+ k+
@@ -169,7 +166,7 @@ data CmpC
   | GeC Name Name
 
 -- | A function definition, @f {aa+; x+} y+ k+ = e@.
--- TODO: Unify FunClosureDef and AbsClosureDef. Requires parameter telescopes for CC
+-- Both type and term parameters are permitted in the parameter list.
 data FunClosureDef
   = FunClosureDef {
     funClosureName :: Name
@@ -180,18 +177,6 @@ data FunClosureDef
 
 funClosureSort :: FunClosureDef -> Sort
 funClosureSort (FunClosureDef _ _ params _) = paramsSort params
-
--- | A (type) function definition, @f {aa+; x+} bb+ k+ = e@.
-data AbsClosureDef
-  = AbsClosureDef {
-    absClosureName :: Name
-  , absEnvDef :: EnvDef
-  , absClosureParams :: [ClosureParam]
-  , absClosureBody :: TermC
-  }
-
-absClosureSort :: AbsClosureDef -> Sort
-absClosureSort (AbsClosureDef _ _ params _) = paramsSort params
 
 data ClosureParam = TypeParam TyVar | ValueParam Name Sort
 
@@ -257,8 +242,6 @@ pprintTerm n (InstC f ss ks) =
   indent n $ intercalate " @" (show f : map show ss) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
-pprintTerm n (LetAbsC fs e) =
-  indent n "letabs\n" ++ concatMap (pprintAbsClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e 
 pprintTerm n (LetContC fs e) =
   indent n "letcont\n" ++ concatMap (pprintContClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetValC x v e) =
@@ -305,11 +288,6 @@ pprintCompare (GeC x y) = show x ++ " >= " ++ show y
 
 pprintFunClosureDef :: Int -> FunClosureDef -> String
 pprintFunClosureDef n (FunClosureDef f env params e) =
-  pprintEnvDef n env ++
-  indent n (show f ++ " (" ++ pprintClosureParams params ++ ") =\n") ++ pprintTerm (n+2) e
-  
-pprintAbsClosureDef :: Int -> AbsClosureDef -> String
-pprintAbsClosureDef n (AbsClosureDef f env params e) =
   pprintEnvDef n env ++
   indent n (show f ++ " (" ++ pprintClosureParams params ++ ") =\n") ++ pprintTerm (n+2) e
 

@@ -165,7 +165,7 @@ cconv (LetFunK fs e) = do
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
 cconv (LetAbsK fs e) = do
   let funBinds = [(f, K.AllK as (map snd ks)) | K.AbsDef _ f as ks _ <- fs]
-  withTms funBinds $ \_ -> LetAbsC <$> traverse cconvAbsDef fs <*> cconv e
+  withTms funBinds $ \_ -> LetFunC <$> traverse cconvAbsDef fs <*> cconv e
 cconv (LetContK ks e) = do
   let contBinds = [(k, K.ContK (map snd xs)) | K.ContDef _ k xs _ <- ks]
   withCos contBinds $ \_ -> LetContC <$> traverse cconvContDef ks <*> cconv e
@@ -182,7 +182,7 @@ cconvFunDef (K.FunDef _ f xs ks e) = do
   let fnName (K.TmVar x i) = Name x i
   pure (FunClosureDef (fnName f) env params' e')
 
-cconvAbsDef :: K.AbsDef a -> ConvM AbsClosureDef
+cconvAbsDef :: K.AbsDef a -> ConvM FunClosureDef
 cconvAbsDef (K.AbsDef _ f as ks e) = do
   ((params', e'), flds) <- listen $
     withTys as $ \as' -> do
@@ -192,7 +192,7 @@ cconvAbsDef (K.AbsDef _ f as ks e) = do
   let (fields, tyfields) = getFields flds
   let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
   let fnName (K.TmVar x i) = Name x i
-  pure (AbsClosureDef (fnName f) env params' e')
+  pure (FunClosureDef (fnName f) env params' e')
 
 cconvContDef :: K.ContDef a -> ConvM ContClosureDef
 cconvContDef (K.ContDef _ k xs e) = do
