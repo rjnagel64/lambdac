@@ -111,6 +111,7 @@ deriving newtype instance MonadState (Set ClosureName) HoistM
 
 data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
 
+-- Hmm. Why is Scope 'Map C.Name Place', but then 'Map H.TyVar InfoPlace'?
 data Scope = Scope { scopePlaces :: Map C.Name Place, scopeInfos :: Map TyVar InfoPlace }
 
 newtype ClosureDecls = ClosureDecls [ClosureDecl]
@@ -207,18 +208,24 @@ hoist (LetAbsC fs e) = do
 
 hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f env xs ks body) = do
-  (env', params', body') <- inClosure env [] (xs ++ ks) $ hoist body
-  pure (ClosureDecl fdecl env' params' body')
-
-hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ClosureDecl
-hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
-  (env', params', body') <- inClosure env [] xs $ hoist body
-  pure (ClosureDecl kdecl env' params' body')
+  let tele = C.makeClosureParams [] (xs ++ ks)
+  inClosure env tele $ \env' params' -> do
+    body' <- hoist body
+    pure (ClosureDecl fdecl env' params' body')
 
 hoistAbsClosure :: (ClosureName, C.AbsClosureDef) -> HoistM ClosureDecl
 hoistAbsClosure (fdecl, C.AbsClosureDef _f env as ks body) = do
-  (env', params', body') <- inClosure env as ks $ hoist body
-  pure (ClosureDecl fdecl env' params' body')
+  let tele = C.makeClosureParams as ks
+  inClosure env tele $ \env' params' -> do
+    body' <- hoist body
+    pure (ClosureDecl fdecl env' params' body')
+
+hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ClosureDecl
+hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
+  let tele = C.makeClosureParams [] xs
+  inClosure env tele $ \env' params' -> do
+    body' <- hoist body
+    pure (ClosureDecl kdecl env' params' body')
 
 hoistValue :: ValueC -> HoistM ValueH
 hoistValue (IntC i) = pure (IntH (fromIntegral i))
@@ -259,35 +266,47 @@ declareClosureNames closureName cs =
     put decls'
     pure (d, def)
 
+
 -- | Replace the set of fields and places in the environment, while leaving the
 -- set of declaration names intact. This is because inside a closure, all names
 -- refer to either a local variable/parameter (a place), a captured variable (a
 -- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: C.EnvDef -> [C.TyVar] -> [(C.Name, C.Sort)] -> HoistM a -> HoistM ((Id, EnvDecl), [ClosureParam], a)
-inClosure (C.EnvDef tyfields fields) typlaces places m = do
-  -- Because this is a new top-level context, we do not have to worry about shadowing anything.
-  (newLocals, params) <- do
-    -- TODO: Instead of [C.TyVar], [(C.Name, C.Sort)] accept [C.ClosureParam]
-    -- (a parameter telescope)
-    let places' = map (\ (x, s) -> (x, asPlace s x)) places
-    let typlaces' = map (\aa -> (asTyVar aa, asInfoPlace aa)) typlaces
-    let newLocals = Scope (Map.fromList places') (Map.fromList typlaces')
-    let params = map (TypeParam . snd) typlaces' ++ map (PlaceParam . snd) places'
-    pure (newLocals, params)
+inClosure :: C.EnvDef -> [C.ClosureParam] -> ((Id, EnvDecl) -> [ClosureParam] -> HoistM a) -> HoistM a
+inClosure env params k = do
+  withEnvDef env $ \env' ->
+    withParams params $ \params' ->
+      k env' params'
 
-  (newEnv, envd) <- do
-    let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
-    let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
-    let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
-    -- TODO: Convert tyfields' to [InfoPlace2]
-    let envd = EnvDecl (map snd tyfields') (map snd fields')
-    pure (newEnv, envd)
+withParams :: [C.ClosureParam] -> ([ClosureParam] -> HoistM a) -> HoistM a
+withParams params k = local setScope $ k params'
+  where
+    setScope (HoistEnv _ oldEnv) = HoistEnv newLocals oldEnv
+    newLocals = Scope places' infoPlaces'
+    -- Hmm. Technically, this should probably be a foldl, not a foldr.
+    -- This is because later entries in the telescope should shadow earlier ones.
+    -- I'm just going to ignore that problem, though, and assume that names in
+    -- the same telescope are unique.
+    -- (Also, I would need to snoc the new H.ClosureParam, which is a pain.)
+    (places', infoPlaces', params') = foldr f (Map.empty, Map.empty, []) params
+    f (C.TypeParam aa) (places, infoPlaces, tele) =
+      let aa' = asInfoPlace aa in
+      (places, Map.insert (asTyVar aa) aa' infoPlaces, TypeParam aa' : tele)
+    f (C.ValueParam x s) (places, infoPlaces, tele) =
+      let p = asPlace s x in
+      (Map.insert x p places, infoPlaces, PlaceParam p : tele)
 
-  let replaceEnv _oldEnv = HoistEnv newLocals newEnv
-  r <- local replaceEnv m
-  envp <- pickEnvironmentName
-
-  pure ((envp, envd), params, r)
+withEnvDef :: C.EnvDef -> ((Id, EnvDecl) -> HoistM a) -> HoistM a
+withEnvDef (C.EnvDef tyfields fields) k = do
+  let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
+  let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
+  let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
+  -- TODO: Convert tyfields' to [InfoPlace2]
+  let envd = EnvDecl (map snd tyfields') (map snd fields')
+  local (\ (HoistEnv oldLocals _) -> HoistEnv oldLocals newEnv) $ do
+    -- Pick the environment pointer's name based on the in-scope set
+    -- *after* we are in the closure's context
+    envp <- pickEnvironmentName
+    k (envp, envd)
 
 -- | Pick a name for the environment parameter, that will not clash with
 -- anything already in scope.

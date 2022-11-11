@@ -11,10 +11,12 @@ module CC
   , CaseKind(..)
   , FunClosureDef(..)
   , funClosureSort
-  , ContClosureDef(..)
-  , contClosureSort
   , AbsClosureDef(..)
   , absClosureSort
+  , ClosureParam(..)
+  , makeClosureParams
+  , ContClosureDef(..)
+  , contClosureSort
   , EnvDef(..)
   , Name(..)
   , prime
@@ -178,20 +180,7 @@ data FunClosureDef
   }
 
 funClosureSort :: FunClosureDef -> Sort
-funClosureSort (FunClosureDef _ _ params conts _) =
-  Closure (map (ValueTele . snd) params ++ map (ValueTele . snd) conts)
-
--- | A continuation definition, @k {aa+; x+} y+ = e@.
-data ContClosureDef
-  = ContClosureDef {
-    contClosureName :: Name
-  , contEnvDef :: EnvDef
-  , contClosureParams :: [(Name, Sort)]
-  , contClosureBody :: TermC
-  }
-
-contClosureSort :: ContClosureDef -> Sort
-contClosureSort (ContClosureDef _ _ params _) = Closure (map (ValueTele . snd) params)
+funClosureSort (FunClosureDef _ _ params conts _) = paramsSort (makeClosureParams [] (params ++ conts))
 
 -- | A (type) function definition, @f {aa+; x+} bb+ k+ = e@.
 data AbsClosureDef
@@ -204,7 +193,37 @@ data AbsClosureDef
   }
 
 absClosureSort :: AbsClosureDef -> Sort
-absClosureSort (AbsClosureDef _ _ types conts _) = Closure (map TypeTele types ++ map (ValueTele . snd) conts)
+absClosureSort (AbsClosureDef _ _ types conts _) = paramsSort (makeClosureParams types conts)
+
+data ClosureParam = TypeParam TyVar | ValueParam Name Sort
+
+-- TODO: Confine scope of makeClosureParams
+makeClosureParams :: [TyVar] -> [(Name, Sort)] -> [ClosureParam]
+makeClosureParams aas xs = map TypeParam aas ++ map (uncurry ValueParam) xs
+
+paramsSort :: [ClosureParam] -> Sort
+paramsSort params = Closure (map f params)
+  where
+    f (TypeParam aa) = TypeTele aa
+    f (ValueParam _ s) = ValueTele s
+
+-- | A continuation definition, @k {aa+; x+} y+ = e@.
+data ContClosureDef
+  = ContClosureDef {
+    contClosureName :: Name
+  , contEnvDef :: EnvDef
+  -- Eventually, continuation closures will need to take type arguments as well.
+  -- Specifically, this is required when unpacking existential types.
+  -- However, I'm not quite sure that making contClosureParams a full-on
+  -- parameter telescope is the correct way to go.
+  -- In particular, I *think* we should always be able to segregate it into a
+  -- type params, followed by value params.
+  , contClosureParams :: [(Name, Sort)]
+  , contClosureBody :: TermC
+  }
+
+contClosureSort :: ContClosureDef -> Sort
+contClosureSort (ContClosureDef _ _ params _) = paramsSort (makeClosureParams [] params)
 
 -- | Closures environments capture two sets of names: those from outer scopes,
 -- and those from the same recursive bind group.
