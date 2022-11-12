@@ -28,7 +28,6 @@ import Control.Monad.State
 import Data.Traversable (for, mapAccumL)
 
 import qualified CC.IR as C
-import CC.IR (TermC(..), ValueC(..), ArithC(..), CmpC(..))
 
 import Hoist.IR hiding (Scope, emptyScope, Subst, singleSubst, substSort)
 
@@ -100,7 +99,7 @@ tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs)
 
 
-hoistProgram :: TermC -> Program
+hoistProgram :: C.TermC -> Program
 hoistProgram srcC =
   let (srcH, ClosureDecls cs) = runHoist (hoist srcC) in
   Program cs srcH
@@ -119,59 +118,59 @@ runHoist =
 -- | After closure conversion, the code for each function and continuation can
 -- be lifted to the top level. Additionally, map value, continuation, and
 -- function names to C names.
-hoist :: TermC -> HoistM TermH
-hoist (HaltC x) = do
+hoist :: C.TermC -> HoistM TermH
+hoist (C.HaltC x) = do
   (x', s) <- hoistVarOccSort x
   i <- infoForSort s
   pure (HaltH s x' i)
-hoist (JumpC k xs) = do
+hoist (C.JumpC k xs) = do
   k' <- hoistVarOcc k
   ys <- hoistArgList xs
   pure (OpenH k' ys)
-hoist (CallC f xs ks) = do
+hoist (C.CallC f xs ks) = do
   f' <- hoistVarOcc f
   ys <- hoistArgList (xs ++ ks)
   pure (OpenH f' ys)
-hoist (InstC f ts ks) = do
+hoist (C.InstC f ts ks) = do
   f' <- hoistVarOcc f
   ys <- hoistArgList ks
   ts' <- traverse (infoForSort . sortOf) ts
   pure (OpenH f' (map TypeArg ts' ++ ys))
-hoist (CaseC x t ks) = do
+hoist (C.CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
   ks' <- traverse hoistVarOcc ks
   pure $ CaseH x' kind ks'
-hoist (LetValC (x, s) v e) = do
+hoist (C.LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
   pure $ LetValH x' v' e'
-hoist (LetFstC (x, s) y e) = do
+hoist (C.LetFstC (x, s) y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x s $ hoist e
   pure (LetProjectH x' y' ProjectFst e')
-hoist (LetSndC (x, s) y e) = do
+hoist (C.LetSndC (x, s) y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x s $ hoist e
   pure (LetProjectH x' y' ProjectSnd e')
-hoist (LetArithC (x, s) op e) = do
+hoist (C.LetArithC (x, s) op e) = do
   op' <- hoistArith op
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' op' e')
-hoist (LetNegateC (x, s) y e) = do
+hoist (C.LetNegateC (x, s) y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' (PrimNegInt64 y') e')
-hoist (LetCompareC (x, s) cmp e) = do
+hoist (C.LetCompareC (x, s) cmp e) = do
   cmp' <- hoistCmp cmp
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' cmp' e')
-hoist (LetFunC fs e) = do
+hoist (C.LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
   ds' <- traverse hoistFunClosure fdecls
   tellClosures ds'
   hoistClosureAllocs C.funClosureName C.funClosureSort C.funEnvDef fdecls e
-hoist (LetContC ks e) = do
+hoist (C.LetContC ks e) = do
   kdecls <- declareClosureNames C.contClosureName ks
   ds' <- traverse hoistContClosure kdecls
   tellClosures ds'
@@ -190,28 +189,30 @@ hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
     body' <- hoist body
     pure (ClosureDecl kdecl env' params' body')
 
-hoistValue :: ValueC -> HoistM ValueH
-hoistValue (IntC i) = pure (IntH (fromIntegral i))
-hoistValue (BoolC b) = pure (BoolH b)
-hoistValue (PairC x y) = (\ (x', i) (y', j) -> PairH i j x' y') <$> hoistVarOccInfo x <*> hoistVarOccInfo y
-hoistValue NilC = pure NilH
-hoistValue (InlC x) = (\ (x', i) -> InlH i x') <$> hoistVarOccInfo x
-hoistValue (InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOccInfo x
-hoistValue EmptyC = pure ListNilH
-hoistValue (ConsC x xs) = (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOccInfo x <*> hoistVarOcc xs
+hoistValue :: C.ValueC -> HoistM ValueH
+hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
+hoistValue (C.BoolC b) = pure (BoolH b)
+hoistValue (C.PairC x y) =
+  (\ (x', i) (y', j) -> PairH i j x' y') <$> hoistVarOccInfo x <*> hoistVarOccInfo y
+hoistValue C.NilC = pure NilH
+hoistValue (C.InlC x) = (\ (x', i) -> InlH i x') <$> hoistVarOccInfo x
+hoistValue (C.InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOccInfo x
+hoistValue C.EmptyC = pure ListNilH
+hoistValue (C.ConsC x xs) =
+  (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOccInfo x <*> hoistVarOcc xs
 
-hoistArith :: ArithC -> HoistM PrimOp
-hoistArith (AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistArith (SubC x y) = PrimSubInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistArith (MulC x y) = PrimMulInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith :: C.ArithC -> HoistM PrimOp
+hoistArith (C.AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith (C.SubC x y) = PrimSubInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith (C.MulC x y) = PrimMulInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
-hoistCmp :: CmpC -> HoistM PrimOp
-hoistCmp (EqC x y) = PrimEqInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (NeC x y) = PrimNeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (LtC x y) = PrimLtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (LeC x y) = PrimLeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp :: C.CmpC -> HoistM PrimOp
+hoistCmp (C.EqC x y) = PrimEqInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (C.NeC x y) = PrimNeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (C.LtC x y) = PrimLtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (C.LeC x y) = PrimLeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (C.GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (C.GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
 
@@ -289,7 +290,7 @@ pickEnvironmentPlace (Id cl) = do
   let go i = let envp = Id (cl ++ "_env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
 
-hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> TermC -> HoistM TermH
+hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> C.TermC -> HoistM TermH
 hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
   placesForClosureAllocs closureName closureSort cdecls $ \cplaces -> do
     cs' <- for cplaces $ \ (p, d, def) -> do
