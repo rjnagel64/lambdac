@@ -37,11 +37,12 @@ library
       Source
       TypeCheck
       CPS
+      CPS.IR
       CPS.Opt
       CPS.Simpl
       CPS.TypeCheck
+      CC.IR
       CC
-      CC2
       Hoist
       Hoist.IR
       Hoist.TypeCheck

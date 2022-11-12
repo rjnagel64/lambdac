@@ -27,8 +27,8 @@ import Control.Monad.State
 
 import Data.Traversable (for, mapAccumL)
 
-import qualified CC as C
-import CC (TermC(..), ValueC(..), ArithC(..), CmpC(..))
+import qualified CC.IR as C
+import CC.IR (TermC(..), ValueC(..), ArithC(..), CmpC(..))
 
 import Hoist.IR hiding (Scope, emptyScope, Subst, singleSubst, substSort)
 

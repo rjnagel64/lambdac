@@ -1,310 +1,281 @@
-{-# LANGUAGE
-    DerivingStrategies
-  , GeneralizedNewtypeDeriving
-  , StandaloneDeriving
-  , FlexibleInstances
-  , MultiParamTypeClasses
-  #-}
 
 module CC
-  ( TermC(..)
-  , CaseKind(..)
-  , FunClosureDef(..)
-  , funClosureSort
-  , ClosureParam(..)
-  , makeClosureParams
-  , ContClosureDef(..)
-  , contClosureSort
-  , EnvDef(..)
-  , Name(..)
-  , prime
-  , ValueC(..)
-  , ArithC(..)
-  , CmpC(..)
-  , Sort(..)
-  , TeleEntry(..)
-  , TyVar(..)
+    ( cconvProgram
+    , pprintProgram
+    ) where
 
-  , pprintProgram
-  ) where
+import qualified Data.Map as Map
+import Data.Map (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 
-import Data.List (intercalate)
+import Control.Monad.Reader
+import Control.Monad.Writer hiding (Sum)
 
--- TODO: Rename this module to CC.IR
+import Data.Foldable (toList)
+import Data.Function (on)
+import Data.Functor.Identity
+import Prelude hiding (cos)
 
--- Closure conversion:
--- https://gist.github.com/jozefg/652f1d7407b7f0266ae9
---
--- Example:
--- let a = 4; b = 3; in let f = \x -> \y -> a*x + b*y in f 2 5
--- let a = 4; b = 3; in
---   let
---     f = <{a := a, b := b}, \x -> <{a := a, b := b, x = x}, \y -> a*x + b*y>>;
---   in
---     f 2 5
-
--- Closure conversion is not lambda lifting.
--- CC involves capturing the environment when a function is created (but the
--- call site remains mostly the same), LL requires altering the call sites.
--- (LL is O(n^3) or O(n^2), CC is less?)
--- https://pages.github.ccs.neu.edu/jhemann/21SP-CS4400/FAQ/closure-conv/
-
--- Note: [Closure Conversion and Lifting]
--- After closure conversion, every lambda is annotated with its free variables.
--- If there are no free variables, the lambda can be trivially lifted to the top level.
--- If there are free variables, [Selective Lambda Lifting.pdf] can optionally
--- lift if it would be beneficial.
--- However, not all closures can/should be lifted. For example, consider a
--- lambda in a loop, that captures a different value of 'n' each time.
---
--- For compilation, there is still some "hoisting" that needs to be done,
--- because the code pointer for each lambda needs to be defined at the top
--- level, and also because the struct for the captured variables needs to be
--- hoisted too.
-
--- cconvTy :: TypeK -> TypeC
--- cconvTy (a -> b) = ∃c. (c -> cconvTy a -> cconvTy b) × c
--- (actually, CPS types rather than a -> b, but approximately.)
--- (Also, this version tends to have lots of fst/snd from nested pairs. Could
--- do n-ary tuples instead.)
-
--- Idea: I could factor out the fv computation by first doing a annotation pass
--- over the data, and then having 'cconv :: TermK EnvFields -> ConvM TermC'.
--- This does get a bit messy with both TmVar/CoVar and Name being present,
--- though, so I'll stick with the current approach.
-
--- What does well-typed closure conversion look like?
--- How are the values in a closure bound?
+import qualified CPS.IR as K
+import CPS.IR (TermK(..))
+import CC.IR
 
 
--- The sort of a name can be determined from where it is bound.
-data Name = Name String Int
-  deriving (Eq, Ord)
 
-instance Show Name where
-  show (Name x i) = x ++ show i
-
-prime :: Name -> Name
-prime (Name x i) = Name x (i+1)
-
-data TyVar = TyVar String
-  deriving (Eq, Ord)
-
-instance Show TyVar where
-  show (TyVar aa) = aa
-
--- | 'Sort' is really a simplified form of type information.
--- Value = int
--- Sum = bool | t1 + t2
--- Product = () | t1 * t2
--- Closure = (t1, t2, ...) -> 0
--- Alloc = a : *
--- Eventually, I may want to distinguish between named and anonymous product
--- types.
-data Sort
-  = Closure [TeleEntry]
-  | Integer
-  | Alloc TyVar
-  | Sum
-  | Pair Sort Sort
-  | Unit
-  | Boolean
-  | List Sort
-
-instance Show Sort where
-  show (Closure ss) = "(" ++ intercalate ", " (map show ss) ++ ") -> !"
-  show Integer = "int"
-  show (Alloc aa) = "alloc(" ++ show aa ++ ")"
-  show Sum = "sum"
-  show Boolean = "bool"
-  show (List s) = "list " ++ show s
-  show (Pair s t) = "pair " ++ show s ++ " " ++ show t
-  show Unit = "unit"
-
-data TeleEntry
-  = ValueTele Sort
-  | TypeTele TyVar
-
-instance Show TeleEntry where
-  show (ValueTele s) = show s
-  show (TypeTele aa) = '@' : show aa
-
--- Closure conversion is bottom-up (to get flat closures) traversal that
--- replaces free variables with references to an environment parameter.
-data TermC
-  = LetValC (Name, Sort) ValueC TermC -- let x = v in e, allocation
-  | LetFstC (Name, Sort) Name TermC -- let x = fst y in e, projection
-  | LetSndC (Name, Sort) Name TermC
-  | LetArithC (Name, Sort) ArithC TermC
-  | LetNegateC (Name, Sort) Name TermC -- let x = -y in e, unary negation
-  | LetCompareC (Name, Sort) CmpC TermC
-  | LetFunC [FunClosureDef] TermC
-  | LetContC [ContClosureDef] TermC
-  -- Invoke a closure by providing values for the remaining arguments.
-  | JumpC Name [Name] -- k x...
-  | CallC Name [Name] [Name] -- f x+ k+
-  | HaltC Name
-  | CaseC Name CaseKind [Name] -- case x of k1 | k2 | ...
-  | InstC Name [Sort] [Name] -- f @t+ k+
-
-data CaseKind
-  = CaseBool
-  | CaseSum Sort Sort
-  | CaseList Sort
-
-data ArithC
-  = AddC Name Name
-  | SubC Name Name
-  | MulC Name Name
-
-data CmpC
-  = EqC Name Name
-  | NeC Name Name
-  | LtC Name Name
-  | LeC Name Name
-  | GtC Name Name
-  | GeC Name Name
-
--- | A function definition, @f {aa+; x+} y+ k+ = e@.
--- Both type and term parameters are permitted in the parameter list.
-data FunClosureDef
-  = FunClosureDef {
-    funClosureName :: Name
-  , funEnvDef :: EnvDef
-  , funClosureParams :: [ClosureParam]
-  , funClosureBody :: TermC
+data Context
+  = Context {
+    ctxTms :: Map K.TmVar (Name, Sort)
+  , ctxCos :: Map K.CoVar (Name, Sort)
+  , ctxTys :: Map K.TyVar TyVar
   }
 
-funClosureSort :: FunClosureDef -> Sort
-funClosureSort (FunClosureDef _ _ params _) = paramsSort params
+emptyContext :: Context
+emptyContext = Context Map.empty Map.empty Map.empty
 
-data ClosureParam = TypeParam TyVar | ValueParam Name Sort
+data FreeOcc = FreeOcc { freeOccName :: Name, freeOccSort :: Sort }
 
--- TODO: Confine scope of makeClosureParams
-makeClosureParams :: [TyVar] -> [(Name, Sort)] -> [ClosureParam]
-makeClosureParams aas xs = map TypeParam aas ++ map (uncurry ValueParam) xs
+instance Eq FreeOcc where
+  (==) = (==) `on` freeOccName
 
-paramsSort :: [ClosureParam] -> Sort
-paramsSort params = Closure (map f params)
+instance Ord FreeOcc where
+  compare = compare `on` freeOccName
+
+newtype Fields = Fields { getFields :: (Set FreeOcc, Set TyVar) }
+
+instance Semigroup Fields where
+  f <> g = Fields $ getFields f <> getFields g
+
+instance Monoid Fields where
+  mempty = Fields (Set.empty, Set.empty)
+
+singleOcc :: Name -> Sort -> Fields
+singleOcc x s = Fields (Set.singleton (FreeOcc x s), ftv s)
   where
-    f (TypeParam aa) = TypeTele aa
-    f (ValueParam _ s) = ValueTele s
+    ftv :: Sort -> Set TyVar
+    ftv (Alloc aa) = Set.singleton aa
+    ftv (Closure tele) = foldr f Set.empty tele
+      where
+        f (ValueTele t) acc = ftv t <> acc
+        f (TypeTele aa) acc = Set.delete aa acc
+    ftv Integer = Set.empty
+    ftv Unit = Set.empty
+    ftv Sum = Set.empty
+    ftv Boolean = Set.empty
+    ftv (Pair t1 t2) = ftv t1 <> ftv t2
+    ftv (List t) = ftv t
 
--- | A continuation definition, @k {aa+; x+} y+ = e@.
-data ContClosureDef
-  = ContClosureDef {
-    contClosureName :: Name
-  , contEnvDef :: EnvDef
-  -- Eventually, continuation closures will need to take type arguments as well.
-  -- Specifically, this is required when unpacking existential types.
-  -- However, I'm not quite sure that making contClosureParams a full-on
-  -- parameter telescope is the correct way to go.
-  -- In particular, I *think* we should always be able to segregate it into a
-  -- type params, followed by value params.
-  , contClosureParams :: [(Name, Sort)]
-  , contClosureBody :: TermC
-  }
+bindOccs :: Foldable t => t (Name, Sort) -> Fields -> Fields
+bindOccs bs flds =
+  let bs' = Set.fromList $ map (\ (x, s) -> FreeOcc x s) $ toList bs in
+  let (occs, tys) = getFields flds in
+  Fields (occs Set.\\ bs', tys)
 
-contClosureSort :: ContClosureDef -> Sort
-contClosureSort (ContClosureDef _ _ params _) = paramsSort (makeClosureParams [] params)
+singleTyOcc :: TyVar -> Fields
+singleTyOcc aa = Fields (Set.empty, Set.singleton aa)
 
--- | Closures environments capture two sets of names: those from outer scopes,
--- and those from the same recursive bind group.
-data EnvDef
-  = EnvDef {
-    envFreeTypes :: [TyVar]
-  , envFreeNames :: [(Name, Sort)]
-  }
+bindTys :: [TyVar] -> Fields -> Fields
+bindTys aas flds =
+  let (occs, tys) = getFields flds in
+  Fields (occs, tys Set.\\ Set.fromList aas)
 
-data ValueC
-  = PairC Name Name
-  | NilC
-  | InlC Name
-  | InrC Name
-  | IntC Int
-  | BoolC Bool
-  | EmptyC
-  | ConsC Name Name
+newtype ConvM a = ConvM { runConvM :: ReaderT Context (Writer Fields) a }
 
+deriving instance Functor ConvM
+deriving instance Applicative ConvM
+deriving instance Monad ConvM
 
-indent :: Int -> String -> String
-indent n s = replicate n ' ' ++ s
+deriving instance MonadReader Context ConvM
+deriving instance MonadWriter Fields ConvM
 
-pprintProgram :: TermC -> String
-pprintProgram e = pprintTerm 0 e
+runConv :: ConvM a -> a
+runConv = fst . runWriter . flip runReaderT emptyContext . runConvM
 
-pprintTerm :: Int -> TermC -> String
-pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
-pprintTerm n (JumpC k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
-pprintTerm n (CallC f xs ks) =
-  indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
-pprintTerm n (InstC f ss ks) =
-  indent n $ intercalate " @" (show f : map show ss) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
-pprintTerm n (LetFunC fs e) =
-  indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
-pprintTerm n (LetContC fs e) =
-  indent n "letcont\n" ++ concatMap (pprintContClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
-pprintTerm n (LetValC x v e) =
-  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetFstC x y e) =
-  indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetSndC x y e) =
-  indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (CaseC x _ ks) =
-  let branches = intercalate " | " (map show ks) in
-  indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
-pprintTerm n (LetArithC x op e) =
-  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetNegateC x y e) =
-  indent n ("let " ++ pprintPlace x ++ " = -" ++ show y ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetCompareC x cmp e) =
-  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
+insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
+insertMany xs m = foldr (uncurry Map.insert) m xs
 
-pprintPlace :: (Name, Sort) -> String
-pprintPlace (x, s) = show x ++ " : " ++ show s
-
-pprintValue :: ValueC -> String
-pprintValue NilC = "()"
-pprintValue (PairC x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
-pprintValue (IntC i) = show i
-pprintValue (BoolC b) = if b then "true" else "false"
-pprintValue (InlC x) = "inl " ++ show x
-pprintValue (InrC y) = "inr " ++ show y
-pprintValue EmptyC = "nil"
-pprintValue (ConsC x xs) = "cons " ++ show x ++ " " ++ show xs
-
-pprintArith :: ArithC -> String
-pprintArith (AddC x y) = show x ++ " + " ++ show y
-pprintArith (SubC x y) = show x ++ " - " ++ show y
-pprintArith (MulC x y) = show x ++ " * " ++ show y
-
-pprintCompare :: CmpC -> String
-pprintCompare (EqC x y) = show x ++ " == " ++ show y
-pprintCompare (NeC x y) = show x ++ " != " ++ show y
-pprintCompare (LtC x y) = show x ++ " < " ++ show y
-pprintCompare (LeC x y) = show x ++ " <= " ++ show y
-pprintCompare (GtC x y) = show x ++ " > " ++ show y
-pprintCompare (GeC x y) = show x ++ " >= " ++ show y
-
-pprintFunClosureDef :: Int -> FunClosureDef -> String
-pprintFunClosureDef n (FunClosureDef f env params e) =
-  pprintEnvDef n env ++
-  indent n (show f ++ " (" ++ pprintClosureParams params ++ ") =\n") ++ pprintTerm (n+2) e
-
-pprintContClosureDef :: Int -> ContClosureDef -> String
-pprintContClosureDef n (ContClosureDef k env xs e) =
-  pprintEnvDef n env ++ indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
+-- | Bind a sequence of term variables: both extending the typing context on
+-- the way down, and removing them from the free variable set on the way back
+-- up.
+withTms :: Traversable t => t (K.TmVar, K.TypeK) -> (t (Name, Sort) -> ConvM a) -> ConvM a
+withTms xs k = do
+  xs' <- traverse (\ (x, t) -> sortOf t >>= \t' -> pure (x, (tmVar x, t'))) xs
+  let bs = fmap snd xs'
+  let extend (Context tms cos tys) = Context (insertMany (toList xs') tms) cos tys
+  censor (bindOccs bs) $ local extend $ k bs
   where
-    params = "(" ++ intercalate ", " args ++ ")"
-    args = map pprintPlace xs
+    -- Hmm. I'm pretty sure I don't have to worry about shadowing, but I should
+    -- double-check that.
+    tmVar :: K.TmVar -> Name
+    tmVar (K.TmVar x i) = Name x i
 
-pprintClosureParams :: [ClosureParam] -> String
-pprintClosureParams params = intercalate ", " (map f params)
+-- | Bind a sequence of coterm variables: both extending the typing context on
+-- the way down, and removing them from the free variable set on the way back
+-- up.
+withCos :: Traversable t => t (K.CoVar, K.CoTypeK) -> (t (Name, Sort) -> ConvM a) -> ConvM a
+withCos ks k = do
+  ks' <- traverse (\ (x, t) -> coSortOf t >>= \t' -> pure (x, (coVar x, t'))) ks
+  let bs = fmap snd ks'
+  let extend (Context tms cos tys) = Context tms (insertMany (toList ks') cos) tys
+  censor (bindOccs bs) $ local extend $ k bs
   where
-    f (TypeParam aa) = "@" ++ show aa
-    f (ValueParam x s) = pprintPlace (x, s)
+    -- Hmm. I'm pretty sure I don't have to worry about shadowing, but I should
+    -- double-check that.
+    coVar :: K.CoVar -> Name
+    coVar (K.CoVar x i) = Name x i
 
-pprintEnvDef :: Int -> EnvDef -> String
-pprintEnvDef n (EnvDef tys free) = indent n $ "{" ++ intercalate ", " vars ++ "}\n"
+-- | Bind a sequence of type variables: both extending the typing context on
+-- the way down, and removing them from the free variable set on the way back
+-- up.
+withTys :: [K.TyVar] -> ([TyVar] -> ConvM a) -> ConvM a
+withTys aas k = do
+  let aas' = map (\aa -> (aa, tyVar aa)) aas
+  let extend (Context tms cos tys) = Context tms cos (insertMany aas' tys)
+  let binds = map snd aas'
+  censor (bindTys binds) $ local extend $ k binds
   where
-    vars = map (\v -> "@" ++ show v) tys ++ map pprintPlace free
+    -- Hmm. I'm pretty sure I don't have to worry about shadowing, but I should
+    -- double-check that.
+    tyVar :: K.TyVar -> TyVar
+    tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
+
+-- | A special case of 'withTms', for binding a single term variable.
+withTm :: (K.TmVar, K.TypeK) -> ((Name, Sort) -> ConvM a) -> ConvM a
+withTm b k = withTms (Identity b) (k . runIdentity)
+
+
+cconvProgram :: TermK a -> TermC
+cconvProgram e = runConv (cconv e)
+
+cconv :: TermK a -> ConvM TermC
+cconv (HaltK x) = HaltC <$> cconvTmVar x
+cconv (JumpK k xs) = JumpC <$> cconvCoVar k <*> traverse cconvTmVar xs
+cconv (CallK f xs ks) = CallC <$> cconvTmVar f <*> traverse cconvTmVar xs <*> traverse cconvCoVar ks
+cconv (InstK f ts ks) = InstC <$> cconvTmVar f <*> traverse sortOf ts <*> traverse cconvCoVar ks 
+cconv (CaseK x t ks) = CaseC <$> cconvTmVar x <*> caseKind t <*> traverse cconvCoVar ks
+cconv (LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
+cconv (LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
+cconv (LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e
+cconv (LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
+cconv (LetNegateK x y e) = withTm (x, K.IntK) $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
+cconv (LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
+cconv (LetFunK fs e) = do
+  let funBinds = [(f, K.FunK (map snd xs) (map snd ks)) | K.FunDef _ f xs ks _ <- fs]
+  withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
+cconv (LetAbsK fs e) = do
+  let funBinds = [(f, K.AllK as (map snd ks)) | K.AbsDef _ f as ks _ <- fs]
+  withTms funBinds $ \_ -> LetFunC <$> traverse cconvAbsDef fs <*> cconv e
+cconv (LetContK ks e) = do
+  let contBinds = [(k, K.ContK (map snd xs)) | K.ContDef _ k xs _ <- ks]
+  withCos contBinds $ \_ -> LetContC <$> traverse cconvContDef ks <*> cconv e
+
+cconvFunDef :: K.FunDef a -> ConvM FunClosureDef
+cconvFunDef (K.FunDef _ f xs ks e) = do
+  ((params', e'), flds) <- listen $
+    withTms xs $ \xs' -> do
+      withCos ks $ \ks' -> do
+        e' <- cconv e
+        pure (makeClosureParams [] (xs' ++ ks'), e')
+  let (fields, tyfields) = getFields flds
+  let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
+  let fnName (K.TmVar x i) = Name x i
+  pure (FunClosureDef (fnName f) env params' e')
+
+cconvAbsDef :: K.AbsDef a -> ConvM FunClosureDef
+cconvAbsDef (K.AbsDef _ f as ks e) = do
+  ((params', e'), flds) <- listen $
+    withTys as $ \as' -> do
+      withCos ks $ \ks' -> do
+        e' <- cconv e
+        pure (makeClosureParams as' ks', e')
+  let (fields, tyfields) = getFields flds
+  let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
+  let fnName (K.TmVar x i) = Name x i
+  pure (FunClosureDef (fnName f) env params' e')
+
+cconvContDef :: K.ContDef a -> ConvM ContClosureDef
+cconvContDef (K.ContDef _ k xs e) = do
+  ((xs', e'), flds) <- listen $
+    withTms xs $ \xs' -> do
+      e' <- cconv e
+      pure (xs', e')
+  let (fields, tyfields) = getFields flds
+  let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
+  let contName (K.CoVar x i) = Name x i
+  pure (ContClosureDef (contName k) env xs' e')
+
+cconvValue :: K.ValueK -> ConvM ValueC
+cconvValue K.NilK = pure NilC
+cconvValue (K.PairK x y) = PairC <$> cconvTmVar x <*> cconvTmVar y
+cconvValue (K.IntValK i) = pure (IntC i)
+cconvValue (K.BoolValK b) = pure (BoolC b)
+cconvValue (K.InlK x) = InlC <$> cconvTmVar x
+cconvValue (K.InrK y) = InrC <$> cconvTmVar y
+cconvValue K.EmptyK = pure EmptyC
+cconvValue (K.ConsK x y) = ConsC <$> cconvTmVar x <*> cconvTmVar y
+
+cconvArith :: K.ArithK -> ConvM ArithC
+cconvArith (K.AddK x y) = AddC <$> cconvTmVar x <*> cconvTmVar y
+cconvArith (K.SubK x y) = SubC <$> cconvTmVar x <*> cconvTmVar y
+cconvArith (K.MulK x y) = MulC <$> cconvTmVar x <*> cconvTmVar y
+
+cconvCmp :: K.CmpK -> ConvM CmpC
+cconvCmp (K.CmpEqK x y) = EqC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpNeK x y) = NeC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpLtK x y) = LtC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpLeK x y) = LeC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpGtK x y) = GtC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpGeK x y) = GeC <$> cconvTmVar x <*> cconvTmVar y
+
+
+cconvTmVar :: K.TmVar -> ConvM Name
+cconvTmVar x = do
+  tms <- asks ctxTms
+  case Map.lookup x tms of
+    Nothing -> error ("variable not in scope: " ++ show x)
+    Just (x', s) -> writer (x', singleOcc x' s)
+
+cconvCoVar :: K.CoVar -> ConvM Name
+cconvCoVar x = do
+  cos <- asks ctxCos
+  case Map.lookup x cos of
+    Nothing -> error ("variable not in scope: " ++ show x)
+    Just (x', s) -> writer (x', singleOcc x' s)
+
+cconvTyVar :: K.TyVar -> ConvM TyVar
+cconvTyVar aa = do
+  tys <- asks ctxTys
+  case Map.lookup aa tys of
+    Nothing -> error ("type variable not in scope: " ++ show aa)
+    Just aa' -> writer (aa', singleTyOcc aa')
+
+
+sortOf :: K.TypeK -> ConvM Sort
+sortOf (K.TyVarOccK aa) = Alloc <$> cconvTyVar aa
+sortOf (K.AllK aas ss) = do
+  withTys aas $ \aas' -> do
+    ss' <- traverse coSortOf ss
+    let tele = map TypeTele aas' ++ map ValueTele ss'
+    pure (Closure tele)
+sortOf K.UnitK = pure Unit
+sortOf K.IntK = pure Integer
+sortOf K.BoolK = pure Boolean
+sortOf (K.SumK _ _) = pure Sum
+sortOf (K.ListK t) = List <$> sortOf t
+sortOf (K.ProdK t1 t2) = Pair <$> sortOf t1 <*> sortOf t2
+sortOf (K.FunK ts ss) = f <$> traverse sortOf ts <*> traverse coSortOf ss
+  where f ts' ss' = Closure (map ValueTele ts' ++ map ValueTele ss')
+
+coSortOf :: K.CoTypeK -> ConvM Sort
+coSortOf (K.ContK ss) = do
+  ss' <- traverse sortOf ss
+  let tele = map ValueTele ss'
+  pure (Closure tele)
+
+caseKind :: K.TypeK -> ConvM CaseKind
+caseKind K.BoolK = pure CaseBool
+caseKind (K.SumK a b) = CaseSum <$> sortOf a <*> sortOf b
+caseKind (K.ListK a) = CaseList <$> sortOf a
+caseKind _ = error "cannot perform case analysis on this type"
+
+

@@ -6,7 +6,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
-import CPS
+import CPS.IR
 
 
 simpl :: TermK a -> TermK a

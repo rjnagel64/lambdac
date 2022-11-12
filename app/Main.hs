@@ -14,7 +14,7 @@ import qualified Source as S
 import qualified TypeCheck as T
 import qualified CPS as K
 import qualified CPS.TypeCheck as KT
-import qualified CC2 as C
+import qualified CC as C
 import qualified Hoist as H
 import qualified Emit as E
 

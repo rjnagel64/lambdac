@@ -13,7 +13,7 @@ import Data.Set (Set)
 import Data.Bool (bool)
 import Data.Foldable (for_, traverse_)
 
-import CPS
+import CPS.IR
 
 import Prelude hiding (cos)
 
