@@ -18,7 +18,6 @@ import Data.Functor.Identity
 import Prelude hiding (cos)
 
 import qualified CPS.IR as K
-import CPS.IR (TermK(..))
 import CC.IR
 
 
@@ -144,28 +143,28 @@ withTm :: (K.TmVar, K.TypeK) -> ((Name, Sort) -> ConvM a) -> ConvM a
 withTm b k = withTms (Identity b) (k . runIdentity)
 
 
-cconvProgram :: TermK a -> TermC
+cconvProgram :: K.TermK a -> TermC
 cconvProgram e = runConv (cconv e)
 
-cconv :: TermK a -> ConvM TermC
-cconv (HaltK x) = HaltC <$> cconvTmVar x
-cconv (JumpK k xs) = JumpC <$> cconvCoVar k <*> traverse cconvTmVar xs
-cconv (CallK f xs ks) = CallC <$> cconvTmVar f <*> traverse cconvTmVar xs <*> traverse cconvCoVar ks
-cconv (InstK f ts ks) = InstC <$> cconvTmVar f <*> traverse sortOf ts <*> traverse cconvCoVar ks 
-cconv (CaseK x t ks) = CaseC <$> cconvTmVar x <*> caseKind t <*> traverse cconvCoVar ks
-cconv (LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
-cconv (LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
-cconv (LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e
-cconv (LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
-cconv (LetNegateK x y e) = withTm (x, K.IntK) $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
-cconv (LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
-cconv (LetFunK fs e) = do
+cconv :: K.TermK a -> ConvM TermC
+cconv (K.HaltK x) = HaltC <$> cconvTmVar x
+cconv (K.JumpK k xs) = JumpC <$> cconvCoVar k <*> traverse cconvTmVar xs
+cconv (K.CallK f xs ks) = CallC <$> cconvTmVar f <*> traverse cconvTmVar xs <*> traverse cconvCoVar ks
+cconv (K.InstK f ts ks) = InstC <$> cconvTmVar f <*> traverse sortOf ts <*> traverse cconvCoVar ks 
+cconv (K.CaseK x t ks) = CaseC <$> cconvTmVar x <*> caseKind t <*> traverse cconvCoVar ks
+cconv (K.LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
+cconv (K.LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
+cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e
+cconv (K.LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
+cconv (K.LetNegateK x y e) = withTm (x, K.IntK) $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
+cconv (K.LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
+cconv (K.LetFunK fs e) = do
   let funBinds = [(f, K.FunK (map snd xs) (map snd ks)) | K.FunDef _ f xs ks _ <- fs]
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
-cconv (LetAbsK fs e) = do
+cconv (K.LetAbsK fs e) = do
   let funBinds = [(f, K.AllK as (map snd ks)) | K.AbsDef _ f as ks _ <- fs]
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvAbsDef fs <*> cconv e
-cconv (LetContK ks e) = do
+cconv (K.LetContK ks e) = do
   let contBinds = [(k, K.ContK (map snd xs)) | K.ContDef _ k xs _ <- ks]
   withCos contBinds $ \_ -> LetContC <$> traverse cconvContDef ks <*> cconv e
 
