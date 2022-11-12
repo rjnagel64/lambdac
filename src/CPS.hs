@@ -754,13 +754,12 @@ cpsTail (TmSnd e) k =
       let res = LetSndK x tb' z (JumpK k [x])
       pure (res, tb)
 
--- | CPS-convert a source program. Returns an equivalent CPS program, and the
--- source type of the program.
+-- | CPS-convert a source program. Returns an equivalent CPS program.
 --
 -- Unfortunately, even though 'e' is in tail position, I cannot use 'cpsTail'
 -- This is because 'HaltK' is not a 'CoVar'.
-cpsMain :: Term -> (TermK (), S.Type)
-cpsMain e = flip runReader emptyEnv . runCPS $
+cpsMain :: Term -> TermK ()
+cpsMain e = fst . flip runReader emptyEnv . runCPS $
   cps e (\z t -> pure (HaltK z, t))
 
 

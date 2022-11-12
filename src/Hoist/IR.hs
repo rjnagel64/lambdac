@@ -35,6 +35,7 @@ module Hoist.IR
     , ValueH(..)
     , PrimOp(..)
 
+    , Program(..)
     , pprintProgram
     ) where
 
@@ -319,13 +320,14 @@ data PrimOp
   | PrimGeInt64 Name Name
 
 
+data Program = Program [ClosureDecl] TermH
 
 
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
-pprintProgram :: (TermH, [ClosureDecl]) -> String
-pprintProgram (srcH, cs) = pprintClosures cs ++ pprintTerm 0 srcH
+pprintProgram :: Program -> String
+pprintProgram (Program cs srcH) = pprintClosures cs ++ pprintTerm 0 srcH
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH _ x _) = indent n $ "HALT " ++ show x ++ ";\n"

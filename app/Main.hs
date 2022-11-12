@@ -76,7 +76,7 @@ main = do
       exitFailure
     Right () -> pure ()
 
-  let (srcK, _ty) = K.cpsMain srcS
+  let srcK = K.cpsMain srcS
   when (driverCheckCPS args) $ do
     case KT.checkProgram srcK of
       Left err -> do
@@ -94,12 +94,12 @@ main = do
     putStrLn $ "--- Closure Conversion ---"
     putStrLn $ C.pprintProgram srcC
 
-  let (srcH, closureDecls) = H.hoistProgram srcC
+  let srcH = H.hoistProgram srcC
   when (driverDumpHoist args) $ do
     putStrLn $ "--- Hoisting ---"
-    putStrLn $ H.pprintProgram (srcH, closureDecls)
+    putStrLn $ H.pprintProgram srcH
 
-  let obj = unlines $ E.emitProgram (closureDecls, srcH)
+  let obj = unlines $ E.emitProgram srcH
   when (driverDumpEmit args) $ do
     putStrLn $ "--- Code Generation ---"
     putStrLn obj

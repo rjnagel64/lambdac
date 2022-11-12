@@ -212,8 +212,8 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
 
 
 
-emitProgram :: ([ClosureDecl], TermH) -> [Line]
-emitProgram (cs, e) =
+emitProgram :: Program -> [Line]
+emitProgram (Program cs e) =
   prologue ++
   concatMap emitThunkDecl ts ++
   concatMap (emitClosureDecl closureSig) cs ++

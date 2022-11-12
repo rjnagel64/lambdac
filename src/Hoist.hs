@@ -124,10 +124,10 @@ tellClosures :: [ClosureDecl] -> HoistM ()
 tellClosures cs = tell (ClosureDecls cs)
 
 
-hoistProgram :: TermC -> (TermH, [ClosureDecl])
+hoistProgram :: TermC -> Program
 hoistProgram srcC =
   let (srcH, ClosureDecls cs) = runHoist (hoist srcC) in
-  (srcH, cs)
+  Program cs srcH
 
 runHoist :: HoistM a -> (a, ClosureDecls)
 runHoist =
