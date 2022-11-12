@@ -1,5 +1,7 @@
 
-module Emit (emitProgram) where
+module Emit
+    ( emitProgram
+    ) where
 
 import Data.Function (on)
 import Data.List (intercalate)

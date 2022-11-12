@@ -12,31 +12,7 @@
 --
 -- Perhaps the latter task might be better suited to another pass. Hmm.
 module Hoist
-    ( TermH(..)
-    , CaseKind(..)
-    , Projection(..)
-    , ValueH(..)
-    , PrimOp(..)
-    , Sort(..)
-    , ClosureTele(..)
-    , TeleEntry(..)
-    , Name(..)
-    , Info(..)
-    , Id(..)
-    , TyVar(..)
-    , Place(..)
-    , InfoPlace(..)
-    , ClosureName(..)
-    , ClosureDecl(..)
-    , closureDeclName
-    , ClosureParam(..)
-    , ClosureArg(..)
-    , EnvDecl(..)
-    , ClosureAlloc(..)
-    , EnvAlloc(..)
-    , EnvAllocArg(..)
-
-    , hoistProgram
+    ( hoistProgram
     , pprintProgram
     ) where
 
