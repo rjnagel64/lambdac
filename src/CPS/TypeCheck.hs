@@ -153,22 +153,19 @@ check (CaseK x s ks) = case (s, ks) of
     checkCoVar k1 (ContK []) *> checkCoVar k2 (ContK [t, ListK t])
   (_, _) -> throwError (BadCaseAnalysis x s)
 check (LetContK ks e) = do
-  let defs = [(k, ContK (map snd xs)) | ContDef _ k xs _ <- ks]
+  let defs = map (\k -> (contDefName k, contDefType k)) ks
   withCoVars defs $ do
     for_ ks $ \ (ContDef _ _ xs e') -> do
       withTmVars xs $ check e'
     check e
-check (LetFunK fs e) = do
-  let defs = [(f, FunK (map snd xs) (map snd ks)) | FunDef _ f xs ks _ <- fs]
+check (LetFunAbsK fs e) = do
+  let defs = map (\f -> (funDefName f, funDefType f)) fs
   withTmVars defs $ do
-    for_ fs $ \ (FunDef _ _ xs ks e') -> do
-      withTmVars xs $ withCoVars ks $ check e'
-    check e
-check (LetAbsK fs e) = do
-  let defs = [(f, AllK aas (map snd ks)) | AbsDef _ f aas ks _ <- fs]
-  withTmVars defs $ do
-    for_ fs $ \ (AbsDef _ _ aas ks e') -> do
-      withTyVars aas $ withCoVars ks $ check e'
+    for_ fs $ \case
+      FunDef _ _ xs ks e' ->
+        withTmVars xs $ withCoVars ks $ check e'
+      AbsDef _ _ as ks e' ->
+        withTyVars as $ withCoVars ks $ check e'
     check e
 check (LetValK x t v e) = do
   checkValue v t

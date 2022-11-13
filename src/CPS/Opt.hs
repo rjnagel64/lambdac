@@ -9,7 +9,7 @@ import Data.Map (Map)
 import Control.Monad.Reader
 import Control.Monad.Writer
 
-import CPS.IR (TermK(..), TmVar(..), CoVar(..), FunDef(..), ContDef(..), ValueK(..), TypeK(..))
+import CPS.IR
 
 -- [Compiling with Continuations, Continued] mostly.
 -- CPS transformation, Closure Conversion, hopefully C code generation.
@@ -156,10 +156,10 @@ inlineK (LetContK ks e) = case ks of
   [] -> inlineK e
   [k] -> LetContK ks <$> withCont k (inlineK e)
   _ -> LetContK ks <$> inlineK e
-inlineK (LetFunK fs e) = case fs of
+inlineK (LetFunAbsK fs e) = case fs of
   [] -> inlineK e
-  [f] -> LetFunK fs <$> withFn f (inlineK e)
-  _ -> LetFunK fs <$> inlineK e
+  [f] -> LetFunAbsK fs <$> withFn f (inlineK e)
+  _ -> LetFunAbsK fs <$> inlineK e
 -- Value bindings are added to 'inlineValDefs', so they can be reduced.
 inlineK (LetValK x t v e) = LetValK x t v <$> withVal x v (inlineK e)
 
@@ -200,7 +200,10 @@ data Usage
 
 -- Count number of 'let' bindings, recursively.
 sizeK :: TermK () -> Int
-sizeK (LetFunK fs e) = sum (map (\ (FunDef () f _ _ e') -> sizeK e') fs) + sizeK e
+sizeK (LetFunAbsK fs e) = sum (map size fs) + sizeK e
+  where
+    size (FunDef () _ _ _ e') = sizeK e'
+    size (AbsDef () _ _ _ e') = sizeK e'
 sizeK (LetValK x _ v e) = 1 + sizeK e
 
 

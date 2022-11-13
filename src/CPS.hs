@@ -184,7 +184,7 @@ cps (S.TmLam x argTy e) k =
         let fun = FunDef () f bs [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
       (e'', t'') <- k f ty
-      pure (LetFunK [fun] e'', t'')
+      pure (LetFunAbsK [fun] e'', t'')
 cps (S.TmTLam aa e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
@@ -194,7 +194,7 @@ cps (S.TmTLam aa e) k =
         let def = AbsDef () f bs [(k', s')] e'
         pure (def, S.TyAll aa retTy)
       (e'', t'') <- k f ty
-      pure (LetAbsK [def] e'', t'')
+      pure (LetFunAbsK [def] e'', t'')
 cps (S.TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
     (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
@@ -208,14 +208,14 @@ cps (S.TmRecFun fs e) k = do
     fs' <- traverse cpsFun fs
     (e', t') <- cps e k
     pure (fs', e', t')
-  let res = LetFunK fs' e'
+  let res = LetFunAbsK fs' e'
   pure (res, t')
 cps (S.TmLetRec fs e) k = do
   (fs'', e', t') <- freshenRecBinds fs $ \fs' -> do
     fs'' <- traverse cpsFun fs'
     (e', t') <- cps e k
     pure (fs'', e', t')
-  let res = LetFunK fs'' e'
+  let res = LetFunAbsK fs'' e'
   pure (res, t')
 cps (S.TmCase e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
@@ -325,7 +325,7 @@ cpsTail (S.TmLam x argTy e) k =
         s' <- cpsCoType retTy
         let fun = FunDef () f bs [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
-      let res = LetFunK [fun] (JumpK k [f])
+      let res = LetFunAbsK [fun] (JumpK k [f])
       pure (res, ty)
 cpsTail (S.TmTLam aa e) k =
   freshTm "f" $ \f ->
@@ -335,7 +335,7 @@ cpsTail (S.TmTLam aa e) k =
         s' <- cpsCoType retTy
         let def = AbsDef () f bs [(k', s')] e'
         pure (def, S.TyAll aa retTy)
-      let res = LetAbsK [def] (JumpK k [f])
+      let res = LetFunAbsK [def] (JumpK k [f])
       pure (res, ty)
 cpsTail (S.TmLet x t e1 e2) k =
   -- [[let x:t = e1 in e2]] k
@@ -351,14 +351,14 @@ cpsTail (S.TmRecFun fs e) k = do
     fs' <- traverse cpsFun fs
     (e', t') <- cpsTail e k
     pure (fs', e', t')
-  let res = LetFunK fs' e'
+  let res = LetFunAbsK fs' e'
   pure (res, t')
 cpsTail (S.TmLetRec fs e) k = do
   (fs'', e', t') <- freshenRecBinds fs $ \fs' -> do
     fs'' <- traverse cpsFun fs'
     (e', t') <- cpsTail e k
     pure (fs'', e', t')
-  let res = LetFunK fs'' e'
+  let res = LetFunAbsK fs'' e'
   pure (res, t')
 cpsTail S.TmNil k =
   freshTm "x" $ \x -> do

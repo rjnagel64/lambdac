@@ -5,8 +5,11 @@ module CPS.IR
     , CoVar(..)
     , TyVar(..)
     , FunDef(..)
+    , funDefName
+    , funDefType
     , ContDef(..)
-    , AbsDef(..)
+    , contDefName
+    , contDefType
     , ArithK(..)
     , CmpK(..)
     , ValueK(..)
@@ -74,20 +77,19 @@ data TermK a
   -- let rec ks in e
   | LetContK [ContDef a] (TermK a)
   -- let rec fs in e
-  | LetFunK [FunDef a] (TermK a)
-  | LetAbsK [AbsDef a] (TermK a)
+  | LetFunAbsK [FunDef a] (TermK a)
 
   -- Block terminators
   -- k x..., goto k(x...)
   | JumpK CoVar [TmVar]
   -- f x k, call f(x, k)
   | CallK TmVar [TmVar] [CoVar]
+  -- f @t k
+  | InstK TmVar [TypeK] [CoVar]
   -- case x : s of k1 | k2 | ..., branch
   | CaseK TmVar TypeK [CoVar]
   -- halt x
   | HaltK TmVar
-  -- f @t k
-  | InstK TmVar [TypeK] [CoVar]
 
 -- Hmm. Idle thought:
 -- (in the long run) I think I should merge FunDef and AbsDef, using a
@@ -103,13 +105,25 @@ data TermK a
 -- @k (x:τ)+ := e@
 data ContDef a = ContDef a CoVar [(TmVar, TypeK)] (TermK a)
 
--- | Function definitions
--- @f (x:τ) (k:σ) := e@
-data FunDef a = FunDef a TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK a)
+contDefName :: ContDef a -> CoVar
+contDefName (ContDef _ k _ _) = k
 
--- | Type abstraction definitions
--- @f \@a (k:σ) := e@
-data AbsDef a = AbsDef a TmVar [TyVar] [(CoVar, CoTypeK)] (TermK a)
+contDefType :: ContDef a -> CoTypeK
+contDefType (ContDef _ _ xs _) = ContK (map snd xs)
+
+-- | Function definitions: either term functions @f (x:τ) (k:σ) := e@,
+-- or type functions @f \@a (k:σ) := e@
+data FunDef a
+  = FunDef a TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK a)
+  | AbsDef a TmVar [TyVar] [(CoVar, CoTypeK)] (TermK a)
+
+funDefName :: FunDef a -> TmVar
+funDefName (FunDef _ f _ _ _) = f
+funDefName (AbsDef _ f _ _ _) = f
+
+funDefType :: FunDef a -> TypeK
+funDefType (FunDef _ _ xs ks _) = FunK (map snd xs) (map snd ks)
+funDefType (AbsDef _ _ as ks _) = AllK as (map snd ks)
 
 -- | Values require no evaluation.
 data ValueK
@@ -311,12 +325,10 @@ pprintTerm n (CaseK x t ks) =
   indent n $ "case " ++ show x ++ " : " ++ pprintType t  ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValK x t v e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetFunK fs e) =
+pprintTerm n (LetFunAbsK fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContK ks e) =
   indent n "letcont\n" ++ concatMap (pprintContDef (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
-pprintTerm n (LetAbsK fs e) =
-  indent n "letabs\n" ++ concatMap (pprintAbsDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetFstK x t y e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndK x t y e) =
@@ -359,6 +371,13 @@ pprintFunDef n (FunDef _ f xs ks e) =
     params = "(" ++ intercalate ", " (map pprintTmParam xs ++ map pprintCoParam ks) ++ ")"
     pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
     pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
+pprintFunDef n (AbsDef _ f as ks e) =
+  indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
+  where
+    -- One parameter list or two?
+    params = "(" ++ intercalate ", " (map pprintTyParam as ++ map pprintCoParam ks) ++ ")"
+    pprintTyParam aa = "@" ++ show aa
+    pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
 
 pprintContDef :: Int -> ContDef a -> String
 pprintContDef n (ContDef _ k xs e) =
@@ -367,15 +386,6 @@ pprintContDef n (ContDef _ k xs e) =
     params = "(" ++ intercalate ", " (map pprintTmParam xs) ++ ")"
     pprintTmParam :: (TmVar, TypeK) -> String
     pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
-
-pprintAbsDef :: Int -> AbsDef a -> String
-pprintAbsDef n (AbsDef _ f as ks e) =
-  indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
-  where
-    -- One parameter list or two?
-    params = "(" ++ intercalate ", " (map pprintTyParam as ++ map pprintCoParam ks) ++ ")"
-    pprintTyParam aa = "@" ++ show aa
-    pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
 
 pprintType :: TypeK -> String
 pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s

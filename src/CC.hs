@@ -158,14 +158,11 @@ cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*>
 cconv (K.LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
 cconv (K.LetNegateK x y e) = withTm (x, K.IntK) $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
-cconv (K.LetFunK fs e) = do
-  let funBinds = [(f, K.FunK (map snd xs) (map snd ks)) | K.FunDef _ f xs ks _ <- fs]
+cconv (K.LetFunAbsK fs e) = do
+  let funBinds = map (\f -> (K.funDefName f, K.funDefType f)) fs
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
-cconv (K.LetAbsK fs e) = do
-  let funBinds = [(f, K.AllK as (map snd ks)) | K.AbsDef _ f as ks _ <- fs]
-  withTms funBinds $ \_ -> LetFunC <$> traverse cconvAbsDef fs <*> cconv e
 cconv (K.LetContK ks e) = do
-  let contBinds = [(k, K.ContK (map snd xs)) | K.ContDef _ k xs _ <- ks]
+  let contBinds = map (\k -> (K.contDefName k, K.contDefType k)) ks
   withCos contBinds $ \_ -> LetContC <$> traverse cconvContDef ks <*> cconv e
 
 cconvFunDef :: K.FunDef a -> ConvM FunClosureDef
@@ -179,9 +176,7 @@ cconvFunDef (K.FunDef _ f xs ks e) = do
   let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
   let fnName (K.TmVar x i) = Name x i
   pure (FunClosureDef (fnName f) env params' e')
-
-cconvAbsDef :: K.AbsDef a -> ConvM FunClosureDef
-cconvAbsDef (K.AbsDef _ f as ks e) = do
+cconvFunDef (K.AbsDef _ f as ks e) = do
   ((params', e'), flds) <- listen $
     withTys as $ \as' -> do
       withCos ks $ \ks' -> do
