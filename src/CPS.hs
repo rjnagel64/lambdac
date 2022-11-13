@@ -307,6 +307,18 @@ cpsFun (S.TmFun f x t s e) =
       s' <- cpsCoType s
       pure (FunDef () f' bs [(k, s')] e')
     pure fun
+cpsFun (S.TmTFun f aa s e) =
+  freshCo "k" $ \k -> do
+    env <- asks cpsEnvCtx
+    -- Recursive bindings already handled, outside of this.
+    f' <- case Map.lookup f env of
+      Nothing -> error "cpsFun: function not in scope (unreachable)"
+      Just (f', _) -> pure f'
+    fun <- freshenTyVarBinds [aa] $ \bs -> do
+      (e', _s') <- cpsTail e k
+      s' <- cpsCoType s
+      pure (AbsDef () f' bs [(k, s')] e')
+    pure fun
 
 -- | CPS-convert a term in tail position.
 -- In tail position, the continuation is always a continuation variable, which
@@ -576,6 +588,10 @@ freshenFunBinds fs m = do
       let i = fromMaybe 0 (Map.lookup f scope) in
       let f' = TmVar f i in
       (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyArr argTy retTy)))
+    pick sc (S.TmTFun (S.TmVar f) aa retTy _e) =
+      let i = fromMaybe 0 (Map.lookup f scope) in
+      let f' = TmVar f i in
+      (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyAll aa retTy)))
     (sc', binds) = mapAccumL pick scope fs
   let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (insertMany binds ctx) tys
   local extend m
@@ -595,6 +611,8 @@ freshenRecBinds fs k = do
     case (ty, rhs) of
       (S.TyArr _t s, S.TmLam x t' body) -> do
         pure (S.TmFun f x t' s body)
+      (S.TyAll aa t, S.TmTLam bb body) -> do
+        pure (S.TmTFun f bb (S.subst aa (S.TyVarOcc bb) t) body)
       (_, _) -> error "letrec error"
   local extend (k fs')
 

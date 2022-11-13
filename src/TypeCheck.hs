@@ -131,6 +131,7 @@ infer (TmRecFun fs e) = do
 infer (TmLetRec bs e) = do
   for_ bs $ \ (x, _, rhs) -> case rhs of
     TmLam _ _ _ -> pure ()
+    TmTLam _ _ -> pure ()
     _ -> throwError (InvalidLetRec x)
   let binds = [(x, t) | (x, t, _) <- bs]
   withVars binds $ traverse_ (\ (_, t, e') -> check e' t) bs
@@ -152,7 +153,8 @@ check e t = do
 checkFun :: TmFun -> TC ()
 checkFun (TmFun _f x t s e) = do
   withVars [(x, t)] $ check e s
-  pure ()
+checkFun (TmTFun _f aa t e) = do
+  withTyVars [aa] $ check e t
 
 wfType :: Type -> TC ()
 wfType (TyAll aa t) = local (\ (tms, tys) -> (tms, Set.insert aa tys)) $ wfType t

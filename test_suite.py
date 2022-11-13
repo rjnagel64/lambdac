@@ -80,6 +80,7 @@ standard_test("foldr", "7")
 standard_test("polycase", "17")
 standard_test("impred_inst", "<closure>")
 standard_test("weird_id", "()")
+standard_test("recpoly", "7")
 
 for (test, out, err) in failed_tests:
     print(f"--- FAILED: {test} ---")

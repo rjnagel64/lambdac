@@ -103,8 +103,13 @@ data TmCmp
   | TmCmpGt
   | TmCmpGe
 
--- @f (x : t) : t' = e@, used for recursion.
-data TmFun = TmFun TmVar TmVar Type Type Term
+-- | Named function definitions are one way of doing recursion.
+-- (On the other hand, let-rec expressions.)
+data TmFun
+  -- | @f (x : t) : t' = e@
+  = TmFun TmVar TmVar Type Type Term
+  -- | @f \@a : t' = e@
+  | TmTFun TmVar TyVar Type Term
 
 data Type
   = TySum Type Type
