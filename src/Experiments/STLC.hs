@@ -14,12 +14,14 @@ module Experiments.STLC where
 import qualified Data.Map as Map
 import Data.Map (Map)
 
-data Type = TyBool | TyArr Type Type
+import qualified Data.Kind
+type Star = Data.Kind.Type
 
--- TODO: Add source-level products (since I have core-level products)
+data Type = TyBool | TyArr Type Type | TyProd Type Type
+
 -- TODO: Add 'if'. (TermK constructor, probably)
 -- TODO: Add sum types (Like 'if', but a bit more complicated.)
-data Term (v :: Type -> *) :: Type -> * where
+data Term (v :: Type -> Star) :: Type -> Star where
   -- I could also add TmGlobal String for free variable references
   -- PHOAS apparently also plays nicely with effectul interpreter
   TmVarOcc :: v a -> Term v a
@@ -27,6 +29,7 @@ data Term (v :: Type -> *) :: Type -> * where
   TmLam :: String -> (v a -> Term v b) -> Term v ('TyArr a b)
   TmTrue :: Term v 'TyBool
   TmFalse :: Term v 'TyBool
+  TmPair :: Term v a -> Term v b -> Term v ('TyProd a b)
 
 
 -- τ = bool | τ -> 0 | τ × τ
@@ -35,7 +38,7 @@ data TypeK = BoolK | ContK TypeK | ProdK TypeK TypeK
 -- Terms do not return directly, but they are still indexed by the type
 -- expected by their top-level continuation.
 -- The parameters/indices used by the binding constructs are quite subtle.
-data TermK (v :: TypeK -> *) (a :: TypeK) :: * where
+data TermK (v :: TypeK -> Star) (a :: TypeK) :: Star where
   HaltK :: v a -> TermK v a
   -- The return type here is polymorphic because we apply @x -> 0@ to @x@, not
   -- returning.
@@ -47,18 +50,18 @@ data TermK (v :: TypeK -> *) (a :: TypeK) :: * where
 -- argument type expected by the "top-level continuation".
 -- I'm not really clear on what that means, but it's important and kind of
 -- subtle.
-data PrimK (v :: TypeK -> *) (a :: TypeK) :: TypeK -> * where
+data PrimK (v :: TypeK -> Star) (a :: TypeK) :: TypeK -> Star where
   VarK :: v x -> PrimK v a x
   TrueK :: PrimK v a 'BoolK
   FalseK :: PrimK v a 'BoolK
   FunK :: String -> (v x -> TermK v a) -> PrimK v a ('ContK x)
   PairK :: v x -> v y -> PrimK v a ('ProdK x y)
-  FstK :: v (ProdK x y) -> PrimK v a x
-  SndK :: v (ProdK x y) -> PrimK v a y
+  FstK :: v ('ProdK x y) -> PrimK v a x
+  SndK :: v ('ProdK x y) -> PrimK v a y
 
 
 -- Pretty-printing
-data Name :: TypeK -> * where
+data Name :: TypeK -> Star where
   Name :: String -> Int -> Name a
 
 instance Show (Name a) where
@@ -70,19 +73,19 @@ emptyScope :: Scope
 emptyScope = Map.empty
 
 pprintTerm :: Scope -> TermK Name a -> String
-pprintTerm sc (HaltK x) = "halt " ++ show x
+pprintTerm _sc (HaltK x) = "halt " ++ show x
 pprintTerm sc (LetK p x' f) =
   "let " ++ show x ++ " = " ++ pprintPrim sc p ++ " in " ++ pprintTerm sc' (f x)
   where (x, sc') = freshName x' sc
-pprintTerm sc (JumpK x y) = show x ++ " " ++ show y
+pprintTerm _sc (JumpK x y) = show x ++ " " ++ show y
 
 pprintPrim :: Scope -> PrimK Name a b -> String
-pprintPrim sc (VarK x) = show x
-pprintPrim sc TrueK = "true"
-pprintPrim sc FalseK = "false"
-pprintPrim sc (PairK x y) = "<" ++ show x ++ "," ++ show y ++ ">"
-pprintPrim sc (FstK x) = "fst " ++ show x
-pprintPrim sc (SndK x) = "snd " ++ show x
+pprintPrim _sc (VarK x) = show x
+pprintPrim _sc TrueK = "true"
+pprintPrim _sc FalseK = "false"
+pprintPrim _sc (PairK x y) = "<" ++ show x ++ "," ++ show y ++ ">"
+pprintPrim _sc (FstK x) = "fst " ++ show x
+pprintPrim _sc (SndK x) = "snd " ++ show x
 pprintPrim sc (FunK x' f) = "(λ" ++ show x ++ ". " ++ pprintTerm sc' (f x) ++ ")"
   where (x, sc') = freshName x' sc
 
@@ -100,6 +103,7 @@ type family CpsType (a :: Type) :: TypeK where
   -- K[a -> b] = <a, K[b] -> 0> -> 0
   CpsType ('TyArr a b) = 'ContK ('ProdK (CpsType a) ('ContK (CpsType b)))
   -- K[a × b] = K[a] × K[b]
+  CpsType ('TyProd a b) = 'ProdK (CpsType a) (CpsType b)
 
 -- No anonymous composition. Use newtype wrapper
 newtype CpsVar v a = CpsVar { getCpsVar :: v (CpsType a) }
@@ -113,32 +117,37 @@ cpsTerm (TmLam _x' f) =
     LetK (FstK p) "x" $ \x ->
       LetK (SndK p) "k" $ \k ->
         letTerm (cpsTerm (f (CpsVar x))) $ \r -> JumpK k r)
-    "f" (\f -> HaltK f)
+    "f" (\f' -> HaltK f')
 cpsTerm (TmApp e1 e2) =
   letTerm (cpsTerm e1) $ \f ->
     letTerm (cpsTerm e2) $ \x ->
       LetK (FunK "r" (\r -> HaltK r)) "k" $ \k ->
         LetK (PairK x k) "p" $ \p ->
           JumpK f p
+cpsTerm (TmPair e1 e2) =
+  letTerm (cpsTerm e1) $ \x1 ->
+    letTerm (cpsTerm e2) $ \x2 ->
+      LetK (PairK x1 x2) "p" $ \p -> HaltK p
 
 -- Desugar @let e in x. e'@ into @let p in x. e'@
 letTerm :: TermK v a -> (v a -> TermK v b) -> TermK v b
 letTerm (HaltK x) e' = e' x
 -- The continuation is discarded here because a jump never returns to e'.
-letTerm (JumpK x y) e' = JumpK x y
+letTerm (JumpK x y) _e' = JumpK x y
 letTerm (LetK p x' e) e' = LetK (letPrim p e') x' (\x -> letTerm (e x) e')
 
 letPrim :: PrimK v a c -> (v a -> TermK v b) -> PrimK v b c
+-- letPrim (VarK x) e' = _
 letPrim (FunK x' f) e' = FunK x' (\x -> letTerm (f x) e')
-letPrim TrueK e' = TrueK
-letPrim FalseK e' = FalseK
-letPrim (PairK x y) e' = PairK x y
-letPrim (FstK x) e' = FstK x
-letPrim (SndK x) e' = SndK x
+letPrim TrueK _e' = TrueK
+letPrim FalseK _e' = FalseK
+letPrim (PairK x y) _e' = PairK x y
+letPrim (FstK x) _e' = FstK x
+letPrim (SndK x) _e' = SndK x
 
 
 
-data Value :: Type -> * where
+data Value :: Type -> Star where
   VTrue :: Value 'TyBool
   VFalse :: Value 'TyBool
   -- Can't stringify.
@@ -148,11 +157,14 @@ data Value :: Type -> * where
   -- Stringifying isn't that important? If it's a language runtime, useful
   -- programs won't evaluate to functions.
   VFun :: (Value a -> Term Value b) -> Value ('TyArr a b)
+  VPair :: Value a -> Value b -> Value ('TyProd a b)
 
 eval :: Term Value a -> Value a
 eval (TmVarOcc v) = v
 eval (TmApp e1 e2) = case (eval e1, eval e2) of
   (VFun f, v) -> eval (f v)
-eval (TmLam x f) = VFun f
+eval (TmLam _x f) = VFun f
 eval TmTrue = VTrue
 eval TmFalse = VFalse
+eval (TmPair e1 e2) = case (eval e1, eval e2) of
+  (x1, x2) -> VPair x1 x2
