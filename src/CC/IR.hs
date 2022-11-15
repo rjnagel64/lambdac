@@ -178,7 +178,6 @@ funClosureSort (FunClosureDef _ _ params _) = paramsSort params
 
 data ClosureParam = TypeParam TyVar | ValueParam Name Sort
 
--- TODO: Confine scope of makeClosureParams
 makeClosureParams :: [TyVar] -> [(Name, Sort)] -> [ClosureParam]
 makeClosureParams aas xs = map TypeParam aas ++ map (uncurry ValueParam) xs
 

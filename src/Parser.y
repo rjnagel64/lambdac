@@ -82,8 +82,8 @@ Term :: { Term }
      | '\\' '(' ID ':' Type ')' '->' Term { TmLam (var $3) $5 $8 }
      | '\\' '@' ID '->' Term { TmTLam (tvar $3) $5 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
-     | 'let' FunBinds 'in' Term { TmRecFun $2 $4 }
-     | 'letrec' RecBinds 'in' Term { TmLetRec $2 $4 }
+     | 'let' FunBinds 'in' Term { TmRecFun (rundl $2) $4 }
+     | 'letrec' RecBinds 'in' Term { TmLetRec (rundl $2) $4 }
      | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
        { TmCase $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
      | 'case' 'uncons' Term 'return' Type 'of' '{' 'nil' '->' Term ';' 'cons' VarBind VarBind '->' Term '}'
@@ -125,16 +125,16 @@ ATerm :: { Term }
 VarBind :: { (TmVar, Type) }
         : '(' ID ':' Type ')' { (var $2, $4) }
 
-FunBinds :: { [TmFun] }
-         : FunBind { [$1] }
-         | FunBinds FunBind { $1 ++ [$2] }
+FunBinds :: { DList TmFun }
+         : FunBind { dlsingle $1 }
+         | FunBinds FunBind { snoc $2 $1 }
 
 FunBind :: { TmFun }
         : 'fun' ID '(' ID ':' Type ')' ':' Type '=' Term ';' { TmFun (var $2) (var $4) $6 $9 $11 }
 
-RecBinds :: { [(TmVar, Type, Term)] }
-         : RecBind { [$1] }
-         | RecBinds RecBind { $1 ++ [$2] }
+RecBinds :: { DList (TmVar, Type, Term) }
+         : RecBind { dlsingle $1 }
+         | RecBinds RecBind { snoc $2 $1 }
 
 RecBind :: { (TmVar, Type, Term) }
         : ID ':' Type '=' Term ';' { (var $1, $3, $5) }
