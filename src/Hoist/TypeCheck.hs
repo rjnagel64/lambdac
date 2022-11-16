@@ -47,6 +47,7 @@ data Context = Context { ctxLocals :: Locals, ctxEnv :: EnvType }
 -- Info variables record the sort they describe, @i : info t@.
 data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Set Id, localInfos :: Map Id Sort }
 
+-- | Ways in which a Hoist IR program can be invalid.
 data TCError
   = TypeMismatch Sort Sort
   | NameNotInLocals Id

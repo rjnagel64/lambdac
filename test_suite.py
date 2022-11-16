@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 # TODO: Move this script into tests/? Might need to adjust the CWD for cabal invocations
-# TODO: Run only specific tests, when specified in argv?
+# TODO: Type-Checker tests, where the expected output is the type of the program/the error message
 
 proc = subprocess.run(["cabal", "build"])
 if proc.returncode != 0:
@@ -18,38 +18,40 @@ if proc.returncode != 0:
     print(f"{sys.argv[0]} RTS failed to build: not running tests")
     sys.exit(1)
 
-stats = Counter()
-failed_tests = []
 
+tests_to_run = []
 def standard_test(name, result):
-    global stats
-    stats["ran"] += 1
-    path = f"./tests/{name}.lamc"
-    exe_path = f"./tests/bin/{name}"
-    compile_command = [compiler_path, path, "-o", exe_path]
-    # compile_command = [compiler_path, path, "-o", exe_path, "--check-cps"]
-    proc = subprocess.run(compile_command, capture_output=True, encoding="utf8")
-    if proc.returncode != 0:
-        print(f"{name} FAIL")
-        stats["failed"] += 1
-        failed_tests.append((name, proc.stdout, proc.stderr))
-        return
+    global tests_to_run
+    tests_to_run.append(StandardTest(name, result))
 
-    proc = subprocess.run([exe_path], capture_output=True, encoding="utf8")
-    if proc.stdout != f"result = {result}\n":
-        print(f"{name} FAIL")
-        stats["failed"] += 1
-        failed_tests.append((name, proc.stdout, proc.stderr))
-        return
-    print(f"{name} OK")
-    stats["passed"] += 1
+class StandardTest:
+    def __init__(self, name, result):
+        self.name = name
+        self.result = result
 
-def compile_fail(name, err):
-    stats["ran"] += 1
-    print(f"{name} FAIL")
-    stats["failed"] += 1
-    failed_tests.append((name, "compile-fail tests not implemented"))
-    return
+    def run(self, runner):
+        path = f"./tests/{self.name}.lamc"
+        exe_path = f"./tests/bin/{self.name}"
+        compile_command = [compiler_path, path, "-o", exe_path]
+        # compile_command = [compiler_path, path, "-o", exe_path, "--check-cps"]
+        proc = subprocess.run(compile_command, capture_output=True, encoding="utf8")
+        if proc.returncode != 0:
+            runner.report_failure(self.name, proc.stdout, proc.stderr)
+            return
+
+        proc = subprocess.run([exe_path], capture_output=True, encoding="utf8")
+        if proc.stdout != f"result = {self.result}\n":
+            runner.report_failure(self.name, proc.stdout, proc.stderr)
+            return
+
+        runner.report_success(self.name)
+
+class CompileFail:
+    def __init__(self, name):
+        self.name = name
+
+    def run(self, runner):
+        runner.report_failure(name, "compile-fail tests not implemented", "")
 
 standard_test("fibonacci", "144")
 standard_test("trisum", "55")
@@ -82,11 +84,53 @@ standard_test("impred_inst", "<closure>")
 standard_test("weird_id", "()")
 standard_test("recpoly", "7")
 
-for (test, out, err) in failed_tests:
-    print(f"--- FAILED: {test} ---")
-    print(f"--- STDOUT: ---")
-    print(out)
-    print(f"--- STDERR: ---")
-    print(err)
+def run_tests(test_filter):
+    runner = TestRunner()
+    for test in tests_to_run:
+        if test_filter is None or test.name in test_filter:
+            test.run(runner)
+        else:
+            runner.report_skipped(test.name)
 
-print(f"{stats['ran']} tests ran; {stats['passed']} tests passed; {stats['failed']} tests failed")
+    runner.print_summary()
+
+class TestRunner:
+    def __init__(self):
+        self.stats = Counter()
+        self.failed_tests = []
+
+    def report_skipped(self, name):
+        self.stats["skipped"] += 1
+        print(f"{name} SKIP")
+
+    def report_success(self, name):
+        self.stats["ran"] += 1
+        self.stats["passed"] += 1
+        print(f"{name} OK")
+
+    def report_failure(self, name, out, err):
+        self.stats["ran"] += 1
+        self.stats["failed"] += 1
+        self.failed_tests.append((name, out, err))
+        print(f"{name} FAIL")
+
+    def print_summary(self):
+        for (test, out, err) in self.failed_tests:
+            print(f"--- FAILED: {test} ---")
+            print(f"--- STDOUT: ---")
+            print(out)
+            print(f"--- STDERR: ---")
+            print(err)
+
+        ran = self.stats["ran"]
+        skipped = self.stats["skipped"]
+        passed = self.stats["passed"]
+        failed = self.stats["failed"]
+        print(f"{ran} tests ran; {skipped} tests skipped; {passed} tests passed; {failed} tests failed")
+
+
+if len(sys.argv) > 1:
+    whitelist = sys.argv[1:]
+else:
+    whitelist = None
+run_tests(whitelist)
