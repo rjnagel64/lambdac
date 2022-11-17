@@ -289,7 +289,7 @@ emitThunkSuspend ns ty =
           ("    " ++ lval ++ ".info = " ++ emitInfo (Id "NULL") info ++ ";") :
           acc
         consInfo j acc =
-          ("   next_step->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
+          ("    next_step->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
           acc
 
 emitClosureDecl :: ClosureSig -> ClosureDecl -> [Line]

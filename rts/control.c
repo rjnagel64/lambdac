@@ -1,6 +1,7 @@
 
 #include "control.h"
 #include "alloc.h"
+#include "prim.h" // for closure_info
 
 void (*trace_roots)(void) = mark_root;
 
