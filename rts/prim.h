@@ -126,6 +126,17 @@ struct list *allocate_list_cons(struct alloc_header *x, type_info info, struct l
 // I suppose this means I'll have to use a flexible array member thing?
 // Could be worse, I guess.
 // Fortunately, strings are immutable, so I don't have to worry about resizing them.
+struct string_value {
+    struct alloc_header header;
+    uint64_t len;
+    char contents[];
+};
+
+type_info string_info;
+
+struct string_value *allocate_string(char *contents);
+
+#define AS_STRING(v) ((struct string_value *)(v))
 
 // Primitive operators on integers: arithmetic
 struct int64_value *prim_addint64(struct int64_value *x, struct int64_value *y);

@@ -4,6 +4,7 @@
 #include "alloc.h"
 
 #include <stdio.h> // sprintf for display_int64_value
+#include <string.h>
 
 void trace_int64_value(struct alloc_header *alloc) {
 }
@@ -227,6 +228,22 @@ struct unit *allocate_unit(void) {
     return n;
 }
 
+void trace_string(struct alloc_header *alloc) {
+}
+
+void display_string(struct alloc_header *alloc, struct string_buf *sb) {
+    struct string_value *s = AS_STRING(alloc);
+    string_buf_push(sb, s->contents);
+}
+
+type_info string_info = { trace_string, display_string };
+
+struct string_value *allocate_string(char *contents) {
+    uint64_t len = strlen(contents);
+    struct string_value *s = malloc(sizeof(struct string_value) + len);
+    cons_new_alloc(AS_ALLOC(s), string_info);
+    return s;
+}
 
 struct int64_value *prim_addint64(struct int64_value *x, struct int64_value *y) {
     return allocate_int64(x->value + y->value);
