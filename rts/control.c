@@ -3,6 +3,17 @@
 #include "alloc.h"
 #include "prim.h" // for closure_info
 
+// Note: the trace_roots function
+// There is a circular dependency between 'alloc.c' and 'control.c'.
+// Specifically, control.c needs to be able to allocate and collect memory
+// using alloc.c, but alloc.c needs to know about the GC roots, such as the
+// next thunk from control.c.
+//
+// The solution is that alloc.h marks the function (pointer) to trace the thunk
+// as 'extern void (*trace_roots)(void)': a declaration, that can be included
+// in multiple files without issue.
+//
+// Then, control.c *defines* 'trace_roots' exactly once, right here.
 void (*trace_roots)(void) = mark_root;
 
 void mark_root(void) {
