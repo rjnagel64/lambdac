@@ -121,6 +121,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     tycode IntegerH = "V"
     tycode (AllocH _) = "A"
     tycode SumH = "S"
+    tycode StringH = "T"
     tycode BooleanH = "B"
     tycode (ProductH s t) = 'Q' : tycode s ++ tycode t
     tycode UnitH = "U"
@@ -152,6 +153,7 @@ typeForSort (AllocH _) = "struct alloc_header *"
 typeForSort (ClosureH _) = "struct closure *"
 typeForSort IntegerH = "struct int64_value *"
 typeForSort SumH = "struct sum *"
+typeForSort StringH = "struct string_value *"
 typeForSort BooleanH = "struct bool_value *"
 typeForSort (ProductH _ _) = "struct pair *"
 typeForSort UnitH = "struct unit *"
@@ -162,6 +164,7 @@ asSort (AllocH _) x = asAlloc x
 asSort IntegerH x = "AS_INT64(" ++ x ++ ")"
 asSort (ClosureH _) x = "AS_CLOSURE(" ++ x ++ ")"
 asSort SumH x = "AS_SUM(" ++ x ++ ")"
+asSort StringH x = "AS_STRING(" ++ x ++ ")"
 asSort BooleanH x = "AS_BOOL(" ++ x ++ ")"
 asSort (ProductH _ _) x = "AS_PAIR(" ++ x ++ ")"
 asSort UnitH x = "AS_UNIT(" ++ x ++ ")"
@@ -198,6 +201,7 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
     thunkTypesOf IntegerH = Set.empty
     thunkTypesOf BooleanH = Set.empty
     thunkTypesOf SumH = Set.empty
+    thunkTypesOf StringH = Set.empty
     thunkTypesOf UnitH = Set.empty
     thunkTypesOf (ClosureH tele) = Set.insert (teleThunkType tele) (teleThunkTypes tele)
     thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
@@ -280,6 +284,7 @@ emitThunkSuspend ns ty =
               BooleanH -> BoolInfo
               UnitH -> UnitInfo
               SumH -> SumInfo
+              StringH -> StringInfo
               ProductH _ _ -> ProductInfo
               ListH _ -> ListInfo
               ClosureH _ -> ClosureInfo
@@ -372,6 +377,7 @@ emitEnvInfo ns (EnvDecl is fs) =
     infoFor BooleanH = BoolInfo
     infoFor UnitH = UnitInfo
     infoFor SumH = SumInfo
+    infoFor StringH = StringInfo
     infoFor (ProductH _ _) = ProductInfo
     infoFor (ListH _) = ListInfo
     infoFor (ClosureH _) = ClosureInfo
@@ -523,6 +529,7 @@ emitValueAlloc envp (InrH s y) =
 emitValueAlloc _ ListNilH = "allocate_list_nil()"
 emitValueAlloc envp (ListConsH s x xs) =
   "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp s ++ ", " ++ emitName envp xs ++ ")"
+emitValueAlloc _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
 
 emitPrimOp :: EnvPtr -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
@@ -535,6 +542,8 @@ emitPrimOp envp (PrimLtInt64 x y) = emitPrimCall envp "prim_ltint64" [x, y]
 emitPrimOp envp (PrimLeInt64 x y) = emitPrimCall envp "prim_leint64" [x, y]
 emitPrimOp envp (PrimGtInt64 x y) = emitPrimCall envp "prim_gtint64" [x, y]
 emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
+emitPrimOp envp (PrimConcatenate x y) = emitPrimCall envp "prim_concatenate" [x, y]
+emitPrimOp envp (PrimStrlen x) = emitPrimCall envp "prim_strlen" [x]
 
 -- TODO: emitPrimCall could take a list of type/info arguments?
 emitPrimCall :: EnvPtr -> String -> [Name] -> String
@@ -615,6 +624,7 @@ emitInfo _ Int64Info = "int64_value_info"
 emitInfo _ BoolInfo = "bool_value_info"
 emitInfo _ UnitInfo = "unit_info"
 emitInfo _ SumInfo = "sum_info"
+emitInfo _ StringInfo = "string_info"
 emitInfo _ ProductInfo = "pair_info"
 emitInfo _ ClosureInfo = "closure_info"
 emitInfo _ ListInfo = "list_info"

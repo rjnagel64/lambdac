@@ -152,5 +152,11 @@ struct bool_value *prim_leint64(struct int64_value *x, struct int64_value *y);
 struct bool_value *prim_gtint64(struct int64_value *x, struct int64_value *y);
 struct bool_value *prim_geint64(struct int64_value *x, struct int64_value *y);
 
+// Primitive operators on strings
+struct string_value *prim_concatenate(struct string_value *x, struct string_value *y);
+struct int64_value *prim_strlen(struct string_value *x);
+// Use the type_info.display() method to convert polymorphic type to string.
+// Hopefully will eventually become obsolete.
+// struct string_value *prim_tostring(struct alloc_header *alloc, type_info info);
 
 #endif

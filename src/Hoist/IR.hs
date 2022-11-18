@@ -104,6 +104,7 @@ data Sort
   | BooleanH
   | UnitH
   | SumH
+  | StringH
   | ProductH Sort Sort
   | ListH Sort
   | ClosureH ClosureTele
@@ -146,6 +147,8 @@ equalSort _ UnitH UnitH = True
 equalSort _ UnitH _ = False
 equalSort _ SumH SumH = True
 equalSort _ SumH _ = False
+equalSort _ StringH StringH = True
+equalSort _ StringH _ = False
 equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
 equalSort _ (ProductH _ _) _ = False
 equalSort ae (ListH s) (ListH t) = equalSort ae s t
@@ -206,6 +209,7 @@ substSort _ _ IntegerH = IntegerH
 substSort _ _ BooleanH = BooleanH
 substSort _ _ UnitH = UnitH
 substSort _ _ SumH = SumH
+substSort _ _ StringH = StringH
 substSort sc sub (ProductH s t) = ProductH (substSort sc sub s) (substSort sc sub t)
 substSort sc sub (ListH t) = ListH (substSort sc sub t)
 substSort sc sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele sc sub tele))
@@ -232,6 +236,8 @@ data Info
   | UnitInfo
   -- @sum_info@
   | SumInfo
+  -- @string_info@
+  | StringInfo
   -- @pair_info@
   | ProductInfo
   -- @closure_info@
@@ -306,6 +312,7 @@ data ValueH
   | InrH Info Name
   | ListNilH
   | ListConsH Info Name Name
+  | StringValH String
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -318,6 +325,8 @@ data PrimOp
   | PrimLeInt64 Name Name
   | PrimGtInt64 Name Name
   | PrimGeInt64 Name Name
+  | PrimConcatenate Name Name
+  | PrimStrlen Name
 
 
 data Program = Program [ClosureDecl] TermH
@@ -362,6 +371,7 @@ pprintValue (InlH _ x) = "inl " ++ show x
 pprintValue (InrH _ y) = "inr " ++ show y
 pprintValue ListNilH = "nil"
 pprintValue (ListConsH _ x xs) = "cons " ++ show x ++ " " ++ show xs
+pprintValue (StringValH s) = show s
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
@@ -374,6 +384,8 @@ pprintPrim (PrimLtInt64 x y) = "prim_ltint64(" ++ show x ++ ", " ++ show y ++ ")
 pprintPrim (PrimLeInt64 x y) = "prim_leint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimGtInt64 x y) = "prim_gtint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimConcatenate x y) = "prim_concatenate(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimStrlen x) = "prim_strlen(" ++ show x ++ ")"
 
 pprintPlace :: Place -> String
 pprintPlace (Place s x) = show x ++ " : " ++ pprintSort s
@@ -417,6 +429,7 @@ pprintSort IntegerH = "int"
 pprintSort BooleanH = "bool"
 pprintSort UnitH = "unit"
 pprintSort SumH = "sum"
+pprintSort StringH = "string"
 pprintSort (ListH t) = "list " ++ pprintSort t
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
@@ -429,6 +442,7 @@ pprintInfo Int64Info = "$int64"
 pprintInfo BoolInfo = "$bool"
 pprintInfo UnitInfo = "$unit"
 pprintInfo SumInfo = "$sum"
+pprintInfo StringInfo = "$string"
 pprintInfo ProductInfo = "$pair"
 pprintInfo ClosureInfo = "$closure"
 pprintInfo ListInfo = "$list"

@@ -232,15 +232,20 @@ void trace_string(struct alloc_header *alloc) {
 }
 
 void display_string(struct alloc_header *alloc, struct string_buf *sb) {
+    // Actually, since 'display' is supposed to emit a debug representation of
+    // the value, this should add quotes and maybe do escaping.
     struct string_value *s = AS_STRING(alloc);
+    string_buf_push(sb, "\"");
     string_buf_push(sb, s->contents);
+    string_buf_push(sb, "\"");
 }
 
 type_info string_info = { trace_string, display_string };
 
 struct string_value *allocate_string(char *contents) {
     uint64_t len = strlen(contents);
-    struct string_value *s = malloc(sizeof(struct string_value) + len);
+    struct string_value *s = malloc(sizeof(struct string_value) + len * sizeof(char));
+    memcpy(s->contents, contents, len+1); // Include null terminator.
     cons_new_alloc(AS_ALLOC(s), string_info);
     return s;
 }
@@ -309,3 +314,16 @@ struct bool_value *prim_geint64(struct int64_value *x, struct int64_value *y) {
     }
 }
 
+struct string_value *prim_concatenate(struct string_value *x, struct string_value *y) {
+    struct string_buf *sb = string_buf_new();
+    string_buf_push(sb, x->contents);
+    string_buf_push(sb, y->contents);
+    char *contents = string_buf_contents(sb); // Non-owning reference
+    struct string_value *s = allocate_string(contents); // Copy contents into new string.
+    string_buf_destroy(sb); // Destroy temporary buffer.
+    return s;
+}
+
+struct int64_value *prim_strlen(struct string_value *x) {
+    return allocate_int64(x->len);
+}

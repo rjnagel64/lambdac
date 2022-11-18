@@ -285,6 +285,8 @@ checkPrimOp (PrimLtInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> 
 checkPrimOp (PrimLeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
 checkPrimOp (PrimGtInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
 checkPrimOp (PrimGeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
+checkPrimOp (PrimConcatenate x y) = checkName x StringH *> checkName y StringH *> pure StringH
+checkPrimOp (PrimStrlen x) = checkName x StringH *> pure IntegerH
 
 -- | Check that a value has the given sort.
 checkValue :: ValueH -> Sort -> TC ()
@@ -317,6 +319,8 @@ checkValue (ListConsH i x xs) (ListH t) = do
   checkName x t
   checkName xs (ListH t) 
 checkValue (ListConsH _ _ _) _ = throwError BadValue
+checkValue (StringValH _) StringH = pure ()
+checkValue (StringValH _) _ = throwError BadValue
 
 checkCase :: Name -> CaseKind -> [Name] -> TC ()
 checkCase x CaseBool [kf, kt] = do
@@ -340,6 +344,7 @@ checkSort UnitH = pure ()
 checkSort IntegerH = pure ()
 checkSort BooleanH = pure ()
 checkSort SumH = pure ()
+checkSort StringH = pure ()
 checkSort (ProductH t s) = checkSort t *> checkSort s
 checkSort (ListH t) = checkSort t
 checkSort (ClosureH tele) = checkTele tele
@@ -373,6 +378,8 @@ checkInfo UnitInfo UnitH = pure ()
 checkInfo UnitInfo _ = throwError IncorrectInfo
 checkInfo SumInfo SumH = pure ()
 checkInfo SumInfo _ = throwError IncorrectInfo
+checkInfo StringInfo StringH = pure ()
+checkInfo StringInfo _ = throwError IncorrectInfo
 checkInfo ProductInfo (ProductH _ _) = pure ()
 checkInfo ProductInfo _ = throwError IncorrectInfo
 checkInfo ListInfo (ListH _) = pure ()
