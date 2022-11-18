@@ -26,7 +26,9 @@ import Control.Monad.Except
 
 -- Elaboration to System F looks pretty straightforward.
 
--- TODO: Derive rules for products and sums
+-- It should be straightforward to derive rules for products and sums
+-- (via scott-encoding?)
+-- (or maybe just directly.)
 
 
 data Var = Var String

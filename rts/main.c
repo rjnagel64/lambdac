@@ -14,7 +14,6 @@ int main(void) {
     init_locals();
     
     // Prepare the main driver loop
-    result_value = NULL;
     next_step = malloc(sizeof(struct thunk));
     next_step->args = NULL;
 
@@ -23,7 +22,7 @@ int main(void) {
 
     // Main driver loop.
     // Repeatedly force/enter the current thunk until a final value is reached.
-    while (result_value == NULL) {
+    while (!has_halted()) {
         reset_locals();
         next_step->enter();
     }
@@ -32,6 +31,8 @@ int main(void) {
     // Display the result value.
     // Once I have a functioning IO system, this can go away.
     struct string_buf *sb = string_buf_new();
+    struct alloc_header *result_value = get_result_value();
+    type_info result_info = get_result_info();
     result_info.display(result_value, sb);
     printf("result = %s\n", string_buf_contents(sb));
     string_buf_destroy(sb);

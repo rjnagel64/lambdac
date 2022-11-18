@@ -1,7 +1,14 @@
 #ifndef __CONTROL_H__
 #define __CONTROL_H__
 
+#include <stdbool.h>
+
 #include "alloc.h"
+
+bool has_halted(void);
+void halt_with(struct alloc_header *x, type_info info);
+struct alloc_header *get_result_value(void);
+type_info get_result_info(void);
 
 struct thunk {
     void (*enter)(void);
@@ -12,10 +19,6 @@ struct thunk {
 struct thunk *next_step;
 struct closure *next_closure;
 void mark_root(void);
-
-struct alloc_header *result_value;
-type_info result_info;
-void halt_with(struct alloc_header *x, type_info info);
 
 struct value_arg {
     struct alloc_header *alloc;
