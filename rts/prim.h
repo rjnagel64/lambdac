@@ -112,23 +112,18 @@ struct list *allocate_list_cons(struct alloc_header *x, type_info info, struct l
 #define AS_LIST_NIL(v) ((struct list_nil *)(v))
 #define AS_LIST_CONS(v) ((struct list_cons *)(v))
 
-// TODO: Primitive values for strings.
-// I considered doing something like
-// struct string_value {
-//     struct alloc_header header;
-//     uint64_t len;
-//     char *data;
-// };
-// However, freeing this is tricky in the type_info based setting.
-// I would need to introduce some notion of a GC finalizer, basically.
-// (More generally, a GC value cannot own its fields, all fields have to be
-// either ignored by GC, or managed by GC.)
-// I suppose this means I'll have to use a flexible array member thing?
-// Could be worse, I guess.
-// Fortunately, strings are immutable, so I don't have to worry about resizing them.
 struct string_value {
     struct alloc_header header;
     uint64_t len;
+    // Note: I use a flexible array member here, rather than having 'char
+    // *contents' because GC values cannot take ownership of their fields.
+    // More specifically, because I do not have a notion of GC finalizers, I
+    // cannot free that 'char *contents' upon collection of this
+    // 'string_value', which would lead to a memory leak.
+    //
+    // One consequence of using a flexible array member is that it isn't easy
+    // to resize the contents of a 'string_value'. However, all strings are
+    // immutable, so that is a non-issue.
     char contents[];
 };
 
@@ -156,7 +151,7 @@ struct bool_value *prim_geint64(struct int64_value *x, struct int64_value *y);
 struct string_value *prim_concatenate(struct string_value *x, struct string_value *y);
 struct int64_value *prim_strlen(struct string_value *x);
 // Use the type_info.display() method to convert polymorphic type to string.
-// Hopefully will eventually become obsolete.
+// Hopefully, this will eventually become obsolete.
 // struct string_value *prim_tostring(struct alloc_header *alloc, type_info info);
 
 #endif
