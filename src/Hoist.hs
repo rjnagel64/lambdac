@@ -59,6 +59,7 @@ sortOf C.Integer = IntegerH
 sortOf C.Boolean = BooleanH
 sortOf C.Unit = UnitH
 sortOf C.Sum = SumH
+sortOf C.String = StringH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.List t) = ListH (sortOf t)
 sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
@@ -165,6 +166,11 @@ hoist (C.LetCompareC (x, s) cmp e) = do
   cmp' <- hoistCmp cmp
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' cmp' e')
+hoist (C.LetConcatC (x, s) y z e) = do
+  y' <- hoistVarOcc y
+  z' <- hoistVarOcc z
+  (x', e') <- withPlace x s $ hoist e
+  pure (LetPrimH x' (PrimConcatenate y' z') e')
 hoist (C.LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
   ds' <- traverse hoistFunClosure fdecls
@@ -200,6 +206,7 @@ hoistValue (C.InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOccInfo x
 hoistValue C.EmptyC = pure ListNilH
 hoistValue (C.ConsC x xs) =
   (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOccInfo x <*> hoistVarOcc xs
+hoistValue (C.StringC s) = pure (StringValH s)
 
 hoistArith :: C.ArithC -> HoistM PrimOp
 hoistArith (C.AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -373,6 +380,7 @@ infoForSort IntegerH = pure Int64Info
 infoForSort BooleanH = pure BoolInfo
 infoForSort UnitH = pure UnitInfo
 infoForSort SumH = pure SumInfo
+infoForSort StringH = pure StringInfo
 infoForSort (ProductH _ _) = pure ProductInfo
 infoForSort (ListH _) = pure ListInfo
 infoForSort (ClosureH _) = pure ClosureInfo

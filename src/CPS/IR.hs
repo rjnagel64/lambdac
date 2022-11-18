@@ -73,6 +73,8 @@ data TermK a
   | LetNegateK TmVar TmVar (TermK a)
   -- let z = x `cmp` y in e 
   | LetCompareK TmVar CmpK (TermK a)
+  -- let z = x ++ y in e
+  | LetConcatK TmVar TmVar TmVar (TermK a)
 
   -- let rec ks in e
   | LetContK [ContDef a] (TermK a)
@@ -135,6 +137,7 @@ data ValueK
   | BoolValK Bool
   | EmptyK
   | ConsK TmVar TmVar
+  | StringValK String
 
 data ArithK
   = AddK TmVar TmVar
@@ -156,6 +159,8 @@ data TypeK
   | IntK
   -- bool
   | BoolK
+  -- string
+  | StringK
   -- σ × τ
   | ProdK TypeK TypeK
   -- σ + τ
@@ -197,6 +202,8 @@ eqTypeK' _ IntK IntK = True
 eqTypeK' _ IntK _ = False
 eqTypeK' _ BoolK BoolK = True
 eqTypeK' _ BoolK _ = False
+eqTypeK' _ StringK StringK = True
+eqTypeK' _ StringK _ = False
 eqTypeK' sc (ProdK t1 s1) (ProdK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
 eqTypeK' _ (ProdK _ _) _ = False
 eqTypeK' sc (SumK t1 s1) (SumK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
@@ -248,6 +255,7 @@ typeFV (ListK t) = typeFV t
 typeFV UnitK = Set.empty
 typeFV IntK = Set.empty
 typeFV BoolK = Set.empty
+typeFV StringK = Set.empty
 
 -- | Compute the free type variables of a co-type.
 coTypeFV :: CoTypeK -> Set TyVar
@@ -276,6 +284,7 @@ substTypeK' sub (ListK t) = ListK (substTypeK' sub t)
 substTypeK' _ UnitK = UnitK
 substTypeK' _ IntK = IntK
 substTypeK' _ BoolK = BoolK
+substTypeK' _ StringK = StringK
 
 substCoTypeK' :: Subst -> CoTypeK -> CoTypeK
 substCoTypeK' sub (ContK ss) = ContK (map (substTypeK' sub) ss)
@@ -339,6 +348,8 @@ pprintTerm n (LetNegateK x y e) =
   indent n ("let " ++ show x ++ " = -" ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareK x cmp e) =
   indent n ("let " ++ show x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetConcatK x y z e) =
+  indent n ("let " ++ show x ++ " = " ++ show y ++ " ++ " ++ show z ++ ";\n") ++ pprintTerm n e
 
 pprintValue :: ValueK -> String
 pprintValue NilK = "()"
@@ -349,6 +360,7 @@ pprintValue (InlK x) = "inl " ++ show x
 pprintValue (InrK y) = "inr " ++ show y
 pprintValue EmptyK = "nil"
 pprintValue (ConsK x y) = "cons " ++ show x ++ " " ++ show y
+pprintValue (StringValK s) = show s
 
 pprintArith :: ArithK -> String
 pprintArith (AddK x y) = show x ++ " + " ++ show y
@@ -399,6 +411,7 @@ pprintType (FunK ts ss) =
 pprintType IntK = "int"
 pprintType UnitK = "unit"
 pprintType BoolK = "bool"
+pprintType StringK = "string"
 pprintType (TyVarOccK aa) = show aa
 pprintType (AllK aas ss) =
   "forall " ++ intercalate " " (map show aas) ++ ". (" ++ intercalate ", " (map pprintCoType ss) ++ ") -> 0"
@@ -408,6 +421,7 @@ pprintAType (TyVarOccK aa) = show aa
 pprintAType IntK = "int"
 pprintAType UnitK = "unit"
 pprintAType BoolK = "bool"
+pprintAType StringK = "string"
 pprintAType t = "(" ++ pprintType t ++ ")"
 
 pprintCoType :: CoTypeK -> String

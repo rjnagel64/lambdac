@@ -104,6 +104,7 @@ data Sort
   | Integer
   | Alloc TyVar
   | Sum
+  | String
   | Pair Sort Sort
   | Unit
   | Boolean
@@ -114,6 +115,7 @@ instance Show Sort where
   show Integer = "int"
   show (Alloc aa) = "alloc(" ++ show aa ++ ")"
   show Sum = "sum"
+  show String = "string"
   show Boolean = "bool"
   show (List s) = "list " ++ show s
   show (Pair s t) = "pair " ++ show s ++ " " ++ show t
@@ -136,6 +138,7 @@ data TermC
   | LetArithC (Name, Sort) ArithC TermC
   | LetNegateC (Name, Sort) Name TermC -- let x = -y in e, unary negation
   | LetCompareC (Name, Sort) CmpC TermC
+  | LetConcatC (Name, Sort) Name Name TermC -- let x = y ++ z in e, concatenation
   | LetFunC [FunClosureDef] TermC
   | LetContC [ContClosureDef] TermC
   -- Invoke a closure by providing values for the remaining arguments.
@@ -222,6 +225,7 @@ data ValueC
   | BoolC Bool
   | EmptyC
   | ConsC Name Name
+  | StringC String
 
 
 indent :: Int -> String -> String
@@ -256,6 +260,8 @@ pprintTerm n (LetNegateC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = -" ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareC x cmp e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetConcatC x y z e) =
+  indent n ("let " ++ pprintPlace x ++ " = " ++ show y ++ " ++ " ++ show z ++ ";\n") ++ pprintTerm n e
 
 pprintPlace :: (Name, Sort) -> String
 pprintPlace (x, s) = show x ++ " : " ++ show s
@@ -269,6 +275,7 @@ pprintValue (InlC x) = "inl " ++ show x
 pprintValue (InrC y) = "inr " ++ show y
 pprintValue EmptyC = "nil"
 pprintValue (ConsC x xs) = "cons " ++ show x ++ " " ++ show xs
+pprintValue (StringC s) = show s
 
 pprintArith :: ArithC -> String
 pprintArith (AddC x y) = show x ++ " + " ++ show y

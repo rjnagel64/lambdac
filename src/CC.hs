@@ -61,6 +61,7 @@ singleOcc x s = Fields (Set.singleton (FreeOcc x s), ftv s)
     ftv Unit = Set.empty
     ftv Sum = Set.empty
     ftv Boolean = Set.empty
+    ftv String = Set.empty
     ftv (Pair t1 t2) = ftv t1 <> ftv t2
     ftv (List t) = ftv t
 
@@ -158,6 +159,8 @@ cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*>
 cconv (K.LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
 cconv (K.LetNegateK x y e) = withTm (x, K.IntK) $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
+cconv (K.LetConcatK x y z e) =
+  withTm (x, K.StringK) $ \b -> LetConcatC b <$> cconvTmVar x <*> cconvTmVar y <*> cconv e
 cconv (K.LetFunAbsK fs e) = do
   let funBinds = map (\f -> (K.funDefName f, K.funDefType f)) fs
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
@@ -207,6 +210,7 @@ cconvValue (K.InlK x) = InlC <$> cconvTmVar x
 cconvValue (K.InrK y) = InrC <$> cconvTmVar y
 cconvValue K.EmptyK = pure EmptyC
 cconvValue (K.ConsK x y) = ConsC <$> cconvTmVar x <*> cconvTmVar y
+cconvValue (K.StringValK s) = pure (StringC s)
 
 cconvArith :: K.ArithK -> ConvM ArithC
 cconvArith (K.AddK x y) = AddC <$> cconvTmVar x <*> cconvTmVar y
@@ -254,6 +258,7 @@ sortOf (K.AllK aas ss) = do
 sortOf K.UnitK = pure Unit
 sortOf K.IntK = pure Integer
 sortOf K.BoolK = pure Boolean
+sortOf K.StringK = pure String
 sortOf (K.SumK _ _) = pure Sum
 sortOf (K.ListK t) = List <$> sortOf t
 sortOf (K.ProdK t1 t2) = Pair <$> sortOf t1 <*> sortOf t2
