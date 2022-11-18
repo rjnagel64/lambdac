@@ -150,8 +150,10 @@ cconvProgram e = runConv (cconv e)
 cconv :: K.TermK a -> ConvM TermC
 cconv (K.HaltK x) = HaltC <$> cconvTmVar x
 cconv (K.JumpK k xs) = JumpC <$> cconvCoVar k <*> traverse cconvTmVar xs
-cconv (K.CallK f xs ks) = CallC <$> cconvTmVar f <*> traverse cconvTmVar xs <*> traverse cconvCoVar ks
-cconv (K.InstK f ts ks) = InstC <$> cconvTmVar f <*> traverse sortOf ts <*> traverse cconvCoVar ks 
+cconv (K.CallK f xs ks) =
+  CallC <$> cconvTmVar f <*> traverse (fmap ValueArg . cconvTmVar) xs <*> traverse cconvCoVar ks
+cconv (K.InstK f ts ks) =
+  CallC <$> cconvTmVar f <*> traverse (fmap TypeArg . sortOf) ts <*> traverse cconvCoVar ks 
 cconv (K.CaseK x t ks) = CaseC <$> cconvTmVar x <*> caseKind t <*> traverse cconvCoVar ks
 cconv (K.LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e

@@ -8,6 +8,7 @@
 
 module CC.IR
   ( TermC(..)
+  , Argument(..)
   , CaseKind(..)
   , FunClosureDef(..)
   , funClosureSort
@@ -143,10 +144,11 @@ data TermC
   | LetContC [ContClosureDef] TermC
   -- Invoke a closure by providing values for the remaining arguments.
   | JumpC Name [Name] -- k x...
-  | CallC Name [Name] [Name] -- f x+ k+
+  | CallC Name [Argument] [Name] -- f (x | @t)+ k+
   | HaltC Name
   | CaseC Name CaseKind [Name] -- case x of k1 | k2 | ...
-  | InstC Name [Sort] [Name] -- f @t+ k+
+
+data Argument = ValueArg Name | TypeArg Sort
 
 data CaseKind
   = CaseBool
@@ -238,9 +240,10 @@ pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (JumpC k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
 pprintTerm n (CallC f xs ks) =
-  indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
-pprintTerm n (InstC f ss ks) =
-  indent n $ intercalate " @" (show f : map show ss) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
+  indent n $ show f ++ " " ++ intercalate " " (map pprintArg xs ++ map show ks) ++ ";\n"
+  where
+    pprintArg (ValueArg x) = show x
+    pprintArg (TypeArg t) = show t
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContC fs e) =

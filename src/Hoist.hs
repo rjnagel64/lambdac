@@ -126,17 +126,12 @@ hoist (C.HaltC x) = do
   pure (HaltH s x' i)
 hoist (C.JumpC k xs) = do
   k' <- hoistVarOcc k
-  ys <- hoistArgList xs
+  ys <- hoistArgList (map C.ValueArg xs)
   pure (OpenH k' ys)
 hoist (C.CallC f xs ks) = do
   f' <- hoistVarOcc f
-  ys <- hoistArgList (xs ++ ks)
+  ys <- hoistArgList (xs ++ map C.ValueArg ks)
   pure (OpenH f' ys)
-hoist (C.InstC f ts ks) = do
-  f' <- hoistVarOcc f
-  ys <- hoistArgList ks
-  ts' <- traverse (infoForSort . sortOf) ts
-  pure (OpenH f' (map TypeArg ts' ++ ys))
 hoist (C.CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t
@@ -360,10 +355,11 @@ hoistVarOcc :: C.Name -> HoistM Name
 hoistVarOcc = fmap fst . hoistVarOccSort
 
 -- | Hoist a list of arguments.
-hoistArgList :: [C.Name] -> HoistM [ClosureArg]
+hoistArgList :: [C.Argument] -> HoistM [ClosureArg]
 hoistArgList xs = traverse f xs
   where
-    f x = hoistVarOccSort x >>= \case
+    f (C.TypeArg t) = TypeArg <$> infoForSort (sortOf t)
+    f (C.ValueArg x) = hoistVarOccSort x >>= \case
       (x', AllocH aa) -> OpaqueArg x' <$> infoForTyVar aa
       (x', _) -> pure (ValueArg x')
 
