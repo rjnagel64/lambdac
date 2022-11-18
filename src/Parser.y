@@ -30,6 +30,7 @@ import Source
   '*' { TokStar _ }
   '+' { TokPlus _ }
   '-' { TokMinus _ }
+  '^' { TokCaret _ }
   ';' { TokSemi _ }
   ':' { TokColon _ }
   '.' { TokDot _ }
@@ -57,6 +58,7 @@ import Source
   'unit' { TokUnit _ }
   'int' { TokInt _ }
   'bool' { TokBool _ }
+  'string' { TokString _ }
   'forall' { TokForall _ }
   'nil' { TokNil _ }
   'cons' { TokCons _ }
@@ -65,12 +67,14 @@ import Source
 
   ID { TokID _ _ }
   INT { TokINT _ _ }
+  STRING { TokSTRING _ _ }
 
 -- Precedence goes here, low to high
 
 %right '.'
 %right '->' 'in' 'else'
 %nonassoc '==' '!=' '<' '<=' '>' '>='
+%left '^'
 %left '+' '-'
 %left '*'
 %right UMINUS
@@ -99,6 +103,7 @@ Term :: { Term }
      | Term '<=' Term { TmCmp $1 TmCmpLe $3 }
      | Term '>' Term { TmCmp $1 TmCmpGt $3 }
      | Term '>=' Term { TmCmp $1 TmCmpGe $3 }
+     | Term '^' Term { TmConcat $1 $3 }
 
      | 'inl' '@' AType '@' AType ATerm { TmInl $3 $5 $6 }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
@@ -119,6 +124,7 @@ ATerm :: { Term }
      | '(' Term ',' Term ')' { TmPair $2 $4 }
      | ID { TmVarOcc (var $1) }
      | INT { TmInt (int $1) }
+     | STRING { TmString (string $1) }
      | 'true' { TmBool True }
      | 'false' { TmBool False }
 
@@ -155,6 +161,7 @@ AType :: { Type }
       | 'unit' { TyUnit }
       | 'int' { TyInt }
       | 'bool' { TyBool }
+      | 'string' { TyString }
       | ID { TyVarOcc (tvar $1) }
 
 {
@@ -177,4 +184,7 @@ tvar (TokID _ s) = TyVar s
 
 int :: Token -> Int
 int (TokINT _ s) = read s
+
+string :: Token -> String
+string (TokSTRING _ s) = read s -- remove initial/final quote and process escapes.
 }

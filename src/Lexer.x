@@ -47,6 +47,7 @@ tokens :-
   "*" { tok TokStar }
   "+" { tok TokPlus }
   "-" { tok TokMinus }
+  "^" { tok TokCaret }
 
   "(" { tok TokLParen }
   ")" { tok TokRParen }
@@ -72,6 +73,7 @@ tokens :-
   "unit" { tok TokUnit }
   "bool" { tok TokBool }
   "int" { tok TokInt }
+  "string" { tok TokString }
   "forall" { tok TokForall }
   "nil" { tok TokNil }
   "cons" { tok TokCons }
@@ -83,6 +85,10 @@ tokens :-
   -- The unary - operator obviates the need for signed integer literals, so we
   -- don't have those anymore.
   $digit+ { toks TokINT }
+
+  -- TODO: Lex strings with escape characters:
+  -- Reference: https://github.com/haskell/alex/blob/master/examples/tiger.x
+  \" [^\"]* \" { toks TokSTRING }
 
   $idstart $idcont* { toks TokID }
 
@@ -122,6 +128,7 @@ data Token
   | TokStar Loc
   | TokPlus Loc
   | TokMinus Loc
+  | TokCaret Loc
 
   | TokLParen Loc
   | TokRParen Loc
@@ -130,6 +137,7 @@ data Token
 
   | TokID Loc String
   | TokINT Loc String
+  | TokSTRING Loc String
 
   -- Would it be worthwhile to consolidate these into 'TokKW KW Loc';
   -- data KW = Case | Fun | In | ...?
@@ -154,6 +162,7 @@ data Token
 
   | TokUnit Loc
   | TokInt Loc
+  | TokString Loc
   | TokBool Loc
   | TokForall Loc
   | TokNil Loc
@@ -184,8 +193,10 @@ instance Located Token where
   loc (TokRBrace l) = l
   loc (TokPlus l) = l
   loc (TokMinus l) = l
+  loc (TokCaret l) = l
   loc (TokID l _) = l
   loc (TokINT l _) = l
+  loc (TokSTRING l _) = l
   loc (TokCase l) = l
   loc (TokFun l) = l
   loc (TokIn l) = l
@@ -204,6 +215,7 @@ instance Located Token where
   loc (TokElse l) = l
   loc (TokUnit l) = l
   loc (TokInt l) = l
+  loc (TokString l) = l
   loc (TokBool l) = l
   loc (TokForall l) = l
   loc (TokNil l) = l

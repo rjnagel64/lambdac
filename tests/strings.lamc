@@ -1,0 +1,2 @@
+let cat : string -> string = \ (s : string) -> s ^ s in
+cat "foobar"

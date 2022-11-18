@@ -67,11 +67,16 @@ infer TmNil = pure TyUnit
 infer (TmEmpty t) = pure (TyList t)
 infer (TmBool _) = pure TyBool
 infer (TmInt _) = pure TyInt
+infer (TmString _) = pure TyString
 infer (TmPair e1 e2) = TyProd <$> infer e1 <*> infer e2
 infer (TmCons e1 e2) = do
   thead <- infer e1
   check e2 (TyList thead)
   pure (TyList thead)
+infer (TmConcat e1 e2) = do
+  check e1 TyString
+  check e2 TyString
+  pure TyString
 infer (TmIf c a t f) = do
   check c TyBool
   check t a
@@ -164,6 +169,7 @@ wfType (TyVarOcc aa) = do
     throwError (TyNotInScope aa)
 wfType TyUnit = pure ()
 wfType TyInt = pure ()
+wfType TyString = pure ()
 wfType TyBool = pure ()
 wfType (TyList t) = wfType t
 wfType (TySum t s) = wfType t *> wfType s

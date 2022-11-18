@@ -89,6 +89,10 @@ data Term
   | TmTLam TyVar Term
   -- e @s
   | TmTApp Term Type
+  -- "foo"
+  | TmString String
+  -- s1 ^ s2
+  | TmConcat Term Term
 
 data TmArith
   = TmArithAdd
@@ -121,6 +125,7 @@ data Type
   | TyVarOcc TyVar
   | TyAll TyVar Type
   | TyList Type
+  | TyString
 
 data TyVar
   = TyVar String
@@ -148,6 +153,8 @@ eqType' _ _ _ TyBool TyBool = True
 eqType' _ _ _ TyBool _ = False
 eqType' _ _ _ TyInt TyInt = True
 eqType' _ _ _ TyInt _ = False
+eqType' _ _ _ TyString TyString = True
+eqType' _ _ _ TyString _ = False
 eqType' l fw bw (TyProd t1 t2) (TyProd t3 t4) = eqType' l fw bw t1 t3 && eqType' l fw bw t2 t4
 eqType' _ _ _ (TyProd _ _) _ = False
 eqType' l fw bw (TySum t1 t2) (TySum t3 t4) = eqType' l fw bw t1 t3 && eqType' l fw bw t2 t4
@@ -176,6 +183,7 @@ subst aa t (TyArr t1 t2) = TyArr (subst aa t t1) (subst aa t t2)
 subst _ _ TyUnit = TyUnit
 subst _ _ TyBool = TyBool
 subst _ _ TyInt = TyInt
+subst _ _ TyString = TyString
 
 -- | Compute the free type variables of a type
 ftv :: Type -> Set TyVar
@@ -187,6 +195,7 @@ ftv (TyArr t1 t2) = ftv t1 <> ftv t2
 ftv TyUnit = Set.empty
 ftv TyBool = Set.empty
 ftv TyInt = Set.empty
+ftv TyString = Set.empty
 ftv (TyList t) = ftv t
 
 -- something something showsPrec
@@ -194,6 +203,7 @@ pprintType :: Int -> Type -> String
 pprintType _ TyUnit = "unit"
 pprintType _ TyBool = "bool"
 pprintType _ TyInt = "int"
+pprintType _ TyString = "string"
 -- infixr 4 ->
 pprintType p (TyArr t1 t2) = parensIf (p > 4) $ pprintType 5 t1 ++ " -> " ++ pprintType 4 t2
 -- infix 5 *

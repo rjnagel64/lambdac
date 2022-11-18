@@ -68,6 +68,7 @@ cpsType (S.TyVarOcc aa) = do
 cpsType (S.TyAll aa t) = freshenTyVarBinds [aa] $ \bs -> (\t' -> AllK bs [t']) <$> cpsCoType t
 cpsType S.TyUnit = pure UnitK
 cpsType S.TyInt = pure IntK
+cpsType S.TyString = pure StringK
 cpsType S.TyBool = pure BoolK
 cpsType (S.TySum a b) = SumK <$> cpsType a <*> cpsType b
 cpsType (S.TyProd a b) = ProdK <$> cpsType a <*> cpsType b
@@ -122,6 +123,11 @@ cps (S.TmBool b) k =
     (e', t') <- k x S.TyBool
     let res = LetValK x BoolK (BoolValK b) e'
     pure (res, t')
+cps (S.TmString s) k =
+  freshTm "x" $ \x -> do
+    (e', t') <- k x S.TyString
+    let res = LetValK x StringK (StringValK s) e'
+    pure (res, t')
 cps (S.TmArith e1 op e2) k =
   cps e1 $ \x _t1 -> do
     cps e2 $ \y _t2 -> do
@@ -158,6 +164,13 @@ cps (S.TmCons e1 e2) k =
         (e', t') <- k x t2
         t2' <- cpsType t2
         let res = LetValK x t2' (ConsK v1 v2) e'
+        pure (res, t')
+cps (S.TmConcat e1 e2) k =
+  cps e1 $ \v1 _t1 ->
+    cps e2 $ \v2 _t2 -> do
+      freshTm "x" $ \x -> do
+        (e', t') <- k x S.TyString
+        let res = LetConcatK x v1 v2 e'
         pure (res, t')
 cps (S.TmInl a b e) k =
   cps e $ \z _t -> do
@@ -388,6 +401,9 @@ cpsTail (S.TmInt i) k =
 cpsTail (S.TmBool b) k =
   freshTm "x" $ \x ->
     pure (LetValK x BoolK (BoolValK b) (JumpK k [x]), S.TyBool)
+cpsTail (S.TmString s) k =
+  freshTm "x" $ \x ->
+    pure (LetValK x StringK (StringValK s) (JumpK k [x]), S.TyString)
 cpsTail (S.TmArith e1 op e2) k =
   cps e1 $ \x _t1 -> do
     cps e2 $ \y _t2 -> do
@@ -420,6 +436,12 @@ cpsTail (S.TmCons e1 e2) k =
         t1' <- ListK <$> cpsType t1
         let res = LetValK x t1' (ConsK v1 v2) (JumpK k [x])
         pure (res, t2)
+cpsTail (S.TmConcat e1 e2) k =
+  cps e1 $ \v1 t1 ->
+    cps e2 $ \v2 t2 -> do
+      freshTm "x" $ \x -> do
+        let res = LetConcatK x v1 v2 (JumpK k [x])
+        pure (res, S.TyString)
 cpsTail (S.TmInl a b e) k =
   cps e $ \z _ -> do
     freshTm "x" $ \x -> do

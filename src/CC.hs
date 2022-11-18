@@ -160,7 +160,7 @@ cconv (K.LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvAri
 cconv (K.LetNegateK x y e) = withTm (x, K.IntK) $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
 cconv (K.LetConcatK x y z e) =
-  withTm (x, K.StringK) $ \b -> LetConcatC b <$> cconvTmVar x <*> cconvTmVar y <*> cconv e
+  withTm (x, K.StringK) $ \b -> LetConcatC b <$> cconvTmVar y <*> cconvTmVar z <*> cconv e
 cconv (K.LetFunAbsK fs e) = do
   let funBinds = map (\f -> (K.funDefName f, K.funDefType f)) fs
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
