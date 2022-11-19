@@ -1,4 +1,5 @@
-*.sw[onp]
+.DS_Store
+*.sw[lmnop]
 *.o
 *.a
 fact
