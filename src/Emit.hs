@@ -258,7 +258,7 @@ foldThunk consValue consInfo nil ty = go 0 0 (thunkArgs ty)
 emitThunkSuspend :: ThunkNames -> ThunkType -> [Line]
 emitThunkSuspend ns ty =
   ["void " ++ thunkSuspendName ns ++ "(" ++ commaSep paramList ++ ") {"
-  ,"    next_closure = closure;"
+  ,"    next_step->closure = closure;"
   ,"    next_step->enter = closure->enter;"
   ,"    reserve_args(" ++ show numValues ++ ", " ++ show numInfos ++ ");"] ++
   assignFields ty ++
@@ -388,7 +388,7 @@ emitClosureEnter :: ClosureNames -> ThunkType -> [Line]
 emitClosureEnter ns ty =
   ["void " ++ closureEnterName ns ++ "(void) {"
   ,"    " ++ thunkTy ++ "next = (" ++ thunkTy ++ ")next_step;"
-  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")next_closure->env;"
+  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")next_step->closure->env;"
   ,"    " ++ closureCodeName ns ++ "(" ++ commaSep argList ++ ");"
   ,"}"]
   where

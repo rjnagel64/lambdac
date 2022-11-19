@@ -12,7 +12,6 @@ type_info get_result_info(void);
 
 // Next action to take. A GC root. A delayed function/continuation application.
 extern struct thunk *next_step;
-extern struct closure *next_closure;
 void mark_root(void);
 
 struct value_arg {
@@ -31,6 +30,7 @@ void reserve_args(size_t num_values, size_t num_infos);
 
 struct thunk {
     void (*enter)(void);
+    struct closure *closure;
     struct args args;
 };
 

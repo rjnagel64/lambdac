@@ -37,14 +37,13 @@ type_info get_result_info(void) {
 void (*trace_roots)(void) = mark_root;
 
 void mark_root(void) {
-    mark_gray(AS_ALLOC(next_closure), closure_info);
+    mark_gray(AS_ALLOC(next_step->closure), closure_info);
     for (size_t i = 0; i < next_step->args.num_values; i++) {
         mark_gray(next_step->args.values[i].alloc, next_step->args.values[i].info);
     }
 }
 
 struct thunk *next_step = NULL;
-struct closure *next_closure = NULL;
 
 void reserve_args(size_t num_values, size_t num_infos) {
     // I could save the capacity and then only realloc when expanding, but I
