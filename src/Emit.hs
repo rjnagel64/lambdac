@@ -291,12 +291,12 @@ emitThunkSuspend ns ty =
               ListH _ -> ListInfo
               ClosureH _ -> ClosureInfo
           in
-          let lval = "next_step->args->values[" ++ show i ++ "]" in 
+          let lval = "next_step->args.values[" ++ show i ++ "]" in 
           ("    " ++ lval ++ ".alloc = " ++ asAlloc ("arg" ++ show i) ++ ";") :
           ("    " ++ lval ++ ".info = " ++ emitInfo (Id "NULL") info ++ ";") :
           acc
         consInfo j acc =
-          ("    next_step->args->infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
+          ("    next_step->args.infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
           acc
 
 emitClosureDecl :: ClosureSig -> ClosureDecl -> [Line]
@@ -396,8 +396,8 @@ emitClosureEnter ns ty =
     envTy = "struct " ++ envTypeName (closureEnvName ns) ++ " *"
     argList = "env" : foldThunk consValue consInfo [] ty
       where
-        consValue i s acc = asSort s ("next_step->args->values[" ++ show i ++ "].alloc") : acc
-        consInfo j acc = ("next_step->args->infos[" ++ show j ++ "]") : acc
+        consValue i s acc = asSort s ("next_step->args.values[" ++ show i ++ "].alloc") : acc
+        consInfo j acc = ("next_step->args.infos[" ++ show j ++ "]") : acc
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.

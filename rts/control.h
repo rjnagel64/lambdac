@@ -10,11 +10,6 @@ void halt_with(struct alloc_header *x, type_info info);
 struct alloc_header *get_result_value(void);
 type_info get_result_info(void);
 
-struct thunk {
-    void (*enter)(void);
-    struct args *args;
-};
-
 // Next action to take. A GC root. A delayed function/continuation application.
 extern struct thunk *next_step;
 extern struct closure *next_closure;
@@ -33,6 +28,10 @@ struct args {
 };
 
 void reserve_args(size_t num_values, size_t num_infos);
-void trace_args(struct args *args);
+
+struct thunk {
+    void (*enter)(void);
+    struct args args;
+};
 
 #endif
