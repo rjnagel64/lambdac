@@ -41,6 +41,9 @@ void mark_root(void) {
     trace_args(next_step->args);
 }
 
+struct thunk *next_step = NULL;
+struct closure *next_closure = NULL;
+
 void destroy_args(struct args *args) {
     if (args == NULL) {
         return;

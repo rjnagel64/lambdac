@@ -266,9 +266,11 @@ emitThunkSuspend ns ty =
   where
     paramList = "struct closure *closure" : foldThunk consValue consInfo [] ty
       where
-        consValue i (AllocH _) acc =
-          ("struct alloc_header *arg" ++ show i) : ("type_info arginfo" ++ show i) : acc
-        consValue i s acc = emitPlace (Place s (Id ("arg" ++ show i))) : acc
+        consValue i s acc =
+          let arg = Place s (Id ("arg" ++ show i)) in
+          case s of
+            AllocH _ -> emitPlace arg : ("type_info arginfo" ++ show i) : acc
+            _ -> emitPlace arg : acc
         consInfo j acc = ("type_info info" ++ show j) : acc
 
     numValues, numInfos :: Int

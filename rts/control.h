@@ -16,8 +16,8 @@ struct thunk {
 };
 
 // Next action to take. A GC root. A delayed function/continuation application.
-struct thunk *next_step;
-struct closure *next_closure;
+extern struct thunk *next_step;
+extern struct closure *next_closure;
 void mark_root(void);
 
 struct value_arg {
