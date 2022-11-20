@@ -299,10 +299,9 @@ data EnvAlloc
   , envAllocValueArgs :: [EnvAllocValueArg]
   }
 
-data EnvAllocInfoArg = EnvInfoArg InfoPlace Info
+data EnvAllocInfoArg = EnvInfoArg Id Info
 
 data EnvAllocValueArg
-  -- Do these really need to be 'Place's, or can they just be 'Id's?
   = EnvFreeArg Id Name
   | EnvRecArg Id Name
 
@@ -421,7 +420,7 @@ pprintEnvAlloc (EnvAlloc info fields) =
   "{" ++ intercalate ", " (map pprintAllocInfo info ++ map pprintAllocArg fields) ++ "}"
 
 pprintAllocInfo :: EnvAllocInfoArg -> String
-pprintAllocInfo (EnvInfoArg ip i) = pprintInfoPlace ip ++ " = " ++ pprintInfo i
+pprintAllocInfo (EnvInfoArg field i) = show field ++ " = " ++ pprintInfo i
 
 pprintAllocArg :: EnvAllocValueArg -> String
 pprintAllocArg (EnvFreeArg field x) = show field ++ " = " ++ show x

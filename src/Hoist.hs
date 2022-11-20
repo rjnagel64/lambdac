@@ -326,17 +326,20 @@ hoistEnvDef recNames (C.EnvDef tys fields) = do
 
 envAllocInfo :: C.TyVar -> HoistM EnvAllocInfoArg
 envAllocInfo aa = do
-  let info = asInfoPlace aa
-  -- This is sketchy. Figure out how it should really work.
+  let f = infoName $ asInfoPlace aa
+  -- This is *probably* a legit use of 'asTyVar'. CC gives us an environment
+  -- consisting of captured free vars, and captured fields.
+  -- Now, for each capture tyvar 'aa', we want to construct the value that will
+  -- be stored in the closure environment: 'info aa'.
   i <- infoForTyVar (asTyVar aa)
-  pure (EnvInfoArg info i)
+  pure (EnvInfoArg f i)
 
 envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvAllocValueArg
 envAllocField recNames (x, s) =
-  let x' = placeName (asPlace s x) in
+  let f = placeName (asPlace s x) in
   case Set.member x recNames of
-    False -> EnvFreeArg x' <$> hoistVarOcc x
-    True -> EnvRecArg x' <$> hoistVarOcc x
+    False -> EnvFreeArg f <$> hoistVarOcc x
+    True -> EnvRecArg f <$> hoistVarOcc x
 
 
 
