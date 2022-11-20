@@ -252,6 +252,8 @@ closureDeclName (ClosureDecl c _ _ _) = c
 -- Hmm. Maybe EnvDecl should use 'Id' for the fields? (Analogous to EnvAlloc?)
 data EnvDecl = EnvDecl [InfoPlace] [Place]
 
+-- Idea: Introduce InfoParam, and slowly migrate to use it wherever necessary.
+-- data ClosureParam = PlaceParam Place | TypeParam InfoPlace | InfoParam Id Sort
 data ClosureParam = PlaceParam Place | TypeParam InfoPlace
 
 
@@ -274,7 +276,7 @@ data Projection = ProjectFst | ProjectSnd
 -- An alternate method would be to add a "pseudo-forall" to the thunk type, so
 -- that it is closed and the extra info args can be passed up front.
 --
--- (This is the "closed thunk types" proposal that I need to write down)
+-- (This is the "closed thunk types" proposal)
 data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
 
 -- TODO(eventually): bring back generic case expressions

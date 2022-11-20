@@ -56,6 +56,9 @@ variable x, y, f, k
 Type variables
 variable a, b
 
+Info variables
+variable q, r
+
 Record labels
 variable l, m
 
@@ -63,8 +66,7 @@ Code pointers
 variable #fn
 
 Typing contexts
-Γ ::= . | Γ, a : type | Γ, x : t
--- Maybe 'Γ, x : info t' also?
+Γ ::= . | Γ, a : type | Γ, x : t | Γ, x : info t
 
 Signatures
 Σ ::= . | Σ, global #fn : forall a+. code(t; S)
@@ -73,7 +75,7 @@ Types
 t, s ::= unit | t × s | ∃a.t[a] | code(t; S) | {(m : info t)+; (l : s)+}
 
 Telescopes/Parameter lists
-S ::= . | forall a, S | t, S
+S ::= . | forall a, S | t, S | info t, S
 
 Note: Telescopes and parameter lists aren't quite the same thing.
 In a dependently-typed setting they are, but here they aren't, because
@@ -92,16 +94,17 @@ e ::=
   | halt s v i
 
 Argument lists
-E ::= . | @t, E | x, E
+E ::= . | @t, E | x, E | i, E
 
 Values
 v, w ::= x | (v, w) | <t, v> | {(m = i)+; (l = v)+} | inl x | inr x
+-- Do inl/inr/pair need info arguments?
 
 Info values
 i, j ::= x | $unit_info | $pair_info | $sum_info
 
 Global declarations
-global ::= global #fn (x : t; S) = e
+global ::= code #fn (x : t; S) = e
 
 Programs
 prog ::= global+; e
@@ -195,7 +198,9 @@ scope for subsequent parameters.
 
 [[Description of term syntax; term typing rules.]]
 Next, we have terms. The typing rules for value allocation, projections, case
-analysis are much the same as in previous IRs.
+analysis are much the same as in previous IRs. Additionally, there are
+constructs for packing/unpacking existential types, for allocating groups of
+mutually-recursive closures, and for invoking code pointers.
 
 [[This should be immediately after term typing rules, because argument lists
 are auxiliary judgment to terms.]]
