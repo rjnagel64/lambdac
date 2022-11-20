@@ -14,8 +14,6 @@ module Hoist.IR
     , TeleEntry(..)
     , Info(..)
 
-    , Scope
-    , emptyScope
     , Subst
     , singleSubst
     , substSort
@@ -170,25 +168,24 @@ equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
     go _ [] (_ : _) = False
 
 
-data Scope = Scope { scopeTyVars :: Set TyVar }
-
-emptyScope :: Scope
-emptyScope = Scope Set.empty
-
--- scope from free vars?
-
-data Subst = Subst { substTyVars :: Map TyVar Sort }
+data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Sort }
 
 emptySubst :: Subst
-emptySubst = Subst Map.empty
+emptySubst = Subst { substScope = Set.empty, substMapping = Map.empty }
 
 singleSubst :: TyVar -> Sort -> Subst
-singleSubst aa s = Subst (Map.singleton aa s)
+-- Hmm. Should the scope be populated from ftv(s)?
+-- Or does that need to be provided separately?
+-- Or maybe just the empty scope is fine.
+--
+-- Actually, yeah. I think the scope needs to contain at least ftv(s).
+-- That way, when we pass under a binder, we will avoid capturing anything in 's'.
+singleSubst aa s = Subst { substScope = Set.empty, substMapping = (Map.singleton aa s) }
 
-refresh :: Scope -> Subst -> TyVar -> (Scope, Subst, TyVar)
-refresh (Scope sc) (Subst sub) aa =
+refresh :: Subst -> TyVar -> (Subst, TyVar)
+refresh (Subst sc sub) aa =
   if Set.notMember aa sc then
-    (Scope (Set.insert aa sc), Subst sub, aa)
+    (Subst (Set.insert aa sc) sub, aa)
   else
     go 0
   where
@@ -196,28 +193,28 @@ refresh (Scope sc) (Subst sub) aa =
       let TyVar aa' = aa in
       let bb = TyVar (aa' ++ show (i :: Int)) in
       if Set.notMember bb sc then
-        (Scope (Set.insert bb sc), Subst (Map.insert aa (AllocH bb) sub), bb)
+        (Subst (Set.insert bb sc) (Map.insert aa (AllocH bb) sub), bb)
       else
         go (i+1)
 
-substSort :: Scope -> Subst -> Sort -> Sort
-substSort sc sub (AllocH aa) = case Map.lookup aa (substTyVars sub) of
+substSort :: Subst -> Sort -> Sort
+substSort sub (AllocH aa) = case Map.lookup aa (substMapping sub) of
   Nothing -> AllocH aa
   Just s -> s
-substSort _ _ IntegerH = IntegerH
-substSort _ _ BooleanH = BooleanH
-substSort _ _ UnitH = UnitH
-substSort _ _ SumH = SumH
-substSort _ _ StringH = StringH
-substSort sc sub (ProductH s t) = ProductH (substSort sc sub s) (substSort sc sub t)
-substSort sc sub (ListH t) = ListH (substSort sc sub t)
-substSort sc sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele sc sub tele))
+substSort _ IntegerH = IntegerH
+substSort _ BooleanH = BooleanH
+substSort _ UnitH = UnitH
+substSort _ SumH = SumH
+substSort _ StringH = StringH
+substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
+substSort sub (ListH t) = ListH (substSort sub t)
+substSort sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele sub tele))
 
-substTele :: Scope -> Subst -> [TeleEntry] -> [TeleEntry]
-substTele _ _ [] = []
-substTele sc sub (ValueTele s : tele) = ValueTele (substSort sc sub s) : substTele sc sub tele
-substTele sc sub (TypeTele aa : tele) = case refresh sc sub aa of
-  (sc', sub', aa') -> TypeTele aa' : substTele sc' sub' tele
+substTele :: Subst -> [TeleEntry] -> [TeleEntry]
+substTele _ [] = []
+substTele sub (ValueTele s : tele) = ValueTele (substSort sub s) : substTele sub tele
+substTele sub (TypeTele aa : tele) = case refresh sub aa of
+  (sub', aa') -> TypeTele aa' : substTele sub' tele
 
 
 -- | 'Info' is used to represent @type_info@ values that are passed at runtime.
