@@ -57,7 +57,7 @@ Type variables
 variable a, b
 
 Record labels
-variable l
+variable l, m
 
 Code pointers
 variable #fn
@@ -75,7 +75,7 @@ t, s ::= unit | t × s | ∃a.t[a] | code(t; S) | {(m : info t)+; (l : s)+}
 Telescopes/Parameter lists
 S ::= . | forall a, S | t, S
 
-Note:. Telescopes and parameter lists aren't quite the same thing.
+Note: Telescopes and parameter lists aren't quite the same thing.
 In a dependently-typed setting they are, but here they aren't, because
 parameter lists give names to each term variable, but telescopes do not
 include parameter names.
@@ -87,8 +87,8 @@ e ::=
   | let x : t = snd y in e
   | unpack <a, x> = e1 in e2
   | case x of (k : s)+
-  | f(x, E)
-  | #fn[t+]
+  | f(x, E) -- code pointer invocation
+  | #fn[t+] -- wait, what's this again? instantiate pseudo-forall, but isn't that a value?
   | halt s v i
 
 Argument lists
@@ -144,7 +144,43 @@ RULES
 -- In particular, this might let me eventually remove OpaqueArg
 -- Hmm. Maybe when calling a closure that has a pseudo-forall?
 
-Typing rules for telescopes are standard, though value bindings are non-dependent.
+Like other IRs in the LambdaC compiler, Hoist IR is CPS/ANF-based and
+explicitly typed. Its distinctive feature is that closure definitions have been
+lifted to become global code declarations, and that allocation of closures and
+environments is explicit. Furthermore, there is a syntactic category of "type
+info" terms required at certain locations to make garbage collection feasible.
+
+First, the syntax of types. Closure / Function types from previous IRs have
+been replaced by the combination of a 'code' type (representing a function
+pointer) with an explicit environment pointer and parameter telescope, and
+existential packages to bundle a function pointer and environment.
+
+  ---------
+  Γ |- unit
+
+  Γ |- t
+  Γ |- s
+  ----------
+  Γ |- t × s
+
+  Γ, @aa |- t
+  --------------
+  Γ |- ∃aa.t[aa]
+
+  Γ |- t
+  Γ |- S
+  ---------------
+  Γ |- code(t; S)
+  
+  (Γ |- _)+
+  (Γ |- s)+
+  --------------------------------
+  Γ |- { (m : info t)+; (l : s)+ }
+
+Parameters to a code type are specified using a telescope. A telescope is an
+ordered sequence of bindings, where earlier bindings are in scope in later
+bindings. Since LambdaC is not dependently-typed, only type parameters are in
+scope for subsequent parameters.
 
   ------
   Γ |- .
@@ -157,6 +193,12 @@ Typing rules for telescopes are standard, though value bindings are non-dependen
   ---------
   Γ |- t, S
 
+[[Description of term syntax; term typing rules.]]
+Next, we have terms. The typing rules for value allocation, projections, case
+analysis are much the same as in previous IRs.
+
+[[This should be immediately after term typing rules, because argument lists
+are auxiliary judgment to terms.]]
 Telescopes are used to type argument lists.
 
   -------------
@@ -172,6 +214,7 @@ Telescopes are used to type argument lists.
   -------------------
   Σ; Γ |- x, E : t, S
 
+[[Redundant, merge into previous]]
 The distinctive feature of CC and Hoist is that functions and closures are not
 the same thing. A closure has an environment for non-local names, whereas a
 function (code pointer) is entirely closed. Code types consist of a type for

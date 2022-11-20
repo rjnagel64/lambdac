@@ -170,8 +170,6 @@ equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
     go _ [] (_ : _) = False
 
 
--- TODO: Implement substitution for Hoist types
-
 data Scope = Scope { scopeTyVars :: Set TyVar }
 
 emptyScope :: Scope
