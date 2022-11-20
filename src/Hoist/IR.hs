@@ -187,11 +187,11 @@ refresh (Subst sc sub) aa =
   if Set.notMember aa sc then
     (Subst (Set.insert aa sc) sub, aa)
   else
-    go 0
+    go (0 :: Int)
   where
     go i =
       let TyVar aa' = aa in
-      let bb = TyVar (aa' ++ show (i :: Int)) in
+      let bb = TyVar (aa' ++ show i) in
       if Set.notMember bb sc then
         (Subst (Set.insert bb sc) (Map.insert aa (AllocH bb) sub), bb)
       else
@@ -249,7 +249,7 @@ closureDeclName :: ClosureDecl -> ClosureName
 closureDeclName (ClosureDecl c _ _ _) = c 
 
 -- TODO: EnvDecl should use InfoPlace2
--- Hmm. Maybe EnvDecl should use 'Id' for the fields?
+-- Hmm. Maybe EnvDecl should use 'Id' for the fields? (Analogous to EnvAlloc?)
 data EnvDecl = EnvDecl [InfoPlace] [Place]
 
 data ClosureParam = PlaceParam Place | TypeParam InfoPlace

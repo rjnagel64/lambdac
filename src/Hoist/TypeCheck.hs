@@ -145,8 +145,8 @@ checkName x s = do
   equalSorts s s'
 
 
-checkProgram :: [ClosureDecl] -> TermH -> TC ()
-checkProgram cs e = traverse_ checkClosure cs *> checkEntryPoint e
+checkProgram :: Program -> TC ()
+checkProgram (Program cs e) = traverse_ checkClosure cs *> checkEntryPoint e
 
 checkEntryPoint :: TermH -> TC ()
 checkEntryPoint e = checkTerm e
