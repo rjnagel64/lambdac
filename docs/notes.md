@@ -1,8 +1,7 @@
 
 Miscellaneous design notes that don't fit neatly in the code.
 
-TODO: The table of contents does not match the actual document structure
-(Re-organize by topic, etc.?)
+Many portions are out-of-date, or mere speculation.
 
 # Table of Contents
 
@@ -326,7 +325,7 @@ more straight-line code and fewer continuation definitions.
 CPS-Ty[exists aa. t] := exists aa. CPS-Ty[t]
 
 CPS[pack <t, e> as t'] k := CPS[e] $ \x -> let x : t' = pack <CPS-Ty[t], y> in k[y]
-CPS[unpack e as <aa, x> in e'] k := CPS[e] $ \y -> let @aa, x = unpack y in CPS[e'] k
+CPS[unpack e as <aa, x : t[aa]> in e'] k := CPS[e] $ \y -> let @aa, x:t[aa] = unpack y in CPS[e'] k
 ```
 
 ## Nested/Polymorphic Recursion
@@ -565,6 +564,9 @@ I theory, I could have a combined type-term abstraction `let f0 a+ x+ k+ = e`,
 but I think that would rule out the more-efficient translation when the body is
 a value. (Or would it?)
 
+(Update: From CC onwards, term functions and type functions have been merged.
+Both take a telescope of mixed term/type parameters.)
+
 ### Type arguments at runtime
 
 I can't completely erase type arguments (I think), because I need to provide
@@ -784,7 +786,9 @@ not clear what that would look like from a user perspective, though.
 with polymorphism, leading to the "value restriction". Figure out what this
 really means.
 
-CubiML has problems with refcells also (for different reason?) Their solution
+CubiML has problems with refcells also (for different reasons -- their type
+inference requires only subtype constraints, not equality constraints. A
+parameter that is invariant requires equality constraints) Their solution
 is to give two type parameters: one contravariant for writing, one covariant
 for reading. Would this be at all helpful for avoiding the value restriction?
 
@@ -993,8 +997,10 @@ cons/snoc/append?) Maybe source-level `t * s` is always binary, but later
 stages may flatten? Hmm, not quite -- tuple literals are a thing.
 
 Flattening can work for both products and sums:
-`(a + b) + (c + d) ==> AnyOf [a, b, c, d]`
-`(a * b) * (c * d) ==> AllOf [a, b, c, d]`
+```
+(a + b) + (c + d) ==> AnyOf [a, b, c, d]
+(a * b) * (c * d) ==> AllOf [a, b, c, d]
+```
 
 
 Another consideration is how products are exposed to the user. Currently, they
@@ -1016,7 +1022,7 @@ I should avoid Haskell's half-assed record types.
 I haven't quite figured out what that means, though. At the end of compilation,
 functions and continuations have been folded into a single notion of closures,
 but there's probably structure to exploit for more efficient continuation
-invocations.
+invocations. (Update: See the section on 3CPS -- it has some ideas)
 
 One thing is that continuations are always fully applied (cf. GHC join points).
 Another is that a continuation is never passed to another continuation (`JumpK
@@ -1061,6 +1067,75 @@ thoroughly.
 
 What if I don't closure-convert continuations? Hmm. Continuations are still
 passed as arguments, though? For this I think I would need a real stack again.
+
+
+## CPS Storage Classes (3CPS)
+
+Interesting property: If call/cc is not present, CPS translation should not
+produce user lambdas that close over continuation variables ([Analyzing Binding
+Extent in 3CPS], ICFP 2022)
+
+Continuations, however, can and will capture continuation variables.
+
+Restated more clearly, the output of CPS translation has the following property:
+
+* Function closures receive continuations as parameters, but do not capture
+  continuations in their environment.
+* Continuation closures only reference continuation variables from their
+  environment; no continuation receives as continuation as a parameter.
+
+
+This may be the piece I was missing, about how to exploit continuations'
+second-class nature. Maybe segregate `struct closure` into `struct closure`
+(continuations as parameters) and `struct cont_closure` (continuations in
+environment)?
+
+
+More generally, 3CPS seems quite interesting, because it deals with allocating
+fewer closure environments, instead relying on register and stack allocation.
+Of course, targeting C with trampolines makes things harder.
+(==> Don't use C stack, use a linked list of frames. Likewise, instead of ASM
+registers, use an array of values)
+
+
+
+Now that I think about it, my CPS IR isn't actually pure CPS, because it has
+local statements like `let x = y + z in ...`. I think this means that the
+second-class continuations property doesn't quite hold, and implementing 3CPS
+would require storage classes on local bindings, which is weird, but also
+entirely expected. ("Do I register-allocate or stack-allocate this local
+variable")
+
+
+A "true" CPS IR might look like
+
+```
+addk (x, 7) (cont (t0 : int) => mulk (t0, t0) (cont (t1 : int) => addk (t1, 1) RET))
+```
+
+instead of
+
+```
+let t0 = x + 7 in
+let t1 = t0 * t0 in
+let tmp = t1 + 1 in
+HALT tmp
+```
+
+There are extra continuations needed, but it is more uniform. (And
+theoretically, continuations are cheap, so it doesn't matter that much?)
+
+After analysis, functions/continuations can be named as before.
+
+```
+let cont k0 (t0 : int) =
+  let cont k1 (t1 : int) =
+    addk (t1, 1) RET
+  in
+  mulk (t0, t0) k1
+in
+addk (x, 7) k0
+```
 
 
 ## Beta-Reduction and Discarding Unused Bindings
@@ -1210,20 +1285,20 @@ let p = (3, 4) in
 let t1 = fst p in
 let t2 = fst p in
 let z = t1 + t2 in
-z
+halt z
 ~~~>
 let p = (3, 4) in
 let t1 = fst p in
 let z = t1 + t1 in
-z
+halt z
 ~~~>
 let p = (3, 4) in
 let t1 = 3 in
-let z = x + x in
-z
+let z = t1 + t1 in
+halt z
 ~~~>
 let z = 6 in
-z
+halt z
 ```
 
 More generally, common expressions should be merged.
@@ -1415,67 +1490,6 @@ struct inv_value {
 };
 ```
 
-## CPS Storage Classes (3CPS)
-
-Interesting property: If call/cc is not present, CPS translation should not
-produce user lambdas that close over continuation variables ([Analyzing Binding
-Extent in 3CPS], ICFP 2022)
-
-Continuations, however, can and will capture continuation variables.
-
-This may be the piece I was missing, about how to exploit continuations'
-second-class nature. Maybe segregate `struct closure` into `struct closure`
-(continuations as parameters) and `struct cont_closure` (continuations in
-environment)?
-
-
-More generally, 3CPS seems quite interesting, because it deals with allocating
-fewer closure environments, instead relying on register and stack allocation.
-Of course, targeting C with trampolines makes things harder.
-(==> Don't use C stack, use a linked list of frames. Likewise, instead of ASM
-registers, use an array of values)
-
-
-
-Now that I think about it, my CPS IR isn't actually pure CPS, because it has
-local statements like `let x = y + z in ...`. I think this means that the
-second-class continuations property doesn't quite hold, and implementing 3CPS
-would require storage classes on local bindings, which is weird, but also
-entirely expected. ("Do I register-allocate or stack-allocate this local
-variable")
-
-
-A "true" CPS IR might look like
-
-```
-addk (x, 7) (cont (t0 : int) => mulk (t0, t0) (cont (t1 : int) => addk (t1, 1) RET))
-```
-
-instead of
-
-```
-let t0 = x + 7 in
-let t1 = t0 * t0 in
-let tmp = t1 + 1 in
-HALT tmp
-```
-
-There are extra continuations needed, but it is more uniform. (And
-theoretically, continuations are cheap, so it doesn't matter that much?)
-
-After analysis, functions/continuations can be named as before.
-
-```
-let cont k0 (t0 : int) =
-  let cont k1 (t1 : int) =
-    addk (t1, 1) RET
-  in
-  mulk (t0, t0) k1
-in
-addk (x, 7) k0
-```
-
-
 ## Closed Thunk Types
 
 Idea: closed thunk types in the Hoist IR
@@ -1497,12 +1511,35 @@ An alternate method would to quantify thunk types with another "pseudo-forall",
 
 This would give a prototype like
 ```
-void suspend_AA(struct closure *cl, type_info a_info, struct alloc_header *arg0, struct alloc_header *arg1);
+void suspend_AA(type_info a_info, struct closure *cl, struct alloc_header *arg0, struct alloc_header *arg1);
 ```
 
 I think I would want to hold off on implementing this until I have
 properly-telescoped closure types in Hoist, though.
 
 I also need to consider how this "pseudo-forall" would be instantiated.
+
+
+Proposal: the type of a closure value should be `forall aa+. closure(S)`, where
+`aa+` are the free type variables of `S`.
+
+When calling that closure, `cl[i+](E)`, you must provide appropriate type/info arguments.
+
+Tentative typing rule:
+
+```
+Γ(f) = forall aa+. closure(S)
+(Σ; Γ |- i : info t)+
+Σ; Γ |- E : S[(aa := t)+]
+-------------------------
+Σ; Γ |- f[(@t, i)+](E) OK
+```
+
+Note that both type/info arguments are present in the call expression. C code
+generation erases the type arguments and retains the info arguments, as below:
+
+```
+suspend_$(tycode)($(infos...), f, $(E...));
+```
 
  
