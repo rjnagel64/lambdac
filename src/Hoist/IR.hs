@@ -31,7 +31,8 @@ module Hoist.IR
     , CaseKind(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
-    , EnvAllocArg(..)
+    , EnvAllocInfoArg(..)
+    , EnvAllocValueArg(..)
     , ValueH(..)
     , PrimOp(..)
 
@@ -294,14 +295,16 @@ data ClosureAlloc
 
 data EnvAlloc
   = EnvAlloc {
-    -- Do these really need to be 'Place's, or can they just be 'Id's?
-    envAllocInfoArgs :: [(InfoPlace, Info)]
-  , envAllocValueArgs :: [EnvAllocArg]
+    envAllocInfoArgs :: [EnvAllocInfoArg]
+  , envAllocValueArgs :: [EnvAllocValueArg]
   }
 
-data EnvAllocArg
-  = EnvFreeArg Place Name
-  | EnvRecArg Place Name
+data EnvAllocInfoArg = EnvInfoArg InfoPlace Info
+
+data EnvAllocValueArg
+  -- Do these really need to be 'Place's, or can they just be 'Id's?
+  = EnvFreeArg Id Name
+  | EnvRecArg Id Name
 
 data ValueH
   = IntH Int64
@@ -417,12 +420,12 @@ pprintEnvAlloc :: EnvAlloc -> String
 pprintEnvAlloc (EnvAlloc info fields) =
   "{" ++ intercalate ", " (map pprintAllocInfo info ++ map pprintAllocArg fields) ++ "}"
 
-pprintAllocInfo :: (InfoPlace, Info) -> String
-pprintAllocInfo (ip, i) = pprintInfoPlace ip ++ " = " ++ pprintInfo i
+pprintAllocInfo :: EnvAllocInfoArg -> String
+pprintAllocInfo (EnvInfoArg ip i) = pprintInfoPlace ip ++ " = " ++ pprintInfo i
 
-pprintAllocArg :: EnvAllocArg -> String
-pprintAllocArg (EnvFreeArg field x) = show (placeName field) ++ " = " ++ show x
-pprintAllocArg (EnvRecArg field x) = show (placeName field) ++ " = " ++ show x
+pprintAllocArg :: EnvAllocValueArg -> String
+pprintAllocArg (EnvFreeArg field x) = show field ++ " = " ++ show x
+pprintAllocArg (EnvRecArg field x) = show field ++ " = " ++ show x
 
 pprintSort :: Sort -> String
 pprintSort IntegerH = "int"

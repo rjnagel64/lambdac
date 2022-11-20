@@ -584,7 +584,8 @@ allocEnv envp (ClosureAlloc _p d envPlace (EnvAlloc info fields)) =
     ns' = closureEnvName (namesForClosure d)
 
     call = envAllocName ns' ++ "(" ++ commaSep args ++ ")"
-    args = map (emitInfo envp . snd) info ++ map emitAllocArg fields
+    args = map emitInfoArg info ++ map emitAllocArg fields
+    emitInfoArg (EnvInfoArg _ i) = emitInfo envp i
     emitAllocArg (EnvFreeArg _ x) = emitName envp x
     emitAllocArg (EnvRecArg _ _) = "NULL"
 
@@ -603,7 +604,7 @@ patchEnv :: ClosureAlloc -> [Line]
 patchEnv (ClosureAlloc _ _ envPlace (EnvAlloc _info fields)) = concatMap patchField fields
   where
     patchField (EnvFreeArg _ _) = []
-    patchField (EnvRecArg (Place _ f) (LocalName x)) =
+    patchField (EnvRecArg f (LocalName x)) =
       ["    " ++ show envPlace ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
     -- Patching recursive closures should only ever involve local names.
     -- Additionally, we do not have access to an environment pointer in this function.

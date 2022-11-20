@@ -324,17 +324,19 @@ hoistEnvDef recNames (C.EnvDef tys fields) = do
   fields' <- traverse (envAllocField recNames) fields
   pure (EnvAlloc tyfields fields')
 
-envAllocInfo :: C.TyVar -> HoistM (InfoPlace, Info)
+envAllocInfo :: C.TyVar -> HoistM EnvAllocInfoArg
 envAllocInfo aa = do
   let info = asInfoPlace aa
   -- This is sketchy. Figure out how it should really work.
   i <- infoForTyVar (asTyVar aa)
-  pure (info, i)
+  pure (EnvInfoArg info i)
 
-envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvAllocArg
-envAllocField recNames (x, s) = case Set.member x recNames of
-  False -> EnvFreeArg (asPlace s x) <$> hoistVarOcc x
-  True -> EnvRecArg (asPlace s x) <$> hoistVarOcc x
+envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvAllocValueArg
+envAllocField recNames (x, s) =
+  let x' = placeName (asPlace s x) in
+  case Set.member x recNames of
+    False -> EnvFreeArg x' <$> hoistVarOcc x
+    True -> EnvRecArg x' <$> hoistVarOcc x
 
 
 
