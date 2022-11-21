@@ -248,18 +248,25 @@ withParams params k = local setScope $ k params'
   where
     setScope (HoistEnv _ oldEnv) = HoistEnv newLocals oldEnv
     newLocals = Scope places' infoPlaces'
-    -- Hmm. Technically, this should probably be a foldl, not a foldr.
-    -- This is because later entries in the telescope should shadow earlier ones.
-    -- I'm just going to ignore that problem, though, and assume that names in
-    -- the same telescope are unique.
-    -- (Also, I would need to snoc the new H.ClosureParam, which is a pain.)
-    (places', infoPlaces', params') = foldr f (Map.empty, Map.empty, []) params
-    f (C.TypeParam aa) (places, infoPlaces, tele) =
+    -- The reason why this fold looks weird is because it uses the
+    -- foldl-via-foldr trick: using a chain of updates as the accumulating
+    -- parameter.
+    --
+    -- This is because place and info parameters are supposed to be extended
+    -- from left to right, but using foldl directly would mean repeated snoc
+    -- operations to build the Hoist parameter telescope
+    --
+    -- I guess I could have used foldl and a DList H.ClosureParam, but eh, whatever.
+    (places', infoPlaces', params') =
+      let (ps, is, te) = foldr addParam (id, id, []) params in
+      (ps Map.empty, is Map.empty, te)
+
+    addParam (C.TypeParam aa) (places, infoPlaces, tele) =
       let aa' = asInfoPlace aa in
-      (places, Map.insert (asTyVar aa) aa' infoPlaces, TypeParam aa' : tele)
-    f (C.ValueParam x s) (places, infoPlaces, tele) =
+      (places, infoPlaces . Map.insert (asTyVar aa) aa', TypeParam aa' : tele)
+    addParam (C.ValueParam x s) (places, infoPlaces, tele) =
       let p = asPlace s x in
-      (Map.insert x p places, infoPlaces, PlaceParam p : tele)
+      (places . Map.insert x p, infoPlaces, PlaceParam p : tele)
 
 withEnvDef :: C.EnvDef -> ((Id, EnvDecl) -> HoistM a) -> HoistM a
 withEnvDef (C.EnvDef tyfields fields) k = do
