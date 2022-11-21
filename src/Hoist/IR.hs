@@ -279,7 +279,6 @@ data Projection = ProjectFst | ProjectSnd
 -- (This is the "closed thunk types" proposal)
 data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
 
--- TODO(eventually): bring back generic case expressions
 data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
 
 data ClosureAlloc

@@ -21,6 +21,7 @@ struct value_arg {
 
 struct args {
     size_t num_values;
+    size_t values_cap;
     size_t num_infos;
     struct value_arg *values;
     type_info *infos;

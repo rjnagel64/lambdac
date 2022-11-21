@@ -46,10 +46,16 @@ void mark_root(void) {
 struct thunk *next_step = NULL;
 
 void reserve_args(size_t num_values, size_t num_infos) {
-    // I could save the capacity and then only realloc when expanding, but I
-    // don't really care.
+    if (num_values > next_step->args.values_cap) {
+        next_step->args.values = realloc(next_step->args.values, num_values * sizeof(struct value_arg));
+        next_step->args.values_cap = num_values;
+    }
     next_step->args.num_values = num_values;
-    next_step->args.values = realloc(next_step->args.values, num_values * sizeof(struct value_arg));
+    // We don't need to store the capacity for args.infos because we don't
+    // iterate over it, we only index into it will offsets statically known to
+    // be in bounds.
+    if (num_infos > next_step->args.num_infos) {
+        next_step->args.infos = realloc(next_step->args.infos, num_infos * sizeof(type_info));
+    }
     next_step->args.num_infos = num_infos;
-    next_step->args.infos = realloc(next_step->args.infos, num_infos * sizeof(type_info));
 }

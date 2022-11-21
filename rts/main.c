@@ -16,6 +16,9 @@ int main(void) {
     // Prepare the main driver loop
     next_step = malloc(sizeof(struct thunk));
     next_step->closure = NULL;
+    next_step->args.values_cap = 0;
+    next_step->args.num_values = 0;
+    next_step->args.num_infos = 0;
     next_step->args.values = NULL;
     next_step->args.infos = NULL;
 
