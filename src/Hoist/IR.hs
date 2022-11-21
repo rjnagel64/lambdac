@@ -253,8 +253,8 @@ closureDeclName (ClosureDecl c _ _ _) = c
 data EnvDecl = EnvDecl [InfoPlace] [Place]
 
 -- Idea: Introduce InfoParam, and slowly migrate to use it wherever necessary.
--- data ClosureParam = PlaceParam Place | TypeParam InfoPlace | InfoParam Id Sort
-data ClosureParam = PlaceParam Place | TypeParam InfoPlace
+data ClosureParam = PlaceParam Place | TypeParam InfoPlace | InfoParam Id Sort
+-- data ClosureParam = PlaceParam Place | TypeParam InfoPlace
 
 
 

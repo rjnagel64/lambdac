@@ -5,7 +5,6 @@ module Emit
 
 import Data.Function (on)
 import Data.List (intercalate)
-import Data.Maybe (mapMaybe)
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -183,7 +182,9 @@ closureDeclType :: ClosureDecl -> ThunkType
 closureDeclType (ClosureDecl _ _ params _) = ThunkType (map f params)
   where
     f (PlaceParam p) = ThunkValueArg (placeSort p)
+    -- There really shouldn't be both of these.
     f (TypeParam i) = ThunkInfoArg
+    f (InfoParam i s) = ThunkInfoArg
 
 collectThunkTypes :: [ClosureDecl] -> Set ThunkType
 collectThunkTypes cs = foldMap closureThunkTypes cs
@@ -195,6 +196,7 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
     paramThunkTypes :: ClosureParam -> Set ThunkType
     paramThunkTypes (TypeParam _) = Set.empty
     paramThunkTypes (PlaceParam p) = thunkTypesOf (placeSort p)
+    paramThunkTypes (InfoParam _ s) = thunkTypesOf s
 
     thunkTypesOf :: Sort -> Set ThunkType
     thunkTypesOf (AllocH _) = Set.empty
@@ -308,14 +310,16 @@ emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params
     ns = namesForClosure d
     ty = closureDeclType cd
 
-    thunkEnv = (Map.fromList $ mapMaybe f params, Map.fromList $ mapMaybe g places)
-    f (TypeParam _) = Nothing
-    f (PlaceParam p) = case placeSort p of
-      ClosureH tele -> Just (placeName p, teleThunkType tele)
-      _ -> Nothing
-    g p = case placeSort p of
-      ClosureH tele -> Just (placeName p, teleThunkType tele)
-      _ -> Nothing
+    -- The thunkEnv maps variables to their thunk type, so that the correct
+    -- suspend method can be picked in emitSuspend
+    thunkEnv = (foldr addParam Map.empty params, foldr addPlace Map.empty places)
+    addParam (PlaceParam (Place (ClosureH tele) x)) acc = Map.insert x (teleThunkType tele) acc
+    addParam (PlaceParam _) acc = acc
+    addParam (TypeParam _) acc = acc
+    addParam (InfoParam _ _) acc = acc
+
+    addPlace (Place (ClosureH tele) x) acc = Map.insert x (teleThunkType tele) acc
+    addPlace (Place _ _) acc = acc
 
 emitClosureEnv :: ClosureNames -> EnvDecl -> [Line]
 emitClosureEnv ns envd =
@@ -409,6 +413,7 @@ emitClosureCode csig tenv ns envName xs e =
     envParam = "struct " ++ envTypeName (closureEnvName ns) ++ " *" ++ show envName
     emitParam (TypeParam i) = emitInfoPlace i
     emitParam (PlaceParam p) = emitPlace p
+    emitParam (InfoParam i s) = "type_info " ++ show i
 
 
 emitClosureBody :: ClosureSig -> ThunkEnv -> EnvPtr -> TermH -> [Line]

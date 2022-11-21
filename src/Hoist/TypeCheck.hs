@@ -168,6 +168,7 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
     -- Note how the muddled identifier sorts are messy here.
     mkParam (PlaceParam p) = ValueTele (placeSort p)
     mkParam (TypeParam (InfoPlace (Id aa))) = TypeTele (TyVar aa)
+    -- mkParam (InfoParam i s) = _ -- I need an InfoTele constructor here.
     tele = ClosureTele (map mkParam params)
   let declTy = ClosureDeclType [] envTy tele
   modify (declareClosure cl declTy)
@@ -207,6 +208,7 @@ checkParams :: [ClosureParam] -> TC Locals
 checkParams [] = pure emptyLocals
 checkParams (PlaceParam p : params) = withPlace p $ fmap (bindPlace p) (checkParams params)
 checkParams (TypeParam i : params) = withInfo i $ fmap (bindInfo i) (checkParams params)
+checkParams (InfoParam _ _ : _) = throwError (NotImplemented "checkParams InfoParam")
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()
