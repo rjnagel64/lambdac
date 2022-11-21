@@ -49,7 +49,7 @@ asInfoPlace (C.TyVar aa) = InfoPlace (Id aa)
 
 -- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
 asTyVar :: C.TyVar -> TyVar
-asTyVar (C.TyVar aa) = TyVar aa
+asTyVar (C.TyVar aa) = TyVar (Id aa)
 
 asClosureName :: C.Name -> ClosureName
 asClosureName (C.Name x i) = ClosureName (x ++ show i)

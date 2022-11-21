@@ -79,11 +79,11 @@ data InfoPlace = InfoPlace { infoName :: Id }
 -- TODO: Distinguish 'InfoPlace' from 'TyPlace'
 data InfoPlace2 = InfoPlace2 { infoName2 :: Id, infoSort2 :: Sort }
 
-data TyVar = TyVar String
+data TyVar = TyVar Id
   deriving (Eq, Ord)
 
 instance Show TyVar where
-  show (TyVar aa) = aa
+  show (TyVar aa) = show aa
 
 -- | 'ClosureName's are used to refer to top-level functions and continuations.
 -- They are introduced by (hoisting) function/continuation closure bindings,
@@ -190,8 +190,8 @@ refresh (Subst sc sub) aa =
     go (0 :: Int)
   where
     go i =
-      let TyVar aa' = aa in
-      let bb = TyVar (aa' ++ show i) in
+      let TyVar (Id aa') = aa in
+      let bb = TyVar (Id (aa' ++ show i)) in
       if Set.notMember bb sc then
         (Subst (Set.insert bb sc) (Map.insert aa (AllocH bb) sub), bb)
       else

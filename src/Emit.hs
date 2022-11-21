@@ -372,7 +372,7 @@ emitEnvInfo ns (EnvDecl is fs) =
     -- The set of type infos available in this environment, to be used for
     -- tracing polymorphic fields.
     typeInfos :: Map TyVar Info
-    typeInfos = Map.fromList $ [(TyVar aa, EnvInfo (Id aa)) | InfoPlace (Id aa) <- is]
+    typeInfos = Map.fromList $ [(TyVar aa, EnvInfo aa) | InfoPlace aa <- is]
 
     -- Using the type infos in the environment, determine how to trace a field of sort 's'.
     infoFor :: Sort -> Info

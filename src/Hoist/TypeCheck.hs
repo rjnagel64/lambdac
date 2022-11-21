@@ -102,9 +102,8 @@ lookupName (EnvName x) = do
 
 lookupTyVar :: TyVar -> TC ()
 lookupTyVar (TyVar aa) = do
-  let aa' = Id aa
   ctx <- asks (localTypes . ctxLocals)
-  case Set.member aa' ctx of
+  case Set.member aa ctx of
     True -> pure ()
     False -> throwError $ TyVarNotInLocals (TyVar aa)
 
@@ -167,7 +166,7 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
     -- Compute a telescope from a parameter list.
     -- Note how the muddled identifier sorts are messy here.
     mkParam (PlaceParam p) = ValueTele (placeSort p)
-    mkParam (TypeParam (InfoPlace (Id aa))) = TypeTele (TyVar aa)
+    mkParam (TypeParam (InfoPlace aa)) = TypeTele (TyVar aa)
     -- mkParam (InfoParam i s) = _ -- I need an InfoTele constructor here.
     tele = ClosureTele (map mkParam params)
   let declTy = ClosureDeclType [] envTy tele
@@ -180,9 +179,9 @@ checkEnv (EnvDecl tys places) = do
   checkUniqueLabels [aa | InfoPlace aa <- tys]
   checkUniqueLabels [placeName p | p <- places]
 
-  infos <- for tys $ \ (InfoPlace (Id aa)) -> do
+  infos <- for tys $ \ (InfoPlace aa) -> do
     -- Once InfoPlace is replaced by InfoPlace2, these two lines can go away.
-    let infoLabel = Id aa
+    let infoLabel = aa
     let infoSort = AllocH (TyVar aa)
     checkSort infoSort
     pure (infoLabel, infoSort)
@@ -358,7 +357,7 @@ checkTele (ClosureTele ss) = go ss
   where
     go [] = pure ()
     go (ValueTele s : ss') = checkSort s *> go ss'
-    go (TypeTele (TyVar aa) : ss') = withInfo (InfoPlace (Id aa)) $ go ss'
+    go (TypeTele (TyVar aa) : ss') = withInfo (InfoPlace aa) $ go ss'
 
 -- | Given info @i@ and sort @s@, check that @Γ |- i : info s@.
 checkInfo :: Info -> Sort -> TC ()
