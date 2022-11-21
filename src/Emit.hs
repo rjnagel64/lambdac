@@ -258,8 +258,8 @@ foldThunk consValue consInfo nil ty = go 0 0 (thunkArgs ty)
 emitThunkSuspend :: ThunkNames -> ThunkType -> [Line]
 emitThunkSuspend ns ty =
   ["void " ++ thunkSuspendName ns ++ "(" ++ commaSep paramList ++ ") {"
-  ,"    next_step->closure = closure;"
-  ,"    next_step->enter = closure->enter;"
+  ,"    next_step.closure = closure;"
+  ,"    next_step.enter = closure->enter;"
   ,"    reserve_args(" ++ show numValues ++ ", " ++ show numInfos ++ ");"] ++
   assignFields ty ++
   ["}"]
@@ -291,12 +291,12 @@ emitThunkSuspend ns ty =
               ListH _ -> ListInfo
               ClosureH _ -> ClosureInfo
           in
-          let lval = "next_step->args.values[" ++ show i ++ "]" in 
+          let lval = "next_step.args.values[" ++ show i ++ "]" in 
           ("    " ++ lval ++ ".alloc = " ++ asAlloc ("arg" ++ show i) ++ ";") :
           ("    " ++ lval ++ ".info = " ++ emitInfo (Id "NULL") info ++ ";") :
           acc
         consInfo j acc =
-          ("    next_step->args.infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
+          ("    next_step.args.infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
           acc
 
 emitClosureDecl :: ClosureSig -> ClosureDecl -> [Line]
@@ -387,17 +387,15 @@ emitEnvInfo ns (EnvDecl is fs) =
 emitClosureEnter :: ClosureNames -> ThunkType -> [Line]
 emitClosureEnter ns ty =
   ["void " ++ closureEnterName ns ++ "(void) {"
-  ,"    " ++ thunkTy ++ "next = (" ++ thunkTy ++ ")next_step;"
-  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")next_step->closure->env;"
+  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")next_step.closure->env;"
   ,"    " ++ closureCodeName ns ++ "(" ++ commaSep argList ++ ");"
   ,"}"]
   where
-    thunkTy = "struct " ++ thunkTypeName (namesForThunk ty) ++ " *"
     envTy = "struct " ++ envTypeName (closureEnvName ns) ++ " *"
     argList = "env" : foldThunk consValue consInfo [] ty
       where
-        consValue i s acc = asSort s ("next_step->args.values[" ++ show i ++ "].alloc") : acc
-        consInfo j acc = ("next_step->args.infos[" ++ show j ++ "]") : acc
+        consValue i s acc = asSort s ("next_step.args.values[" ++ show i ++ "].alloc") : acc
+        consInfo j acc = ("next_step.args.infos[" ++ show j ++ "]") : acc
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.

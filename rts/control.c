@@ -36,26 +36,26 @@ type_info get_result_info(void) {
 // Then, control.c *defines* 'trace_roots' exactly once, right here.
 void (*trace_roots)(void) = mark_root;
 
+struct thunk next_step;
+
 void mark_root(void) {
-    mark_gray(AS_ALLOC(next_step->closure), closure_info);
-    for (size_t i = 0; i < next_step->args.num_values; i++) {
-        mark_gray(next_step->args.values[i].alloc, next_step->args.values[i].info);
+    mark_gray(AS_ALLOC(next_step.closure), closure_info);
+    for (size_t i = 0; i < next_step.args.num_values; i++) {
+        mark_gray(next_step.args.values[i].alloc, next_step.args.values[i].info);
     }
 }
 
-struct thunk *next_step = NULL;
-
 void reserve_args(size_t num_values, size_t num_infos) {
-    if (num_values > next_step->args.values_cap) {
-        next_step->args.values = realloc(next_step->args.values, num_values * sizeof(struct value_arg));
-        next_step->args.values_cap = num_values;
+    if (num_values > next_step.args.values_cap) {
+        next_step.args.values = realloc(next_step.args.values, num_values * sizeof(struct value_arg));
+        next_step.args.values_cap = num_values;
     }
-    next_step->args.num_values = num_values;
+    next_step.args.num_values = num_values;
     // We don't need to store the capacity for args.infos because we don't
     // iterate over it, we only index into it will offsets statically known to
     // be in bounds.
-    if (num_infos > next_step->args.num_infos) {
-        next_step->args.infos = realloc(next_step->args.infos, num_infos * sizeof(type_info));
+    if (num_infos > next_step.args.num_infos) {
+        next_step.args.infos = realloc(next_step.args.infos, num_infos * sizeof(type_info));
     }
-    next_step->args.num_infos = num_infos;
+    next_step.args.num_infos = num_infos;
 }

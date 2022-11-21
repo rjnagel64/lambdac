@@ -11,7 +11,7 @@ struct alloc_header *get_result_value(void);
 type_info get_result_info(void);
 
 // Next action to take. A GC root. A delayed function/continuation application.
-extern struct thunk *next_step;
+extern struct thunk next_step;
 void mark_root(void);
 
 struct value_arg {
