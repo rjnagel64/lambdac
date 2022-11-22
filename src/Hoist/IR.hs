@@ -5,7 +5,6 @@ module Hoist.IR
     , Name(..)
     , Place(..)
     , InfoPlace(..)
-    -- , InfoPlace2(..)
     , TyVar(..)
     , ClosureName(..)
 
@@ -73,11 +72,6 @@ data Place = Place { placeSort :: Sort, placeName :: Id }
 -- from muddling term/info and type namespaces, it also overlaps with
 -- InfoPlace2 (denoting `i : info t`.
 data InfoPlace = InfoPlace { infoName :: Id }
-
--- | The /real/ 'InfoPlace'. @InfoPlace2 x s@ denotes an info binding @x : info
--- s@.
--- TODO: Distinguish 'InfoPlace' from 'TyPlace'
-data InfoPlace2 = InfoPlace2 { infoName2 :: Id, infoSort2 :: Sort }
 
 data TyVar = TyVar Id
   deriving (Eq, Ord)
@@ -248,9 +242,7 @@ data ClosureDecl
 closureDeclName :: ClosureDecl -> ClosureName
 closureDeclName (ClosureDecl c _ _ _) = c 
 
--- TODO: EnvDecl should use InfoPlace2
--- Hmm. Maybe EnvDecl should use 'Id' for the fields? (Analogous to EnvAlloc?)
-data EnvDecl = EnvDecl [InfoPlace] [Place]
+data EnvDecl = EnvDecl [(Id, TyVar)] [Place]
 
 -- Idea: Introduce InfoParam, and slowly migrate to use it wherever necessary.
 data ClosureParam = PlaceParam Place | TypeParam InfoPlace | InfoParam Id Sort
@@ -404,7 +396,7 @@ pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
   pprintTerm (n+2) e
   where
     env = show name ++ " : {" ++ infoFields ++ "; " ++ valueFields ++ "}"
-    infoFields = intercalate ", " (map pprintInfoPlace is)
+    infoFields = intercalate ", " (map (\ (i, aa) -> '@' : show i ++ " : info " ++ show aa) is)
     valueFields = intercalate ", " (map pprintPlace fs)
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String

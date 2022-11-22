@@ -273,7 +273,7 @@ withEnvDef (C.EnvDef tyfields fields) k = do
   let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
   let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
   let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
-  let envd = EnvDecl (map snd tyfields') (map snd fields')
+  let envd = EnvDecl (map (\ (aa, i) -> (infoName i, aa)) tyfields') (map snd fields')
   local (\ (HoistEnv oldLocals _) -> HoistEnv oldLocals newEnv) $ do
     -- Pick the environment pointer's name based on the in-scope set
     -- *after* we are in the closure's context

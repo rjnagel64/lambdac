@@ -176,13 +176,13 @@ checkEnv :: EnvDecl -> TC EnvType
 -- Check that all (info/field) labels are disjoint, and that each field type is
 -- well-formed.
 checkEnv (EnvDecl tys places) = do
-  checkUniqueLabels [aa | InfoPlace aa <- tys]
+  checkUniqueLabels [i | (i, aa) <- tys]
   checkUniqueLabels [placeName p | p <- places]
 
-  infos <- for tys $ \ (InfoPlace aa) -> do
+  infos <- for tys $ \ (i, aa) -> do
     -- Once InfoPlace is replaced by InfoPlace2, these two lines can go away.
-    let infoLabel = aa
-    let infoSort = AllocH (TyVar aa)
+    let infoLabel = i
+    let infoSort = AllocH aa
     checkSort infoSort
     pure (infoLabel, infoSort)
   fields <- for places $ \ (Place s x) -> do

@@ -336,7 +336,7 @@ emitEnvDecl ns (EnvDecl is fs) =
   map mkField fs ++
   ["};"]
   where
-    mkInfo i = "    " ++ emitInfoPlace i ++ ";"
+    mkInfo (i, _aa) = "    type_info " ++ show i ++ ";"
     mkField f = "    " ++ emitPlace f ++ ";"
 
 emitEnvAlloc :: EnvNames -> EnvDecl -> [Line]
@@ -350,9 +350,9 @@ emitEnvAlloc ns (EnvDecl is fs) =
   ,"}"]
   where
     paramList = if null params then "void" else commaSep params
-    params = map emitInfoPlace is ++ map emitPlace fs
+    params = map (\ (i, aa) -> "type_info " ++ show i) is ++ map emitPlace fs
 
-    assignInfo (InfoPlace aa) = "    _env->" ++ show aa ++ " = " ++ show aa ++ ";"
+    assignInfo (i, _aa) = "    _env->" ++ show i ++ " = " ++ show i ++ ";"
     assignField (Place _ x) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
 
 emitEnvInfo :: EnvNames -> EnvDecl -> [Line]
@@ -372,7 +372,7 @@ emitEnvInfo ns (EnvDecl is fs) =
     -- The set of type infos available in this environment, to be used for
     -- tracing polymorphic fields.
     typeInfos :: Map TyVar Info
-    typeInfos = Map.fromList $ [(TyVar aa, EnvInfo aa) | InfoPlace aa <- is]
+    typeInfos = Map.fromList $ [(aa, EnvInfo i) | (i, aa) <- is]
 
     -- Using the type infos in the environment, determine how to trace a field of sort 's'.
     infoFor :: Sort -> Info
