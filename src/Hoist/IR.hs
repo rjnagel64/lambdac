@@ -115,100 +115,9 @@ data TeleEntry
 instance Eq Sort where
   (==) = equalSort emptyAE
 
+-- Needed by Hoist.TypeCheck, for some reason.
 instance Eq ClosureTele where
   (==) = equalTele emptyAE
-
--- | An environment used when checking alpha-equality.
--- Contains the deBruijn level and a mapping from bound variables to levels for
--- both the LHS and RHS.
-data AE = AE Int (Map TyVar Int) (Map TyVar Int)
-
-emptyAE :: AE
-emptyAE = AE 0 Map.empty Map.empty
-
-equalSort :: AE -> Sort -> Sort -> Bool
-equalSort (AE _ lhs rhs) (AllocH aa) (AllocH bb) = case (Map.lookup aa lhs, Map.lookup bb rhs) of
-  (Just la, Just lb) -> la == lb
-  (Nothing, Nothing) -> aa == bb
-  (_, _) -> False
-equalSort _ (AllocH _) _ = False
-equalSort _ IntegerH IntegerH = True
-equalSort _ IntegerH _ = False
-equalSort _ BooleanH BooleanH = True
-equalSort _ BooleanH _ = False
-equalSort _ UnitH UnitH = True
-equalSort _ UnitH _ = False
-equalSort _ SumH SumH = True
-equalSort _ SumH _ = False
-equalSort _ StringH StringH = True
-equalSort _ StringH _ = False
-equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
-equalSort _ (ProductH _ _) _ = False
-equalSort ae (ListH s) (ListH t) = equalSort ae s t
-equalSort _ (ListH _) _ = False
-equalSort ae (ClosureH ss) (ClosureH ts) = equalTele ae ss ts
-equalSort _ (ClosureH _) _ = False
-
-equalTele :: AE -> ClosureTele -> ClosureTele -> Bool
-equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
-  where
-    go _ [] [] = True
-    go ae (ValueTele s : ls) (ValueTele t : rs) = equalSort ae s t && go ae ls rs
-    go _ (ValueTele _ : _) (_ : _) = False
-    go (AE l lhs rhs) (TypeTele aa : ls) (TypeTele bb : rs) =
-      go (AE (l+1) (Map.insert aa l lhs) (Map.insert bb l rhs)) ls rs
-    go _ (TypeTele _ : _) (_ : _) = False
-    go _ (_ : _) [] = False
-    go _ [] (_ : _) = False
-
-
-data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Sort }
-
-emptySubst :: Subst
-emptySubst = Subst { substScope = Set.empty, substMapping = Map.empty }
-
-singleSubst :: TyVar -> Sort -> Subst
--- Hmm. Should the scope be populated from ftv(s)?
--- Or does that need to be provided separately?
--- Or maybe just the empty scope is fine.
---
--- Actually, yeah. I think the scope needs to contain at least ftv(s).
--- That way, when we pass under a binder, we will avoid capturing anything in 's'.
-singleSubst aa s = Subst { substScope = Set.empty, substMapping = (Map.singleton aa s) }
-
-refresh :: Subst -> TyVar -> (Subst, TyVar)
-refresh (Subst sc sub) aa =
-  if Set.notMember aa sc then
-    (Subst (Set.insert aa sc) sub, aa)
-  else
-    go (0 :: Int)
-  where
-    go i =
-      let TyVar (Id aa') = aa in
-      let bb = TyVar (Id (aa' ++ show i)) in
-      if Set.notMember bb sc then
-        (Subst (Set.insert bb sc) (Map.insert aa (AllocH bb) sub), bb)
-      else
-        go (i+1)
-
-substSort :: Subst -> Sort -> Sort
-substSort sub (AllocH aa) = case Map.lookup aa (substMapping sub) of
-  Nothing -> AllocH aa
-  Just s -> s
-substSort _ IntegerH = IntegerH
-substSort _ BooleanH = BooleanH
-substSort _ UnitH = UnitH
-substSort _ SumH = SumH
-substSort _ StringH = StringH
-substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
-substSort sub (ListH t) = ListH (substSort sub t)
-substSort sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele sub tele))
-
-substTele :: Subst -> [TeleEntry] -> [TeleEntry]
-substTele _ [] = []
-substTele sub (ValueTele s : tele) = ValueTele (substSort sub s) : substTele sub tele
-substTele sub (TypeTele aa : tele) = case refresh sub aa of
-  (sub', aa') -> TypeTele aa' : substTele sub' tele
 
 
 -- | 'Info' is used to represent @type_info@ values that are passed at runtime.
@@ -321,6 +230,157 @@ data PrimOp
 
 data Program = Program [ClosureDecl] TermH
 
+
+-- Nameplate operations: FV, alpha-equality, and substitution
+
+-- | An efficient computation for collecting free type variables.
+-- The first parameter is a set of bound variables, that must be ignored.
+-- The second parameter is an accumulator, much like a DList.
+newtype FV = FV { runFV :: Set TyVar -> Set TyVar -> Set TyVar }
+
+unitFV :: TyVar -> FV
+unitFV aa = FV $ \bound acc ->
+  if Set.notMember aa bound && Set.notMember aa acc then
+    Set.insert aa acc
+  else
+    acc
+
+bindFV :: TyVar -> FV -> FV
+bindFV aa f = FV $ \bound acc -> runFV f (Set.insert aa bound) acc
+
+instance Semigroup FV where
+  f <> g = FV $ \bound acc -> runFV f bound (runFV g bound acc)
+
+instance Monoid FV where
+  mempty = FV $ \_ acc -> acc
+
+freeTyVars :: Sort -> Set TyVar
+freeTyVars s = runFV (ftv s) Set.empty Set.empty
+
+ftv :: Sort -> FV
+ftv (AllocH aa) = unitFV aa
+ftv UnitH = mempty
+ftv IntegerH = mempty
+ftv BooleanH = mempty
+ftv SumH = mempty
+ftv StringH = mempty
+ftv (ListH t) = ftv t
+ftv (ProductH t s) = ftv t <> ftv s
+ftv (ClosureH tele) = ftvTele tele
+
+ftvTele :: ClosureTele -> FV
+ftvTele (ClosureTele tele) = go tele
+  where
+    go [] = mempty
+    go (ValueTele s : rest) = ftv s <> go rest
+    go (TypeTele aa : rest) = bindFV aa (go rest)
+    -- go (InfoTele s : rest) = ftv s <> go rest
+
+-- | An environment used when checking alpha-equality.
+-- Contains the deBruijn level and a mapping from bound variables to levels for
+-- both the LHS and RHS.
+data AE = AE Int (Map TyVar Int) (Map TyVar Int)
+
+-- | The initial alpha-equality environment.
+emptyAE :: AE
+emptyAE = AE 0 Map.empty Map.empty
+
+-- | Test alpha-equality of two sorts.
+equalSort :: AE -> Sort -> Sort -> Bool
+equalSort (AE _ lhs rhs) (AllocH aa) (AllocH bb) = case (Map.lookup aa lhs, Map.lookup bb rhs) of
+  (Just la, Just lb) -> la == lb
+  (Nothing, Nothing) -> aa == bb
+  (_, _) -> False
+equalSort _ (AllocH _) _ = False
+equalSort _ IntegerH IntegerH = True
+equalSort _ IntegerH _ = False
+equalSort _ BooleanH BooleanH = True
+equalSort _ BooleanH _ = False
+equalSort _ UnitH UnitH = True
+equalSort _ UnitH _ = False
+equalSort _ SumH SumH = True
+equalSort _ SumH _ = False
+equalSort _ StringH StringH = True
+equalSort _ StringH _ = False
+equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
+equalSort _ (ProductH _ _) _ = False
+equalSort ae (ListH s) (ListH t) = equalSort ae s t
+equalSort _ (ListH _) _ = False
+equalSort ae (ClosureH ss) (ClosureH ts) = equalTele ae ss ts
+equalSort _ (ClosureH _) _ = False
+
+equalTele :: AE -> ClosureTele -> ClosureTele -> Bool
+equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
+  where
+    go _ [] [] = True
+    go ae (ValueTele s : ls) (ValueTele t : rs) = equalSort ae s t && go ae ls rs
+    go _ (ValueTele _ : _) (_ : _) = False
+    go (AE l lhs rhs) (TypeTele aa : ls) (TypeTele bb : rs) =
+      go (AE (l+1) (Map.insert aa l lhs) (Map.insert bb l rhs)) ls rs
+    go _ (TypeTele _ : _) (_ : _) = False
+    go _ (_ : _) [] = False
+    go _ [] (_ : _) = False
+
+
+-- | A substitution maps free type variables to sorts, avoiding free variable
+-- capture when it passes under type variable binders.
+data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Sort }
+
+-- | Construct the empty/identity substitution.
+emptySubst :: Subst
+emptySubst = Subst { substScope = Set.empty, substMapping = Map.empty }
+
+-- | Construct a singleton substitution, @[aa := s]@.
+singleSubst :: TyVar -> Sort -> Subst
+-- We must not capture any free variable of 's', so the scope is intially set
+-- to FTV(s).
+--
+-- Furthermore, the substitution targets only free vars, so 'aa' must be a free
+-- var, and must therefore also be in scope.
+--
+-- Therefore substScope contains both 'aa' and the free type variables of 's'.
+singleSubst aa s =
+  Subst { substScope = Set.insert aa (freeTyVars s), substMapping = Map.singleton aa s }
+
+-- | Pass a substitution under a variable binder, returning the updated
+-- substitution, and a new variable binder.
+refresh :: Subst -> TyVar -> (Subst, TyVar)
+refresh (Subst sc sub) aa =
+  if Set.notMember aa sc then
+    (Subst (Set.insert aa sc) sub, aa)
+  else
+    go (0 :: Int)
+  where
+    go i =
+      let TyVar (Id aa') = aa in
+      let bb = TyVar (Id (aa' ++ show i)) in
+      if Set.notMember bb sc then
+        (Subst (Set.insert bb sc) (Map.insert aa (AllocH bb) sub), bb)
+      else
+        go (i+1)
+
+-- | Apply a substitution to a sort.
+substSort :: Subst -> Sort -> Sort
+substSort sub (AllocH aa) = case Map.lookup aa (substMapping sub) of
+  Nothing -> AllocH aa
+  Just s -> s
+substSort _ IntegerH = IntegerH
+substSort _ BooleanH = BooleanH
+substSort _ UnitH = UnitH
+substSort _ SumH = SumH
+substSort _ StringH = StringH
+substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
+substSort sub (ListH t) = ListH (substSort sub t)
+substSort sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele sub tele))
+
+substTele :: Subst -> [TeleEntry] -> [TeleEntry]
+substTele _ [] = []
+substTele sub (ValueTele s : tele) = ValueTele (substSort sub s) : substTele sub tele
+substTele sub (TypeTele aa : tele) = case refresh sub aa of
+  (sub', aa') -> TypeTele aa' : substTele sub' tele
+
+
+-- Pretty-printing
 
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s

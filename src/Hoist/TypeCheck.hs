@@ -249,6 +249,8 @@ checkTerm (AllocClosure cs e) = do
       tele' <- case placeSort p of
         ClosureH tele' -> pure tele'
         s -> throwError (BadClosurePlace (placeName p) s)
+      -- I think it would make more sense if I converted the ClosureDecl's type
+      -- into 'ClosureH tele' and tested that for equality against 'placeSort p'
       equalTeles tele' tele
     checkTerm e
 
