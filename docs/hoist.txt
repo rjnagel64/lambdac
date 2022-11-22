@@ -202,6 +202,8 @@ analysis are much the same as in previous IRs. Additionally, there are
 constructs for packing/unpacking existential types, for allocating groups of
 mutually-recursive closures, and for invoking code pointers.
 
+[[Rules for terms]]
+
 [[This should be immediately after term typing rules, because argument lists
 are auxiliary judgment to terms.]]
 Telescopes are used to type argument lists.

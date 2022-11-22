@@ -152,7 +152,7 @@ infer (TmTApp e t) = do
 check :: Term -> Type -> TC ()
 check e t = do
   t' <- infer e
-  when (not (eqType t t')) $ throwError (TypeMismatch t t')
+  when (t /= t') $ throwError (TypeMismatch t t')
   pure ()
 
 checkFun :: TmFun -> TC ()

@@ -35,13 +35,22 @@ import Data.Set (Set)
 -- (The parser still only generates eta-unsafe things, annotation pass to
 -- convert where possible)
 -- (See 'Making a Faster Curry with Extensional Types')
+-- (See also 'Kinds are Calling Conventions')
 
--- | Term variables stand for values
+-- | Term variables stand for values.
 newtype TmVar = TmVar String
   deriving (Eq, Ord)
 
 instance Show TmVar where
   show (TmVar x) = x
+
+-- | Type variables stand for types.
+data TyVar
+  = TyVar String
+  deriving (Eq, Ord)
+
+instance Show TyVar where
+  show (TyVar x) = x
 
 
 data Term
@@ -131,45 +140,50 @@ data Type
   | TyList Type
   | TyString
 
-data TyVar
-  = TyVar String
-  deriving (Eq, Ord)
+instance Eq Type where
+  (==) = eqType emptyAE
 
-instance Show TyVar where
-  show (TyVar x) = x
 
--- | Alpha-equality of two types
-eqType :: Type -> Type -> Bool
-eqType = eqType' 0 Map.empty Map.empty
+data AE = AE Int (Map TyVar Int) (Map TyVar Int)
 
-eqType' :: Int -> Map TyVar Int -> Map TyVar Int -> Type -> Type -> Bool
-eqType' _ fw bw (TyVarOcc x) (TyVarOcc y) = case (Map.lookup x fw, Map.lookup y bw) of
+emptyAE :: AE
+emptyAE = AE 0 Map.empty Map.empty
+
+lookupAE :: AE -> TyVar -> TyVar -> Bool
+lookupAE (AE _ fw bw) x y = case (Map.lookup x fw, Map.lookup y bw) of
   -- Both bound: should be bound at the same level
   (Just xl, Just yl) -> xl == yl
   -- Both free: require exact equality
   (Nothing, Nothing) -> x == y
   -- Cannot be equal if one free but the other is bound
   _ -> False
-eqType' _ _ _ (TyVarOcc _) _ = False
-eqType' _ _ _ TyUnit TyUnit = True
-eqType' _ _ _ TyUnit _ = False
-eqType' _ _ _ TyBool TyBool = True
-eqType' _ _ _ TyBool _ = False
-eqType' _ _ _ TyInt TyInt = True
-eqType' _ _ _ TyInt _ = False
-eqType' _ _ _ TyString TyString = True
-eqType' _ _ _ TyString _ = False
-eqType' l fw bw (TyProd t1 t2) (TyProd t3 t4) = eqType' l fw bw t1 t3 && eqType' l fw bw t2 t4
-eqType' _ _ _ (TyProd _ _) _ = False
-eqType' l fw bw (TySum t1 t2) (TySum t3 t4) = eqType' l fw bw t1 t3 && eqType' l fw bw t2 t4
-eqType' _ _ _ (TySum _ _) _ = False
-eqType' l fw bw (TyArr arg1 ret1) (TyArr arg2 ret2) =
-  eqType' l fw bw arg1 arg2 && eqType' l fw bw ret1 ret2
-eqType' _ _ _ (TyArr _ _) _ = False
-eqType' l fw bw (TyAll x t) (TyAll y s) = eqType' (l+1) (Map.insert x l fw) (Map.insert y l bw) t s
-eqType' _ _ _ (TyAll _ _) _ = False
-eqType' l fw bw (TyList a) (TyList b) = eqType' l fw bw a b
-eqType' _ _ _ (TyList _) _ = False
+
+bindAE :: TyVar -> TyVar -> AE -> AE
+bindAE x y (AE l fw bw) = AE (l+1) (Map.insert x l fw) (Map.insert y l bw)
+
+-- | Alpha-equality of two types
+eqType :: AE -> Type -> Type -> Bool
+eqType ae (TyVarOcc x) (TyVarOcc y) = lookupAE ae x y
+eqType _ (TyVarOcc _) _ = False
+eqType _ TyUnit TyUnit = True
+eqType _ TyUnit _ = False
+eqType _ TyBool TyBool = True
+eqType _ TyBool _ = False
+eqType _ TyInt TyInt = True
+eqType _ TyInt _ = False
+eqType _ TyString TyString = True
+eqType _ TyString _ = False
+eqType ae (TyProd t1 t2) (TyProd t3 t4) = eqType ae t1 t3 && eqType ae t2 t4
+eqType _ (TyProd _ _) _ = False
+eqType ae (TySum t1 t2) (TySum t3 t4) = eqType ae t1 t3 && eqType ae t2 t4
+eqType _ (TySum _ _) _ = False
+eqType ae (TyArr arg1 ret1) (TyArr arg2 ret2) =
+  eqType ae arg1 arg2 && eqType ae ret1 ret2
+eqType _ (TyArr _ _) _ = False
+eqType ae (TyAll x t) (TyAll y s) = eqType (bindAE x y ae) t s
+eqType _ (TyAll _ _) _ = False
+eqType ae (TyList a) (TyList b) = eqType ae a b
+eqType _ (TyList _) _ = False
 
 
 data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Type }

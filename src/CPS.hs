@@ -437,8 +437,8 @@ cpsTail (S.TmCons e1 e2) k =
         let res = LetValK x t1' (ConsK v1 v2) (JumpK k [x])
         pure (res, t2)
 cpsTail (S.TmConcat e1 e2) k =
-  cps e1 $ \v1 t1 ->
-    cps e2 $ \v2 t2 -> do
+  cps e1 $ \v1 _t1 ->
+    cps e2 $ \v2 _t2 -> do
       freshTm "x" $ \x -> do
         let res = LetConcatK x v1 v2 (JumpK k [x])
         pure (res, S.TyString)
