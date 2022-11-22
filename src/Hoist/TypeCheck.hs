@@ -59,7 +59,6 @@ data TCError
   | BadValue
   | BadProjection Sort Projection
   | BadCase CaseKind [Name]
-  | BadClosurePlace Id Sort
   | BadOpen Name Sort
   | WrongClosureArg
   | DuplicateLabels [String]
@@ -118,10 +117,6 @@ equalSorts :: Sort -> Sort -> TC ()
 equalSorts expected actual =
   when (expected /= actual) $
     throwError (TypeMismatch expected actual)
-
-equalTeles :: ClosureTele -> ClosureTele -> TC ()
-equalTeles expected actual = when (expected /= actual) $
-  throwError (NotImplemented "equalTeles")
 
 withPlace :: Place -> TC a -> TC a
 withPlace p m = do
@@ -246,12 +241,10 @@ checkTerm (AllocClosure cs e) = do
       -- _
       -- check envTy
       checkEnvAlloc env envTy
-      tele' <- case placeSort p of
-        ClosureH tele' -> pure tele'
-        s -> throwError (BadClosurePlace (placeName p) s)
-      -- I think it would make more sense if I converted the ClosureDecl's type
-      -- into 'ClosureH tele' and tested that for equality against 'placeSort p'
-      equalTeles tele' tele
+      -- Check that the RHS has the correct sort.
+      -- Once I implement the pseduo-forall/closed thunk types thing, this line
+      -- should probably involve 'aas'.
+      equalSorts (placeSort p) (ClosureH tele)
     checkTerm e
 
 checkEnvAlloc :: EnvAlloc -> EnvType -> TC ()

@@ -115,10 +115,6 @@ data TeleEntry
 instance Eq Sort where
   (==) = equalSort emptyAE
 
--- Needed by Hoist.TypeCheck, for some reason.
-instance Eq ClosureTele where
-  (==) = equalTele emptyAE
-
 
 -- | 'Info' is used to represent @type_info@ values that are passed at runtime.
 -- This is dynamic information.
