@@ -281,12 +281,18 @@ data AE = AE Int (Map TyVar Int) (Map TyVar Int)
 emptyAE :: AE
 emptyAE = AE 0 Map.empty Map.empty
 
--- | Test alpha-equality of two sorts.
-equalSort :: AE -> Sort -> Sort -> Bool
-equalSort (AE _ lhs rhs) (AllocH aa) (AllocH bb) = case (Map.lookup aa lhs, Map.lookup bb rhs) of
+lookupAE :: AE -> TyVar -> TyVar -> Bool
+lookupAE (AE _ lhs rhs) aa bb =  case (Map.lookup aa lhs, Map.lookup bb rhs) of
   (Just la, Just lb) -> la == lb
   (Nothing, Nothing) -> aa == bb
   (_, _) -> False
+
+bindAE :: TyVar -> TyVar -> AE -> AE
+bindAE aa bb (AE l lhs rhs) = AE (l+1) (Map.insert aa l lhs) (Map.insert bb l rhs)
+
+-- | Test alpha-equality of two sorts.
+equalSort :: AE -> Sort -> Sort -> Bool
+equalSort ae (AllocH aa) (AllocH bb) = lookupAE ae aa bb
 equalSort _ (AllocH _) _ = False
 equalSort _ IntegerH IntegerH = True
 equalSort _ IntegerH _ = False
@@ -311,8 +317,8 @@ equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
     go _ [] [] = True
     go ae (ValueTele s : ls) (ValueTele t : rs) = equalSort ae s t && go ae ls rs
     go _ (ValueTele _ : _) (_ : _) = False
-    go (AE l lhs rhs) (TypeTele aa : ls) (TypeTele bb : rs) =
-      go (AE (l+1) (Map.insert aa l lhs) (Map.insert bb l rhs)) ls rs
+    go ae (TypeTele aa : ls) (TypeTele bb : rs) =
+      go (bindAE aa bb ae) ls rs
     go _ (TypeTele _ : _) (_ : _) = False
     go _ (_ : _) [] = False
     go _ [] (_ : _) = False
