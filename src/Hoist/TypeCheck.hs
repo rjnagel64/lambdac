@@ -76,10 +76,6 @@ emptyLocals = Locals Map.empty Set.empty Map.empty
 bindPlace :: Place -> Locals -> Locals
 bindPlace (Place s x) (Locals places tys infos) = Locals (Map.insert x s places) tys infos
 
--- TODO: bindInfo is poorly named
-bindInfo :: InfoPlace -> Locals -> Locals
-bindInfo (InfoPlace aa) (Locals places tys infos) = Locals places (Set.insert aa tys) infos
-
 emptySignature :: Signature
 emptySignature = Signature { sigClosures = Map.empty }
 
@@ -128,8 +124,10 @@ withPlaces :: [Place] -> TC a -> TC a
 withPlaces ps = foldr (.) id (map withPlace ps)
 
 withInfo :: InfoPlace -> TC a -> TC a
-withInfo i m = local extend m
-  where extend (Context locals env) = Context (bindInfo i locals) env
+withInfo (InfoPlace i) m = local (\ (Context locals env) -> Context (extend locals) env) m
+  where
+    extend (Locals places tys infos) = Locals places (Set.insert i tys) infos
+
 
 
 
@@ -153,7 +151,7 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   envTy <- checkEnv envd
   -- Check that the parameter list is well-formed, and extract the initial
   -- contents of the local scope for the typing context.
-  localScope <- checkParams params
+  localScope <- local (\_ -> Context emptyLocals envTy) $ checkParams params
   -- Use the parameter list and environment to type-check the closure body.
   local (\_ -> Context localScope envTy) $ checkTerm body
   -- Extend the signature with the new closure declaration.
@@ -199,9 +197,9 @@ checkUniqueLabels ls = do
 -- | Closure parameters form a telescope, because info bindings bring type
 -- variables into scope for subsequent bindings.
 checkParams :: [ClosureParam] -> TC Locals
-checkParams [] = pure emptyLocals
-checkParams (PlaceParam p : params) = withPlace p $ fmap (bindPlace p) (checkParams params)
-checkParams (TypeParam i : params) = withInfo i $ fmap (bindInfo i) (checkParams params)
+checkParams [] = asks ctxLocals
+checkParams (PlaceParam p : params) = withPlace p $ checkParams params
+checkParams (TypeParam i : params) = withInfo i $ checkParams params
 checkParams (InfoParam _ _ : _) = throwError (NotImplemented "checkParams InfoParam")
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
