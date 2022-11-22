@@ -7,9 +7,13 @@ module Source
   , TmFun(..)
   , Type(..)
   , TyVar(..)
+
   , eqType
-  , subst
+  , Subst
+  , singleSubst
+  , substType
   , ftv
+
   , pprintType
   ) where
 
@@ -167,23 +171,45 @@ eqType' _ _ _ (TyAll _ _) _ = False
 eqType' l fw bw (TyList a) (TyList b) = eqType' l fw bw a b
 eqType' _ _ _ (TyList _) _ = False
 
--- | Perform a substitution, @subst aa t t' === t'[aa := t]@.
-subst :: TyVar -> Type -> Type -> Type
-subst aa t (TyVarOcc bb) = if aa == bb then t else TyVarOcc bb
-subst aa t (TyAll bb t') =
-  if aa == bb then TyAll bb t' else TyAll bb' (subst aa t (subst bb (TyVarOcc bb') t'))
+
+data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Type }
+
+-- | Construct a singleton substitution, @[aa := t]@.
+singleSubst :: TyVar -> Type -> Subst
+singleSubst aa t = Subst { substScope = ftv t, substMapping = Map.singleton aa t }
+
+substBind :: Subst -> TyVar -> (Subst, TyVar)
+substBind (Subst sc sub) aa =
+  if Set.notMember aa sc then
+    (Subst (Set.insert aa sc) (Map.delete aa sub), aa)
+  else
+    go (0 :: Int)
   where
-    vs = ftv t' <> ftv t
-    bb' = let TyVar x = bb in go x (0 :: Int)
-    go x i = let cc = TyVar (x ++ show i) in if Set.member cc vs then go x (i+1) else cc
-subst aa t (TyList t') = TyList (subst aa t t')
-subst aa t (TySum t1 t2) = TySum (subst aa t t1) (subst aa t t2)
-subst aa t (TyProd t1 t2) = TyProd (subst aa t t1) (subst aa t t2)
-subst aa t (TyArr t1 t2) = TyArr (subst aa t t1) (subst aa t t2)
-subst _ _ TyUnit = TyUnit
-subst _ _ TyBool = TyBool
-subst _ _ TyInt = TyInt
-subst _ _ TyString = TyString
+    go i =
+      let TyVar aa' = aa in
+      let bb = TyVar (aa' ++ show i) in
+      if Set.notMember bb sc then
+        (Subst (Set.insert bb sc) (Map.insert aa (TyVarOcc bb) sub), bb)
+      else
+        go (i+1)
+
+substTyVar :: Subst -> TyVar -> Type
+substTyVar sub aa = case Map.lookup aa (substMapping sub) of
+  Nothing -> TyVarOcc aa
+  Just t -> t
+
+-- | Apply a substitution to a type, @substType sub t' === t'[sub]@.
+substType :: Subst -> Type -> Type
+substType sub (TyVarOcc bb) = substTyVar sub bb
+substType sub (TyAll aa t) = let (sub', aa') = substBind sub aa in TyAll aa' (substType sub' t)
+substType _ TyUnit = TyUnit
+substType _ TyBool = TyBool
+substType _ TyInt = TyInt
+substType _ TyString = TyString
+substType sub (TyList t) = TyList (substType sub t)
+substType sub (TyProd t1 t2) = TyProd (substType sub t1) (substType sub t2)
+substType sub (TySum t1 t2) = TySum (substType sub t1) (substType sub t2)
+substType sub (TyArr t1 t2) = TyArr (substType sub t1) (substType sub t2)
 
 -- | Compute the free type variables of a type
 ftv :: Type -> Set TyVar

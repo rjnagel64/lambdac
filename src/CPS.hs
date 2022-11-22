@@ -280,7 +280,7 @@ cps (S.TmTApp e t) k =
       _ -> error "type error"
     freshCo "k" $ \kv ->
       freshTm "f" $ \fv -> do
-        let instTy = S.subst aa t t1'
+        let instTy = S.substType (S.singleSubst aa t) t1'
         (e'', t'') <- k fv instTy
         instTy' <- cpsType instTy
         t' <- cpsType t
@@ -486,7 +486,7 @@ cpsTail (S.TmTApp e t) k =
     (aa, t1') <- case t1 of
       S.TyAll aa t1' -> pure (aa, t1')
       _ -> error "type error"
-    let instTy = S.subst aa t t1'
+    let instTy = S.substType (S.singleSubst aa t) t1'
     t' <- cpsType t
     let res = InstK v1 [t'] [k]
     pure (res, instTy)
@@ -634,7 +634,8 @@ freshenRecBinds fs k = do
       (S.TyArr _t s, S.TmLam x t' body) -> do
         pure (S.TmFun f x t' s body)
       (S.TyAll aa t, S.TmTLam bb body) -> do
-        pure (S.TmTFun f bb (S.subst aa (S.TyVarOcc bb) t) body)
+        let sub = S.singleSubst aa (S.TyVarOcc bb)
+        pure (S.TmTFun f bb (S.substType sub t) body)
       (_, _) -> error "letrec error"
   local extend (k fs')
 

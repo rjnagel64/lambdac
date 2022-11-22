@@ -146,7 +146,7 @@ infer (TmTLam aa e) = do
   pure (TyAll aa t)
 infer (TmTApp e t) = do
   infer e >>= \case
-    TyAll aa t' -> pure (subst aa t t')
+    TyAll aa t' -> pure (substType (singleSubst aa t) t')
     t' -> throwError (CannotInstantiate t')
 
 check :: Term -> Type -> TC ()
