@@ -328,22 +328,17 @@ emptySubst = Subst { substScope = Set.empty, substMapping = Map.empty }
 
 -- | Construct a singleton substitution, @[aa := s]@.
 singleSubst :: TyVar -> Sort -> Subst
--- We must not capture any free variable of 's', so the scope is intially set
--- to FTV(s).
---
--- Furthermore, the substitution targets only free vars, so 'aa' must be a free
--- var, and must therefore also be in scope.
---
--- Therefore substScope contains both 'aa' and the free type variables of 's'.
 singleSubst aa s =
-  Subst { substScope = Set.insert aa (freeTyVars s), substMapping = Map.singleton aa s }
+  -- We must not capture any free variable of 's', so the scope is intially set
+  -- to 'FTV(s)'.
+  Subst { substScope = freeTyVars s, substMapping = Map.singleton aa s }
 
 -- | Pass a substitution under a variable binder, returning the updated
 -- substitution, and a new variable binder.
-refresh :: Subst -> TyVar -> (Subst, TyVar)
-refresh (Subst sc sub) aa =
+substBind :: Subst -> TyVar -> (Subst, TyVar)
+substBind (Subst sc sub) aa =
   if Set.notMember aa sc then
-    (Subst (Set.insert aa sc) sub, aa)
+    (Subst (Set.insert aa sc) (Map.delete aa sub), aa)
   else
     go (0 :: Int)
   where
@@ -372,7 +367,7 @@ substSort sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele s
 substTele :: Subst -> [TeleEntry] -> [TeleEntry]
 substTele _ [] = []
 substTele sub (ValueTele s : tele) = ValueTele (substSort sub s) : substTele sub tele
-substTele sub (TypeTele aa : tele) = case refresh sub aa of
+substTele sub (TypeTele aa : tele) = case substBind sub aa of
   (sub', aa') -> TypeTele aa' : substTele sub' tele
 
 

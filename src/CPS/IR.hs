@@ -16,9 +16,12 @@ module CPS.IR
 
     , TypeK(..)
     , eqTypeK
-    , substTypeK
     , CoTypeK(..)
     , eqCoTypeK
+
+    , Subst
+    , makeSubst
+    , substTypeK
     , substCoTypeK
 
     , pprintTerm
@@ -265,56 +268,55 @@ coTypeFV (ContK ts) = Set.unions (map typeFV ts)
 -- Capture-Avoiding Substitution
 
 -- | Apply a substitution to a type.
-substTypeK :: [(TyVar, TypeK)] -> TypeK -> TypeK
-substTypeK sub t = substTypeK' (Subst (Map.fromList sub) (typeFV t)) t
+substTypeK :: Subst -> TypeK -> TypeK
+substTypeK sub (TyVarOccK aa) = substVar sub aa
+substTypeK sub (AllK aas ss) =
+  let (sub', aas') = bindSubst sub aas in
+  AllK aas' (map (substCoTypeK sub') ss)
+substTypeK sub (FunK ts ss) = FunK (map (substTypeK sub) ts) (map (substCoTypeK sub) ss)
+substTypeK sub (ProdK t s) = ProdK (substTypeK sub t) (substTypeK sub s)
+substTypeK sub (SumK t s) = SumK (substTypeK sub t) (substTypeK sub s)
+substTypeK sub (ListK t) = ListK (substTypeK sub t)
+substTypeK _ UnitK = UnitK
+substTypeK _ IntK = IntK
+substTypeK _ BoolK = BoolK
+substTypeK _ StringK = StringK
 
 -- | Apply a substitution to a co-type.
-substCoTypeK :: [(TyVar, TypeK)] -> CoTypeK -> CoTypeK
-substCoTypeK sub t = substCoTypeK' (Subst (Map.fromList sub) (coTypeFV t)) t
-
-substTypeK' :: Subst -> TypeK -> TypeK
-substTypeK' sub (TyVarOccK aa) = substVar sub aa
-substTypeK' sub (AllK aas ss) =
-  let (aas', sub') = bindSubst aas sub in
-  AllK aas' (map (substCoTypeK' sub') ss)
-substTypeK' sub (FunK ts ss) = FunK (map (substTypeK' sub) ts) (map (substCoTypeK' sub) ss)
-substTypeK' sub (ProdK t s) = ProdK (substTypeK' sub t) (substTypeK' sub s)
-substTypeK' sub (SumK t s) = SumK (substTypeK' sub t) (substTypeK' sub s)
-substTypeK' sub (ListK t) = ListK (substTypeK' sub t)
-substTypeK' _ UnitK = UnitK
-substTypeK' _ IntK = IntK
-substTypeK' _ BoolK = BoolK
-substTypeK' _ StringK = StringK
-
-substCoTypeK' :: Subst -> CoTypeK -> CoTypeK
-substCoTypeK' sub (ContK ss) = ContK (map (substTypeK' sub) ss)
+substCoTypeK :: Subst -> CoTypeK -> CoTypeK
+substCoTypeK sub (ContK ss) = ContK (map (substTypeK sub) ss)
 
 data Subst = Subst (Map TyVar TypeK) (Set TyVar)
+
+makeSubst :: [(TyVar, TypeK)] -> Subst
+makeSubst xs = Subst (Map.fromList xs) sc
+  where
+    -- "Secrets of the GHC Inliner" says that you only need the FTV of the
+    -- range of the substitution.
+    sc = Set.unions (map (\ (_, t) -> typeFV t) xs)
 
 substVar :: Subst -> TyVar -> TypeK
 substVar (Subst sub _) aa = case Map.lookup aa sub of
   Nothing -> TyVarOccK aa
   Just t -> t
 
-bindSubst :: [TyVar] -> Subst -> ([TyVar], Subst)
-bindSubst aas sub = (aas', sub')
+bindSubst :: Traversable t => Subst -> t TyVar -> (Subst, t TyVar)
+bindSubst = mapAccumL bindOne
   where
-    (sub', aas') = mapAccumL bindOne sub aas
-
     bindOne :: Subst -> TyVar -> (Subst, TyVar)
     bindOne (Subst s sc) aa =
       if Set.member aa sc then
-        let aa' = freshen sc aa in
-        (Subst (Map.insert aa (TyVarOccK aa') s) (Set.insert aa' sc), aa')
+        let bb = freshen sc aa in
+        (Subst (Map.insert aa (TyVarOccK bb) s) (Set.insert bb sc), bb)
       else
-        (Subst s (Set.insert aa sc), aa)
+        (Subst (Map.delete aa s) (Set.insert aa sc), aa)
 
     freshen :: Set TyVar -> TyVar -> TyVar
     freshen sc (TyVar aa i) =
       -- 'freshen' is only called when 'aa' shadows something in scope, so we
       -- always need to increment at least once.
-      let aa' = TyVar aa (i+1) in
-      if Set.member aa' sc then freshen sc aa' else aa'
+      let bb = TyVar aa (i+1) in
+      if Set.member bb sc then freshen sc bb else bb
 
 
 -- Pretty-printing

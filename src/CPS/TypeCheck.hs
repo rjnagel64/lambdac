@@ -113,12 +113,12 @@ equalCoTypes expected actual =
 
 instantiate :: [TyVar] -> [TypeK] -> [CoTypeK] -> M [CoTypeK]
 instantiate aas ts ss = do
-  sub <- go aas ts
+  sub <- makeSubst <$> zipExact aas ts
   pure (map (substCoTypeK sub) ss)
   where
-    go [] [] = pure []
-    go (aa:aas') (t:ts') = (:) (aa, t) <$> go aas' ts'
-    go _ _ = throwError ArityMismatch
+    zipExact [] [] = pure []
+    zipExact (aa:aas') (t:ts') = (:) (aa, t) <$> zipExact aas' ts'
+    zipExact _ _ = throwError ArityMismatch
 
 
 checkProgram :: TermK () -> Either TypeError ()
@@ -189,6 +189,10 @@ check (LetSndK x s y e) = do
     ProdK _t s' -> equalTypes s s'
     t' -> throwError (BadProjection t')
   withTmVars [(x, s)] $ check e
+check (LetConcatK x y z e) = do
+  checkTmVar y StringK
+  checkTmVar z StringK
+  withTmVars [(x, StringK)] $ check e
 
 checkArith :: ArithK -> M ()
 checkArith (AddK x y) = checkIntBinOp x y
@@ -219,6 +223,7 @@ checkValue (InrK y) (SumK _t s) = do
   checkTmVar y s
 checkValue (IntValK _) IntK = pure ()
 checkValue (BoolValK _) BoolK = pure ()
+checkValue (StringValK _) StringK = pure ()
 checkValue EmptyK (ListK _) = pure ()
 checkValue (ConsK x xs) (ListK t) = checkTmVar x t *> checkTmVar xs (ListK t)
 checkValue v t = throwError (BadValue v t)
@@ -255,6 +260,7 @@ checkType (ListK t) = checkType t
 checkType UnitK = pure ()
 checkType IntK = pure ()
 checkType BoolK = pure ()
+checkType StringK = pure ()
 
 -- | Check that a co-type is well-formed.
 checkCoType :: CoTypeK -> M ()
