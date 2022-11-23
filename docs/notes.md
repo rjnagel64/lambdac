@@ -862,6 +862,61 @@ Idea: CPS translation for isorecursive types.
   The essential aspect of a fixpoint operator is that it makes a value cyclic.
   (Generally, makes a set of values cyclic among each other.)
 
+### Existential types
+
+Existential types package a type with a value that can depend on that type.
+Unpacking lets you use the stored type opaquely.
+
+```
+Types t ::= ... | ∃aa.t[aa]
+
+Terms e ::= ... | <t, e> as t' | let <aa, x : t> = e in e'
+```
+
+```
+Γ, aa |- t[aa] : *
+------------------
+Γ |- ∃aa.t[aa] : *
+
+Γ |- e : t[aa := t']
+-------------------------------------
+Γ |- <t', e> as ∃aa.t[aa] : ∃aa.t[aa]
+
+Γ |- e : ∃bb.t[bb]
+Γ, aa, x : t[aa] |- e' : t'
+---------------------------------------
+Γ |- let <aa, x : t[aa]> = e in e' : t'
+```
+
+CPS translation of unpacking is much the same as that of a let-expression, and
+also very similar to that of a one-branch case expression.
+
+The continuation will receive two arguments: a type and a value. (Thus, I will
+need to add type arguments to continuation definitions.)
+
+
+Runtime representation of existentials is a bit tricky. In particular, how do
+you trace them? That depends on what `t[aa]` is.
+
+* If `t[aa]` is just `aa`, use the type info stored by the package.
+* If `t[aa]` is `T s1 ... sn`, for some type constructor `T`, use the type info for `T`.
+
+I'm not terribly happy with that, even though it works, because it relies on
+type info for an HKT `T` being able to trace `T s` for any type `s`, a tricky
+question I have yet to resolve.
+
+
+In the future, I will likely permit algebraic data type definitions to include
+existentially-quantified variables. They also work in a fairly straightforward
+manner, with case branches containing type variables for the type arguments.
+
+
+In the meantime, I can emulate existentials with rank-2 polymorphism, because
+`∃aa.t[aa] =~= ∀r.(∀aa.t[aa] -> r) -> r`. This isn't terribly ergonomic
+(because I have no way to abstract this pattern, and I also have no type-level
+lambdas), but it works, I guess.
+
+
 ## Module System
 
 I might as well go for ML-style modules.
@@ -1069,6 +1124,9 @@ What if I don't closure-convert continuations? Hmm. Continuations are still
 passed as arguments, though? For this I think I would need a real stack again.
 
 
+(Random side note, it is possible for there to be a recursive continuation? I
+don't really think so.)
+
 ## CPS Storage Classes (3CPS)
 
 Interesting property: If call/cc is not present, CPS translation should not
@@ -1098,6 +1156,16 @@ Of course, targeting C with trampolines makes things harder.
 registers, use an array of values)
 
 
+Observation: continuations captured in an environment are strongly reminiscent
+of the stack of activation records sometimes used in other implementations. In
+particular, this structure keeps track of where the continuation can return to.
+
+(Although the continuation closure environment can contain multiple conts, so
+it's more of a tree.)
+
+## 3CPS Pitfalls
+
+### CPS.IR Is Not Exactly CPS
 
 Now that I think about it, my CPS IR isn't actually pure CPS, because it has
 local statements like `let x = y + z in ...`. I think this means that the
@@ -1136,6 +1204,17 @@ let cont k0 (t0 : int) =
 in
 addk (x, 7) k0
 ```
+
+### 3CPS vs Closure Conversion
+
+Also, The 3CPS paper has a short statement about when bindings are allocated that
+doesn't gel particularly well with my compiler.
+
+It seems to state that variable allocations/bindings are made upon entry to the
+function, in contrast to the "flat closure" model I use, where the environment
+structure is allocated when bindings are *captured*.
+
+Apparently you can work around this, but it is "out of scope for the paper".
 
 
 ## Beta-Reduction and Discarding Unused Bindings
@@ -1339,6 +1418,7 @@ case f () of
 
 Maybe instead of implicitly broadcasting, default to single-return and have a
 lightweight operator (a la Julia's '.') to perform the broadcast.
+(Like tuple unpacking: if `e : t * s` (1 pair value), `...e : t, s` (2 values))
 
 
 ## Automatic differentiation

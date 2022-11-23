@@ -108,6 +108,8 @@ data TermK a
 
 -- | Named basic blocks
 -- @k (x:τ)+ := e@
+-- TODO: Can CPS produce a recursive ContDef? If not, that's an invariant I
+-- should make note of for the future. (E.G., non-recursive => inlineable)
 data ContDef a = ContDef a CoVar [(TmVar, TypeK)] (TermK a)
 
 contDefName :: ContDef a -> CoVar
