@@ -85,13 +85,18 @@ include parameter names.
 Terms
 e ::=
   | let x : t = v in e
-  | let x : t = fst y in e
-  | let x : t = snd y in e
+  | let x : t = y .proj in e
   | unpack <a, x> = e1 in e2
   | case x of (k : s)+
   | f(x, E) -- code pointer invocation
   | #fn[t+] -- wait, what's this again? instantiate pseudo-forall, but isn't that a value?
   | halt s v i
+
+Projections
+.proj ::=
+  | .fst
+  | .snd
+  -- probably label projections, too
 
 Argument lists
 E ::= . | @t, E | x, E | i, E
@@ -196,17 +201,43 @@ scope for subsequent parameters.
   ---------
   Γ |- t, S
 
-[[Description of term syntax; term typing rules.]]
 Next, we have terms. The typing rules for value allocation, projections, case
 analysis are much the same as in previous IRs. Additionally, there are
 constructs for packing/unpacking existential types, for allocating groups of
 mutually-recursive closures, and for invoking code pointers.
 
-[[Rules for terms]]
+  Σ; Γ |- v : t
+  Σ; Γ, x : t |- e OK
+  -----------------------------
+  Σ; Γ |- let x : t = v in e OK
 
-[[This should be immediately after term typing rules, because argument lists
-are auxiliary judgment to terms.]]
-Telescopes are used to type argument lists.
+  Σ; Γ |- y : s
+  Γ |- s .proj ~> t
+  Σ; Γ, x : t |- e OK
+  ---------------------------------
+  Σ; Γ |- let x : t = y .proj in e OK
+
+  Σ; Γ |- y : ∃bb.t[bb]
+  Σ; Γ, @aa, x : t[aa] |- e OK
+  ---------------------------------------
+  Σ; Γ |- let <aa, x : t[aa]> = y in e OK
+
+  Γ |- s
+  Σ; Γ |- i : info s
+  Σ; Γ |- x : s
+  ----------------------
+  Σ; Γ |- halt @s i x OK
+
+  Σ; Γ |- f : code(t, S)
+  Σ; Γ |- x : t
+  Σ; Γ |- E : S
+  ----------------------
+  Σ; Γ |- f(x, E) OK
+
+There are some auxiliary judgments to the term typing rules: 'Γ |- s .proj ~ t'
+and 'Σ; Γ |- E : S'. The former states that if a projection '.proj' is applied
+to a value of sort 's', the result has sort 't'. The latter states that an
+argument list 'E' matches the sorts required by a parameter telescope 'S'.
 
   -------------
   Σ; Γ |- . : .

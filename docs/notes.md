@@ -248,6 +248,8 @@ let fun foo @a (y : t[a]) (k : bool -> 0) = let x = pack <a, y> in e; in e'
 
 ## Existential Types and Garbage Collection
 
+[[Reorganize this section to work with the section below?]]
+
 A typical existential value looks like this:
 
 ```
@@ -899,7 +901,9 @@ Runtime representation of existentials is a bit tricky. In particular, how do
 you trace them? That depends on what `t[aa]` is.
 
 * If `t[aa]` is just `aa`, use the type info stored by the package.
-* If `t[aa]` is `T s1 ... sn`, for some type constructor `T`, use the type info for `T`.
+* If `t[aa]` is `T s1 ... sn`, for some type constructor `T`, use the type info
+  for `T`.
+* If `t[aa]` is a constant type, just use info for that type.
 
 I'm not terribly happy with that, even though it works, because it relies on
 type info for an HKT `T` being able to trace `T s` for any type `s`, a tricky
