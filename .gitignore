@@ -1,5 +1,5 @@
 .DS_Store
-*.sw[lmnop]
+*.sw[jklmnop]
 *.o
 *.a
 fact
