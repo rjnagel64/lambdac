@@ -522,8 +522,8 @@ caseInfoTable (CaseList t) =
 
 emitValueAlloc :: EnvPtr -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
-emitValueAlloc _ (BoolH True) = "allocate_true()"
-emitValueAlloc _ (BoolH False) = "allocate_false()"
+emitValueAlloc envp (BoolH True) = emitBuiltinCall envp (Id "allocate_true") []
+emitValueAlloc envp (BoolH False) = emitBuiltinCall envp (Id "allocate_false") []
 emitValueAlloc envp (PairH s1 s2 x y) =
   "allocate_pair(" ++ emitInfo envp s1 ++ ", " ++ emitInfo envp s2 ++ ", " ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ NilH = "allocate_unit()"
@@ -550,9 +550,20 @@ emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
 emitPrimOp envp (PrimConcatenate x y) = emitPrimCall envp "prim_concatenate" [x, y]
 emitPrimOp envp (PrimStrlen x) = emitPrimCall envp "prim_strlen" [x]
 
--- TODO: emitPrimCall could take a list of type/info arguments?
 emitPrimCall :: EnvPtr -> String -> [Name] -> String
-emitPrimCall envp fn xs = fn ++ "(" ++ commaSep (map (emitName envp) xs) ++ ")"
+emitPrimCall envp fn xs = emitBuiltinCall envp (Id fn) (map ValueArg xs)
+
+-- Hmm. I can't quite use this for emitValueAlloc, because I cannot specify
+-- primitives like unboxed integers or c string literals.
+--
+-- I also can't use this for emitValueAlloc because if the sort of a parameter
+-- is 'AllocH', I need to cast the argument with AS_ALLOC.
+emitBuiltinCall :: EnvPtr -> Id -> [ClosureArg] -> String
+emitBuiltinCall envp fn args = show fn ++ "(" ++ commaSep (foldr mkArg [] args) ++ ")"
+  where
+    mkArg (ValueArg x) acc = emitName envp x : acc
+    mkArg (TypeArg i) acc = emitInfo envp i : acc
+    mkArg (OpaqueArg x i) acc = emitName envp x : emitInfo envp i : acc
 
 -- | Allocate a group of (mutually recursive) closures.
 --

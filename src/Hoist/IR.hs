@@ -174,6 +174,7 @@ data Projection = ProjectFst | ProjectSnd
 -- that it is closed and the extra info args can be passed up front.
 --
 -- (This is the "closed thunk types" proposal)
+-- TODO: Rename ClosureArg to CallArg? They can be used for PrimOps, too I think.
 data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
 
 data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
