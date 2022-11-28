@@ -478,11 +478,10 @@ emitCase kind envp x ks =
     emitCaseBranch (i, BranchInfo ctorCast ty argNames, k) =
       let
         method = thunkSuspendName (namesForThunk ty)
+        ctor = ctorCast ++ "(" ++ emitName envp x ++ ")"
         args = emitName envp k : map mkArg argNames
-        mkArg (argName, Nothing) =
-          ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName
-        mkArg (argName, Just argSort) =
-          asSort argSort (ctorCast ++ "(" ++ emitName envp x ++ ")->" ++ argName)
+        mkArg (argName, Nothing) = ctor ++ "->" ++ argName
+        mkArg (argName, Just argSort) = asSort argSort (ctor ++ "->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
