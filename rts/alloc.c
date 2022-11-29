@@ -2,6 +2,8 @@
 #include "alloc.h"
 #include "panic.h"
 
+#include <stdbool.h>
+
 // All allocations.
 static struct alloc_header *first_allocation;
 static uint64_t num_allocs = 0;
@@ -136,13 +138,15 @@ void sweep_all_allocations(void) {
     }
 }
 
+// Set this constant to 'true' in order to GC on every allocation.
+static const bool debug_stress_gc = false;
 void cons_new_alloc(struct alloc_header *alloc, type_info info) {
     alloc->mark = 0;
     alloc->next = first_allocation;
     first_allocation = alloc;
     num_allocs++;
     push_local(first_allocation, info);
-    if (num_allocs > gc_threshold) {
+    if (debug_stress_gc || (num_allocs > gc_threshold)) {
         collect();
     }
 }

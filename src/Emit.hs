@@ -132,6 +132,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
 data ThunkNames
   = ThunkNames {
     thunkTypeName :: String
+  , thunkArgsName :: String
   , thunkTraceName :: String
   , thunkSuspendName :: String
   }
@@ -140,7 +141,8 @@ namesForThunk :: ThunkType -> ThunkNames
 namesForThunk ty =
   ThunkNames {
     thunkTypeName = "thunk_" ++ code
-  , thunkTraceName = "trace_" ++ code
+  , thunkArgsName = "args_" ++ code
+  , thunkTraceName = "trace_args_" ++ code
   , thunkSuspendName = "suspend_" ++ code
   }
   where
@@ -248,7 +250,10 @@ emitEntryPoint csig e =
 
 emitThunkDecl :: ThunkType -> [Line]
 emitThunkDecl t =
-  emitThunkSuspend (namesForThunk t) t
+  emitThunkArgs ns t ++
+  emitThunkTrace ns t ++
+  emitThunkSuspend ns t
+  where ns = namesForThunk t
 
 foldThunk :: (Int -> Sort -> b -> b) -> (Int -> b -> b) -> b -> ThunkType -> b
 foldThunk consValue consInfo nil ty = go 0 0 (thunkArgs ty)
@@ -257,57 +262,118 @@ foldThunk consValue consInfo nil ty = go 0 0 (thunkArgs ty)
     go i j (ThunkValueArg s : ss) = consValue i s (go (i+1) j ss)
     go i j (ThunkInfoArg : ss) = consInfo j (go i (j+1) ss)
 
+reserveArgs :: ThunkNames -> ThunkType -> Line
+reserveArgs ns ty = "    reserve_args(" ++ argsSize ++ ", " ++ show numInfos ++ ");"
+  where
+    argsSize = "sizeof(struct " ++ thunkArgsName ns ++ ")"
+    numInfos = foldThunk consValue (\_ acc -> acc) (0 :: Int) ty
+      where
+        consValue _ (AllocH _) acc = acc+1
+        consValue _ _ acc = acc
+
+-- | Attempt to obtain the 'Info' that describes a 'Sort'. However, the 'Info'
+-- for a type variable 'AllocH a' requires extra information, so it is passed
+-- in a different constructor for further processing.
+infoForSort :: Sort -> Either Info TyVar
+infoForSort (AllocH aa) = Right aa
+infoForSort IntegerH = Left Int64Info
+infoForSort BooleanH = Left BoolInfo
+infoForSort UnitH = Left UnitInfo
+infoForSort SumH = Left SumInfo
+infoForSort StringH = Left StringInfo
+infoForSort (ProductH _ _) = Left ProductInfo
+infoForSort (ListH _) = Left ListInfo
+infoForSort (ClosureH _) = Left ClosureInfo
+
+emitThunkArgs :: ThunkNames -> ThunkType -> [Line]
+emitThunkArgs ns ty =
+  ["struct " ++ thunkArgsName ns ++ " {"
+  ,"    struct closure *closure;"] ++
+  declareFields ty ++
+  ["};"]
+  where
+    -- Note: 'arginfo' values passed by OpaqueArg are not stored in 'struct args_$ty'.
+    -- Instead, space is allocated in emitThunkSuspend and arginfo values are
+    -- stored in an auxiliary array.
+    declareFields = foldThunk consValue consInfo []
+      where
+        consValue i s acc =
+          let p = Place s (Id ("arg" ++ show i)) in
+          ("    " ++ emitPlace p ++ ";") : acc
+        consInfo j acc = ("    type_info info" ++ show j ++ ";") : acc
+
+emitThunkTrace :: ThunkNames -> ThunkType -> [Line]
+emitThunkTrace ns ty =
+  ["void " ++ thunkTraceName ns ++ "(void) {"
+  ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
+  ,"    mark_gray(AS_ALLOC(args->closure), closure_info);"] ++
+  body ++
+  ["}"]
+  where
+    argsTy = "struct " ++ thunkArgsName ns ++ " *"
+    -- The accumulator has two parameters.
+    -- The second is a list of lines, as usual.
+    -- The first is the number of AllocH value arguments that have been
+    -- encountered, because those are the ones that need to index into the
+    -- arginfo_data array.
+    (_, body) = foldThunk consValue consInfo (0 :: Int, []) ty
+      where
+        consValue i s (k, acc) = (k', ("    mark_gray(" ++ asAlloc field ++ ", " ++ info ++ ");") : acc)
+          where
+            field = "args->arg" ++ show i
+            (k', info) = case infoForSort s of
+              -- Environment pointer is null here, because AllocH arguments have
+              -- their info in the auxiliary array, not in 'args'.
+              Left sInfo -> (k, emitInfo (Id "NULL") sInfo)
+              Right _ -> (k+1, "argument_infos[" ++ show k ++ "]")
+        consInfo _ acc = acc -- Don't need to trace info arguments.
+
 emitThunkSuspend :: ThunkNames -> ThunkType -> [Line]
 emitThunkSuspend ns ty =
   ["void " ++ thunkSuspendName ns ++ "(" ++ commaSep paramList ++ ") {"
-  ,"    next_step.closure = closure;"
-  ,"    next_step.enter = closure->enter;"
-  ,"    reserve_args(" ++ show numValues ++ ", " ++ show numInfos ++ ");"] ++
+  ,reserveArgs ns ty
+  ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
+  ,"    args->closure = closure;"]++
   assignFields ty ++
-  ["}"]
+  assignArgInfos ty ++
+  ["    set_next(closure->enter, " ++ thunkTraceName ns ++ ");"
+  ,"}"]
   where
+    argsTy = "struct " ++ thunkArgsName ns ++ " *"
     paramList = "struct closure *closure" : foldThunk consValue consInfo [] ty
       where
-        consValue i s acc =
-          let arg = Place s (Id ("arg" ++ show i)) in
-          case s of
-            AllocH _ -> emitPlace arg : ("type_info arginfo" ++ show i) : acc
-            _ -> emitPlace arg : acc
+        consValue i s@(AllocH _) acc =
+          let p = Place s (Id ("arg" ++ show i)) in
+          emitPlace p :
+          ("type_info arginfo" ++ show i) :
+          acc
+        consValue i s acc = let p = Place s (Id ("arg" ++ show i)) in emitPlace p : acc
         consInfo j acc = ("type_info info" ++ show j) : acc
-
-    numValues, numInfos :: Int
-    (numValues, numInfos) = foldThunk (\_ _ (i, j) -> (i+1, j)) (\_ (i, j) -> (i, j+1)) (0, 0) ty
-
     assignFields = foldThunk consValue consInfo []
       where
-        consValue i s acc =
-          let
-            info = case s of
-              AllocH _ -> LocalInfo (Id ("arginfo" ++ show i))
-              IntegerH -> Int64Info
-              BooleanH -> BoolInfo
-              UnitH -> UnitInfo
-              SumH -> SumInfo
-              StringH -> StringInfo
-              ProductH _ _ -> ProductInfo
-              ListH _ -> ListInfo
-              ClosureH _ -> ClosureInfo
-          in
-          let lval = "next_step.args.values[" ++ show i ++ "]" in 
-          ("    " ++ lval ++ ".alloc = " ++ asAlloc ("arg" ++ show i) ++ ";") :
-          ("    " ++ lval ++ ".info = " ++ emitInfo (Id "NULL") info ++ ";") :
-          acc
+        consValue i _ acc =
+          let arg = "arg" ++ show i in
+          ("    args->" ++ arg ++ " = " ++ arg ++ ";") : acc
         consInfo j acc =
-          ("    next_step.args.infos[" ++ show j ++ "] = info" ++ show j ++ ";") :
-          acc
+          let arg = "info" ++ show j in
+          ("    args->" ++ arg ++ " = " ++ arg ++ ";") : acc
+    assignArgInfos = snd . foldThunk consValue consInfo (0 :: Int, [])
+      where
+        -- Because this is a right fold, the auxiliary info array is filled in reverse order.
+        -- This is mildly annoying, but doesn't break anything.
+        consValue i (AllocH _) (k, acc) =
+          (k+1, ("argument_infos[" ++ show k ++ "] = arginfo" ++ show i ++ ";") : acc)
+        consValue _ _ acc = acc
+        consInfo _ acc = acc
 
 emitClosureDecl :: ClosureSig -> ClosureDecl -> [Line]
 emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params e) =
-  emitClosureEnv ns envd ++
-  emitClosureCode csig thunkEnv ns envName params e ++
-  emitClosureEnter ns ty
+  emitClosureEnv cns envd ++
+  emitClosureCode csig thunkEnv cns envName params e ++
+  emitClosureEnter tns cns ty
   where
-    ns = namesForClosure d
+    cns = namesForClosure d
+    tns = namesForThunk ty
     ty = closureDeclType cd
 
     -- The thunkEnv maps variables to their thunk type, so that the correct
@@ -376,30 +442,26 @@ emitEnvInfo ns (EnvDecl is fs) =
 
     -- Using the type infos in the environment, determine how to trace a field of sort 's'.
     infoFor :: Sort -> Info
-    infoFor (AllocH aa) = case Map.lookup aa typeInfos of
-      Nothing -> error ("Missing info to trace polymorphic field of type " ++ show aa)
-      Just i -> i
-    infoFor IntegerH = Int64Info
-    infoFor BooleanH = BoolInfo
-    infoFor UnitH = UnitInfo
-    infoFor SumH = SumInfo
-    infoFor StringH = StringInfo
-    infoFor (ProductH _ _) = ProductInfo
-    infoFor (ListH _) = ListInfo
-    infoFor (ClosureH _) = ClosureInfo
+    infoFor s = case infoForSort s of
+      Left i -> i
+      Right aa -> case Map.lookup aa typeInfos of
+        Nothing -> error ("Missing info to trace polymorphic field of type " ++ show aa)
+        Just i -> i
 
-emitClosureEnter :: ClosureNames -> ThunkType -> [Line]
-emitClosureEnter ns ty =
-  ["void " ++ closureEnterName ns ++ "(void) {"
-  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")next_step.closure->env;"
-  ,"    " ++ closureCodeName ns ++ "(" ++ commaSep argList ++ ");"
+emitClosureEnter :: ThunkNames -> ClosureNames -> ThunkType -> [Line]
+emitClosureEnter tns cns ty =
+  ["void " ++ closureEnterName cns ++ "(void) {"
+  ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
+  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")args->closure->env;"
+  ,"    " ++ closureCodeName cns ++ "(" ++ commaSep argList ++ ");"
   ,"}"]
   where
-    envTy = "struct " ++ envTypeName (closureEnvName ns) ++ " *"
+    argsTy = "struct " ++ thunkArgsName tns ++ " *"
+    envTy = "struct " ++ envTypeName (closureEnvName cns) ++ " *"
     argList = "env" : foldThunk consValue consInfo [] ty
       where
-        consValue i s acc = asSort s ("next_step.args.values[" ++ show i ++ "].alloc") : acc
-        consInfo j acc = ("next_step.args.infos[" ++ show j ++ "]") : acc
+        consValue i s acc = ("args->arg" ++ show i) : acc
+        consInfo j acc = ("args->info" ++ show j) : acc
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.

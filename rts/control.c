@@ -23,6 +23,44 @@ type_info get_result_info(void) {
     return result_info;
 }
 
+static size_t argument_data_capacity;
+char *argument_data;
+static size_t argument_infos_capacity;
+type_info *argument_infos;
+
+void init_args(void) {
+    // The argument_data and argument_infos arrays are initialized with enough
+    // capacity that reallocations should be rare: 1KB for arguments, 16 argument_infos.
+    argument_data_capacity = 1024;
+    argument_data = malloc(argument_data_capacity * sizeof(char));
+    argument_infos_capacity = 16;
+    argument_infos = malloc(argument_infos_capacity * sizeof(type_info));
+}
+
+void destroy_args(void) {
+    free(argument_data);
+    argument_data = NULL;
+    argument_data_capacity = 0;
+
+    free(argument_infos);
+    argument_infos = NULL;
+    argument_infos_capacity = 0;
+}
+
+void reserve_args(size_t arguments_size, size_t num_infos) {
+    if (arguments_size > argument_data_capacity) {
+        argument_data = realloc(argument_data, arguments_size * sizeof(char));
+        argument_data_capacity = arguments_size;
+    }
+
+    if (num_infos > argument_infos_capacity) {
+        argument_infos = realloc(argument_infos, num_infos * sizeof(type_info));
+        argument_infos_capacity = num_infos;
+    }
+}
+
+
+void (*next_entry_code)(void);
 // Note: the trace_roots function
 // There is a circular dependency between 'alloc.c' and 'control.c'.
 // Specifically, control.c needs to be able to allocate and collect memory
@@ -34,28 +72,10 @@ type_info get_result_info(void) {
 // in multiple files without issue.
 //
 // Then, control.c *defines* 'trace_roots' exactly once, right here.
-void (*trace_roots)(void) = mark_root;
+void (*trace_roots)(void);
 
-struct thunk next_step;
-
-void mark_root(void) {
-    mark_gray(AS_ALLOC(next_step.closure), closure_info);
-    for (size_t i = 0; i < next_step.args.num_values; i++) {
-        mark_gray(next_step.args.values[i].alloc, next_step.args.values[i].info);
-    }
+void set_next(void (*enter)(void), void (*trace_args)(void)) {
+    next_entry_code = enter;
+    trace_roots = trace_args;
 }
 
-void reserve_args(size_t num_values, size_t num_infos) {
-    if (num_values > next_step.args.values_cap) {
-        next_step.args.values = realloc(next_step.args.values, num_values * sizeof(struct value_arg));
-        next_step.args.values_cap = num_values;
-    }
-    next_step.args.num_values = num_values;
-    // We don't need to store the capacity for args.infos because we don't
-    // iterate over it, we only index into it will offsets statically known to
-    // be in bounds.
-    if (num_infos > next_step.args.num_infos) {
-        next_step.args.infos = realloc(next_step.args.infos, num_infos * sizeof(type_info));
-    }
-    next_step.args.num_infos = num_infos;
-}

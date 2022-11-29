@@ -1,6 +1,13 @@
 
 RTSFLAGS = -O2
 
+# Hmm. Maybe I should provide two targets:
+#   rts/librts-debug.a
+# and
+#   rts/librts-opt.a
+# The compiler can then decide which one to link a user program against, which
+# would be helpful for alternating between ASAN and optimized program runs.
+# I'm not quite sure how to write concise 'make' rules for that, without lots of duplication.
 rts/librts.a: rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/string_buf.o rts/main.o
 	ar -crs rts/librts.a rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/string_buf.o rts/main.o
 

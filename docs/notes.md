@@ -246,6 +246,172 @@ let fun foo @a (y : t[a]) (k : bool -> 0) = let x = pack <a, y> in e; in e'
 ```
 
 
+## The "Argument Pad" calling convention
+
+All calls in CPS are tail calls. Unfortunately, I cannot make tail calls in the
+C backend, because Apple Clang. Therefore, I need a particular "calling
+convention" to ensure that arguments get correctly passed to the function, and
+that I can GC trace through those arguments.
+
+For each thunk type in the program, I generate a C struct and two functions.
+The struct contains a field for a `struct closure *closure` (the thing being
+called), and a field for each argument passed to the closure. For example, the
+closure type `closure(int, a, info (list a), a, closure(a))` will cause the
+generation of the following arguments struct:
+
+```
+struct args_VAIAC1A {
+    struct closure *closure;
+    struct int64_value *arg0;
+    struct alloc_header *arg1;
+    type_info info0;
+    struct alloc_header *arg2;
+    struct closure *arg3;
+};
+```
+
+Unlike previous versions of my calling convention, polymorphic arguments (and
+also concrete arguments) do not store a `type_info` argument alongside
+themselves. Instead, for polymorphic arguments, those `type_info`s are stored
+in an auxiliary array, detailed below.
+
+The first function generated alongside the arguments struct is the `trace_args`
+function, which marks each argument as reachable for the GC.
+
+```
+void trace_args_VAIAC1A(void) {
+    struct args_VAIAC1A *args = (struct args_VAIAC1A *)argument_pad;
+    mark_gray(args->closure, closure_info);
+    mark_gray(args->arg0, int64_value_info);
+    mark_gray(args->arg1, argument_infos[1]);
+    mark_gray(args->arg2, argument_infos[0]);
+    mark_gray(args->arg3, closure_info);
+}
+```
+
+There are several things that must be remarked upon in this function. First,
+the arguments are stored in a global variable, `extern char *argument_pad;`, a
+buffer large enough to hold the arguments that gets reinterpreted as a struct
+of the appropriate sort based on what thunk type the current call uses. Value
+fields are traced using the correct `type_info` value. `type_info` arguments
+are ignored, because they do not have fields to be traced.
+
+However, polymorphic arguments, such as `arg1` and `arg2` have some significant
+subtleties. First, the `type_info` that describes them is stored in an
+auxiliary global array, `extern type_info *argument_infos;`, filled when a call
+is suspended. Right now, there are two major infelicities about this array. The
+first is that it is filled in reverse order, due to stupid programmer tricks.
+(That is, it makes one or two functions marginally nicer to use a right fold
+instead of a left fold, so now there's complicated documentation of what should
+be trivial.)  The second is that the auxiliary info array can and will contain
+duplicate `type_info` values. This is because of the `OpaqueArg` mechanism for
+making sure `arg1` and `arg2` get bundled with their `type_info`. This
+mechanism is imprecise, ad hoc, and kind of clumsy.
+
+Finally, I also generate the `suspend` function to actually make the call. It
+calls `reserve_arguments(size, num_aux);` to ensure that `argument_pad` and
+`argument_infos` are large enough. Usually, this does not require reallocating,
+so it is pretty cheap.
+
+```
+void suspend_VAIAC1A(
+	struct closure *closure,
+	struct int64_value *arg0,
+	struct alloc_header *arg1, type_info arginfo1,
+	type_info info0,
+	struct alloc_header *arg2, type_info arginfo2,
+	struct closure *arg3) {
+    reserve_arguments(sizeof(struct args_VAIAC1A), 2);
+    struct args_VAIAC1A *args = (struct args_VAIAC1A *)argument_pad;
+
+    args->closure = closure;
+    args->arg0 = arg0;
+    args->arg1 = arg1;
+    argument_infos[1] = arginfo1;
+    args->info0 = info0;
+    args->arg2 = arg2;
+    argument_infos[0] = arginfo2;
+    args->arg3 = arg3;
+
+    transfer_control(closure->enter, trace_args_VAIAC1A);
+}
+```
+
+Each argument is assigned to the relevant field in `struct args_VAIAC1A`.
+polymorphic/`OpaqueArg` arguments save their `arginfo` in the auxiliary array.
+Once all the arguments have been recorded, we call the RTS `transfer_control`
+function with the address of the closure's entry code, and the tracing function
+for this thunk's argument type.
+
+Finally, the entry code for a closure needs to unpack arguments from the
+argument pad. The entry code totally ignores the auxiliary info array, because
+that array is only for tracing GC.
+
+```
+void enter_foo(void) {
+    struct args_VAIAC1A *args = (struct args_VAIAC1A *)argument_pad;
+    foo_code(args->closure->env, args->arg0, args->arg1, args->info0, args->arg2, args->arg3);
+}
+```
+
+* Past conventions have run into issues when there's a mismatch between a
+  polymorphic `suspend` function and a monomorphic entry code. In fact, that's
+  where the current "arg info for everything" convention came from: If all
+  argument lists use a uniform representation, there's no possible problem.
+  This convention *might* run into that problem, because C can be finicky about
+  casting structs even if each field and padding is compatible, but a
+  proof-of-concept has demonstrated that it's fine even with optimizations.
+* Also, this convention opens the path for unboxed types/closure arguments.
+  The `args_$ty` struct can easily contain an `int64_t`, and (not) tracing that
+  field is trivially easy.
+
+
+### Impact and Benefits of the Closed Thunk Types proposal on Calling Convention
+
+The auxiliary info array is not terribly pleasant, both because of the strange
+ordering and also because of the redundancy of it elements. The "closed thunk
+types" proposal will hopefully solve both of these issues.
+
+The essence of the proposal is to replace the closure/thunk type
+`closure(int, a, info (list a), a, closure(a))` (which has a free variable,
+`a`) with the *quantified* closure/thunk type
+`forall a => closure(int, a, info (list a), a, closure(a))`.
+
+Doing this will lead to the following changes in calling convention:
+
+* The suspend method will no longer take `OpaqueArg`/`arginfo` arguments.
+  Instead, a sequence of `type_info` arguments will be passed at the start of
+  the argument list:
+  ```
+  void suspend_VAIAC1A(
+          type_info a_info,
+	  struct closure *closure,
+	  struct int64_value *arg0,
+	  struct alloc_header *arg1,
+	  type_info info0,
+	  struct alloc_header *arg2,
+	  struct closure *arg3);
+  ```
+* The auxiliary info array will now only contain those new `type_info`
+  arguments, in the same order as the quantifier.
+  ```
+  void suspend_VAIAC1A(...) {
+  ...
+  argument_infos[0] = a_info;
+  ...
+  }
+  ```
+* The `trace_args` function will use those arguments:
+  ```
+  void trace_args_VAIAC1A(void) {
+  ...
+  mark_gray(args->arg1, argument_infos[0]);
+  mark_gray(args->arg2, argument_infos[0]);
+  ...
+  }
+  ```
+
+
 ## Existential Types and Garbage Collection
 
 [[Reorganize this section to work with the section below?]]
