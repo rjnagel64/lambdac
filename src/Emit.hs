@@ -188,6 +188,9 @@ closureDeclType (ClosureDecl _ _ params _) = ThunkType (map f params)
     f (TypeParam i) = ThunkInfoArg
     f (InfoParam i s) = ThunkInfoArg
 
+-- TODO: collectThunkTypes overapproximates the set of thunk types needed by a program.
+-- This bloats the output substantially as program complexity increases.
+-- Instead, I should only record the thunk types I actually use.
 collectThunkTypes :: [ClosureDecl] -> Set ThunkType
 collectThunkTypes cs = foldMap closureThunkTypes cs
   where
@@ -432,21 +435,21 @@ emitEnvInfo ns (EnvDecl is fs) =
     envName = Id "env"
     envTy = "struct " ++ envTypeName ns ++ " *"
     traceField (Place s x) =
-      let i = infoFor s in
-      "    mark_gray(" ++ asAlloc (emitName envName (EnvName x)) ++ ", " ++ emitInfo envName i ++ ");"
+      let
+        -- Using the type infos in the environment, determine how to trace a field of sort 's'.
+        sInfo = case infoForSort s of
+          Left i -> i
+          Right aa -> case Map.lookup aa typeInfos of
+            Nothing -> error ("Missing info to trace polymorphic field of type " ++ show aa)
+            Just i -> i
+      in
+      let field = asAlloc (emitName envName (EnvName x)) in
+      "    mark_gray(" ++ field ++ ", " ++ emitInfo envName sInfo ++ ");"
 
     -- The set of type infos available in this environment, to be used for
     -- tracing polymorphic fields.
     typeInfos :: Map TyVar Info
     typeInfos = Map.fromList $ [(aa, EnvInfo i) | (i, aa) <- is]
-
-    -- Using the type infos in the environment, determine how to trace a field of sort 's'.
-    infoFor :: Sort -> Info
-    infoFor s = case infoForSort s of
-      Left i -> i
-      Right aa -> case Map.lookup aa typeInfos of
-        Nothing -> error ("Missing info to trace polymorphic field of type " ++ show aa)
-        Just i -> i
 
 emitClosureEnter :: ThunkNames -> ClosureNames -> ThunkType -> [Line]
 emitClosureEnter tns cns ty =
