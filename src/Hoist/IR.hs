@@ -150,8 +150,8 @@ closureDeclName (ClosureDecl c _ _ _) = c
 data EnvDecl = EnvDecl [(Id, TyVar)] [Place]
 
 -- Idea: Introduce InfoParam, and slowly migrate to use it wherever necessary.
+-- Maybe rename TypeParam to TypeInfoParam, then refactor it out of existence.
 data ClosureParam = PlaceParam Place | TypeParam InfoPlace | InfoParam Id Sort
--- data ClosureParam = PlaceParam Place | TypeParam InfoPlace
 
 
 

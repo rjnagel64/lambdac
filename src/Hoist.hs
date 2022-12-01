@@ -51,9 +51,6 @@ asInfoPlace (C.TyVar aa) = InfoPlace (Id aa)
 asTyVar :: C.TyVar -> TyVar
 asTyVar (C.TyVar aa) = TyVar (Id aa)
 
-asClosureName :: C.Name -> ClosureName
-asClosureName (C.Name x i) = ClosureName (x ++ show i)
-
 sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH
 sortOf C.Boolean = BooleanH
@@ -166,6 +163,7 @@ hoist (C.LetConcatC (x, s) y z e) = do
   z' <- hoistVarOcc z
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' (PrimConcatenate y' z') e')
+-- TODO: Hoist for closures is absurdly convoluted. There must be a simpler formulation.
 hoist (C.LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
   ds' <- traverse hoistFunClosure fdecls
@@ -219,19 +217,20 @@ hoistCmp (C.GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
 declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(ClosureName, a)]
-declareClosureNames closureName cs =
-  for cs $ \def -> do
-    let
-      pickName f ds =
-        let d = asClosureName f in
-        case Set.member d ds of
-          False -> (d, Set.insert d ds)
-          True -> pickName (C.prime f) ds
-    decls <- get
-    let (d, decls') = pickName (closureName def) decls
-    put decls'
-    pure (d, def)
-
+declareClosureNames closureName cs = traverse pickClosureName cs
+  where
+    pickClosureName def = do
+      decls <- get
+      let (d, decls') = pickName (closureName def) decls
+      put decls'
+      pure (d, def)
+    asClosureName (C.Name x i) = ClosureName (x ++ show i)
+    pickName f ds =
+      let d = asClosureName f in
+      if Set.notMember d ds then
+        (d, Set.insert d ds)
+      else
+        pickName (C.prime f) ds
 
 -- | Replace the set of fields and places in the environment, while leaving the
 -- set of declaration names intact. This is because inside a closure, all names
@@ -302,9 +301,9 @@ hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(Clo
 hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
   placesForClosureAllocs closureName closureSort cdecls $ \cplaces -> do
     cs' <- for cplaces $ \ (p, d, def) -> do
-      env' <- hoistEnvDef (Set.fromList (map (closureName . snd) cdecls)) (closureEnvDef def)
+      envAlloc <- hoistEnvAlloc (Set.fromList (map (closureName . snd) cdecls)) (closureEnvDef def)
       envPlace <- pickEnvironmentPlace (placeName p)
-      pure (ClosureAlloc p d envPlace env')
+      pure (ClosureAlloc p d envPlace envAlloc)
     e' <- hoist e
     pure (AllocClosure cs' e')
 
@@ -324,28 +323,35 @@ placesForClosureAllocs closureName closureSort cdecls kont = do
   let extend (HoistEnv (Scope _ fields) env) = HoistEnv (Scope scope' fields) env
   local extend (kont cplaces)
 
-hoistEnvDef :: Set C.Name -> C.EnvDef -> HoistM EnvAlloc
-hoistEnvDef recNames (C.EnvDef tys fields) = do
-  tyfields <- traverse envAllocInfo tys
-  fields' <- traverse (envAllocField recNames) fields
+-- | When constructing a closure, translate a CC-style environment @{ aa+; x+ }@
+-- into a Hoist-style environment allocation @{ (aa_info = i)+; (x = v)+ }@.
+--
+-- I'm not quite satisfied with this function. In particular, I feel like
+-- there's a disconnect between how I translate the definition of an
+-- environment versus the allocation of that environment.
+--
+-- (The same work being done 1.5 times, implicitly keeping track of field
+-- names, etc.)
+--
+-- However I fix it, I think if would probably be a good idea if that function
+-- returns both a H.EnvDecl and a H.EnvAlloc.
+hoistEnvAlloc :: Set C.Name -> C.EnvDef -> HoistM EnvAlloc
+hoistEnvAlloc recNames (C.EnvDef tys fields) = do
+  tyfields <- for tys $ \aa -> do
+    let fieldName = infoName $ asInfoPlace aa
+    -- This is *probably* a legit use of 'asTyVar'. CC gives us an environment
+    -- consisting of captured free vars, and captured fields.
+    -- Now, for each capture tyvar 'aa', we want to construct the value that will
+    -- be stored in the closure environment: 'info aa'.
+    i <- infoForTyVar (asTyVar aa)
+    pure (EnvInfoArg fieldName i)
+  fields' <- for fields $ \ (x, s) ->
+    let fieldName = placeName (asPlace s x) in
+    if Set.member x recNames then
+      EnvRecArg fieldName <$> hoistVarOcc x
+    else
+      EnvFreeArg fieldName <$> hoistVarOcc x
   pure (EnvAlloc tyfields fields')
-
-envAllocInfo :: C.TyVar -> HoistM EnvAllocInfoArg
-envAllocInfo aa = do
-  let f = infoName $ asInfoPlace aa
-  -- This is *probably* a legit use of 'asTyVar'. CC gives us an environment
-  -- consisting of captured free vars, and captured fields.
-  -- Now, for each capture tyvar 'aa', we want to construct the value that will
-  -- be stored in the closure environment: 'info aa'.
-  i <- infoForTyVar (asTyVar aa)
-  pure (EnvInfoArg f i)
-
-envAllocField :: Set C.Name -> (C.Name, C.Sort) -> HoistM EnvAllocValueArg
-envAllocField recNames (x, s) =
-  let f = placeName (asPlace s x) in
-  case Set.member x recNames of
-    False -> EnvFreeArg f <$> hoistVarOcc x
-    True -> EnvRecArg f <$> hoistVarOcc x
 
 
 

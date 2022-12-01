@@ -277,6 +277,9 @@ reserveArgs ns ty = "    reserve_args(" ++ argsSize ++ ", " ++ show numInfos ++ 
 -- | Attempt to obtain the 'Info' that describes a 'Sort'. However, the 'Info'
 -- for a type variable 'AllocH a' requires extra information, so it is passed
 -- in a different constructor for further processing.
+--
+-- This function is needed when emitting GC trace methods (for thunks and for
+-- closure environment types)
 infoForSort :: Sort -> Either Info TyVar
 infoForSort (AllocH aa) = Right aa
 infoForSort IntegerH = Left Int64Info
