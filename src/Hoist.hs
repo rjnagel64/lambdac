@@ -25,7 +25,7 @@ import Control.Monad.Reader
 import Control.Monad.Writer hiding (Sum)
 import Control.Monad.State
 
-import Data.Traversable (for, mapAccumL)
+import Data.Traversable (for)
 
 import qualified CC.IR as C
 
@@ -164,6 +164,7 @@ hoist (C.LetConcatC (x, s) y z e) = do
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' (PrimConcatenate y' z') e')
 -- TODO: Hoist for closures is absurdly convoluted. There must be a simpler formulation.
+-- The current version does three passes over the list of definitions
 hoist (C.LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
   ds' <- traverse hoistFunClosure fdecls
@@ -177,12 +178,16 @@ hoist (C.LetContC ks e) = do
 
 hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ClosureDecl
 hoistFunClosure (fdecl, C.FunClosureDef _f env tele body) = do
+  -- For some reason, selecting the closure name here causes nested closures to
+  -- not be emitted???  wat.
+  -- fdecl <- pickClosureName f
   inClosure env tele $ \env' params' -> do
     body' <- hoist body
     pure (ClosureDecl fdecl env' params' body')
 
 hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ClosureDecl
 hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
+  -- kdecl <- pickClosureName k
   let tele = C.makeClosureParams [] xs
   inClosure env tele $ \env' params' -> do
     body' <- hoist body
@@ -215,6 +220,15 @@ hoistCmp (C.GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (C.GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
+-- pickClosureName :: C.Name -> HoistM ClosureName
+-- pickClosureName c = do
+--   decls <- get
+--   let asClosureName (C.Name x i) = ClosureName (x ++ show i)
+--   let c' = asClosureName c
+--   if Set.notMember c' decls then
+--     put (Set.insert c' decls) *> pure c'
+--   else
+--     pickClosureName (C.prime c)
 
 declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(ClosureName, a)]
 declareClosureNames closureName cs = traverse pickClosureName cs
@@ -299,9 +313,10 @@ pickEnvironmentPlace (Id cl) = do
 
 hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> C.TermC -> HoistM TermH
 hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
+  let recNames = Set.fromList (map (closureName . snd) cdecls)
   placesForClosureAllocs closureName closureSort cdecls $ \cplaces -> do
     cs' <- for cplaces $ \ (p, d, def) -> do
-      envAlloc <- hoistEnvAlloc (Set.fromList (map (closureName . snd) cdecls)) (closureEnvDef def)
+      envAlloc <- hoistEnvAlloc recNames (closureEnvDef def)
       envPlace <- pickEnvironmentPlace (placeName p)
       pure (ClosureAlloc p d envPlace envAlloc)
     e' <- hoist e
@@ -309,19 +324,20 @@ hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
 
 placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(ClosureName, a)] -> ([(Place, ClosureName, a)] -> HoistM r) -> HoistM r
 placesForClosureAllocs closureName closureSort cdecls kont = do
-  scope <- asks (scopePlaces . localScope)
   let
-    pickPlace sc (d, def) =
-      let (cname, csort) = (closureName def, closureSort def) in
-      let c = go sc cname in
-      let p = asPlace csort c in
-      (Map.insert cname p sc, (p, d, def))
-    go sc c = case Map.lookup c sc of
-      Nothing -> c
-      Just _ -> go sc (C.prime c)
-  let (scope', cplaces) = mapAccumL pickPlace scope cdecls
-  let extend (HoistEnv (Scope _ fields) env) = HoistEnv (Scope scope' fields) env
-  local extend (kont cplaces)
+    makeClosurePlace (d, def) =
+      let cname = closureName def in
+      let p = asPlace (closureSort def) cname in
+      (cname, (p, d, def))
+  let binds = map makeClosurePlace cdecls
+  let
+    extend' (HoistEnv (Scope scope fields) env) =
+      let addBind (cname, (p, _, _)) sc = Map.insert cname p sc in
+      let scope' = foldr addBind scope binds in
+      HoistEnv (Scope scope' fields) env
+  -- Hmm. Specialize/Inline the continuation here, I think.
+  -- only one use, tightly coupled, could probably pass around less data.
+  local extend' (kont (map snd binds))
 
 -- | When constructing a closure, translate a CC-style environment @{ aa+; x+ }@
 -- into a Hoist-style environment allocation @{ (aa_info = i)+; (x = v)+ }@.
