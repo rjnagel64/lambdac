@@ -25,6 +25,7 @@ import Control.Monad.Reader
 import Control.Monad.Writer hiding (Sum)
 import Control.Monad.State
 
+import Data.Foldable (traverse_)
 import Data.Traversable (for)
 
 import qualified CC.IR as C
@@ -87,20 +88,22 @@ data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
 -- Hmm. Why is Scope 'Map C.Name Place', but then 'Map H.TyVar InfoPlace'?
 data Scope = Scope { scopePlaces :: Map C.Name Place, scopeInfos :: Map TyVar InfoPlace }
 
-newtype ClosureDecls = ClosureDecls [ClosureDecl]
+-- Hmm. Might consider using a DList here. I think there might be a left-nested
+-- append happening.
+newtype ClosureDecls = ClosureDecls { getClosureDecls :: [ClosureDecl] }
 
 deriving newtype instance Semigroup ClosureDecls
 deriving newtype instance Monoid ClosureDecls
 
 
-tellClosures :: [ClosureDecl] -> HoistM ()
-tellClosures cs = tell (ClosureDecls cs)
+tellClosure :: ClosureDecl -> HoistM ()
+tellClosure cs = tell (ClosureDecls [cs])
 
 
 hoistProgram :: C.TermC -> Program
 hoistProgram srcC =
-  let (srcH, ClosureDecls cs) = runHoist (hoist srcC) in
-  Program cs srcH
+  let (srcH, cs) = runHoist (hoist srcC) in
+  Program (getClosureDecls cs) srcH
 
 runHoist :: HoistM a -> (a, ClosureDecls)
 runHoist =
@@ -167,31 +170,31 @@ hoist (C.LetConcatC (x, s) y z e) = do
 -- The current version does three passes over the list of definitions
 hoist (C.LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
-  ds' <- traverse hoistFunClosure fdecls
-  tellClosures ds'
+  traverse_ hoistFunClosure fdecls
   hoistClosureAllocs C.funClosureName C.funClosureSort C.funEnvDef fdecls e
 hoist (C.LetContC ks e) = do
   kdecls <- declareClosureNames C.contClosureName ks
-  ds' <- traverse hoistContClosure kdecls
-  tellClosures ds'
+  traverse_ hoistContClosure kdecls
   hoistClosureAllocs C.contClosureName C.contClosureSort C.contEnvDef kdecls e
 
-hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ClosureDecl
+hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ()
 hoistFunClosure (fdecl, C.FunClosureDef _f env tele body) = do
   -- For some reason, selecting the closure name here causes nested closures to
   -- not be emitted???  wat.
   -- fdecl <- pickClosureName f
   inClosure env tele $ \env' params' -> do
     body' <- hoist body
-    pure (ClosureDecl fdecl env' params' body')
+    let decl = ClosureDecl fdecl env' params' body'
+    tellClosure decl
 
-hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ClosureDecl
+hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ()
 hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
   -- kdecl <- pickClosureName k
   let tele = C.makeClosureParams [] xs
   inClosure env tele $ \env' params' -> do
     body' <- hoist body
-    pure (ClosureDecl kdecl env' params' body')
+    let decl = ClosureDecl kdecl env' params' body'
+    tellClosure decl
 
 hoistValue :: C.ValueC -> HoistM ValueH
 hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
