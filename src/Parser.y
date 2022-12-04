@@ -149,6 +149,8 @@ Type :: { Type }
      : AppType { $1 }
      | AppType '->' Type { TyArr $1 $3 }
      -- Note: product types are left-associative.
+     -- I'm not quite sure I like that. In particular, ((x, y), z) : a * b * c
+     -- but I would prefer ((x, y), z): (a * b) * c
      | Type '*' AppType { TyProd $1 $3 }
      | 'forall' ID '.' Type { TyAll (tvar $2) $4 }
 

@@ -313,31 +313,25 @@ pickEnvironmentPlace (Id cl) = do
 
 hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> C.TermC -> HoistM TermH
 hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
-  let recNames = Set.fromList (map (closureName . snd) cdecls)
-  placesForClosureAllocs closureName closureSort cdecls $ \cplaces -> do
-    cs' <- for cplaces $ \ (p, d, def) -> do
+  let
+    makeClosurePlace (d, def) =
+      let cname = closureName def in
+      let p = asPlace (closureSort def) cname in
+      ((cname, p), (p, d, def))
+  let (binds, places) = unzip $ map makeClosurePlace cdecls
+
+  local (extend binds) $ do
+    cs' <- for places $ \ (p, d, def) -> do
       envAlloc <- hoistEnvAlloc recNames (closureEnvDef def)
       envPlace <- pickEnvironmentPlace (placeName p)
       pure (ClosureAlloc p d envPlace envAlloc)
     e' <- hoist e
     pure (AllocClosure cs' e')
-
-placesForClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> [(ClosureName, a)] -> ([(Place, ClosureName, a)] -> HoistM r) -> HoistM r
-placesForClosureAllocs closureName closureSort cdecls kont = do
-  let
-    makeClosurePlace (d, def) =
-      let cname = closureName def in
-      let p = asPlace (closureSort def) cname in
-      (cname, (p, d, def))
-  let binds = map makeClosurePlace cdecls
-  let
-    extend' (HoistEnv (Scope scope fields) env) =
-      let addBind (cname, (p, _, _)) sc = Map.insert cname p sc in
-      let scope' = foldr addBind scope binds in
+  where
+    extend binds (HoistEnv (Scope scope fields) env) =
+      let scope' = foldr (uncurry Map.insert) scope binds in
       HoistEnv (Scope scope' fields) env
-  -- Hmm. Specialize/Inline the continuation here, I think.
-  -- only one use, tightly coupled, could probably pass around less data.
-  local extend' (kont (map snd binds))
+    recNames = Set.fromList (map (closureName . snd) cdecls)
 
 -- | When constructing a closure, translate a CC-style environment @{ aa+; x+ }@
 -- into a Hoist-style environment allocation @{ (aa_info = i)+; (x = v)+ }@.
