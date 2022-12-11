@@ -143,6 +143,10 @@ data Type
 instance Eq Type where
   (==) = eqType emptyAE
 
+-- TODO: As I implement ADTs, I think I need to introduce kinds and kind signatures.
+-- Yep. Need kind signatures, HKTs, HK polymorphism, etc. ... and I need it at
+-- every layer. Big refactoring time, I guess.
+
 
 data AE = AE Int (Map TyVar Int) (Map TyVar Int)
 
