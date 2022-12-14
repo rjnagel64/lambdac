@@ -84,7 +84,7 @@ import Source
 Term :: { Term }
      : AppTerm { $1 }
      | '\\' '(' ID ':' Type ')' '->' Term { TmLam (var $3) $5 $8 }
-     | '\\' '@' ID '->' Term { TmTLam (tvar $3) $5 }
+     | '\\' '@' ID '->' Term { TmTLam (tvar $3) KiStar $5 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
      | 'let' FunBinds 'in' Term { TmRecFun (rundl $2) $4 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (rundl $2) $4 }
@@ -152,7 +152,7 @@ Type :: { Type }
      -- I'm not quite sure I like that. In particular, ((x, y), z) : a * b * c
      -- but I would prefer ((x, y), z): (a * b) * c
      | Type '*' AppType { TyProd $1 $3 }
-     | 'forall' ID '.' Type { TyAll (tvar $2) $4 }
+     | 'forall' ID '.' Type { TyAll (tvar $2) KiStar $4 }
 
 AppType :: { Type }
         : AType { $1 }

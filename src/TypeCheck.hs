@@ -7,8 +7,6 @@ import Source
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
 import Data.Foldable (traverse_, for_)
 
 import Control.Monad.Except
@@ -37,12 +35,12 @@ instance Show TCError where
   show (CannotProject t) = "cannot project field from value of type " ++ pprintType 0 t
   show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
 
-newtype TC a = TC { runTC :: ReaderT (Map TmVar Type, Set TyVar) (Except TCError) a }
+newtype TC a = TC { runTC :: ReaderT (Map TmVar Type, Map TyVar Kind) (Except TCError) a }
 
 deriving newtype instance Functor TC
 deriving newtype instance Applicative TC
 deriving newtype instance Monad TC
-deriving newtype instance MonadReader (Map TmVar Type, Set TyVar) TC
+deriving newtype instance MonadReader (Map TmVar Type, Map TyVar Kind) TC
 deriving newtype instance MonadError TCError TC
 
 withVars :: [(TmVar, Type)] -> TC a -> TC a
@@ -52,10 +50,10 @@ withVars xs m = do
   where
     f (tms, tys) = (foldr (uncurry Map.insert) tms xs, tys)
 
-withTyVars :: [TyVar] -> TC a -> TC a
+withTyVars :: [(TyVar, Kind)] -> TC a -> TC a
 withTyVars aas = local f
   where
-    f (tms, tys) = (tms, foldr Set.insert tys aas)
+    f (tms, tys) = (tms, foldr (uncurry Map.insert) tys aas)
 
 infer :: Term -> TC Type
 infer (TmVarOcc x) = do
@@ -136,17 +134,19 @@ infer (TmRecFun fs e) = do
 infer (TmLetRec bs e) = do
   for_ bs $ \ (x, _, rhs) -> case rhs of
     TmLam _ _ _ -> pure ()
-    TmTLam _ _ -> pure ()
+    TmTLam _ _ _ -> pure ()
     _ -> throwError (InvalidLetRec x)
   let binds = [(x, t) | (x, t, _) <- bs]
   withVars binds $ traverse_ (\ (_, t, e') -> check e' t) bs
   withVars binds $ infer e
-infer (TmTLam aa e) = do
-  t <- withTyVars [aa] $ infer e
-  pure (TyAll aa t)
+infer (TmTLam aa ki e) = do
+  t <- withTyVars [(aa, ki)] $ infer e
+  pure (TyAll aa ki t)
 infer (TmTApp e t) = do
   infer e >>= \case
-    TyAll aa t' -> pure (substType (singleSubst aa t) t')
+    TyAll aa ki t' -> do
+      wfType t -- Assert that 't' has kind 'ki'
+      pure (substType (singleSubst aa t) t')
     t' -> throwError (CannotInstantiate t')
 
 check :: Term -> Type -> TC ()
@@ -158,15 +158,18 @@ check e t = do
 checkFun :: TmFun -> TC ()
 checkFun (TmFun _f x t s e) = do
   withVars [(x, t)] $ check e s
-checkFun (TmTFun _f aa t e) = do
-  withTyVars [aa] $ check e t
+checkFun (TmTFun _f aa ki t e) = do
+  withTyVars [(aa, ki)] $ check e t
 
+-- | 'wfType' asserts that its argument is a well-formed type of kind @*@.
+-- I will probably need a new function when I add type-level application.
 wfType :: Type -> TC ()
-wfType (TyAll aa t) = local (\ (tms, tys) -> (tms, Set.insert aa tys)) $ wfType t
+wfType (TyAll aa ki t) = withTyVars [(aa, ki)] $ wfType t
 wfType (TyVarOcc aa) = do
   ctx <- asks snd
-  when (Set.notMember aa ctx) $
-    throwError (TyNotInScope aa)
+  case Map.lookup aa ctx of
+    Nothing -> throwError (TyNotInScope aa)
+    Just KiStar -> pure ()
 wfType TyUnit = pure ()
 wfType TyInt = pure ()
 wfType TyString = pure ()
@@ -177,5 +180,5 @@ wfType (TyProd t s) = wfType t *> wfType s
 wfType (TyArr t s) = wfType t *> wfType s
 
 checkProgram :: Term -> Either TCError ()
-checkProgram e = runExcept . flip runReaderT (Map.empty, Set.empty) $ runTC $ infer e *> pure ()
+checkProgram e = runExcept . flip runReaderT (Map.empty, Map.empty) $ runTC $ infer e *> pure ()
 

@@ -65,7 +65,7 @@ cpsType (S.TyVarOcc aa) = do
   case Map.lookup aa env of
     Nothing -> error "scope error"
     Just aa' -> pure (TyVarOccK aa')
-cpsType (S.TyAll aa t) = freshenTyVarBinds [aa] $ \bs -> (\t' -> AllK bs [t']) <$> cpsCoType t
+cpsType (S.TyAll aa k t) = freshenTyVarBinds [(aa, k)] $ \bs -> (\t' -> AllK bs [t']) <$> cpsCoType t
 cpsType S.TyUnit = pure UnitK
 cpsType S.TyInt = pure IntK
 cpsType S.TyString = pure StringK
@@ -198,14 +198,14 @@ cps (S.TmLam x argTy e) k =
         pure (fun, S.TyArr argTy retTy)
       (e'', t'') <- k f ty
       pure (LetFunAbsK [fun] e'', t'')
-cps (S.TmTLam aa e) k =
+cps (S.TmTLam aa ki e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
-      (def, ty) <- freshenTyVarBinds [aa] $ \bs -> do
+      (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
         (e', retTy) <- cpsTail e k'
         s' <- cpsCoType retTy
         let def = AbsDef () f bs [(k', s')] e'
-        pure (def, S.TyAll aa retTy)
+        pure (def, S.TyAll aa ki retTy)
       (e'', t'') <- k f ty
       pure (LetFunAbsK [def] e'', t'')
 cps (S.TmLet x t e1 e2) k = do
@@ -276,7 +276,7 @@ cps (S.TmApp e1 e2) k =
 cps (S.TmTApp e t) k =
   cps e $ \v1 t1 -> do
     (aa, t1') <- case t1 of
-      S.TyAll aa t1' -> pure (aa, t1')
+      S.TyAll aa ki t1' -> pure (aa, t1')
       _ -> error "type error"
     freshCo "k" $ \kv ->
       freshTm "f" $ \fv -> do
@@ -320,14 +320,14 @@ cpsFun (S.TmFun f x t s e) =
       s' <- cpsCoType s
       pure (FunDef () f' bs [(k, s')] e')
     pure fun
-cpsFun (S.TmTFun f aa s e) =
+cpsFun (S.TmTFun f aa ki s e) =
   freshCo "k" $ \k -> do
     env <- asks cpsEnvCtx
     -- Recursive bindings already handled, outside of this.
     f' <- case Map.lookup f env of
       Nothing -> error "cpsFun: function not in scope (unreachable)"
       Just (f', _) -> pure f'
-    fun <- freshenTyVarBinds [aa] $ \bs -> do
+    fun <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
       (e', _s') <- cpsTail e k
       s' <- cpsCoType s
       pure (AbsDef () f' bs [(k, s')] e')
@@ -352,14 +352,14 @@ cpsTail (S.TmLam x argTy e) k =
         pure (fun, S.TyArr argTy retTy)
       let res = LetFunAbsK [fun] (JumpK k [f])
       pure (res, ty)
-cpsTail (S.TmTLam aa e) k =
+cpsTail (S.TmTLam aa ki e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
-      (def, ty) <- freshenTyVarBinds [aa] $ \bs -> do
+      (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
         (e', retTy) <- cpsTail e k'
         s' <- cpsCoType retTy
         let def = AbsDef () f bs [(k', s')] e'
-        pure (def, S.TyAll aa retTy)
+        pure (def, S.TyAll aa ki retTy)
       let res = LetFunAbsK [def] (JumpK k [f])
       pure (res, ty)
 cpsTail (S.TmLet x t e1 e2) k =
@@ -484,7 +484,7 @@ cpsTail (S.TmApp e1 e2) k =
 cpsTail (S.TmTApp e t) k =
   cps e $ \v1 t1 -> do
     (aa, t1') <- case t1 of
-      S.TyAll aa t1' -> pure (aa, t1')
+      S.TyAll aa ki t1' -> pure (aa, t1')
       _ -> error "type error"
     let instTy = S.substType (S.singleSubst aa t) t1'
     t' <- cpsType t
@@ -610,10 +610,10 @@ freshenFunBinds fs m = do
       let i = fromMaybe 0 (Map.lookup f scope) in
       let f' = TmVar f i in
       (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyArr argTy retTy)))
-    pick sc (S.TmTFun (S.TmVar f) aa retTy _e) =
+    pick sc (S.TmTFun (S.TmVar f) aa ki retTy _e) =
       let i = fromMaybe 0 (Map.lookup f scope) in
       let f' = TmVar f i in
-      (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyAll aa retTy)))
+      (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyAll aa ki retTy)))
     (sc', binds) = mapAccumL pick scope fs
   let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (insertMany binds ctx) tys
   local extend m
@@ -633,18 +633,18 @@ freshenRecBinds fs k = do
     case (ty, rhs) of
       (S.TyArr _t s, S.TmLam x t' body) -> do
         pure (S.TmFun f x t' s body)
-      (S.TyAll aa t, S.TmTLam bb body) -> do
+      (S.TyAll aa k1 t, S.TmTLam bb k2 body) -> do
         let sub = S.singleSubst aa (S.TyVarOcc bb)
-        pure (S.TmTFun f bb (S.substType sub t) body)
+        pure (S.TmTFun f bb k2 (S.substType sub t) body)
       (_, _) -> error "letrec error"
   local extend (k fs')
 
-freshenTyVarBinds :: [S.TyVar] -> ([TyVar] -> CPS a) -> CPS a
+freshenTyVarBinds :: [(S.TyVar, S.Kind)] -> ([TyVar] -> CPS a) -> CPS a
 freshenTyVarBinds bs k = do
   scope <- asks cpsEnvScope
   let
-    pick :: Map String Int -> S.TyVar -> (Map String Int, (S.TyVar, TyVar))
-    pick sc (S.TyVar aa) =
+    pick :: Map String Int -> (S.TyVar, S.Kind) -> (Map String Int, (S.TyVar, TyVar))
+    pick sc (S.TyVar aa, ki) =
       let i = fromMaybe 0 (Map.lookup aa scope) in
       let aa' = TyVar aa i in
       (Map.insert aa (i+1) sc, (S.TyVar aa, aa'))

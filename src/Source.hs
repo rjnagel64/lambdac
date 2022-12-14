@@ -7,6 +7,7 @@ module Source
   , TmFun(..)
   , Type(..)
   , TyVar(..)
+  , Kind(..)
 
   , eqType
   , Subst
@@ -98,8 +99,8 @@ data Term
   | TmCons Term Term
   -- case uncons e return s of nil -> e1; cons (y : t1) (ys : t2) -> e2
   | TmCaseList Term Type Term ((TmVar, Type), (TmVar, Type), Term)
-  -- \ @a -> e
-  | TmTLam TyVar Term
+  -- \ @(a : k) -> e
+  | TmTLam TyVar Kind Term
   -- e @s
   | TmTApp Term Type
   -- "foo"
@@ -126,7 +127,7 @@ data TmFun
   -- | @f (x : t) : t' = e@
   = TmFun TmVar TmVar Type Type Term
   -- | @f \@a : t' = e@
-  | TmTFun TmVar TyVar Type Term
+  | TmTFun TmVar TyVar Kind Type Term
 
 data Type
   = TySum Type Type
@@ -136,12 +137,16 @@ data Type
   | TyInt
   | TyBool
   | TyVarOcc TyVar
-  | TyAll TyVar Type
+  | TyAll TyVar Kind Type
   | TyList Type
   | TyString
 
 instance Eq Type where
   (==) = eqType emptyAE
+
+data Kind
+  = KiStar
+  deriving (Eq)
 
 -- TODO: As I implement ADTs, I think I need to introduce kinds and kind signatures.
 -- Yep. Need kind signatures, HKTs, HK polymorphism, etc. ... and I need it at
@@ -184,8 +189,8 @@ eqType _ (TySum _ _) _ = False
 eqType ae (TyArr arg1 ret1) (TyArr arg2 ret2) =
   eqType ae arg1 arg2 && eqType ae ret1 ret2
 eqType _ (TyArr _ _) _ = False
-eqType ae (TyAll x t) (TyAll y s) = eqType (bindAE x y ae) t s
-eqType _ (TyAll _ _) _ = False
+eqType ae (TyAll x k1 t) (TyAll y k2 s) = k1 == k2 && eqType (bindAE x y ae) t s
+eqType _ (TyAll _ _ _) _ = False
 eqType ae (TyList a) (TyList b) = eqType ae a b
 eqType _ (TyList _) _ = False
 
@@ -219,7 +224,7 @@ substTyVar sub aa = case Map.lookup aa (substMapping sub) of
 -- | Apply a substitution to a type, @substType sub t' === t'[sub]@.
 substType :: Subst -> Type -> Type
 substType sub (TyVarOcc bb) = substTyVar sub bb
-substType sub (TyAll aa t) = let (sub', aa') = substBind sub aa in TyAll aa' (substType sub' t)
+substType sub (TyAll aa ki t) = let (sub', aa') = substBind sub aa in TyAll aa' ki (substType sub' t)
 substType _ TyUnit = TyUnit
 substType _ TyBool = TyBool
 substType _ TyInt = TyInt
@@ -232,7 +237,7 @@ substType sub (TyArr t1 t2) = TyArr (substType sub t1) (substType sub t2)
 -- | Compute the free type variables of a type
 ftv :: Type -> Set TyVar
 ftv (TyVarOcc aa) = Set.singleton aa
-ftv (TyAll bb t) = Set.delete bb (ftv t)
+ftv (TyAll bb _ t) = Set.delete bb (ftv t)
 ftv (TySum t1 t2) = ftv t1 <> ftv t2
 ftv (TyProd t1 t2) = ftv t1 <> ftv t2
 ftv (TyArr t1 t2) = ftv t1 <> ftv t2
@@ -255,8 +260,13 @@ pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ ppr
 -- infix 5 +
 pprintType p (TySum t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " + " ++ pprintType 6 t2
 pprintType _ (TyVarOcc x) = show x
-pprintType p (TyAll x t) = parensIf (p > 0) $ "forall " ++ show x ++ "." ++ pprintType 0 t
+pprintType p (TyAll x ki t) = parensIf (p > 0) $ "forall (" ++ show x ++ " : " ++ pprintKind ki ++ ")." ++ pprintType 0 t
 pprintType p (TyList t) = parensIf (p > 7) $ "list " ++ pprintType 8 t
+
+-- TODO: Decide textual representation for kind of inhabited types: '*' is
+-- ambiguous with product.
+pprintKind :: Kind -> String
+pprintKind KiStar = "*"
 
 parensIf :: Bool -> String -> String
 parensIf True x = "(" ++ x ++ ")"
