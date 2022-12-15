@@ -115,6 +115,10 @@ equalCoTypes :: CoTypeK -> CoTypeK -> M ()
 equalCoTypes expected actual =
   unless (eqCoTypeK expected actual) $ throwError (CoTypeMismatch expected actual)
 
+equalKinds :: KindK -> KindK -> M ()
+equalKinds expected actual =
+  unless (expected == actual) $ throwError (KindMismatch expected actual)
+
 instantiate :: [(TyVar, KindK)] -> [TypeK] -> [CoTypeK] -> M [CoTypeK]
 instantiate aas ts ss = do
   sub <- makeSubst <$> zipExact aas ts
@@ -260,7 +264,7 @@ checkCoArgs _ _ = throwError ArityMismatch
 checkType :: TypeK -> KindK -> M ()
 checkType (TyVarOccK aa) kk = do
   kk' <- lookupTyVar aa
-  when (kk' /= kk) $ throwError (KindMismatch kk kk')
+  equalKinds kk kk'
 checkType (AllK aas ss) StarK = withTyVars aas (traverse_ (\s -> checkCoType s StarK) ss)
 checkType (FunK ts ss) StarK =
   traverse_ (\t -> checkType t StarK) ts *>
