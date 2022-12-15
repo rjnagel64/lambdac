@@ -1,0 +1,12 @@
+
+let either : forall a. forall b. forall c. (a -> c) -> (b -> c) -> a + b -> c =
+  \ @a -> \ @b -> \ @c -> \ (f : a -> c) -> \ (g : b -> c) -> \ (e : a + b) ->
+    case e return c of {
+      inl (x : a) -> f x;
+      inr (y : b) -> g y
+    }
+in
+either @int @bool @bool
+  (\ (x : int) -> x * x > 37)
+  (\ (b : bool) -> if b return bool then false else true)
+  (inl @int @bool 7)

@@ -70,6 +70,9 @@ import Source
   STRING { TokSTRING _ _ }
 
 -- Precedence goes here, low to high
+-- Actually, I beginning to wish that I could have different precedence
+-- specifications for (e.g.) Type and Term.
+-- Unfortunately, that does not seem to be possible.
 
 %right '.'
 %right '->' 'in' 'else'
@@ -147,11 +150,12 @@ RecBind :: { (TmVar, Type, Term) }
 
 Type :: { Type }
      : AppType { $1 }
-     | AppType '->' Type { TyArr $1 $3 }
-     -- Note: product types are left-associative.
+     | Type '->' Type { TyArr $1 $3 }
+     -- Note: product types are left-associative, because '*' is declared %left.
      -- I'm not quite sure I like that. In particular, ((x, y), z) : a * b * c
      -- but I would prefer ((x, y), z): (a * b) * c
-     | Type '*' AppType { TyProd $1 $3 }
+     | Type '*' Type { TyProd $1 $3 }
+     | Type '+' Type { TySum $1 $3 }
      | 'forall' ID '.' Type { TyAll (tvar $2) KiStar $4 }
 
 AppType :: { Type }

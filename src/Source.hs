@@ -260,7 +260,8 @@ pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ ppr
 -- infix 5 +
 pprintType p (TySum t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " + " ++ pprintType 6 t2
 pprintType _ (TyVarOcc x) = show x
-pprintType p (TyAll x ki t) = parensIf (p > 0) $ "forall (" ++ show x ++ " : " ++ pprintKind ki ++ ")." ++ pprintType 0 t
+pprintType p (TyAll x ki t) =
+  parensIf (p > 0) $ "forall (" ++ show x ++ " : " ++ pprintKind ki ++ "). " ++ pprintType 0 t
 pprintType p (TyList t) = parensIf (p > 7) $ "list " ++ pprintType 8 t
 
 -- TODO: Decide textual representation for kind of inhabited types: '*' is

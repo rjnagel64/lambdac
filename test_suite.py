@@ -84,6 +84,7 @@ standard_test("impred_inst", "<closure>")
 standard_test("weird_id", "()")
 standard_test("recpoly", "7")
 standard_test("strings", "\"foobarfoobar\"")
+standard_test("either", "true")
 
 def run_tests(test_filter):
     runner = TestRunner()
