@@ -49,27 +49,29 @@ instance Monoid Fields where
   mempty = Fields (Set.empty, Set.empty)
 
 singleOcc :: Name -> Sort -> Fields
-singleOcc x s = Fields (Set.singleton (FreeOcc x s), ftv s)
-  where
-    ftv :: Sort -> Set TyVar
-    ftv (Alloc aa) = Set.singleton aa
-    ftv (Closure tele) = foldr f Set.empty tele
-      where
-        f (ValueTele t) acc = ftv t <> acc
-        f (TypeTele aa) acc = Set.delete aa acc
-    ftv Integer = Set.empty
-    ftv Unit = Set.empty
-    ftv Sum = Set.empty
-    ftv Boolean = Set.empty
-    ftv String = Set.empty
-    ftv (Pair t1 t2) = ftv t1 <> ftv t2
-    ftv (List t) = ftv t
+singleOcc x s = Fields (Set.singleton (FreeOcc x s), Set.empty)
 
 bindOccs :: Foldable t => t (Name, Sort) -> Fields -> Fields
-bindOccs bs flds =
-  let bs' = Set.fromList $ map (\ (x, s) -> FreeOcc x s) $ toList bs in
-  let (occs, tys) = getFields flds in
-  Fields (occs Set.\\ bs', tys)
+bindOccs bs flds = Fields $ foldr bindOne (getFields flds) bs
+  where
+    bindOne (x, s) (occs, tys) = (Set.delete (FreeOcc x s) occs, ftv s <> tys)
+
+-- TODO: There's probably a method more principled than just a free FTV function
+-- This is needed in bindOccs (to visit the annotation) and in makeClosureEnv
+-- (to get the FTV of the fields)
+ftv :: Sort -> Set TyVar
+ftv (Alloc aa) = Set.singleton aa
+ftv (Closure tele) = foldr f Set.empty tele
+  where
+    f (ValueTele t) acc = ftv t <> acc
+    f (TypeTele aa) acc = Set.delete aa acc
+ftv Integer = Set.empty
+ftv Unit = Set.empty
+ftv Sum = Set.empty
+ftv Boolean = Set.empty
+ftv String = Set.empty
+ftv (Pair t1 t2) = ftv t1 <> ftv t2
+ftv (List t) = ftv t
 
 singleTyOcc :: TyVar -> Fields
 singleTyOcc aa = Fields (Set.empty, Set.singleton aa)
@@ -177,8 +179,7 @@ cconvFunDef (K.FunDef _ f xs ks e) = do
       withCos ks $ \ks' -> do
         e' <- cconv e
         pure (makeClosureParams [] (xs' ++ ks'), e')
-  let (fields, tyfields) = getFields flds
-  let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
+  env <- makeClosureEnv flds
   let fnName (K.TmVar x i) = Name x i
   pure (FunClosureDef (fnName f) env params' e')
 cconvFunDef (K.AbsDef _ f as ks e) = do
@@ -187,8 +188,7 @@ cconvFunDef (K.AbsDef _ f as ks e) = do
       withCos ks $ \ks' -> do
         e' <- cconv e
         pure (makeClosureParams as' ks', e')
-  let (fields, tyfields) = getFields flds
-  let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
+  env <- makeClosureEnv flds
   let fnName (K.TmVar x i) = Name x i
   pure (FunClosureDef (fnName f) env params' e')
 
@@ -198,10 +198,18 @@ cconvContDef (K.ContDef _ k xs e) = do
     withTms xs $ \xs' -> do
       e' <- cconv e
       pure (xs', e')
-  let (fields, tyfields) = getFields flds
-  let env = EnvDef (Set.toList tyfields) (map (\ (FreeOcc x s) -> (x, s)) $ Set.toList fields)
+  env <- makeClosureEnv flds
   let contName (K.CoVar x i) = Name x i
   pure (ContClosureDef (contName k) env xs' e')
+
+makeClosureEnv :: Fields -> ConvM EnvDef
+makeClosureEnv flds = do
+  let (fields, tyfields) = getFields flds
+  -- The fields (x : s) bound in the environment may have free variables of their own.
+  -- Gather those free variables and add them to the environment.
+  let addField (FreeOcc x s) (xs, acc) = ((x, s) : xs, ftv s <> acc)
+  let (envFields, envTyFields) = foldr addField ([], tyfields) fields
+  pure (EnvDef (Set.toList envTyFields) envFields)
 
 cconvValue :: K.ValueK -> ConvM ValueC
 cconvValue K.NilK = pure NilC
