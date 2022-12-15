@@ -144,8 +144,8 @@ infer (TmTLam aa ki e) = do
   pure (TyAll aa ki t)
 infer (TmTApp e t) = do
   infer e >>= \case
-    TyAll aa ki t' -> do
-      wfType t -- Assert that 't' has kind 'ki'
+    TyAll aa KiStar t' -> do
+      wfType t
       pure (substType (singleSubst aa t) t')
     t' -> throwError (CannotInstantiate t')
 
