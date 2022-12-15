@@ -21,6 +21,7 @@ data TypeError
   | TyNotInScope TyVar
   | TypeMismatch TypeK TypeK
   | CoTypeMismatch CoTypeK CoTypeK
+  | KindMismatch KindK KindK
   | BadCaseAnalysis TmVar TypeK
   | ArityMismatch
   | BadValue ValueK TypeK
@@ -41,6 +42,11 @@ instance Show TypeError where
     [ "type mismatch:"
     , "expected type: " ++ pprintCoType expected
     , "actual type:   " ++ pprintCoType actual
+    ]
+  show (KindMismatch expected actual) = unlines
+    [ "kind mismatch:"
+    , "expected kind: " ++ pprintKind expected
+    , "actual kind:   " ++ pprintKind actual
     ]
   show (BadCaseAnalysis x s) = "cannot analyze cases for " ++ show x ++ " of type " ++ pprintType s
   show ArityMismatch = "incorrect arity"
@@ -76,12 +82,12 @@ emptyContext = Context Map.empty Map.empty Map.empty
 
 withTmVars :: [(TmVar, TypeK)] -> M a -> M a
 withTmVars [] m = m
-withTmVars ((x, t):xs) m = checkType t *> local extend (withTmVars xs m)
+withTmVars ((x, t):xs) m = checkType t StarK *> local extend (withTmVars xs m)
   where extend (Context tms cos tys) = Context (Map.insert x t tms) cos tys
 
 withCoVars :: [(CoVar, CoTypeK)] -> M a -> M a
 withCoVars [] m = m
-withCoVars ((k, s):ks) m = checkCoType s *> local extend (withCoVars ks m)
+withCoVars ((k, s):ks) m = checkCoType s StarK *> local extend (withCoVars ks m)
   where extend (Context tms cos tys) = Context tms (Map.insert k s cos) tys
 
 withTyVars :: [(TyVar, KindK)] -> M a -> M a
@@ -116,7 +122,7 @@ instantiate aas ts ss = do
   where
     zipExact [] [] = pure []
     zipExact ((aa, kk):aas') (t:ts') = do
-      checkType t -- checkType t kk
+      checkType t kk
       rest <- zipExact aas' ts'
       pure ((aa, t) : rest)
     zipExact _ _ = throwError ArityMismatch
@@ -250,23 +256,27 @@ checkCoArgs (k:ks) (s:ss) = checkCoVar k s *> checkCoArgs ks ss
 checkCoArgs _ _ = throwError ArityMismatch
 
 
--- | Check that a type is well-formed.
--- TODO: I should probably check type has kind here instead.
-checkType :: TypeK -> M ()
-checkType (TyVarOccK aa) = lookupTyVar aa *> pure ()
-checkType (AllK aas ss) = withTyVars aas (traverse_ checkCoType ss)
-checkType (FunK ts ss) = traverse_ checkType ts *> traverse_ checkCoType ss
-checkType (ProdK t s) = checkType t *> checkType s
-checkType (SumK t s) = checkType t *> checkType s
-checkType (ListK t) = checkType t
-checkType UnitK = pure ()
-checkType IntK = pure ()
-checkType BoolK = pure ()
-checkType StringK = pure ()
+-- | Check that a type has the given kind.
+checkType :: TypeK -> KindK -> M ()
+checkType (TyVarOccK aa) kk = do
+  kk' <- lookupTyVar aa
+  when (kk' /= kk) $ throwError (KindMismatch kk kk')
+checkType (AllK aas ss) StarK = withTyVars aas (traverse_ (\s -> checkCoType s StarK) ss)
+checkType (FunK ts ss) StarK =
+  traverse_ (\t -> checkType t StarK) ts *>
+  traverse_ (\s -> checkCoType s StarK) ss
+checkType (ProdK t s) StarK = checkType t StarK *> checkType s StarK
+checkType (SumK t s) StarK = checkType t StarK *> checkType s StarK
+checkType (ListK t) StarK = checkType t StarK
+checkType UnitK StarK = pure ()
+checkType IntK StarK = pure ()
+checkType BoolK StarK = pure ()
+checkType StringK StarK = pure ()
 
--- | Check that a co-type is well-formed.
-checkCoType :: CoTypeK -> M ()
-checkCoType (ContK ts) = traverse_ checkType ts
+-- | Check that a co-type has the given kind.
+checkCoType :: CoTypeK -> KindK -> M ()
+checkCoType (ContK ts) StarK = traverse_ (\t -> checkType t StarK) ts
 
+-- | Check that a kind is well-formed.
 checkKind :: KindK -> M ()
 checkKind StarK = pure ()

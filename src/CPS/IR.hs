@@ -29,6 +29,7 @@ module CPS.IR
     , pprintTerm
     , pprintType
     , pprintCoType
+    , pprintKind
     , pprintValue
     ) where
 
@@ -204,10 +205,7 @@ eqTypeK' :: Alpha -> TypeK -> TypeK -> Bool
 eqTypeK' sc (TyVarOccK aa) (TyVarOccK bb) = varAlpha aa bb sc
 eqTypeK' _ (TyVarOccK _) _ = False
 eqTypeK' sc (AllK aas ts) (AllK bbs ss) =
-  bindAlpha' sc aas bbs $ \sc' -> allEqual (eqCoTypeK' sc') ts ss
--- case bindAlpha aas bbs sc of
---   Nothing -> False
---   Just sc' -> allEqual (eqCoTypeK' sc') ts ss
+  bindAlpha sc aas bbs $ \sc' -> allEqual (eqCoTypeK' sc') ts ss
 eqTypeK' _ (AllK _ _) _ = False
 eqTypeK' _ UnitK UnitK = True
 eqTypeK' _ UnitK _ = False
@@ -232,23 +230,13 @@ eqCoTypeK' sc (ContK ts) (ContK ss) = allEqual (eqTypeK' sc) ts ss
 
 data Alpha = Alpha Int (Map TyVar Int) (Map TyVar Int)
 
-bindAlpha' :: Alpha -> [(TyVar, KindK)] -> [(TyVar, KindK)] -> (Alpha -> Bool) -> Bool
-bindAlpha' sc [] [] k = k sc
-bindAlpha' sc ((aa, k1):aas) ((bb, k2):bbs) k = k1 == k2 && bindAlpha' (bind aa bb sc) aas bbs k
+bindAlpha :: Alpha -> [(TyVar, KindK)] -> [(TyVar, KindK)] -> (Alpha -> Bool) -> Bool
+bindAlpha sc [] [] k = k sc
+bindAlpha sc ((aa, k1):aas) ((bb, k2):bbs) k = k1 == k2 && bindAlpha (bind aa bb sc) aas bbs k
   where
     bind :: TyVar -> TyVar -> Alpha -> Alpha
     bind x y (Alpha l ls rs) = Alpha (l+1) (Map.insert x l ls) (Map.insert y l rs)
-bindAlpha' _ _ _ _ = False
-
-bindAlpha :: [TyVar] -> [TyVar] -> Alpha -> Maybe Alpha
-bindAlpha aas bbs sc = go aas bbs sc
-  where
-    go [] [] sc' = Just sc'
-    go (aa:aas') (bb:bbs') sc' = go aas' bbs' (bind aa bb sc')
-    go _ _ _ = Nothing
-
-    bind :: TyVar -> TyVar -> Alpha -> Alpha
-    bind aa bb (Alpha l ls rs) = Alpha (l+1) (Map.insert aa l ls) (Map.insert bb l rs)
+bindAlpha _ _ _ _ = False
 
 varAlpha :: TyVar -> TyVar -> Alpha -> Bool
 varAlpha aa bb (Alpha _ ls rs) = case (Map.lookup aa ls, Map.lookup bb rs) of
