@@ -236,6 +236,12 @@ bindAlpha sc ((aa, k1):aas) ((bb, k2):bbs) k = k1 == k2 && bindAlpha (bind aa bb
   where
     bind :: TyVar -> TyVar -> Alpha -> Alpha
     bind x y (Alpha l ls rs) = Alpha (l+1) (Map.insert x l ls) (Map.insert y l rs)
+-- The lists of bindings had different lengths.
+-- Therefore, the types are definitely unequal, and we can short-circuit the
+-- computation.
+-- (Side note: I think this is analogous to a CPS 'abort' operation, because we
+-- directly return a value of the answer type rather than invoke the
+-- continuation to obtain one.)
 bindAlpha _ _ _ _ = False
 
 varAlpha :: TyVar -> TyVar -> Alpha -> Bool

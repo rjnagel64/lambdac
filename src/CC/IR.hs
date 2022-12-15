@@ -92,14 +92,8 @@ data TyVar = TyVar String
 instance Show TyVar where
   show (TyVar aa) = aa
 
--- | 'Sort' is really a simplified form of type information.
--- Value = int
--- Sum = bool | t1 + t2
--- Product = () | t1 * t2
--- Closure = (t1, t2, ...) -> 0
--- Alloc = a : *
--- Eventually, I may want to distinguish between named and anonymous product
--- types.
+-- | 'Sort' is really just the CC equivalent of a type.
+-- (The different name exists mostly for historical reasons)
 data Sort
   = Closure [TeleEntry]
   | Integer
@@ -111,24 +105,9 @@ data Sort
   | Boolean
   | List Sort
 
-instance Show Sort where
-  show (Closure ss) = "(" ++ intercalate ", " (map show ss) ++ ") -> !"
-  show Integer = "int"
-  show (Alloc aa) = "alloc(" ++ show aa ++ ")"
-  show Sum = "sum"
-  show String = "string"
-  show Boolean = "bool"
-  show (List s) = "list " ++ show s
-  show (Pair s t) = "pair " ++ show s ++ " " ++ show t
-  show Unit = "unit"
-
 data TeleEntry
   = ValueTele Sort
   | TypeTele TyVar
-
-instance Show TeleEntry where
-  show (ValueTele s) = show s
-  show (TypeTele aa) = '@' : show aa
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -243,7 +222,7 @@ pprintTerm n (CallC f xs ks) =
   indent n $ show f ++ " " ++ intercalate " " (map pprintArg xs ++ map show ks) ++ ";\n"
   where
     pprintArg (ValueArg x) = show x
-    pprintArg (TypeArg t) = show t
+    pprintArg (TypeArg t) = pprintSort t
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContC fs e) =
@@ -266,8 +245,23 @@ pprintTerm n (LetCompareC x cmp e) =
 pprintTerm n (LetConcatC x y z e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ show y ++ " ++ " ++ show z ++ ";\n") ++ pprintTerm n e
 
+pprintSort :: Sort -> String
+pprintSort (Closure ss) = "(" ++ intercalate ", " (map pprintTele ss) ++ ") -> !"
+pprintSort Integer = "int"
+pprintSort (Alloc aa) = "alloc(" ++ show aa ++ ")"
+pprintSort Sum = "sum"
+pprintSort String = "string"
+pprintSort Boolean = "bool"
+pprintSort (List s) = "list " ++ pprintSort s
+pprintSort (Pair s t) = "pair " ++ pprintSort s ++ " " ++ pprintSort t
+pprintSort Unit = "unit"
+
+pprintTele :: TeleEntry -> String
+pprintTele (ValueTele s) = pprintSort s
+pprintTele (TypeTele aa) = '@' : show aa
+
 pprintPlace :: (Name, Sort) -> String
-pprintPlace (x, s) = show x ++ " : " ++ show s
+pprintPlace (x, s) = show x ++ " : " ++ pprintSort s
 
 pprintValue :: ValueC -> String
 pprintValue NilC = "()"
