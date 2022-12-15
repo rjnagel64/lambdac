@@ -64,7 +64,7 @@ cpsType (S.TyVarOcc aa) = do
   env <- asks cpsEnvTyCtx
   case Map.lookup aa env of
     Nothing -> error "scope error"
-    Just aa' -> pure (TyVarOccK aa')
+    Just (aa', kk) -> pure (TyVarOccK aa')
 cpsType (S.TyAll aa k t) = freshenTyVarBinds [(aa, k)] $ \bs -> (\t' -> AllK bs [t']) <$> cpsCoType t
 cpsType S.TyUnit = pure UnitK
 cpsType S.TyInt = pure IntK
@@ -77,6 +77,9 @@ cpsType (S.TyList a) = ListK <$> cpsType a
 
 cpsCoType :: S.Type -> CPS CoTypeK
 cpsCoType s = (\s' -> ContK [s']) <$> cpsType s
+
+cpsKind :: S.Kind -> CPS KindK
+cpsKind S.KiStar = pure StarK
 
 -- Note: Failure modes of CPS
 -- Before CPS, the source program is type-checked. This also checks that all
@@ -561,7 +564,7 @@ data CPSEnv
   = CPSEnv {
     cpsEnvScope :: Map String Int
   , cpsEnvCtx :: Map S.TmVar (TmVar, S.Type)
-  , cpsEnvTyCtx :: Map S.TyVar TyVar
+  , cpsEnvTyCtx :: Map S.TyVar (TyVar, S.Kind)
   }
 
 emptyEnv :: CPSEnv
@@ -598,6 +601,20 @@ freshenVarBinds bs k = do
     (sc', bs') = mapAccumL pick scope bs
   let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (insertMany bs' ctx) tys
   bs'' <- traverse (\ (_, (x', t)) -> (,) x' <$> cpsType t) bs'
+  local extend (k bs'')
+
+freshenTyVarBinds :: [(S.TyVar, S.Kind)] -> ([(TyVar, KindK)] -> CPS a) -> CPS a
+freshenTyVarBinds bs k = do
+  scope <- asks cpsEnvScope
+  let
+    -- pick :: Map String Int -> (S.TyVar, S.Kind) -> (Map String Int, (S.TyVar, TyVar))
+    pick sc (S.TyVar aa, ki) =
+      let i = fromMaybe 0 (Map.lookup aa scope) in
+      let aa' = TyVar aa i in
+      (Map.insert aa (i+1) sc, (S.TyVar aa, (aa', ki)))
+    (sc', bs') = mapAccumL pick scope bs
+  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' ctx (insertMany bs' tys)
+  bs'' <- traverse (\ (_, (aa', k)) -> (,) aa' <$> cpsKind k) bs'
   local extend (k bs'')
 
 -- | Rename a sequence of function bindings and bring them in to scope.
@@ -638,19 +655,5 @@ freshenRecBinds fs k = do
         pure (S.TmTFun f bb k2 (S.substType sub t) body)
       (_, _) -> error "letrec error"
   local extend (k fs')
-
-freshenTyVarBinds :: [(S.TyVar, S.Kind)] -> ([TyVar] -> CPS a) -> CPS a
-freshenTyVarBinds bs k = do
-  scope <- asks cpsEnvScope
-  let
-    pick :: Map String Int -> (S.TyVar, S.Kind) -> (Map String Int, (S.TyVar, TyVar))
-    pick sc (S.TyVar aa, ki) =
-      let i = fromMaybe 0 (Map.lookup aa scope) in
-      let aa' = TyVar aa i in
-      (Map.insert aa (i+1) sc, (S.TyVar aa, aa'))
-    (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' ctx (insertMany bs' tys)
-  let bs'' = map snd bs'
-  local extend (k bs'')
 
 

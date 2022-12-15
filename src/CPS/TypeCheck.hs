@@ -7,10 +7,7 @@ import Control.Monad.Reader
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
 
-import Data.Bool (bool)
 import Data.Foldable (for_, traverse_)
 
 import CPS.IR
@@ -71,11 +68,11 @@ data Context
   = Context {
     tmContext :: Map TmVar TypeK
   , coContext :: Map CoVar CoTypeK
-  , tyContext :: Set TyVar
+  , tyContext :: Map TyVar KindK
   }
 
 emptyContext :: Context
-emptyContext = Context Map.empty Map.empty Set.empty
+emptyContext = Context Map.empty Map.empty Map.empty
 
 withTmVars :: [(TmVar, TypeK)] -> M a -> M a
 withTmVars [] m = m
@@ -87,9 +84,10 @@ withCoVars [] m = m
 withCoVars ((k, s):ks) m = checkCoType s *> local extend (withCoVars ks m)
   where extend (Context tms cos tys) = Context tms (Map.insert k s cos) tys
 
-withTyVars :: [TyVar] -> M a -> M a
-withTyVars aas = local extend
-  where extend (Context tms cos tys) = Context tms cos (foldr Set.insert tys aas)
+withTyVars :: [(TyVar, KindK)] -> M a -> M a
+withTyVars [] m = m
+withTyVars ((aa, kk) : aas) m = checkKind kk *> local extend (withTyVars aas m)
+  where extend (Context tms cos tys) = Context tms cos (Map.insert aa kk tys)
 
 lookupTmVar :: TmVar -> M TypeK
 lookupTmVar x = asks tmContext >>= maybe err pure . Map.lookup x
@@ -99,8 +97,8 @@ lookupCoVar :: CoVar -> M CoTypeK
 lookupCoVar x = asks coContext >>= maybe err pure . Map.lookup x
   where err = throwError (CoNotInScope x)
 
-lookupTyVar :: TyVar -> M ()
-lookupTyVar x = asks tyContext >>= bool err (pure ()) . Set.member x
+lookupTyVar :: TyVar -> M KindK
+lookupTyVar x = asks tyContext >>= maybe err pure . Map.lookup x
   where err = throwError (TyNotInScope x)
 
 equalTypes :: TypeK -> TypeK -> M ()
@@ -111,13 +109,16 @@ equalCoTypes :: CoTypeK -> CoTypeK -> M ()
 equalCoTypes expected actual =
   unless (eqCoTypeK expected actual) $ throwError (CoTypeMismatch expected actual)
 
-instantiate :: [TyVar] -> [TypeK] -> [CoTypeK] -> M [CoTypeK]
+instantiate :: [(TyVar, KindK)] -> [TypeK] -> [CoTypeK] -> M [CoTypeK]
 instantiate aas ts ss = do
   sub <- makeSubst <$> zipExact aas ts
   pure (map (substCoTypeK sub) ss)
   where
     zipExact [] [] = pure []
-    zipExact (aa:aas') (t:ts') = (:) (aa, t) <$> zipExact aas' ts'
+    zipExact ((aa, kk):aas') (t:ts') = do
+      checkType t -- checkType t kk
+      rest <- zipExact aas' ts'
+      pure ((aa, t) : rest)
     zipExact _ _ = throwError ArityMismatch
 
 
@@ -250,8 +251,9 @@ checkCoArgs _ _ = throwError ArityMismatch
 
 
 -- | Check that a type is well-formed.
+-- TODO: I should probably check type has kind here instead.
 checkType :: TypeK -> M ()
-checkType (TyVarOccK aa) = lookupTyVar aa
+checkType (TyVarOccK aa) = lookupTyVar aa *> pure ()
 checkType (AllK aas ss) = withTyVars aas (traverse_ checkCoType ss)
 checkType (FunK ts ss) = traverse_ checkType ts *> traverse_ checkCoType ss
 checkType (ProdK t s) = checkType t *> checkType s
@@ -265,3 +267,6 @@ checkType StringK = pure ()
 -- | Check that a co-type is well-formed.
 checkCoType :: CoTypeK -> M ()
 checkCoType (ContK ts) = traverse_ checkType ts
+
+checkKind :: KindK -> M ()
+checkKind StarK = pure ()

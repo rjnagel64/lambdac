@@ -19,6 +19,8 @@ module CPS.IR
     , CoTypeK(..)
     , eqCoTypeK
 
+    , KindK(..)
+
     , Subst
     , makeSubst
     , substTypeK
@@ -122,7 +124,7 @@ contDefType (ContDef _ _ xs _) = ContK (map snd xs)
 -- or type functions @f \@a (k:σ) := e@
 data FunDef a
   = FunDef a TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK a)
-  | AbsDef a TmVar [TyVar] [(CoVar, CoTypeK)] (TermK a)
+  | AbsDef a TmVar [(TyVar, KindK)] [(CoVar, CoTypeK)] (TermK a)
 
 funDefName :: FunDef a -> TmVar
 funDefName (FunDef _ f _ _ _) = f
@@ -175,13 +177,17 @@ data TypeK
   -- List σ
   | ListK TypeK
   -- forall aa+. ((σ+) -> !)+
-  | AllK [TyVar] [CoTypeK]
+  | AllK [(TyVar, KindK)] [CoTypeK]
   -- aa
   | TyVarOccK TyVar
 
 -- | A co-type is the type of a continuation.
 -- @(τ+) -> !@
 newtype CoTypeK = ContK [TypeK]
+
+data KindK
+  = StarK
+  deriving (Eq)
 
 
 -- Alpha-Equality of types
@@ -197,9 +203,11 @@ eqCoTypeK t s = eqCoTypeK' (Alpha 0 Map.empty Map.empty) t s
 eqTypeK' :: Alpha -> TypeK -> TypeK -> Bool
 eqTypeK' sc (TyVarOccK aa) (TyVarOccK bb) = varAlpha aa bb sc
 eqTypeK' _ (TyVarOccK _) _ = False
-eqTypeK' sc (AllK aas ts) (AllK bbs ss) = case bindAlpha aas bbs sc of
-  Nothing -> False
-  Just sc' -> allEqual (eqCoTypeK' sc') ts ss
+eqTypeK' sc (AllK aas ts) (AllK bbs ss) =
+  bindAlpha' sc aas bbs $ \sc' -> allEqual (eqCoTypeK' sc') ts ss
+-- case bindAlpha aas bbs sc of
+--   Nothing -> False
+--   Just sc' -> allEqual (eqCoTypeK' sc') ts ss
 eqTypeK' _ (AllK _ _) _ = False
 eqTypeK' _ UnitK UnitK = True
 eqTypeK' _ UnitK _ = False
@@ -223,6 +231,14 @@ eqCoTypeK' :: Alpha -> CoTypeK -> CoTypeK -> Bool
 eqCoTypeK' sc (ContK ts) (ContK ss) = allEqual (eqTypeK' sc) ts ss
 
 data Alpha = Alpha Int (Map TyVar Int) (Map TyVar Int)
+
+bindAlpha' :: Alpha -> [(TyVar, KindK)] -> [(TyVar, KindK)] -> (Alpha -> Bool) -> Bool
+bindAlpha' sc [] [] k = k sc
+bindAlpha' sc ((aa, k1):aas) ((bb, k2):bbs) k = k1 == k2 && bindAlpha' (bind aa bb sc) aas bbs k
+  where
+    bind :: TyVar -> TyVar -> Alpha -> Alpha
+    bind x y (Alpha l ls rs) = Alpha (l+1) (Map.insert x l ls) (Map.insert y l rs)
+bindAlpha' _ _ _ _ = False
 
 bindAlpha :: [TyVar] -> [TyVar] -> Alpha -> Maybe Alpha
 bindAlpha aas bbs sc = go aas bbs sc
@@ -252,7 +268,7 @@ allEqual _ _ _ = False
 -- | Compute the free type variables of a type.
 typeFV :: TypeK -> Set TyVar
 typeFV (TyVarOccK aa) = Set.singleton aa
-typeFV (AllK aas ss) = Set.unions (map coTypeFV ss) Set.\\ Set.fromList aas
+typeFV (AllK aas ss) = Set.unions (map coTypeFV ss) Set.\\ Set.fromList (map fst aas)
 typeFV (FunK ts ss) = Set.unions (map typeFV ts) <> Set.unions (map coTypeFV ss)
 typeFV (ProdK t s) = typeFV t <> typeFV s
 typeFV (SumK t s) = typeFV t <> typeFV s
@@ -302,16 +318,16 @@ substVar (Subst sub _) aa = case Map.lookup aa sub of
   Nothing -> TyVarOccK aa
   Just t -> t
 
-bindSubst :: Traversable t => Subst -> t TyVar -> (Subst, t TyVar)
+bindSubst :: Traversable t => Subst -> t (TyVar, KindK) -> (Subst, t (TyVar, KindK))
 bindSubst = mapAccumL bindOne
   where
-    bindOne :: Subst -> TyVar -> (Subst, TyVar)
-    bindOne (Subst s sc) aa =
+    bindOne :: Subst -> (TyVar, KindK) -> (Subst, (TyVar, KindK))
+    bindOne (Subst s sc) (aa, kk) =
       if Set.member aa sc then
         let bb = freshen sc aa in
-        (Subst (Map.insert aa (TyVarOccK bb) s) (Set.insert bb sc), bb)
+        (Subst (Map.insert aa (TyVarOccK bb) s) (Set.insert bb sc), (bb, kk))
       else
-        (Subst (Map.delete aa s) (Set.insert aa sc), aa)
+        (Subst (Map.delete aa s) (Set.insert aa sc), (aa, kk))
 
     freshen :: Set TyVar -> TyVar -> TyVar
     freshen sc (TyVar aa i) =
@@ -392,7 +408,7 @@ pprintFunDef n (AbsDef _ f as ks e) =
   where
     -- One parameter list or two?
     params = "(" ++ intercalate ", " (map pprintTyParam as ++ map pprintCoParam ks) ++ ")"
-    pprintTyParam aa = "@" ++ show aa
+    pprintTyParam (aa, kk) = "@" ++ show aa ++ " :: " ++ pprintKind kk
     pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
 
 pprintContDef :: Int -> ContDef a -> String
@@ -418,7 +434,8 @@ pprintType BoolK = "bool"
 pprintType StringK = "string"
 pprintType (TyVarOccK aa) = show aa
 pprintType (AllK aas ss) =
-  "forall " ++ intercalate " " (map show aas) ++ ". (" ++ intercalate ", " (map pprintCoType ss) ++ ") -> 0"
+  "forall (" ++ intercalate ", " (map f aas) ++ "). (" ++ intercalate ", " (map pprintCoType ss) ++ ") -> 0"
+  where f (aa, kk) = show aa ++ " :: " ++ pprintKind kk
 
 pprintAType :: TypeK -> String
 pprintAType (TyVarOccK aa) = show aa
@@ -430,3 +447,6 @@ pprintAType t = "(" ++ pprintType t ++ ")"
 
 pprintCoType :: CoTypeK -> String
 pprintCoType (ContK ss) = "(" ++ intercalate ", " (map pprintType ss) ++ ") -> 0"
+
+pprintKind :: KindK -> String
+pprintKind StarK = "*"

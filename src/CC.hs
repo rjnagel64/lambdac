@@ -127,9 +127,9 @@ withCos ks k = do
 -- | Bind a sequence of type variables: both extending the typing context on
 -- the way down, and removing them from the free variable set on the way back
 -- up.
-withTys :: [K.TyVar] -> ([TyVar] -> ConvM a) -> ConvM a
+withTys :: [(K.TyVar, K.KindK)] -> ([TyVar] -> ConvM a) -> ConvM a
 withTys aas k = do
-  let aas' = map (\aa -> (aa, tyVar aa)) aas
+  let aas' = map (\ (aa, _) -> (aa, tyVar aa)) aas
   let extend (Context tms cos tys) = Context tms cos (insertMany aas' tys)
   let binds = map snd aas'
   censor (bindTys binds) $ local extend $ k binds
