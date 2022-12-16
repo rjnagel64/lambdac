@@ -25,6 +25,7 @@ module CC.IR
   , Sort(..)
   , TeleEntry(..)
   , TyVar(..)
+  , Kind(..)
 
   , pprintProgram
   ) where
@@ -107,7 +108,10 @@ data Sort
 
 data TeleEntry
   = ValueTele Sort
-  | TypeTele TyVar
+  | TypeTele TyVar Kind
+
+data Kind
+  = Star
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -160,15 +164,15 @@ data FunClosureDef
 funClosureSort :: FunClosureDef -> Sort
 funClosureSort (FunClosureDef _ _ params _) = paramsSort params
 
-data ClosureParam = TypeParam TyVar | ValueParam Name Sort
+data ClosureParam = TypeParam TyVar Kind | ValueParam Name Sort
 
-makeClosureParams :: [TyVar] -> [(Name, Sort)] -> [ClosureParam]
-makeClosureParams aas xs = map TypeParam aas ++ map (uncurry ValueParam) xs
+makeClosureParams :: [(TyVar, Kind)] -> [(Name, Sort)] -> [ClosureParam]
+makeClosureParams aas xs = map (uncurry TypeParam) aas ++ map (uncurry ValueParam) xs
 
 paramsSort :: [ClosureParam] -> Sort
 paramsSort params = Closure (map f params)
   where
-    f (TypeParam aa) = TypeTele aa
+    f (TypeParam aa k) = TypeTele aa k
     f (ValueParam _ s) = ValueTele s
 
 -- | A continuation definition, @k {aa+; x+} y+ = e@.
@@ -193,7 +197,7 @@ contClosureSort (ContClosureDef _ _ params _) = paramsSort (makeClosureParams []
 -- and those from the same recursive bind group.
 data EnvDef
   = EnvDef {
-    envFreeTypes :: [TyVar]
+    envFreeTypes :: [(TyVar, Kind)]
   , envFreeNames :: [(Name, Sort)]
   }
 
@@ -258,7 +262,10 @@ pprintSort Unit = "unit"
 
 pprintTele :: TeleEntry -> String
 pprintTele (ValueTele s) = pprintSort s
-pprintTele (TypeTele aa) = '@' : show aa
+pprintTele (TypeTele aa k) = '@' : show aa ++ " : " ++ pprintKind k
+
+pprintKind :: Kind -> String
+pprintKind Star = "*"
 
 pprintPlace :: (Name, Sort) -> String
 pprintPlace (x, s) = show x ++ " : " ++ pprintSort s
@@ -302,10 +309,10 @@ pprintContClosureDef n (ContClosureDef k env xs e) =
 pprintClosureParams :: [ClosureParam] -> String
 pprintClosureParams params = intercalate ", " (map f params)
   where
-    f (TypeParam aa) = "@" ++ show aa
+    f (TypeParam aa k) = '@' : show aa ++ " : " ++ pprintKind k
     f (ValueParam x s) = pprintPlace (x, s)
 
 pprintEnvDef :: Int -> EnvDef -> String
 pprintEnvDef n (EnvDef tys free) = indent n $ "{" ++ intercalate ", " vars ++ "}\n"
   where
-    vars = map (\v -> "@" ++ show v) tys ++ map pprintPlace free
+    vars = map (\ (aa, k) -> '@' : show aa ++ " : " ++ pprintKind k) tys ++ map pprintPlace free

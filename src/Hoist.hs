@@ -63,7 +63,7 @@ sortOf (C.List t) = ListH (sortOf t)
 sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
   where
     f (C.ValueTele s) = ValueTele (sortOf s)
-    f (C.TypeTele aa) = TypeTele (asTyVar aa)
+    f (C.TypeTele aa k) = TypeTele (asTyVar aa)
 sortOf (C.Alloc aa) = AllocH (asTyVar aa)
 
 caseKind :: C.CaseKind -> CaseKind
@@ -277,7 +277,7 @@ withParams params k = local setScope $ k params'
       let (ps, is, te) = foldr addParam (id, id, []) params in
       (ps Map.empty, is Map.empty, te)
 
-    addParam (C.TypeParam aa) (places, infoPlaces, tele) =
+    addParam (C.TypeParam aa k) (places, infoPlaces, tele) =
       let aa' = asInfoPlace aa in
       (places, infoPlaces . Map.insert (asTyVar aa) aa', TypeParam aa' : tele)
     addParam (C.ValueParam x s) (places, infoPlaces, tele) =
@@ -287,7 +287,7 @@ withParams params k = local setScope $ k params'
 withEnvDef :: C.EnvDef -> ((Id, EnvDecl) -> HoistM a) -> HoistM a
 withEnvDef (C.EnvDef tyfields fields) k = do
   let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
-  let tyfields' = map (\aa -> (asTyVar aa, asInfoPlace aa)) tyfields
+  let tyfields' = map (\ (aa, k) -> (asTyVar aa, asInfoPlace aa)) tyfields
   let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
   let envd = EnvDecl (map (\ (aa, i) -> (infoName i, aa)) tyfields') (map snd fields')
   local (\ (HoistEnv oldLocals _) -> HoistEnv oldLocals newEnv) $ do
@@ -350,7 +350,7 @@ hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
 -- returns both a H.EnvDecl and a H.EnvAlloc.
 hoistEnvAlloc :: Set C.Name -> C.EnvDef -> HoistM EnvAlloc
 hoistEnvAlloc recNames (C.EnvDef tys fields) = do
-  tyfields <- for tys $ \aa -> do
+  tyfields <- for tys $ \ (aa, k) -> do
     let fieldName = infoName $ asInfoPlace aa
     -- This is *probably* a legit use of 'asTyVar'. CC gives us an environment
     -- consisting of captured free vars, and captured fields.

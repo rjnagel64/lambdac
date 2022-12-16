@@ -26,7 +26,7 @@ data Context
   = Context {
     ctxTms :: Map K.TmVar (Name, Sort)
   , ctxCos :: Map K.CoVar (Name, Sort)
-  , ctxTys :: Map K.TyVar TyVar
+  , ctxTys :: Map K.TyVar (TyVar, Kind)
   }
 
 emptyContext :: Context
@@ -40,7 +40,7 @@ instance Eq FreeOcc where
 instance Ord FreeOcc where
   compare = compare `on` freeOccName
 
-data TyOcc = TyOcc { tyOccName :: TyVar, tyOccKind :: () }
+data TyOcc = TyOcc { tyOccName :: TyVar, tyOccKind :: Kind }
 
 instance Eq TyOcc where
   (==) = (==) `on` tyOccName
@@ -59,8 +59,8 @@ instance Monoid Fields where
 singleOcc :: Name -> Sort -> Fields
 singleOcc x s = Fields (Set.singleton (FreeOcc x s), Set.empty)
 
-singleTyOcc :: TyVar -> Fields
-singleTyOcc aa = Fields (Set.empty, Set.singleton (TyOcc aa ()))
+singleTyOcc :: TyVar -> Kind -> Fields
+singleTyOcc aa k = Fields (Set.empty, Set.singleton (TyOcc aa k))
 
 bindOccs :: Foldable t => t (Name, Sort) -> Fields -> Fields
 bindOccs bs flds =
@@ -68,10 +68,10 @@ bindOccs bs flds =
   let bound = Set.fromList $ fmap (uncurry FreeOcc) (toList bs) in
   Fields (occs Set.\\ bound, tys)
 
-bindTys :: Foldable t => t TyVar -> Fields -> Fields
+bindTys :: Foldable t => t (TyVar, Kind) -> Fields -> Fields
 bindTys aas flds =
   let (occs, tys) = getFields flds in
-  let bound = Set.fromList $ fmap (\aa -> TyOcc aa ()) (toList aas) in
+  let bound = Set.fromList $ fmap (uncurry TyOcc) (toList aas) in
   Fields (occs, tys Set.\\ bound)
 
 newtype ConvM a = ConvM { runConvM :: ReaderT Context (Writer Fields) a }
@@ -119,9 +119,9 @@ withCos ks k = do
 -- | Bind a sequence of type variables: both extending the typing context on
 -- the way down, and removing them from the free variable set on the way back
 -- up.
-withTys :: [(K.TyVar, K.KindK)] -> ([TyVar] -> ConvM a) -> ConvM a
+withTys :: [(K.TyVar, K.KindK)] -> ([(TyVar, Kind)] -> ConvM a) -> ConvM a
 withTys aas k = do
-  let aas' = map (\ (aa, ki) -> (aa, tyVar aa)) aas
+  aas' <- traverse (\ (aa, ki) -> cconvKind ki >>= \ki' -> pure (aa, (tyVar aa, ki'))) aas
   let bs = fmap snd aas'
   let extend (Context tms cos tys) = Context tms cos (insertMany aas' tys)
   censor (bindTys bs) $ local extend $ k bs
@@ -146,7 +146,7 @@ cconvType (K.TyVarOccK aa) = Alloc <$> cconvTyVar aa
 cconvType (K.AllK aas ss) = do
   withTys aas $ \aas' -> do
     ss' <- traverse cconvCoType ss
-    let tele = map TypeTele aas' ++ map ValueTele ss'
+    let tele = map (uncurry TypeTele) aas' ++ map ValueTele ss'
     pure (Closure tele)
 cconvType K.UnitK = pure Unit
 cconvType K.IntK = pure Integer
@@ -163,6 +163,9 @@ cconvCoType (K.ContK ss) = do
   ss' <- traverse cconvType ss
   let tele = map ValueTele ss'
   pure (Closure tele)
+
+cconvKind :: K.KindK -> ConvM Kind
+cconvKind K.StarK = pure Star
 
 caseKind :: K.TypeK -> ConvM CaseKind
 caseKind K.BoolK = pure CaseBool
@@ -228,25 +231,29 @@ makeClosureEnv flds = do
   let (fields, tyfields) = getFields flds
   -- The fields (x : s) bound in the environment may have free variables of their own.
   -- Gather those free variables and add them to the environment.
-  let addField (FreeOcc x s) (xs, acc) = ((x, s) : xs, ftv s <> acc)
-  let (envFields, tyfields') = foldr addField ([], tyfields) fields
-  let envTyFields = map (\ (TyOcc aa k) -> aa) $ Set.toList tyfields'
+  ctx <- asks (Map.fromList . map snd . Map.toList . ctxTys)
+  let (envFields, fieldTyOccs) = unzip $ map (\ (FreeOcc x s) -> ((x, s), ftv ctx s)) $ Set.toList fields
+  let envTyFields = map (\ (TyOcc aa k) -> (aa, k)) $ Set.toList (Set.unions fieldTyOccs <> tyfields)
   pure (EnvDef envTyFields envFields)
   where
     -- This isn't terribly elegant, but it works.
-    ftv :: Sort -> Set TyOcc
-    ftv (Alloc aa) = Set.singleton (TyOcc aa ())
-    ftv (Closure tele) = foldr f Set.empty tele
+    ftv :: Map TyVar Kind -> Sort -> Set TyOcc
+    ftv ctx (Alloc aa) = case Map.lookup aa ctx of
+      Nothing -> error ("makeClosureEnv: not in scope: " ++ show aa)
+      Just k -> Set.singleton (TyOcc aa k)
+    ftv ctx (Closure tele) = go ctx Set.empty tele
       where
-        f (ValueTele t) acc = ftv t <> acc
-        f (TypeTele aa) acc = Set.delete (TyOcc aa ()) acc
-    ftv Integer = Set.empty
-    ftv Unit = Set.empty
-    ftv Sum = Set.empty
-    ftv Boolean = Set.empty
-    ftv String = Set.empty
-    ftv (Pair t1 t2) = ftv t1 <> ftv t2
-    ftv (List t) = ftv t
+        go _ acc [] = acc
+        go ctx' acc (ValueTele t : rest) = go ctx' (ftv ctx' t <> acc) rest
+        go ctx' acc (TypeTele aa k : rest) =
+          Set.delete (TyOcc aa k) $ go (Map.insert aa k ctx') acc rest
+    ftv _ Integer = Set.empty
+    ftv _ Unit = Set.empty
+    ftv _ Sum = Set.empty
+    ftv _ Boolean = Set.empty
+    ftv _ String = Set.empty
+    ftv ctx (Pair t1 t2) = ftv ctx t1 <> ftv ctx t2
+    ftv ctx (List t) = ftv ctx t
 
 
 cconvValue :: K.ValueK -> ConvM ValueC
@@ -293,7 +300,7 @@ cconvTyVar aa = do
   tys <- asks ctxTys
   case Map.lookup aa tys of
     Nothing -> error ("type variable not in scope: " ++ show aa)
-    Just aa' -> writer (aa', singleTyOcc aa')
+    Just (aa', k) -> writer (aa', singleTyOcc aa' k)
 
 
 
