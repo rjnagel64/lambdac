@@ -128,10 +128,10 @@ withCos ks k = do
 -- up.
 withTys :: [(K.TyVar, K.KindK)] -> ([TyVar] -> ConvM a) -> ConvM a
 withTys aas k = do
-  let aas' = map (\ (aa, _) -> (aa, tyVar aa)) aas
+  let aas' = map (\ (aa, ki) -> (aa, tyVar aa)) aas
+  let bs = fmap snd aas'
   let extend (Context tms cos tys) = Context tms cos (insertMany aas' tys)
-  let binds = map snd aas'
-  censor (bindTys binds) $ local extend $ k binds
+  censor (bindTys bs) $ local extend $ k bs
   where
     -- Hmm. I'm pretty sure I don't have to worry about shadowing, but I should
     -- double-check that.
