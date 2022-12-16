@@ -40,7 +40,15 @@ instance Eq FreeOcc where
 instance Ord FreeOcc where
   compare = compare `on` freeOccName
 
-newtype Fields = Fields { getFields :: (Set FreeOcc, Set TyVar) }
+data TyOcc = TyOcc { tyOccName :: TyVar, tyOccKind :: () }
+
+instance Eq TyOcc where
+  (==) = (==) `on` tyOccName
+
+instance Ord TyOcc where
+  compare = compare `on` tyOccName
+
+newtype Fields = Fields { getFields :: (Set FreeOcc, Set TyOcc) }
 
 instance Semigroup Fields where
   f <> g = Fields $ getFields f <> getFields g
@@ -51,19 +59,20 @@ instance Monoid Fields where
 singleOcc :: Name -> Sort -> Fields
 singleOcc x s = Fields (Set.singleton (FreeOcc x s), Set.empty)
 
+singleTyOcc :: TyVar -> Fields
+singleTyOcc aa = Fields (Set.empty, Set.singleton (TyOcc aa ()))
+
 bindOccs :: Foldable t => t (Name, Sort) -> Fields -> Fields
 bindOccs bs flds =
   let (occs, tys) = getFields flds in
   let bound = Set.fromList $ fmap (uncurry FreeOcc) (toList bs) in
   Fields (occs Set.\\ bound, tys)
 
-singleTyOcc :: TyVar -> Fields
-singleTyOcc aa = Fields (Set.empty, Set.singleton aa)
-
-bindTys :: [TyVar] -> Fields -> Fields
+bindTys :: Foldable t => t TyVar -> Fields -> Fields
 bindTys aas flds =
   let (occs, tys) = getFields flds in
-  Fields (occs, tys Set.\\ Set.fromList aas)
+  let bound = Set.fromList $ fmap (\aa -> TyOcc aa ()) (toList aas) in
+  Fields (occs, tys Set.\\ bound)
 
 newtype ConvM a = ConvM { runConvM :: ReaderT Context (Writer Fields) a }
 
@@ -220,16 +229,17 @@ makeClosureEnv flds = do
   -- The fields (x : s) bound in the environment may have free variables of their own.
   -- Gather those free variables and add them to the environment.
   let addField (FreeOcc x s) (xs, acc) = ((x, s) : xs, ftv s <> acc)
-  let (envFields, envTyFields) = foldr addField ([], tyfields) fields
-  pure (EnvDef (Set.toList envTyFields) envFields)
+  let (envFields, tyfields') = foldr addField ([], tyfields) fields
+  let envTyFields = map (\ (TyOcc aa k) -> aa) $ Set.toList tyfields'
+  pure (EnvDef envTyFields envFields)
   where
     -- This isn't terribly elegant, but it works.
-    ftv :: Sort -> Set TyVar
-    ftv (Alloc aa) = Set.singleton aa
+    ftv :: Sort -> Set TyOcc
+    ftv (Alloc aa) = Set.singleton (TyOcc aa ())
     ftv (Closure tele) = foldr f Set.empty tele
       where
         f (ValueTele t) acc = ftv t <> acc
-        f (TypeTele aa) acc = Set.delete aa acc
+        f (TypeTele aa) acc = Set.delete (TyOcc aa ()) acc
     ftv Integer = Set.empty
     ftv Unit = Set.empty
     ftv Sum = Set.empty
