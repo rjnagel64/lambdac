@@ -52,26 +52,10 @@ singleOcc :: Name -> Sort -> Fields
 singleOcc x s = Fields (Set.singleton (FreeOcc x s), Set.empty)
 
 bindOccs :: Foldable t => t (Name, Sort) -> Fields -> Fields
-bindOccs bs flds = Fields $ foldr bindOne (getFields flds) bs
-  where
-    bindOne (x, s) (occs, tys) = (Set.delete (FreeOcc x s) occs, ftv s <> tys)
-
--- TODO: There's probably a method more principled than just a free FTV function
--- This is needed in bindOccs (to visit the annotation) and in makeClosureEnv
--- (to get the FTV of the fields)
-ftv :: Sort -> Set TyVar
-ftv (Alloc aa) = Set.singleton aa
-ftv (Closure tele) = foldr f Set.empty tele
-  where
-    f (ValueTele t) acc = ftv t <> acc
-    f (TypeTele aa) acc = Set.delete aa acc
-ftv Integer = Set.empty
-ftv Unit = Set.empty
-ftv Sum = Set.empty
-ftv Boolean = Set.empty
-ftv String = Set.empty
-ftv (Pair t1 t2) = ftv t1 <> ftv t2
-ftv (List t) = ftv t
+bindOccs bs flds =
+  let (occs, tys) = getFields flds in
+  let bound = Set.fromList $ fmap (uncurry FreeOcc) (toList bs) in
+  Fields (occs Set.\\ bound, tys)
 
 singleTyOcc :: TyVar -> Fields
 singleTyOcc aa = Fields (Set.empty, Set.singleton aa)
@@ -238,6 +222,22 @@ makeClosureEnv flds = do
   let addField (FreeOcc x s) (xs, acc) = ((x, s) : xs, ftv s <> acc)
   let (envFields, envTyFields) = foldr addField ([], tyfields) fields
   pure (EnvDef (Set.toList envTyFields) envFields)
+  where
+    -- This isn't terribly elegant, but it works.
+    ftv :: Sort -> Set TyVar
+    ftv (Alloc aa) = Set.singleton aa
+    ftv (Closure tele) = foldr f Set.empty tele
+      where
+        f (ValueTele t) acc = ftv t <> acc
+        f (TypeTele aa) acc = Set.delete aa acc
+    ftv Integer = Set.empty
+    ftv Unit = Set.empty
+    ftv Sum = Set.empty
+    ftv Boolean = Set.empty
+    ftv String = Set.empty
+    ftv (Pair t1 t2) = ftv t1 <> ftv t2
+    ftv (List t) = ftv t
+
 
 cconvValue :: K.ValueK -> ConvM ValueC
 cconvValue K.NilK = pure NilC
