@@ -20,6 +20,7 @@ import CPS.IR
 -- * Call patterns
 -- * Usage/abscence/forcing of each argument
 
+-- TODO: Implement Dybvig's Inlining Procedure
 
 -- TODO: Figure out call-pattern specialization
 -- contify is basically call-pattern specialization for continuation arguments?

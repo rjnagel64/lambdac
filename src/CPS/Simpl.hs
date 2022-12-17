@@ -14,8 +14,6 @@ simpl t = fst $ simplify emptyEnv t
   where emptyEnv = SimplEnv Map.empty Map.empty
 
 
--- TODO: Once I have multiple files for optimization: move this under CPS.Opt.*
-
 data SimplEnv
   = SimplEnv {
     -- The definitions map contains every variable in scope.
@@ -68,6 +66,8 @@ defineSubst x y (SimplEnv def sub) = SimplEnv def (Map.insert x y sub)
 -- (e.g., ProductUsage SimplUsage SimplUsage. let z = fst p + snd p would give
 -- (ProductUsage SomeUses SomeUses), but let z = snd p + 3 would give
 -- (ProductUsage NoUses SomeUses)) (I think I would need to refine the lattice)
+-- (I think I might actually need ProductUsage SimplUsage [SimplUsage]: a usage
+-- for the entire term, plus sub-usages for each subterm)
 data SimplUsage
   = NoUses
   | SomeUses
