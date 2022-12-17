@@ -170,18 +170,13 @@ hoist (C.LetConcatC (x, s) y z e) = do
 -- The current version does three passes over the list of definitions
 hoist (C.LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
-  traverse_ hoistFunClosure fdecls
-  hoistClosureAllocs C.funClosureName C.funClosureSort C.funEnvDef fdecls e
+  hoistClosureAllocs hoistFunClosure C.funClosureName C.funClosureSort C.funEnvDef fdecls e
 hoist (C.LetContC ks e) = do
   kdecls <- declareClosureNames C.contClosureName ks
-  traverse_ hoistContClosure kdecls
-  hoistClosureAllocs C.contClosureName C.contClosureSort C.contEnvDef kdecls e
+  hoistClosureAllocs hoistContClosure C.contClosureName C.contClosureSort C.contEnvDef kdecls e
 
 hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ()
 hoistFunClosure (fdecl, C.FunClosureDef _f env tele body) = do
-  -- For some reason, selecting the closure name here causes nested closures to
-  -- not be emitted???  wat.
-  -- fdecl <- pickClosureName f
   inClosure env tele $ \env' params' -> do
     body' <- hoist body
     let decl = ClosureDecl fdecl env' params' body'
@@ -189,7 +184,6 @@ hoistFunClosure (fdecl, C.FunClosureDef _f env tele body) = do
 
 hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ()
 hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
-  -- kdecl <- pickClosureName k
   let tele = C.makeClosureParams [] xs
   inClosure env tele $ \env' params' -> do
     body' <- hoist body
@@ -314,14 +308,15 @@ pickEnvironmentPlace (Id cl) = do
   let go i = let envp = Id (cl ++ "_env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
 
-hoistClosureAllocs :: (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> C.TermC -> HoistM TermH
-hoistClosureAllocs closureName closureSort closureEnvDef cdecls e = do
+hoistClosureAllocs :: ((ClosureName, a) -> HoistM ()) -> (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> C.TermC -> HoistM TermH
+hoistClosureAllocs hoistClosure closureName closureSort closureEnvDef cdecls e = do
   let
-    makeClosurePlace (d, def) =
-      let cname = closureName def in
-      let p = asPlace (closureSort def) cname in
-      ((cname, p), (p, d, def))
-  let (binds, places) = unzip $ map makeClosurePlace cdecls
+    makeClosurePlace (d, def) = do
+      hoistClosure (d, def)
+      let cname = closureName def
+      let p = asPlace (closureSort def) cname
+      pure ((cname, p), (p, d, def))
+  (binds, places) <- fmap unzip $ traverse makeClosurePlace cdecls
 
   local (extend binds) $ do
     cs' <- for places $ \ (p, d, def) -> do
