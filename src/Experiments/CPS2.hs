@@ -13,21 +13,24 @@ import Control.Monad.Reader
 type Name = String
 
 data Expr
-  = EValue EValue
-  | EApp Expr Expr
-  | ELet Name Expr Expr
-data EValue
   = EVar Name
   | ELam Name Expr
+  | EApp Expr Expr
+  | ELet Name Expr Expr
+  deriving Show
 
 data Term
-  = KValue KValue
-  | KCall Term KValue
+  = KHalt KValue
+  | KCallFun KValue KValue KValue
+  | KCallCont KValue KValue
   | KLet Name KValue Term
+  deriving Show
 
 data KValue
   = KVar Name
-  | KLam Name Term
+  | KFun Name Name Term
+  | KCont Name Term
+  deriving Show
 
 -- In my current IR, all functions and continuations are named, from CPS.IR
 -- onwards.  This translation does not name functions or continuations. I need
@@ -65,29 +68,34 @@ type M a = Reader Int a
 data Cont
   = ObjCont Name
   | MetaCont (KValue -> M Term)
+  | HaltCont
 
 apply :: Cont -> KValue -> M Term
-apply (ObjCont k) v = pure (KCall (KValue (KVar k)) v)
+apply (ObjCont k) v = pure (KCallCont (KVar k) v)
 apply (MetaCont k) v = k v
+apply HaltCont v = pure (KHalt v)
 
 reify :: Cont -> M KValue
 reify (ObjCont k) = pure (KVar k)
-reify (MetaCont k) = fresh $ \x -> KLam x <$> k (KVar x)
-
-cpsValue :: EValue -> M KValue
-cpsValue (EVar x) = pure (KVar x)
-cpsValue (ELam x e) = fresh $ \y -> KLam x . KValue . KLam y <$> cps e (ObjCont y)
+reify (MetaCont k) = fresh $ \x -> KCont x <$> k (KVar x)
+reify HaltCont = fresh $ \x -> pure $ KCont x (KHalt (KVar x))
 
 cps :: Expr -> Cont -> M Term
-cps (EValue v) c = apply c =<< cpsValue v
+cps (EVar x) c = apply c (KVar x)
+cps (ELam x e) c = apply c =<< (fresh $ \y -> KFun x y <$> cps e (ObjCont y))
 cps (EApp e1 e2) c =
   cps e1 $ MetaCont $ \v1 ->
     cps e2 $ MetaCont $ \v2 ->
-      KCall (KCall (KValue v1) v2) <$> reify c
+      KCallFun v1 v2 <$> reify c
 cps (ELet x e1 e2) c =
   cps e1 $ MetaCont $ \v1 ->
     KLet x v1 <$> cps e2 c
 
 
 cpsMain :: Expr -> Term
-cpsMain e = runReader (cps e (ObjCont "halt")) 0 -- just return the CPS'ed term.
+cpsMain e = runReader (cps e HaltCont) 0 -- just return the CPS'ed term.
+
+main :: IO ()
+main = do
+  print $ cpsMain (ELam "x" (EVar "x"))
+  print $ cpsMain (EApp (ELam "x" (EVar "x")) (EVar "b"))
