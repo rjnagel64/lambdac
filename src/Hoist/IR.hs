@@ -195,9 +195,7 @@ data EnvAlloc
 
 data EnvAllocInfoArg = EnvInfoArg Id Info
 
-data EnvAllocValueArg
-  = EnvFreeArg Id Name
-  | EnvRecArg Id Name
+data EnvAllocValueArg = EnvValueArg Id Name
 
 data ValueH
   = IntH Int64
@@ -469,8 +467,7 @@ pprintAllocInfo :: EnvAllocInfoArg -> String
 pprintAllocInfo (EnvInfoArg field i) = show field ++ " = " ++ pprintInfo i
 
 pprintAllocArg :: EnvAllocValueArg -> String
-pprintAllocArg (EnvFreeArg field x) = show field ++ " = " ++ show x
-pprintAllocArg (EnvRecArg field x) = show field ++ " = " ++ show x
+pprintAllocArg (EnvValueArg field x) = show field ++ " = " ++ show x
 
 pprintSort :: Sort -> String
 pprintSort IntegerH = "int"

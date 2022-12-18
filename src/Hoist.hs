@@ -168,12 +168,38 @@ hoist (C.LetConcatC (x, s) y z e) = do
   pure (LetPrimH x' (PrimConcatenate y' z') e')
 -- TODO: Hoist for closures is absurdly convoluted. There must be a simpler formulation.
 -- The current version does three passes over the list of definitions
+-- hoist (C.LetFunC fs e) = do
+--   (binds, allocs) <- fmap unzip $ for fs $ \ def@(C.FunClosureDef f env params body) -> do
+--     -- Pick a name for the closure, based on 'f'
+--     fcode <- pickClosureName f
+--     -- Create a 'Place' for the closure allocation; pick an 'Id' for the environment.
+--     let p = asPlace (C.funClosureSort def) f
+--     envp <- pickEnvironmentPlace p
+--     -- Convert the environment definition
+--     (envd, enva) <- hoistEnvDef env
+--     -- hoist the closure code and emit
+--     local _resetScope $ do
+--       body' <- hoist body
+--       let decl = ClosureDecl fcode (envn, envd) _params body'
+--       tellClosure decl
+--
+--     let alloc = ClosureAlloc p fcode envp enva
+--     pure ((f, p), alloc)
+--
+--   e' <- local (_extend binds) $ hoist e
+--   pure (AllocClosure allocs e')
 hoist (C.LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
   hoistClosureAllocs hoistFunClosure C.funClosureName C.funClosureSort C.funEnvDef fdecls e
 hoist (C.LetContC ks e) = do
   kdecls <- declareClosureNames C.contClosureName ks
   hoistClosureAllocs hoistContClosure C.contClosureName C.contClosureSort C.contEnvDef kdecls e
+
+-- hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, EnvAlloc)
+-- hoistEnvDef (C.EnvDef tyfields fields) = do
+--   let envd = EnvDecl _ _
+--   enva <- EnvAlloc <$> traverse (infoForTyVar . fst) tyfields <*> _ -- need to mark rec/nonrec - or do i
+--   pure (envd, enva)
 
 hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ()
 hoistFunClosure (fdecl, C.FunClosureDef _f env tele body) = do
@@ -355,10 +381,7 @@ hoistEnvAlloc recNames (C.EnvDef tys fields) = do
     pure (EnvInfoArg fieldName i)
   fields' <- for fields $ \ (x, s) ->
     let fieldName = placeName (asPlace s x) in
-    if Set.member x recNames then
-      EnvRecArg fieldName <$> hoistVarOcc x
-    else
-      EnvFreeArg fieldName <$> hoistVarOcc x
+    EnvValueArg fieldName <$> hoistVarOcc x
   pure (EnvAlloc tyfields fields')
 
 

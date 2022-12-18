@@ -642,9 +642,10 @@ emitBuiltinCall envp fn args = show fn ++ "(" ++ commaSep (foldr mkArg [] args) 
 --   freshly-allocated closures.
 emitClosureGroup :: EnvPtr -> [ClosureAlloc] -> [Line]
 emitClosureGroup envp closures =
-  map (allocEnv envp) closures ++
+  map (allocEnv recNames envp) closures ++
   map allocClosure closures ++
-  concatMap patchEnv closures
+  concatMap (patchEnv recNames) closures
+  where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ <- closures]
 
 extendThunkEnv :: ClosureSig -> ThunkEnv -> [ClosureAlloc] -> ThunkEnv
 extendThunkEnv csig (localThunkTys, envThunkTys) closures =
@@ -658,8 +659,8 @@ extendThunkEnv csig (localThunkTys, envThunkTys) closures =
       Nothing -> error ("thunk type of closure " ++ show d ++ " is missing")
       Just ty -> (x, ty)
 
-allocEnv :: EnvPtr -> ClosureAlloc -> Line
-allocEnv envp (ClosureAlloc _p d envPlace (EnvAlloc info fields)) =
+allocEnv :: Set Id -> EnvPtr -> ClosureAlloc -> Line
+allocEnv recNames envp (ClosureAlloc _p d envPlace (EnvAlloc info fields)) =
   "    struct " ++ envTypeName ns' ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
   where
     ns' = closureEnvName (namesForClosure d)
@@ -667,8 +668,7 @@ allocEnv envp (ClosureAlloc _p d envPlace (EnvAlloc info fields)) =
     call = envAllocName ns' ++ "(" ++ commaSep args ++ ")"
     args = map emitInfoArg info ++ map emitAllocArg fields
     emitInfoArg (EnvInfoArg _ i) = emitInfo envp i
-    emitAllocArg (EnvFreeArg _ x) = emitName envp x
-    emitAllocArg (EnvRecArg _ _) = "NULL"
+    emitAllocArg (EnvValueArg f x) = if Set.member f recNames then "NULL" else emitName envp x
 
 allocClosure :: ClosureAlloc -> Line
 allocClosure (ClosureAlloc p d envPlace _env) =
@@ -681,15 +681,17 @@ allocClosure (ClosureAlloc p d envPlace _env) =
     traceArg = envInfoName ns'
     enterArg = closureEnterName ns
 
-patchEnv :: ClosureAlloc -> [Line]
-patchEnv (ClosureAlloc _ _ envPlace (EnvAlloc _info fields)) = concatMap patchField fields
+patchEnv :: Set Id -> ClosureAlloc -> [Line]
+patchEnv recNames (ClosureAlloc _ _ envPlace (EnvAlloc _info fields)) = concatMap patchField fields
   where
-    patchField (EnvFreeArg _ _) = []
-    patchField (EnvRecArg f (LocalName x)) =
-      ["    " ++ show envPlace ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
+    patchField (EnvValueArg f (LocalName x)) =
+      if Set.member f recNames then
+        ["    " ++ show envPlace ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
+      else
+        []
     -- Patching recursive closures should only ever involve local names.
     -- Additionally, we do not have access to an environment pointer in this function.
-    patchField (EnvRecArg _ (EnvName _)) = []
+    patchField (EnvValueArg _ (EnvName _)) = []
 
 emitInfoPlace :: InfoPlace -> String
 emitInfoPlace (InfoPlace i) = "type_info " ++ show i
