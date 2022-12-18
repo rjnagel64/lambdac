@@ -102,10 +102,10 @@ reify (MetaCont k) = fresh $ \x -> KCont x <$> k (KVar x)
 reify HaltCont = fresh $ \x -> pure $ KCont x (KHalt (KVar x))
 
 -- if
+-- Γ |- e : a
 -- |- c : a -o b
 -- then
--- (e', t) <- cps e c
--- Γ |- e : t
+-- (e', b) <- cps e c
 -- Γ' |- e' OK
 -- ???
 cps :: Expr -> Cont -> M Term
@@ -139,10 +139,10 @@ cps (ECase e (x, e1) (y, e2)) c =
 
 
 -- Hmm. cpsMain :: Expr -> (Term, Type)
--- if (e', t) = cpsMain e then
--- ε |- e : t  and  ε |- e' OK
---
--- The type of cps should be a strengthening of this statement.
+-- if ε |- e : t  and  (e', t) = cpsMain e then ε |- e' OK
+-- Or is it
+-- if (e', t) = cpsMain e then ε |- e : t  and  ε |- e' OK
+-- ?
 cpsMain :: Expr -> Term
 cpsMain e = runReader (cps e HaltCont) 0
 
