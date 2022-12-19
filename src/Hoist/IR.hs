@@ -382,7 +382,7 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintProgram :: Program -> String
-pprintProgram (Program cs srcH) = pprintClosures cs ++ pprintTerm 0 srcH
+pprintProgram (Program cs srcH) = pprintClosures cs ++ ";;\n" ++ pprintTerm 0 srcH
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH _ x _) = indent n $ "HALT " ++ show x ++ ";\n"
@@ -444,16 +444,16 @@ pprintParam (PlaceParam p) = pprintPlace p
 pprintParam (TypeParam i) = pprintInfoPlace i
 
 pprintClosures :: [ClosureDecl] -> String
-pprintClosures cs = "let {\n" ++ concatMap (pprintClosureDecl 2) cs ++ "}\n"
+pprintClosures cs = concatMap (pprintClosureDecl 0) cs
 
 pprintClosureDecl :: Int -> ClosureDecl -> String
 pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
-  indent n (show f ++ " " ++ env ++ " (" ++ intercalate ", " (map pprintParam params) ++ ") =\n") ++
+  indent n ("code " ++ show f ++ " (" ++ envParam ++ "; " ++ intercalate ", " (map pprintParam params) ++ ") =\n") ++
   pprintTerm (n+2) e
   where
-    env = show name ++ " : {" ++ infoFields ++ "; " ++ valueFields ++ "}"
-    infoFields = intercalate ", " (map (\ (i, aa) -> '@' : show i ++ " : info " ++ show aa) is)
-    valueFields = intercalate ", " (map pprintPlace fs)
+    envParam = show name ++ " : {" ++ intercalate ", " (infoFields ++ valueFields) ++ "}"
+    infoFields = map (\ (i, aa) -> '@' : show i ++ " : info " ++ show aa) is
+    valueFields = map pprintPlace fs
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p d _envPlace env) =

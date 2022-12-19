@@ -177,8 +177,8 @@ hoist (C.LetFunC fs e) = do
       HoistEnv (Scope places' infos) envsc
   local extend $ do
     allocs <- for fs' $ \ (p, C.FunClosureDef f env params body) -> do
-      -- Pick a name for the closure, based on 'f'
-      fcode <- pickClosureName f
+      -- Pick a name for the closure's code
+      fcode <- nameClosureCode f
       envp <- pickEnvironmentPlace (placeName p)
 
       (envd, newEnv, enva) <- hoistEnvDef env
@@ -207,8 +207,8 @@ hoist (C.LetContC ks e) = do
       HoistEnv (Scope places' infos) envsc
   local extend $ do
     allocs <- for ks' $ \ (p, C.ContClosureDef k env params body) -> do
-      -- Pick a name for the closure, based on 'k'
-      kcode <- pickClosureName k
+      -- Pick a name for the closure's code
+      kcode <- nameClosureCode k
       envp <- pickEnvironmentPlace (placeName p)
 
       (envd, newEnv, enva) <- hoistEnvDef env
@@ -279,15 +279,15 @@ hoistCmp (C.GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (C.GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
-pickClosureName :: C.Name -> HoistM ClosureName
-pickClosureName c = do
+nameClosureCode :: C.Name -> HoistM ClosureName
+nameClosureCode c = do
   decls <- get
   let asClosureName (C.Name x i) = ClosureName (x ++ show i)
   let c' = asClosureName c
   if Set.notMember c' decls then
     put (Set.insert c' decls) *> pure c'
   else
-    pickClosureName (C.prime c)
+    nameClosureCode (C.prime c)
 
 convertParameters :: [C.ClosureParam] -> (Scope, [ClosureParam])
 convertParameters params = (Scope places infoPlaces, params')
