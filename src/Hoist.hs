@@ -178,7 +178,7 @@ hoist (C.LetFunC fs e) = do
       let places' = foldr (uncurry Map.insert) places fbinds in
       HoistEnv (Scope places' infos) envsc
   local extend $ do
-    allocs <- for fs' $ \ (p, def@(C.FunClosureDef f env params body)) -> do
+    allocs <- for fs' $ \ (p, C.FunClosureDef f env params body) -> do
       -- Pick a name for the closure, based on 'f'
       fcode <- pickClosureName f
       envp <- pickEnvironmentPlace (placeName p)
@@ -208,7 +208,7 @@ hoist (C.LetContC ks e) = do
       let places' = foldr (uncurry Map.insert) places kbinds in
       HoistEnv (Scope places' infos) envsc
   local extend $ do
-    allocs <- for ks' $ \ (p, def@(C.ContClosureDef k env params body)) -> do
+    allocs <- for ks' $ \ (p, C.ContClosureDef k env params body) -> do
       -- Pick a name for the closure, based on 'k'
       kcode <- pickClosureName k
       envp <- pickEnvironmentPlace (placeName p)
@@ -254,21 +254,6 @@ hoistEnvDef (C.EnvDef tyfields fields) = do
   let enva = EnvAlloc allocTyFields allocFields
   pure (envd, envsc, enva)
 
-hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ()
-hoistFunClosure (fdecl, C.FunClosureDef _f env tele body) = do
-  inClosure env tele $ \env' params' -> do
-    body' <- hoist body
-    let decl = ClosureDecl fdecl env' params' body'
-    tellClosure decl
-
-hoistContClosure :: (ClosureName, C.ContClosureDef) -> HoistM ()
-hoistContClosure (kdecl, C.ContClosureDef _k env xs body) = do
-  let tele = C.makeClosureParams [] xs
-  inClosure env tele $ \env' params' -> do
-    body' <- hoist body
-    let decl = ClosureDecl kdecl env' params' body'
-    tellClosure decl
-
 hoistValue :: C.ValueC -> HoistM ValueH
 hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
 hoistValue (C.BoolC b) = pure (BoolH b)
@@ -306,26 +291,6 @@ pickClosureName c = do
   else
     pickClosureName (C.prime c)
 
-declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(ClosureName, a)]
-declareClosureNames closureName cs = traverse declareClosure cs
-  where declareClosure def = (\d -> (d, def)) <$> pickClosureName (closureName def)
-
--- | Replace the set of fields and places in the environment, while leaving the
--- set of declaration names intact. This is because inside a closure, all names
--- refer to either a local variable/parameter (a place), a captured variable (a
--- field), or to a closure that has been hoisted to the top level (a decl)
-inClosure :: C.EnvDef -> [C.ClosureParam] -> ((Id, EnvDecl) -> [ClosureParam] -> HoistM a) -> HoistM a
-inClosure env params k = do
-  withEnvDef env $ \env' ->
-    withParams params $ \params' ->
-      k env' params'
-
-withParams :: [C.ClosureParam] -> ([ClosureParam] -> HoistM a) -> HoistM a
-withParams params k = local setScope $ k params'
-  where
-    setScope (HoistEnv _ oldEnv) = HoistEnv newLocals oldEnv
-    (newLocals, params') = convertParameters params
-
 convertParameters :: [C.ClosureParam] -> (Scope, [ClosureParam])
 convertParameters params = (Scope places infoPlaces, params')
   where
@@ -349,18 +314,6 @@ convertParameters params = (Scope places infoPlaces, params')
       let p = asPlace s x in
       (ps . Map.insert x p, is, PlaceParam p : tele)
 
-withEnvDef :: C.EnvDef -> ((Id, EnvDecl) -> HoistM a) -> HoistM a
-withEnvDef (C.EnvDef tyfields fields) k = do
-  let fields' = map (\ (x, s) -> (x, asPlace s x)) fields
-  let tyfields' = map (\ (aa, k) -> (asTyVar aa, asInfoPlace aa)) tyfields
-  let newEnv = Scope (Map.fromList fields') (Map.fromList tyfields')
-  let envd = EnvDecl (map (\ (aa, i) -> (infoName i, aa)) tyfields') (map snd fields')
-  local (\ (HoistEnv oldLocals _) -> HoistEnv oldLocals newEnv) $ do
-    -- Pick the environment pointer's name based on the in-scope set
-    -- *after* we are in the closure's context
-    envp <- pickEnvironmentName
-    k (envp, envd)
-
 -- | Pick a name for the environment parameter, that will not clash with
 -- anything already in scope.
 pickEnvironmentName :: HoistM Id
@@ -378,56 +331,6 @@ pickEnvironmentPlace (Id cl) = do
   let scope = scopeNames locals <> scopeNames env
   let go i = let envp = Id (cl ++ "_env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
-
-hoistClosureAllocs :: ((ClosureName, a) -> HoistM ()) -> (a -> C.Name) -> (a -> C.Sort) -> (a -> C.EnvDef) -> [(ClosureName, a)] -> C.TermC -> HoistM TermH
-hoistClosureAllocs hoistClosure closureName closureSort closureEnvDef cdecls e = do
-  let
-    makeClosurePlace (d, def) = do
-      hoistClosure (d, def)
-      let cname = closureName def
-      let p = asPlace (closureSort def) cname
-      pure ((cname, p), (p, d, def))
-  (binds, places) <- fmap unzip $ traverse makeClosurePlace cdecls
-
-  local (extend binds) $ do
-    cs' <- for places $ \ (p, d, def) -> do
-      envAlloc <- hoistEnvAlloc (closureEnvDef def)
-      envPlace <- pickEnvironmentPlace (placeName p)
-      pure (ClosureAlloc p d envPlace envAlloc)
-    e' <- hoist e
-    pure (AllocClosure cs' e')
-  where
-    extend binds (HoistEnv (Scope scope fields) env) =
-      let scope' = foldr (uncurry Map.insert) scope binds in
-      HoistEnv (Scope scope' fields) env
-
--- | When constructing a closure, translate a CC-style environment @{ aa+; x+ }@
--- into a Hoist-style environment allocation @{ (aa_info = i)+; (x = v)+ }@.
---
--- I'm not quite satisfied with this function. In particular, I feel like
--- there's a disconnect between how I translate the definition of an
--- environment versus the allocation of that environment.
---
--- (The same work being done 1.5 times, implicitly keeping track of field
--- names, etc.)
---
--- However I fix it, I think if would probably be a good idea if that function
--- returns both a H.EnvDecl and a H.EnvAlloc.
-hoistEnvAlloc :: C.EnvDef -> HoistM EnvAlloc
-hoistEnvAlloc (C.EnvDef tys fields) = do
-  tyfields <- for tys $ \ (aa, k) -> do
-    let fieldName = infoName $ asInfoPlace aa
-    -- This is *probably* a legit use of 'asTyVar'. CC gives us an environment
-    -- consisting of captured free vars, and captured fields.
-    -- Now, for each capture tyvar 'aa', we want to construct the value that will
-    -- be stored in the closure environment: 'info aa'.
-    i <- infoForTyVar (asTyVar aa)
-    pure (EnvInfoArg fieldName i)
-  fields' <- for fields $ \ (x, s) ->
-    let fieldName = placeName (asPlace s x) in
-    EnvValueArg fieldName <$> hoistVarOcc x
-  pure (EnvAlloc tyfields fields')
-
 
 
 -- | Hoist a variable occurrence, and also retrieve its sort.
