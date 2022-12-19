@@ -75,8 +75,6 @@ data TermK a
   | LetSndK TmVar TypeK TmVar (TermK a)
   -- let z = x `op` y in e
   | LetArithK TmVar ArithK (TermK a)
-  -- let x = -y in e
-  | LetNegateK TmVar TmVar (TermK a)
   -- let z = x `cmp` y in e 
   | LetCompareK TmVar CmpK (TermK a)
   -- let z = x ++ y in e
@@ -151,6 +149,7 @@ data ArithK
   = AddK TmVar TmVar
   | SubK TmVar TmVar
   | MulK TmVar TmVar
+  | NegK TmVar
 
 data CmpK
   = CmpEqK TmVar TmVar
@@ -358,8 +357,6 @@ pprintTerm n (LetSndK x t y e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetArithK x op e) =
   indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetNegateK x y e) =
-  indent n ("let " ++ show x ++ " = -" ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareK x cmp e) =
   indent n ("let " ++ show x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetConcatK x y z e) =
@@ -380,6 +377,7 @@ pprintArith :: ArithK -> String
 pprintArith (AddK x y) = show x ++ " + " ++ show y
 pprintArith (SubK x y) = show x ++ " - " ++ show y
 pprintArith (MulK x y) = show x ++ " * " ++ show y
+pprintArith (NegK x) = "- " ++ show x
 
 pprintCompare :: CmpK -> String
 pprintCompare (CmpEqK x y) = show x ++ " == " ++ show y

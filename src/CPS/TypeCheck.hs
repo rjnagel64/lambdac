@@ -187,9 +187,6 @@ check (LetArithK z op e) = do
 check (LetCompareK z op e) = do
   checkCompare op
   withTmVars [(z, BoolK)] $ check e
-check (LetNegateK x y e) = do
-  checkTmVar y IntK
-  withTmVars [(x, IntK)] $ check e
 check (LetFstK x t y e) = do
   lookupTmVar y >>= \case
     ProdK t' _s -> equalTypes t t'
@@ -209,6 +206,7 @@ checkArith :: ArithK -> M ()
 checkArith (AddK x y) = checkIntBinOp x y
 checkArith (SubK x y) = checkIntBinOp x y
 checkArith (MulK x y) = checkIntBinOp x y
+checkArith (NegK x) = checkTmVar x IntK
 
 checkCompare :: CmpK -> M ()
 checkCompare (CmpEqK x y) = checkIntBinOp x y

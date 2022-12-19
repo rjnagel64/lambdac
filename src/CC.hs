@@ -185,7 +185,6 @@ cconv (K.LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*>
 cconv (K.LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e
 cconv (K.LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
-cconv (K.LetNegateK x y e) = withTm (x, K.IntK) $ \b -> LetNegateC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
 cconv (K.LetConcatK x y z e) =
   withTm (x, K.StringK) $ \b -> LetConcatC b <$> cconvTmVar y <*> cconvTmVar z <*> cconv e
@@ -271,6 +270,7 @@ cconvArith :: K.ArithK -> ConvM ArithC
 cconvArith (K.AddK x y) = AddC <$> cconvTmVar x <*> cconvTmVar y
 cconvArith (K.SubK x y) = SubC <$> cconvTmVar x <*> cconvTmVar y
 cconvArith (K.MulK x y) = MulC <$> cconvTmVar x <*> cconvTmVar y
+cconvArith (K.NegK x) = NegC <$> cconvTmVar x
 
 cconvCmp :: K.CmpK -> ConvM CmpC
 cconvCmp (K.CmpEqK x y) = EqC <$> cconvTmVar x <*> cconvTmVar y

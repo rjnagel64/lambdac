@@ -152,10 +152,6 @@ hoist (C.LetArithC (x, s) op e) = do
   op' <- hoistArith op
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' op' e')
-hoist (C.LetNegateC (x, s) y e) = do
-  y' <- hoistVarOcc y
-  (x', e') <- withPlace x s $ hoist e
-  pure (LetPrimH x' (PrimNegInt64 y') e')
 hoist (C.LetCompareC (x, s) cmp e) = do
   cmp' <- hoistCmp cmp
   (x', e') <- withPlace x s $ hoist e
@@ -269,6 +265,7 @@ hoistArith :: C.ArithC -> HoistM PrimOp
 hoistArith (C.AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistArith (C.SubC x y) = PrimSubInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistArith (C.MulC x y) = PrimMulInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistArith (C.NegC x) = PrimNegInt64 <$> hoistVarOcc x
 
 hoistCmp :: C.CmpC -> HoistM PrimOp
 hoistCmp (C.EqC x y) = PrimEqInt64 <$> hoistVarOcc x <*> hoistVarOcc y

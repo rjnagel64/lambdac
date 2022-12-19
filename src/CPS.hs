@@ -142,7 +142,7 @@ cps (S.TmNegate e) k =
   cps e $ \x _t -> do
     freshTm "z" $ \z -> do
       (e', t') <- k z S.TyInt
-      let res = LetNegateK z x e'
+      let res = LetArithK z (NegK x) e'
       pure (res, t')
 cps (S.TmCmp e1 cmp e2) k =
   cps e1 $ \x _t1 -> do
@@ -416,7 +416,7 @@ cpsTail (S.TmArith e1 op e2) k =
 cpsTail (S.TmNegate e) k =
   cps e $ \x _t -> do
     freshTm "z" $ \z -> do
-      let res = LetNegateK z x (JumpK k [z])
+      let res = LetArithK z (NegK x) (JumpK k [z])
       pure (res, S.TyInt)
 cpsTail (S.TmCmp e1 cmp e2) k =
   cps e1 $ \x _t1 -> do

@@ -120,7 +120,6 @@ data TermC
   | LetFstC (Name, Sort) Name TermC -- let x = fst y in e, projection
   | LetSndC (Name, Sort) Name TermC
   | LetArithC (Name, Sort) ArithC TermC
-  | LetNegateC (Name, Sort) Name TermC -- let x = -y in e, unary negation
   | LetCompareC (Name, Sort) CmpC TermC
   | LetConcatC (Name, Sort) Name Name TermC -- let x = y ++ z in e, concatenation
   | LetFunC [FunClosureDef] TermC
@@ -142,6 +141,7 @@ data ArithC
   = AddC Name Name
   | SubC Name Name
   | MulC Name Name
+  | NegC Name
 
 data CmpC
   = EqC Name Name
@@ -242,8 +242,6 @@ pprintTerm n (CaseC x _ ks) =
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetArithC x op e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetNegateC x y e) =
-  indent n ("let " ++ pprintPlace x ++ " = -" ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareC x cmp e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetConcatC x y z e) =
@@ -285,6 +283,7 @@ pprintArith :: ArithC -> String
 pprintArith (AddC x y) = show x ++ " + " ++ show y
 pprintArith (SubC x y) = show x ++ " - " ++ show y
 pprintArith (MulC x y) = show x ++ " * " ++ show y
+pprintArith (NegC x) = "- " ++ show x
 
 pprintCompare :: CmpC -> String
 pprintCompare (EqC x y) = show x ++ " == " ++ show y

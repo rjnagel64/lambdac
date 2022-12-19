@@ -176,22 +176,6 @@ simplify env (LetArithK x op e) =
         NoUses -> (e', census)
         SomeUses -> (LetValK x IntK (IntValK i) e', bind x census)
 -- if y := int, rewrite 'let x = -y in e' into 'let x = -int in e'.
-simplify env (LetNegateK x y e) =
-  case lookupValue y env of
-    (_, Just (IntValK i)) ->
-      let i' = negate i in
-      let env' = defineValue x (IntValK i') (under x env) in
-      let (e', census) = simplify env' e in
-      case query x census of
-        NoUses -> (e', census)
-        SomeUses -> (LetValK x IntK (IntValK i') e', bind x census)
-    (_, Just _) -> error "simplify: env contained invalid value for negate"
-    (y', Nothing) ->
-      let env' = under x env in
-      let (e', census) = simplify env' e in
-      case query x census of
-        NoUses -> (e', census)
-        SomeUses -> (LetNegateK x y' e', record y' (bind x census))
 simplify env (LetContK ks e) =
   let f (kont, cen) (ks', census) = (kont : ks', cen <> census) in
   let (ks', census) = foldr f ([], mempty) (map (simplifyContDef env) ks) in
@@ -218,6 +202,7 @@ simplifyArith env op = arith (renameOp op)
     renameOp (AddK x y) = (AddK, (+), x, y)
     renameOp (SubK x y) = (SubK, (-), x, y)
     renameOp (MulK x y) = (MulK, (*), x, y)
+    -- renameOp (NegK x) = (NegK
 
     arith (g, f, x, y) = case (lookupValue x env, lookupValue y env) of
       ((_, Just (IntValK i)), (_, Just (IntValK j))) -> Right (f i j)
