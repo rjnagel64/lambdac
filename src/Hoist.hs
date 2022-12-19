@@ -165,8 +165,6 @@ hoist (C.LetConcatC (x, s) y z e) = do
   z' <- hoistVarOcc z
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' (PrimConcatenate y' z') e')
--- TODO: Hoist for closures is absurdly convoluted. There must be a simpler formulation.
--- The current version does three passes over the list of definitions
 hoist (C.LetFunC fs e) = do
   let
     (fbinds, fs') = unzip $ map (\def@(C.FunClosureDef f _ _ _) -> 
