@@ -25,7 +25,6 @@ import Control.Monad.Reader
 import Control.Monad.Writer hiding (Sum)
 import Control.Monad.State
 
-import Data.Foldable (traverse_)
 import Data.Traversable (for)
 
 import qualified CC.IR as C
@@ -197,8 +196,13 @@ hoist (C.LetContC ks e) = do
 
 -- hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, EnvAlloc)
 -- hoistEnvDef (C.EnvDef tyfields fields) = do
---   let envd = EnvDecl _ _
---   enva <- EnvAlloc <$> traverse (infoForTyVar . fst) tyfields <*> _ -- need to mark rec/nonrec - or do i
+--   declTyFields <- traverse _ tyfields
+--   declFields <- traverse _ fields
+--   let envd = EnvDecl declTyFields declFields
+--
+--   allocTyFields <- traverse (\ (aa, k) -> EnvInfoArg _ <$> infoForTyVar (asTyVar aa)) tyfields
+--   allocFields <- traverse (\ (x, s) -> EnvValueArg _ <$> hoistVarOcc x) fields
+--   let enva = EnvAlloc allocTyFields allocFields
 --   pure (envd, enva)
 
 hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ()
@@ -346,7 +350,7 @@ hoistClosureAllocs hoistClosure closureName closureSort closureEnvDef cdecls e =
 
   local (extend binds) $ do
     cs' <- for places $ \ (p, d, def) -> do
-      envAlloc <- hoistEnvAlloc recNames (closureEnvDef def)
+      envAlloc <- hoistEnvAlloc (closureEnvDef def)
       envPlace <- pickEnvironmentPlace (placeName p)
       pure (ClosureAlloc p d envPlace envAlloc)
     e' <- hoist e
@@ -355,7 +359,6 @@ hoistClosureAllocs hoistClosure closureName closureSort closureEnvDef cdecls e =
     extend binds (HoistEnv (Scope scope fields) env) =
       let scope' = foldr (uncurry Map.insert) scope binds in
       HoistEnv (Scope scope' fields) env
-    recNames = Set.fromList (map (closureName . snd) cdecls)
 
 -- | When constructing a closure, translate a CC-style environment @{ aa+; x+ }@
 -- into a Hoist-style environment allocation @{ (aa_info = i)+; (x = v)+ }@.
@@ -369,8 +372,8 @@ hoistClosureAllocs hoistClosure closureName closureSort closureEnvDef cdecls e =
 --
 -- However I fix it, I think if would probably be a good idea if that function
 -- returns both a H.EnvDecl and a H.EnvAlloc.
-hoistEnvAlloc :: Set C.Name -> C.EnvDef -> HoistM EnvAlloc
-hoistEnvAlloc recNames (C.EnvDef tys fields) = do
+hoistEnvAlloc :: C.EnvDef -> HoistM EnvAlloc
+hoistEnvAlloc (C.EnvDef tys fields) = do
   tyfields <- for tys $ \ (aa, k) -> do
     let fieldName = infoName $ asInfoPlace aa
     -- This is *probably* a legit use of 'asTyVar'. CC gives us an environment
