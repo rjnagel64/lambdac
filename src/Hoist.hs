@@ -174,8 +174,10 @@ hoist (C.LetConcatC (x, s) y z e) = do
 --     -- Create a 'Place' for the closure allocation; pick an 'Id' for the environment.
 --     let p = asPlace (C.funClosureSort def) f
 --     envp <- pickEnvironmentPlace p
---     -- Convert the environment definition
+--
+--     -- Convert the environment into a declaration and an environment value.
 --     (envd, enva) <- hoistEnvDef env
+--
 --     -- hoist the closure code and emit
 --     local _resetScope $ do
 --       body' <- hoist body
@@ -194,16 +196,18 @@ hoist (C.LetContC ks e) = do
   kdecls <- declareClosureNames C.contClosureName ks
   hoistClosureAllocs hoistContClosure C.contClosureName C.contClosureSort C.contEnvDef kdecls e
 
--- hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, EnvAlloc)
--- hoistEnvDef (C.EnvDef tyfields fields) = do
---   declTyFields <- traverse _ tyfields
---   declFields <- traverse _ fields
---   let envd = EnvDecl declTyFields declFields
---
---   allocTyFields <- traverse (\ (aa, k) -> EnvInfoArg _ <$> infoForTyVar (asTyVar aa)) tyfields
---   allocFields <- traverse (\ (x, s) -> EnvValueArg _ <$> hoistVarOcc x) fields
---   let enva = EnvAlloc allocTyFields allocFields
---   pure (envd, enva)
+hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, EnvAlloc)
+hoistEnvDef (C.EnvDef tyfields fields) = do
+  let declTyFields = map (\ (aa, k) -> (infoName (asInfoPlace aa), asTyVar aa)) tyfields
+  let declFields = map (\ (x, s) -> asPlace s x) fields
+  let envd = EnvDecl declTyFields declFields
+
+  allocTyFields <- for tyfields $ \ (aa, k) ->
+    EnvInfoArg (infoName (asInfoPlace aa)) <$> infoForTyVar (asTyVar aa)
+  allocFields <- for fields $ \ (x, s) ->
+    EnvValueArg (placeName (asPlace s x)) <$> hoistVarOcc x
+  let enva = EnvAlloc allocTyFields allocFields
+  pure (envd, enva)
 
 hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ()
 hoistFunClosure (fdecl, C.FunClosureDef _f env tele body) = do
@@ -247,31 +251,19 @@ hoistCmp (C.GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (C.GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
--- pickClosureName :: C.Name -> HoistM ClosureName
--- pickClosureName c = do
---   decls <- get
---   let asClosureName (C.Name x i) = ClosureName (x ++ show i)
---   let c' = asClosureName c
---   if Set.notMember c' decls then
---     put (Set.insert c' decls) *> pure c'
---   else
---     pickClosureName (C.prime c)
+pickClosureName :: C.Name -> HoistM ClosureName
+pickClosureName c = do
+  decls <- get
+  let asClosureName (C.Name x i) = ClosureName (x ++ show i)
+  let c' = asClosureName c
+  if Set.notMember c' decls then
+    put (Set.insert c' decls) *> pure c'
+  else
+    pickClosureName (C.prime c)
 
 declareClosureNames :: (a -> C.Name) -> [a] -> HoistM [(ClosureName, a)]
-declareClosureNames closureName cs = traverse pickClosureName cs
-  where
-    pickClosureName def = do
-      decls <- get
-      let (d, decls') = pickName (closureName def) decls
-      put decls'
-      pure (d, def)
-    asClosureName (C.Name x i) = ClosureName (x ++ show i)
-    pickName f ds =
-      let d = asClosureName f in
-      if Set.notMember d ds then
-        (d, Set.insert d ds)
-      else
-        pickName (C.prime f) ds
+declareClosureNames closureName cs = traverse declareClosure cs
+  where declareClosure def = (\d -> (d, def)) <$> pickClosureName (closureName def)
 
 -- | Replace the set of fields and places in the environment, while leaving the
 -- set of declaration names intact. This is because inside a closure, all names
