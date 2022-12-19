@@ -167,52 +167,92 @@ hoist (C.LetConcatC (x, s) y z e) = do
   pure (LetPrimH x' (PrimConcatenate y' z') e')
 -- TODO: Hoist for closures is absurdly convoluted. There must be a simpler formulation.
 -- The current version does three passes over the list of definitions
--- hoist (C.LetFunC fs e) = do
---   (binds, allocs) <- fmap unzip $ for fs $ \ def@(C.FunClosureDef f env params body) -> do
---     -- Pick a name for the closure, based on 'f'
---     fcode <- pickClosureName f
---     -- Create a 'Place' for the closure allocation; pick an 'Id' for the environment.
---     let p = asPlace (C.funClosureSort def) f
---     envp <- pickEnvironmentPlace (placeName p)
---
---     -- Convert the environment into a declaration and an environment value.
---     (envd, enva) <- hoistEnvDef env
---
---     -- hoist the closure code and emit
---     local _resetScope $ do
---       envn <- pickEnvironmentName
---       body' <- hoist body
---       let decl = ClosureDecl fcode (envn, envd) _params body'
---       tellClosure decl
---
---     let alloc = ClosureAlloc p fcode envp enva
---     pure ((f, p), alloc)
---
---   let
---     extend (HoistEnv (Scope places infos) envsc) =
---       let places' = foldr (uncurry Map.insert) places binds in
---       HoistEnv (Scope places' infos) envsc
---   e' <- local extend $ hoist e
---   pure (AllocClosure allocs e')
 hoist (C.LetFunC fs e) = do
-  fdecls <- declareClosureNames C.funClosureName fs
-  hoistClosureAllocs hoistFunClosure C.funClosureName C.funClosureSort C.funEnvDef fdecls e
-hoist (C.LetContC ks e) = do
-  kdecls <- declareClosureNames C.contClosureName ks
-  hoistClosureAllocs hoistContClosure C.contClosureName C.contClosureSort C.contEnvDef kdecls e
+  let
+    (fbinds, fs') = unzip $ map (\def@(C.FunClosureDef f _ _ _) -> 
+      let p = asPlace (C.funClosureSort def) f in
+      ((f, p), (p, def))) fs
 
-hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, EnvAlloc)
+  let
+    extend (HoistEnv (Scope places infos) envsc) =
+      let places' = foldr (uncurry Map.insert) places fbinds in
+      HoistEnv (Scope places' infos) envsc
+  local extend $ do
+    allocs <- for fs' $ \ (p, def@(C.FunClosureDef f env params body)) -> do
+      -- Pick a name for the closure, based on 'f'
+      fcode <- pickClosureName f
+      envp <- pickEnvironmentPlace (placeName p)
+
+      (envd, newEnv, enva) <- hoistEnvDef env
+
+      -- hoist the closure code and emit
+      let (newLocals, params') = convertParameters params
+      local (\ (HoistEnv _ _) -> HoistEnv newLocals newEnv) $ do
+        envn <- pickEnvironmentName
+        body' <- hoist body
+        let decl = ClosureDecl fcode (envn, envd) params' body'
+        tellClosure decl
+
+      let alloc = ClosureAlloc p fcode envp enva
+      pure alloc
+    e' <- hoist e
+    pure (AllocClosure allocs e')
+hoist (C.LetContC ks e) = do
+  let
+    (kbinds, ks') = unzip $ map (\def@(C.ContClosureDef k _ _ _) -> 
+      let p = asPlace (C.contClosureSort def) k in
+      ((k, p), (p, def))) ks
+
+  let
+    extend (HoistEnv (Scope places infos) envsc) =
+      let places' = foldr (uncurry Map.insert) places kbinds in
+      HoistEnv (Scope places' infos) envsc
+  local extend $ do
+    allocs <- for ks' $ \ (p, def@(C.ContClosureDef k env params body)) -> do
+      -- Pick a name for the closure, based on 'k'
+      kcode <- pickClosureName k
+      envp <- pickEnvironmentPlace (placeName p)
+
+      (envd, newEnv, enva) <- hoistEnvDef env
+
+      -- hoist the closure code and emit
+      let (newLocals, params') = convertParameters (C.makeClosureParams [] params)
+      local (\ (HoistEnv _ _) -> HoistEnv newLocals newEnv) $ do
+        envn <- pickEnvironmentName
+        body' <- hoist body
+        let decl = ClosureDecl kcode (envn, envd) params' body'
+        tellClosure decl
+
+      let alloc = ClosureAlloc p kcode envp enva
+      pure alloc
+    e' <- hoist e
+    pure (AllocClosure allocs e')
+
+hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, Scope, EnvAlloc)
 hoistEnvDef (C.EnvDef tyfields fields) = do
   let declTyFields = map (\ (aa, k) -> (infoName (asInfoPlace aa), asTyVar aa)) tyfields
   let declFields = map (\ (x, s) -> asPlace s x) fields
   let envd = EnvDecl declTyFields declFields
 
+  let scPlaces = Map.fromList $ map (\ (x, s) -> (x, asPlace s x)) fields
+  let scInfoPlaces = Map.fromList $ map (\ (aa, k) -> (asTyVar aa, asInfoPlace aa)) tyfields
+  let envsc = Scope scPlaces scInfoPlaces
+
+  -- Note: When allocating a recursive environment, we need to have the current
+  -- bind group in scope. consider even-odd:
+  -- let
+  --   even0 : closure(int, closure(bool)) = #even0 { odd0 = odd0 };
+  --   odd0 : closure(int, closure(bool)) = #odd0 { even0 = even0 };
+  -- in
+  -- ...
+  -- In order to construct the environments { odd0 = odd0 } and { even0 = even0 },
+  -- we need to have 'even0' and 'odd0' in the local scope.
   allocTyFields <- for tyfields $ \ (aa, k) ->
     EnvInfoArg (infoName (asInfoPlace aa)) <$> infoForTyVar (asTyVar aa)
   allocFields <- for fields $ \ (x, s) ->
     EnvValueArg (placeName (asPlace s x)) <$> hoistVarOcc x
   let enva = EnvAlloc allocTyFields allocFields
-  pure (envd, enva)
+  pure (envd, envsc, enva)
 
 hoistFunClosure :: (ClosureName, C.FunClosureDef) -> HoistM ()
 hoistFunClosure (fdecl, C.FunClosureDef _f env tele body) = do
@@ -399,7 +439,7 @@ hoistVarOccSort x = do
     Just (Place s x') -> pure (LocalName x', s)
     Nothing -> case Map.lookup x fs of
       Just (Place s x') -> pure (EnvName x', s)
-      Nothing -> error ("not in scope: " ++ show x)
+      Nothing -> error ("var not in scope: " ++ show x)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
@@ -441,7 +481,7 @@ infoForTyVar aa = do
     Just (InfoPlace aa') -> pure (LocalInfo aa')
     Nothing -> case Map.lookup aa ifields of
       Just (InfoPlace aa') -> pure (EnvInfo aa')
-      Nothing -> error ("not in scope: " ++ show aa)
+      Nothing -> error ("tyvar not in scope: " ++ show aa)
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.

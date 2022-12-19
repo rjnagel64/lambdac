@@ -1,0 +1,4 @@
+letrec f : int -> int =
+  \ (n : int) -> if false return int then f (n - 1) else 17;
+in
+f 32

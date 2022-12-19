@@ -85,6 +85,7 @@ standard_test("weird_id", "()")
 standard_test("recpoly", "7")
 standard_test("strings", "\"foobarfoobar\"")
 standard_test("either", "true")
+standard_test("rec", "17")
 
 def run_tests(test_filter):
     runner = TestRunner()
