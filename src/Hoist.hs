@@ -173,13 +173,14 @@ hoist (C.LetConcatC (x, s) y z e) = do
 --     fcode <- pickClosureName f
 --     -- Create a 'Place' for the closure allocation; pick an 'Id' for the environment.
 --     let p = asPlace (C.funClosureSort def) f
---     envp <- pickEnvironmentPlace p
+--     envp <- pickEnvironmentPlace (placeName p)
 --
 --     -- Convert the environment into a declaration and an environment value.
 --     (envd, enva) <- hoistEnvDef env
 --
 --     -- hoist the closure code and emit
 --     local _resetScope $ do
+--       envn <- pickEnvironmentName
 --       body' <- hoist body
 --       let decl = ClosureDecl fcode (envn, envd) _params body'
 --       tellClosure decl
@@ -187,7 +188,11 @@ hoist (C.LetConcatC (x, s) y z e) = do
 --     let alloc = ClosureAlloc p fcode envp enva
 --     pure ((f, p), alloc)
 --
---   e' <- local (_extend binds) $ hoist e
+--   let
+--     extend (HoistEnv (Scope places infos) envsc) =
+--       let places' = foldr (uncurry Map.insert) places binds in
+--       HoistEnv (Scope places' infos) envsc
+--   e' <- local extend $ hoist e
 --   pure (AllocClosure allocs e')
 hoist (C.LetFunC fs e) = do
   fdecls <- declareClosureNames C.funClosureName fs
@@ -279,7 +284,11 @@ withParams :: [C.ClosureParam] -> ([ClosureParam] -> HoistM a) -> HoistM a
 withParams params k = local setScope $ k params'
   where
     setScope (HoistEnv _ oldEnv) = HoistEnv newLocals oldEnv
-    newLocals = Scope places' infoPlaces'
+    (newLocals, params') = convertParameters params
+
+convertParameters :: [C.ClosureParam] -> (Scope, [ClosureParam])
+convertParameters params = (Scope places infoPlaces, params')
+  where
     -- The reason why this fold looks weird is because it uses the
     -- foldl-via-foldr trick: using a chain of updates as the accumulating
     -- parameter.
@@ -289,16 +298,16 @@ withParams params k = local setScope $ k params'
     -- operations to build the Hoist parameter telescope
     --
     -- I guess I could have used foldl and a DList H.ClosureParam, but eh, whatever.
-    (places', infoPlaces', params') =
+    (places, infoPlaces, params') =
       let (ps, is, te) = foldr addParam (id, id, []) params in
       (ps Map.empty, is Map.empty, te)
 
-    addParam (C.TypeParam aa k) (places, infoPlaces, tele) =
+    addParam (C.TypeParam aa k) (ps, is, tele) =
       let aa' = asInfoPlace aa in
-      (places, infoPlaces . Map.insert (asTyVar aa) aa', TypeParam aa' : tele)
-    addParam (C.ValueParam x s) (places, infoPlaces, tele) =
+      (ps, is . Map.insert (asTyVar aa) aa', TypeParam aa' : tele)
+    addParam (C.ValueParam x s) (ps, is, tele) =
       let p = asPlace s x in
-      (places . Map.insert x p, infoPlaces, PlaceParam p : tele)
+      (ps . Map.insert x p, is, PlaceParam p : tele)
 
 withEnvDef :: C.EnvDef -> ((Id, EnvDecl) -> HoistM a) -> HoistM a
 withEnvDef (C.EnvDef tyfields fields) k = do
