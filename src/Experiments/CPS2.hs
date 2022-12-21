@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wincomplete-patterns #-}
 
 module Experiments.CPS2 where
 
@@ -20,7 +21,13 @@ data Expr
   | EInl Expr
   | EInr Expr
   | ECase Expr (Name, Expr) (Name, Expr)
+  | EInt Int
   deriving Show
+
+data Type
+  = TInt
+  | TArr Type Type
+  | TSum Type Type
 
 data Term
   = KHalt KValue
@@ -36,7 +43,16 @@ data KValue
   | KCont Name Term
   | KInl KValue
   | KInr KValue
+  | KInt Int
   deriving Show
+
+data KType
+  = KTInt
+  | KTFun KType KCoType -- (a, b -> !) -> !
+  | KTSum KType KType
+
+data KCoType
+  = KTCont KType -- (a) -> !
 
 -- In my current IR, all functions and continuations are named, from CPS.IR
 -- onwards.  This translation does not name functions or continuations. I need
@@ -73,6 +89,11 @@ type M a = Reader Int a
 
 -- |- c : a -o b
 -- when evaluation context is filled with value of type 'a', whole context has type b
+--
+--
+-- Hmm. Actually, I don't think this needs two parameters.
+-- In particular, the typing judgement for a continuation is 'Γ |- c : ¬ t',
+-- and I now intend to pass the type of 'e' as an input rather than an output.
 data Cont
   -- if Γ |- k : a -> ! then |- (ObjCont k) : a -o b
   -- Note that return type is polymorphic, because a jump does not return to
@@ -108,6 +129,12 @@ reify HaltCont = fresh $ \x -> pure $ KCont x (KHalt (KVar x))
 -- (e', b) <- cps e c
 -- Γ' |- e' OK
 -- ???
+--
+-- Hmm. I'm beginning to think that I should pass the type of 'e' as an input,
+-- rather than compute it as an output. In particular, case-expressions are
+-- easier, maybe. (Also, it makes sense theoretically: prove that input is
+-- well-typed, receive well-formed output.)
+-- cps : (Γ : Context * e : Expr * t : Type * (Γ |- e : t) * c : Cont * Γ |- c : ¬t) -> M (Γ' : Context' * e' : Term * Γ' |- e' OK)
 cps :: Expr -> Cont -> M Term
 cps (EVar x) c = apply c (KVar x)
 cps (ELam x e) c = do
@@ -136,6 +163,7 @@ cps (ECase e (x, e1) (y, e2)) c =
         k1 <- KCont x <$> cps e1 (ObjCont k) -- left branch, cont x => [[e1]] k
         k2 <- KCont y <$> cps e2 (ObjCont k) -- right branch, cont y => [[e2]] k
         pure (KCase v k1 k2))
+cps (EInt i) c = apply c (KInt i)
 
 
 -- Hmm. cpsMain :: Expr -> (Term, Type)
@@ -143,6 +171,8 @@ cps (ECase e (x, e1) (y, e2)) c =
 -- Or is it
 -- if (e', t) = cpsMain e then ε |- e : t  and  ε |- e' OK
 -- ?
+-- Actually, it's
+-- cpsMain : (e : Expr) -> (t : Type) -> {_ : ε |- e : t} -> ((e' : Term) * {_ : ε |- e' OK})
 cpsMain :: Expr -> Term
 cpsMain e = runReader (cps e HaltCont) 0
 
