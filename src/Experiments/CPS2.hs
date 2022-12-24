@@ -87,59 +87,41 @@ fresh k = reader (\i -> runReader (k ("v" ++ show i)) (i+1))
 type M a = Reader Int a
 
 
--- |- c : a -o b
--- when evaluation context is filled with value of type 'a', whole context has type b
---
---
--- Hmm. Actually, I don't think this needs two parameters.
--- In particular, the typing judgement for a continuation is 'Γ |- c : ¬ t',
--- and I now intend to pass the type of 'e' as an input rather than an output.
+-- Γ |- c : ¬ t
+-- In context Γ, the continuation 'c' accepts a value of type 't'.
 data Cont
-  -- if Γ |- k : a -> ! then |- (ObjCont k) : a -o b
-  -- Note that return type is polymorphic, because a jump does not return to
-  -- the original context.
+  -- If Γ |- k : (t) -> ! then Γ |- (ObjCont k) : ¬ t
   = ObjCont Name
-  -- if Γ |- v : CPS-Ty[a]  and  (e', b) <- f(v) then |- (MetaCont f) : a -o b
+  -- If f : _ -> _ then Γ |- (MetaCont f) : ¬ t
   | MetaCont (KValue -> M Term)
-  -- |- HaltCont : a -o a
+  -- Γ |- (HaltCont {t}) : ¬ t
   | HaltCont
 
--- if
--- |- c : a -o b  and  ε |- v : CPS-Ty[a]
--- then
--- (e', b) <- apply c (v, a)  and  ε |- e' OK
+-- apply : (Γ : Context) -> (v : KValue) ->
+--         (_ : Γ |- c : ¬ t) ->
+--         M ((Γ' : Context') * (e' : Term) * (Γ' |- e' OK))
 apply :: Cont -> KValue -> M Term
 apply (ObjCont k) v = pure (KCallCont (KVar k) v)
 apply (MetaCont k) v = k v
 apply HaltCont v = pure (KHalt v)
 
--- if
--- |- c : a -o b
--- then
--- Γ |- reify c : (a) -> !
+-- if Γ |- c : ¬ t
+-- then Γ |- reify c : (t) -> !
+--
+-- reify : (Γ : Context) -> (c : Cont) ->
+--         (_ : Γ |- c : ¬ t) ->
+--         M ((Γ' : Context') * (v : KValue) * (Γ' |- v : (CPS-Ty[t]) -> !))
 reify :: Cont -> M KValue
 reify (ObjCont k) = pure (KVar k)
-reify (MetaCont k) = fresh $ \x -> KCont x <$> k (KVar x)
+reify (MetaCont k) = fresh $ \x -> k (KVar x) >>= \e -> pure (KCont x e)
 reify HaltCont = fresh $ \x -> pure $ KCont x (KHalt (KVar x))
 
--- if
--- Γ |- e : a
--- |- c : a -o b
--- then
--- (e', b) <- cps e c
--- Γ' |- e' OK
--- ???
---
--- Hmm. I'm beginning to think that I should pass the type of 'e' as an input,
--- rather than compute it as an output. In particular, case-expressions are
--- easier, maybe. (Also, it makes sense theoretically: prove that input is
--- well-typed, receive well-formed output.)
--- cps : (Γ : Context * e : Expr * t : Type * (Γ |- e : t) * c : Cont * Γ |- c : ¬t) -> M (Γ' : Context' * e' : Term * Γ' |- e' OK)
+-- cps : (Γ : Context) -> (e : Expr) -> (t : Type) -> (c : Cont) ->
+--       (_ : Γ |- e : t) -> (_ : Γ |- c : ¬ t) ->
+--       M ((Γ' : Context') * (e' : Term) * (Γ' |- e' OK))
 cps :: Expr -> Cont -> M Term
 cps (EVar x) c = apply c (KVar x)
 cps (ELam x e) c = do
-  -- Hmm. I might be able to restrict 'MetaCont' to accept a 'Name' if I
-  -- introduce a let-binding here for the function.
   v <- fresh $ \k -> KFun x k <$> cps e (ObjCont k)
   apply c v
 cps (EApp e1 e2) c =
@@ -166,12 +148,6 @@ cps (ECase e (x, e1) (y, e2)) c =
 cps (EInt i) c = apply c (KInt i)
 
 
--- Hmm. cpsMain :: Expr -> (Term, Type)
--- if ε |- e : t  and  (e', t) = cpsMain e then ε |- e' OK
--- Or is it
--- if (e', t) = cpsMain e then ε |- e : t  and  ε |- e' OK
--- ?
--- Actually, it's
 -- cpsMain : (e : Expr) -> (t : Type) -> {_ : ε |- e : t} -> ((e' : Term) * {_ : ε |- e' OK})
 cpsMain :: Expr -> Term
 cpsMain e = runReader (cps e HaltCont) 0

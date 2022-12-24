@@ -65,6 +65,16 @@ instance Show TyVar where
 -- assignments terminated by a control flow transfer.
 --
 -- (Actually, I think this IR is technically or nearly in ANF)
+--
+-- Note: This IR is not in "true" CPS, where all control flow uses
+-- continuations. In particular, values and primitive operations use an
+-- implicit "straight-line code" continuation that passes control to the next
+-- statement. For example, @let x = y + z in e@ should actually be
+-- @primcall (+) (y, z) (cont x => e)@.
+--
+-- The reason for this divergence is to reduce the number of closures and tail
+-- calls required by the C backend, as I do not have particularly efficient
+-- generated code.
 data TermK a
   -- Assignments
   -- let val x:t = v in e
