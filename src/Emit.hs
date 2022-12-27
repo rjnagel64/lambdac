@@ -479,7 +479,7 @@ emitClosureCode csig tenv ns envName xs e =
   where
     paramList = commaSep (envParam : map emitParam xs)
     envParam = "struct " ++ envTypeName (closureEnvName ns) ++ " *" ++ show envName
-    emitParam (TypeParam i) = emitInfoPlace i
+    emitParam (TypeParam (TyVar aa)) = emitInfoPlace (InfoPlace aa)
     emitParam (PlaceParam p) = emitPlace p
     emitParam (InfoParam i s) = "type_info " ++ show i
 

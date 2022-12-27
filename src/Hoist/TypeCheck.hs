@@ -159,7 +159,7 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
     -- Compute a telescope from a parameter list.
     -- Note how the muddled identifier sorts are messy here.
     mkParam (PlaceParam p) = ValueTele (placeSort p)
-    mkParam (TypeParam (InfoPlace aa)) = TypeTele (TyVar aa)
+    mkParam (TypeParam aa) = TypeTele aa
     -- mkParam (InfoParam i s) = _ -- I need an InfoTele constructor here.
     tele = ClosureTele (map mkParam params)
   let declTy = ClosureDeclType [] envTy tele
@@ -199,7 +199,7 @@ checkUniqueLabels ls = do
 checkParams :: [ClosureParam] -> TC Locals
 checkParams [] = asks ctxLocals
 checkParams (PlaceParam p : params) = withPlace p $ checkParams params
-checkParams (TypeParam i : params) = withInfo i $ checkParams params
+checkParams (TypeParam (TyVar aa) : params) = withInfo (InfoPlace aa) $ checkParams params
 checkParams (InfoParam _ _ : _) = throwError (NotImplemented "checkParams InfoParam")
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.

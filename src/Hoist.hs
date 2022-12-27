@@ -306,8 +306,9 @@ convertParameters params = (Scope places infoPlaces, params')
       (ps Map.empty, is Map.empty, te)
 
     addParam (C.TypeParam aa k) (ps, is, tele) =
-      let aa' = asInfoPlace aa in
-      (ps, is . Map.insert (asTyVar aa) (infoName aa'), TypeParam aa' : tele)
+      let aa' = asTyVar aa in
+      let i = infoName (asInfoPlace aa) in
+      (ps, is . Map.insert aa' i, TypeParam aa' : tele)
     addParam (C.ValueParam x s) (ps, is, tele) =
       let p = asPlace s x in
       (ps . Map.insert x p, is, PlaceParam p : tele)

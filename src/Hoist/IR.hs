@@ -151,7 +151,7 @@ data EnvDecl = EnvDecl [(Id, TyVar)] [Place]
 
 -- Idea: Introduce InfoParam, and slowly migrate to use it wherever necessary.
 -- Maybe rename TypeParam to TypeInfoParam, then refactor it out of existence.
-data ClosureParam = PlaceParam Place | TypeParam InfoPlace | InfoParam Id Sort
+data ClosureParam = PlaceParam Place | TypeParam TyVar | InfoParam Id Sort
 
 
 
@@ -441,7 +441,7 @@ pprintInfoPlace (InfoPlace aa) = '@' : show aa
 
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
-pprintParam (TypeParam i) = pprintInfoPlace i
+pprintParam (TypeParam aa) = '@' : show aa
 
 pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = concatMap (pprintClosureDecl 0) cs
