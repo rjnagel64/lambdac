@@ -85,7 +85,10 @@ deriving newtype instance MonadState (Set ClosureName) HoistM
 data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
 
 -- Hmm. Why is Scope 'Map C.Name Place', but then 'Map H.TyVar InfoPlace'?
-data Scope = Scope { scopePlaces :: Map C.Name Place, scopeInfos :: Map TyVar InfoPlace }
+--
+-- 'scopeInfos' maps an in-scope (hoist) type variable to the 'Id' of an info
+-- that describes that type.
+data Scope = Scope { scopePlaces :: Map C.Name Place, scopeInfos :: Map TyVar Id }
 
 -- Hmm. Might consider using a DList here. I think there might be a left-nested
 -- append happening.
@@ -229,7 +232,7 @@ hoistEnvDef (C.EnvDef tyfields fields) = do
   let envd = EnvDecl declTyFields declFields
 
   let scPlaces = Map.fromList $ map (\ (x, s) -> (x, asPlace s x)) fields
-  let scInfoPlaces = Map.fromList $ map (\ (aa, k) -> (asTyVar aa, asInfoPlace aa)) tyfields
+  let scInfoPlaces = Map.fromList $ map (\ (aa, k) -> (asTyVar aa, infoName (asInfoPlace aa))) tyfields
   let envsc = Scope scPlaces scInfoPlaces
 
   -- Note: When allocating a recursive environment, we need to have the current
@@ -304,7 +307,7 @@ convertParameters params = (Scope places infoPlaces, params')
 
     addParam (C.TypeParam aa k) (ps, is, tele) =
       let aa' = asInfoPlace aa in
-      (ps, is . Map.insert (asTyVar aa) aa', TypeParam aa' : tele)
+      (ps, is . Map.insert (asTyVar aa) (infoName aa'), TypeParam aa' : tele)
     addParam (C.ValueParam x s) (ps, is, tele) =
       let p = asPlace s x in
       (ps . Map.insert x p, is, PlaceParam p : tele)
@@ -314,7 +317,7 @@ convertParameters params = (Scope places infoPlaces, params')
 pickEnvironmentName :: HoistM Id
 pickEnvironmentName = do
   HoistEnv locals env <- ask
-  let scopeNames (Scope places infos) = foldMap (Set.singleton . placeName) places <> foldMap (Set.singleton . infoName) infos
+  let scopeNames (Scope places infos) = foldMap (Set.singleton . placeName) places <> foldMap Set.singleton infos
   let scope = scopeNames locals <> scopeNames env
   let go i = let envp = Id ("env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
@@ -322,7 +325,7 @@ pickEnvironmentName = do
 pickEnvironmentPlace :: Id -> HoistM Id
 pickEnvironmentPlace (Id cl) = do
   HoistEnv locals env <- ask
-  let scopeNames (Scope places infos) = foldMap (Set.singleton . placeName) places <> foldMap (Set.singleton . infoName) infos
+  let scopeNames (Scope places infos) = foldMap (Set.singleton . placeName) places <> foldMap Set.singleton infos
   let scope = scopeNames locals <> scopeNames env
   let go i = let envp = Id (cl ++ "_env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
@@ -376,9 +379,9 @@ infoForTyVar aa = do
   iplaces <- asks (scopeInfos . localScope)
   ifields <- asks (scopeInfos . envScope)
   case Map.lookup aa iplaces of
-    Just (InfoPlace aa') -> pure (LocalInfo aa')
+    Just aa' -> pure (LocalInfo aa')
     Nothing -> case Map.lookup aa ifields of
-      Just (InfoPlace aa') -> pure (EnvInfo aa')
+      Just aa' -> pure (EnvInfo aa')
       Nothing -> error ("tyvar not in scope: " ++ show aa)
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
