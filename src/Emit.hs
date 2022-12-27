@@ -479,9 +479,12 @@ emitClosureCode csig tenv ns envName xs e =
   where
     paramList = commaSep (envParam : map emitParam xs)
     envParam = "struct " ++ envTypeName (closureEnvName ns) ++ " *" ++ show envName
-    emitParam (TypeParam (TyVar aa)) = emitInfoPlace (InfoPlace aa)
-    emitParam (PlaceParam p) = emitPlace p
+    -- Hmm. Really, the type param should not emit an argument at all.
+    -- Instead, the 'type_info' value should be passed as an InfoParam.
+    -- However, I have not implemented that yet.
+    emitParam (TypeParam (TyVar aa)) = "type_info " ++ show aa
     emitParam (InfoParam i s) = "type_info " ++ show i
+    emitParam (PlaceParam p) = emitPlace p
 
 
 emitClosureBody :: ClosureSig -> ThunkEnv -> EnvPtr -> TermH -> [Line]
@@ -692,9 +695,6 @@ patchEnv recNames (ClosureAlloc _ _ envPlace (EnvAlloc _info fields)) = concatMa
     -- Patching recursive closures should only ever involve local names.
     -- Additionally, we do not have access to an environment pointer in this function.
     patchField (EnvValueArg _ (EnvName _)) = []
-
-emitInfoPlace :: InfoPlace -> String
-emitInfoPlace (InfoPlace i) = "type_info " ++ show i
 
 emitPlace :: Place -> String
 emitPlace (Place s x) = typeForSort s ++ show x
