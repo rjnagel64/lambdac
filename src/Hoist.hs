@@ -44,8 +44,9 @@ import Hoist.IR hiding (Subst, singleSubst, substSort)
 asPlace :: C.Sort -> C.Name -> Place
 asPlace s (C.Name x i) = Place (sortOf s) (Id (x ++ show i))
 
-asInfoPlace :: C.TyVar -> InfoPlace
-asInfoPlace (C.TyVar aa) = InfoPlace (Id aa)
+-- | Given a 'CC.TyVar', compute the 'Id' that references that tyvar's 'Info'
+infoPlaceName :: C.TyVar -> Id
+infoPlaceName (C.TyVar aa) = Id aa
 
 -- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
 asTyVar :: C.TyVar -> TyVar
@@ -227,12 +228,12 @@ hoist (C.LetContC ks e) = do
 
 hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, Scope, EnvAlloc)
 hoistEnvDef (C.EnvDef tyfields fields) = do
-  let declTyFields = map (\ (aa, k) -> (infoName (asInfoPlace aa), asTyVar aa)) tyfields
+  let declTyFields = map (\ (aa, k) -> (infoPlaceName aa, asTyVar aa)) tyfields
   let declFields = map (\ (x, s) -> asPlace s x) fields
   let envd = EnvDecl declTyFields declFields
 
   let scPlaces = Map.fromList $ map (\ (x, s) -> (x, asPlace s x)) fields
-  let scInfoPlaces = Map.fromList $ map (\ (aa, k) -> (asTyVar aa, infoName (asInfoPlace aa))) tyfields
+  let scInfoPlaces = Map.fromList $ map (\ (aa, k) -> (asTyVar aa, infoPlaceName aa)) tyfields
   let envsc = Scope scPlaces scInfoPlaces
 
   -- Note: When allocating a recursive environment, we need to have the current
@@ -245,7 +246,7 @@ hoistEnvDef (C.EnvDef tyfields fields) = do
   -- In order to construct the environments { odd0 = odd0 } and { even0 = even0 },
   -- we need to have 'even0' and 'odd0' in the local scope.
   allocTyFields <- for tyfields $ \ (aa, k) ->
-    EnvInfoArg (infoName (asInfoPlace aa)) <$> infoForTyVar (asTyVar aa)
+    EnvInfoArg (infoPlaceName aa) <$> infoForTyVar (asTyVar aa)
   allocFields <- for fields $ \ (x, s) ->
     EnvValueArg (placeName (asPlace s x)) <$> hoistVarOcc x
   let enva = EnvAlloc allocTyFields allocFields
@@ -307,7 +308,7 @@ convertParameters params = (Scope places infoPlaces, params')
 
     addParam (C.TypeParam aa k) (ps, is, tele) =
       let aa' = asTyVar aa in
-      let i = infoName (asInfoPlace aa) in
+      let i = infoPlaceName aa in
       (ps, is . Map.insert aa' i, TypeParam aa' : tele)
     addParam (C.ValueParam x s) (ps, is, tele) =
       let p = asPlace s x in
