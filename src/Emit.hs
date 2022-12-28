@@ -111,25 +111,25 @@ teleThunkType (ClosureTele ss) = ThunkType (map f ss)
     f (InfoTele s) = ThunkInfoArg
 
 thunkTypeCode :: ThunkType -> String
-thunkTypeCode (ThunkType ts) = concatMap argcode ts
+thunkTypeCode (ThunkType ts) = map argcode ts
   where
-    argcode ThunkInfoArg = "I"
-    argcode (ThunkValueArg s) = tycode s
-    -- This scheme will almost certainly break down as types get fancier.
-    tycode :: Sort -> String
-    tycode (ClosureH tele) = 'C' : telecode tele
-    tycode IntegerH = "V"
-    tycode (AllocH _) = "A"
-    tycode SumH = "S"
-    tycode StringH = "T"
-    tycode BooleanH = "B"
-    tycode (ProductH s t) = 'Q' : tycode s ++ tycode t
-    tycode UnitH = "U"
-    tycode (ListH s) = 'L' : tycode s
-    telecode (ClosureTele ss) = show (length ss) ++ concatMap entrycode ss
-    entrycode (ValueTele s) = tycode s
-    entrycode (TypeTele aa) = "J" -- same as 'I', or different?
-    entrycode (InfoTele s) = "K" -- same as 'I', or 'J', or different?
+    argcode ThunkInfoArg = 'I'
+    argcode (ThunkValueArg s) = tycode' s
+    tycode' :: Sort -> Char
+    tycode' IntegerH = 'V'
+    tycode' BooleanH = 'B'
+    tycode' StringH = 'T'
+    tycode' UnitH = 'U'
+    -- In C, polymorphic types are represented uniformly.
+    -- For example, 'list int64' and 'list (aa * bool)' are both represented
+    -- using a 'struct list_val *' value. Therefore, when encoding a thunk type
+    -- (that is, summarizing a closure's calling convention), we only need to
+    -- mention the outermost constructor.
+    tycode' (ClosureH _) = 'C'
+    tycode' (AllocH _) = 'A'
+    tycode' (ListH _) = 'L'
+    tycode' SumH = 'S'
+    tycode' (ProductH _ _) = 'Q'
 
 data ThunkNames
   = ThunkNames {
@@ -184,6 +184,8 @@ closureDeclType decl = teleThunkType (closureDeclTele decl)
 -- TODO: collectThunkTypes overapproximates the set of thunk types needed by a program.
 -- This bloats the output substantially as program complexity increases.
 -- Instead, I should only record the thunk types I actually use.
+--
+-- (I believe this means traversing the program and counting each OpenH construct)
 collectThunkTypes :: [ClosureDecl] -> Set ThunkType
 collectThunkTypes cs = foldMap closureThunkTypes cs
   where
