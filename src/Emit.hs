@@ -108,6 +108,7 @@ teleThunkType (ClosureTele ss) = ThunkType (map f ss)
   where
     f (ValueTele s) = ThunkValueArg s
     f (TypeTele aa) = ThunkInfoArg -- Hmm. type args aren't really info args, though.
+    f (InfoTele s) = ThunkInfoArg
 
 thunkTypeCode :: ThunkType -> String
 thunkTypeCode (ThunkType ts) = concatMap argcode ts
@@ -128,6 +129,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     telecode (ClosureTele ss) = show (length ss) ++ concatMap entrycode ss
     entrycode (ValueTele s) = tycode s
     entrycode (TypeTele aa) = "J" -- same as 'I', or different?
+    entrycode (InfoTele s) = "K" -- same as 'I', or 'J', or different?
 
 data ThunkNames
   = ThunkNames {
@@ -176,17 +178,8 @@ asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
 
 -- | Compute the thunk type of a closure declaration.
---
--- In theory, this should just be computing the closure's telescope, then using
--- 'teleThunkType', but 'ClosureParam' and 'TeleEntry' disagree about type
--- variables versus info variables and it's a mess.
 closureDeclType :: ClosureDecl -> ThunkType
-closureDeclType (ClosureDecl _ _ params _) = ThunkType (map f params)
-  where
-    f (PlaceParam p) = ThunkValueArg (placeSort p)
-    -- There really shouldn't be both of these.
-    f (TypeParam i) = ThunkInfoArg
-    f (InfoParam i s) = ThunkInfoArg
+closureDeclType decl = teleThunkType (closureDeclTele decl)
 
 -- TODO: collectThunkTypes overapproximates the set of thunk types needed by a program.
 -- This bloats the output substantially as program complexity increases.
@@ -222,6 +215,7 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
     entryThunkTypes :: TeleEntry -> Set ThunkType
     entryThunkTypes (ValueTele s) = thunkTypesOf s
     entryThunkTypes (TypeTele aa) = Set.empty
+    entryThunkTypes (InfoTele s) = thunkTypesOf s
 
 
 

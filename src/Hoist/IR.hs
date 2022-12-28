@@ -19,6 +19,7 @@ module Hoist.IR
 
     , ClosureDecl(..)
     , closureDeclName
+    , closureDeclTele
     , EnvDecl(..)
     , ClosureParam(..)
 
@@ -111,6 +112,7 @@ newtype ClosureTele = ClosureTele [TeleEntry]
 data TeleEntry
   = ValueTele Sort
   | TypeTele TyVar
+  | InfoTele Sort
 
 instance Eq Sort where
   (==) = equalSort emptyAE
@@ -147,22 +149,33 @@ data ClosureDecl
 closureDeclName :: ClosureDecl -> ClosureName
 closureDeclName (ClosureDecl c _ _ _) = c 
 
+closureDeclTele :: ClosureDecl -> ClosureTele
+closureDeclTele (ClosureDecl _ _ params _) = ClosureTele (map f params)
+  where
+    f (PlaceParam p) = ValueTele (placeSort p)
+    f (TypeParam aa) = TypeTele aa
+    f (InfoParam _ s) = InfoTele s
+
 data EnvDecl = EnvDecl [(Id, TyVar)] [Place]
 
--- Idea: Introduce InfoParam, and slowly migrate to use it wherever necessary.
--- Maybe rename TypeParam to TypeInfoParam, then refactor it out of existence.
 data ClosureParam = PlaceParam Place | TypeParam TyVar | InfoParam Id Sort
 
 
 
 data TermH
+  -- 'let x : bool = true in e'
   = LetValH Place ValueH TermH
+  -- 'let z : bool = prim_int64gt(x, y) in e'
   | LetPrimH Place PrimOp TermH
-  -- 'let value x = fst y in e'
+  -- 'let x : int64 = y .fst in e'
   | LetProjectH Place Name Projection TermH
+  -- 'halt @bool x bool_info'
   | HaltH Sort Name Info
+  -- 'call f (x, @int, z, $string_info)'
   | OpenH Name [ClosureArg]
+  -- 'case x of { k1 | k2 | ... }'
   | CaseH Name CaseKind [Name]
+  -- 'letrec (f1 : closure(ss) = #f1 { env1 })+ in e'
   -- Closures may be mutually recursive, so they are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
@@ -269,7 +282,7 @@ ftvTele (ClosureTele tele) = go tele
     go [] = mempty
     go (ValueTele s : rest) = ftv s <> go rest
     go (TypeTele aa : rest) = bindFV aa (go rest)
-    -- go (InfoTele s : rest) = ftv s <> go rest
+    go (InfoTele s : rest) = ftv s <> go rest
 
 -- | An environment used when checking alpha-equality.
 -- Contains the deBruijn level and a mapping from bound variables to levels for
@@ -319,6 +332,8 @@ equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
     go ae (TypeTele aa : ls) (TypeTele bb : rs) =
       go (bindAE aa bb ae) ls rs
     go _ (TypeTele _ : _) (_ : _) = False
+    go ae (InfoTele s : ls) (InfoTele t : rs) = equalSort ae s t && go ae ls rs
+    go _ (InfoTele _ : _) (_ : _) = False
     go _ (_ : _) [] = False
     go _ [] (_ : _) = False
 
@@ -374,6 +389,7 @@ substTele _ [] = []
 substTele sub (ValueTele s : tele) = ValueTele (substSort sub s) : substTele sub tele
 substTele sub (TypeTele aa : tele) = case substBind sub aa of
   (sub', aa') -> TypeTele aa' : substTele sub' tele
+substTele sub (InfoTele s : tele) = InfoTele (substSort sub s) : substTele sub tele
 
 
 -- Pretty-printing
@@ -436,12 +452,10 @@ pprintPrim (PrimStrlen x) = "prim_strlen(" ++ show x ++ ")"
 pprintPlace :: Place -> String
 pprintPlace (Place s x) = show x ++ " : " ++ pprintSort s
 
-pprintInfoPlace :: InfoPlace -> String
-pprintInfoPlace (InfoPlace aa) = '@' : show aa
-
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
 pprintParam (TypeParam aa) = '@' : show aa
+pprintParam (InfoParam i s) = show i ++ " : info " ++ pprintSort s
 
 pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = concatMap (pprintClosureDecl 0) cs
@@ -497,3 +511,4 @@ pprintTele (ClosureTele ss) = intercalate ", " (map f ss)
   where
     f (ValueTele s) = pprintSort s
     f (TypeTele aa) = "forall " ++ show aa
+    f (InfoTele s) = "info " ++ pprintSort s

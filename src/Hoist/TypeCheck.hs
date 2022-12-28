@@ -145,7 +145,7 @@ checkEntryPoint e = checkTerm e
 
 -- | Type-check a top-level code declaration and add it to the signature.
 checkClosure :: ClosureDecl -> TC ()
-checkClosure (ClosureDecl cl (envp, envd) params body) = do
+checkClosure decl@(ClosureDecl cl (envp, envd) params body) = do
   -- Check the environment and parameters to populate the environment scope for
   -- the typing context
   envTy <- checkEnv envd
@@ -155,13 +155,7 @@ checkClosure (ClosureDecl cl (envp, envd) params body) = do
   -- Use the parameter list and environment to type-check the closure body.
   local (\_ -> Context localScope envTy) $ checkTerm body
   -- Extend the signature with the new closure declaration.
-  let
-    -- Compute a telescope from a parameter list.
-    -- Note how the muddled identifier sorts are messy here.
-    mkParam (PlaceParam p) = ValueTele (placeSort p)
-    mkParam (TypeParam aa) = TypeTele aa
-    -- mkParam (InfoParam i s) = _ -- I need an InfoTele constructor here.
-    tele = ClosureTele (map mkParam params)
+  let tele = closureDeclTele decl
   let declTy = ClosureDeclType [] envTy tele
   modify (declareClosure cl declTy)
 
@@ -351,6 +345,7 @@ checkTele (ClosureTele ss) = go ss
     go [] = pure ()
     go (ValueTele s : ss') = checkSort s *> go ss'
     go (TypeTele (TyVar aa) : ss') = withInfo (InfoPlace aa) $ go ss'
+    go (InfoTele s : ss') = checkSort s *> go ss'
 
 -- | Given info @i@ and sort @s@, check that @Γ |- i : info s@.
 checkInfo :: Info -> Sort -> TC ()
