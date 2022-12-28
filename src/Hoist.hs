@@ -56,7 +56,7 @@ sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH
 sortOf C.Boolean = BooleanH
 sortOf C.Unit = UnitH
-sortOf C.Sum = SumH
+sortOf (C.Sum _ _) = SumH
 sortOf C.String = StringH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.List t) = ListH (sortOf t)

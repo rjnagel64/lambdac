@@ -152,9 +152,9 @@ cconvType K.UnitK = pure Unit
 cconvType K.IntK = pure Integer
 cconvType K.BoolK = pure Boolean
 cconvType K.StringK = pure String
-cconvType (K.SumK _ _) = pure Sum
-cconvType (K.ListK t) = List <$> cconvType t
+cconvType (K.SumK t1 t2) = Sum <$> cconvType t1 <*> cconvType t2
 cconvType (K.ProdK t1 t2) = Pair <$> cconvType t1 <*> cconvType t2
+cconvType (K.ListK t) = List <$> cconvType t
 cconvType (K.FunK ts ss) = f <$> traverse cconvType ts <*> traverse cconvCoType ss
   where f ts' ss' = Closure (map ValueTele ts' ++ map ValueTele ss')
 
@@ -248,9 +248,9 @@ makeClosureEnv flds = do
           Set.delete (TyOcc aa k) $ go (Map.insert aa k ctx') acc rest
     ftv _ Integer = Set.empty
     ftv _ Unit = Set.empty
-    ftv _ Sum = Set.empty
     ftv _ Boolean = Set.empty
     ftv _ String = Set.empty
+    ftv ctx (Sum t1 t2) = ftv ctx t1 <> ftv ctx t2
     ftv ctx (Pair t1 t2) = ftv ctx t1 <> ftv ctx t2
     ftv ctx (List t) = ftv ctx t
 

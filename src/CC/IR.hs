@@ -99,7 +99,7 @@ data Sort
   = Closure [TeleEntry]
   | Integer
   | Alloc TyVar
-  | Sum
+  | Sum Sort Sort
   | String
   | Pair Sort Sort
   | Unit
@@ -251,10 +251,10 @@ pprintSort :: Sort -> String
 pprintSort (Closure ss) = "(" ++ intercalate ", " (map pprintTele ss) ++ ") -> !"
 pprintSort Integer = "int"
 pprintSort (Alloc aa) = "alloc(" ++ show aa ++ ")"
-pprintSort Sum = "sum"
 pprintSort String = "string"
 pprintSort Boolean = "bool"
 pprintSort (List s) = "list " ++ pprintSort s
+pprintSort (Sum s t) = "sum " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort (Pair s t) = "pair " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort Unit = "unit"
 
