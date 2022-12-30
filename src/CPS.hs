@@ -160,13 +160,13 @@ cps (S.TmPair e1 e2) k =
         ty' <- cpsType ty
         let res = LetValK x ty' (PairK v1 v2) e'
         pure (res, t')
-cps (S.TmCons e1 e2) k =
+cps (S.TmCons s e1 e2) k =
   cps e1 $ \v1 _t1 ->
-    cps e2 $ \v2 t2 -> do
+    cps e2 $ \v2 _t2 -> do
       freshTm "x" $ \x -> do
-        (e', t') <- k x t2
-        t2' <- cpsType t2
-        let res = LetValK x t2' (ConsK v1 v2) e'
+        ty' <- ListK <$> cpsType s
+        (e', t') <- k x (S.TyList s)
+        let res = LetValK x ty' (ConsK v1 v2) e'
         pure (res, t')
 cps (S.TmConcat e1 e2) k =
   cps e1 $ \v1 _t1 ->
@@ -392,11 +392,11 @@ cpsTail S.TmNil k =
   freshTm "x" $ \x -> do
     let res = LetValK x UnitK NilK (JumpK k [x])
     pure (res, S.TyUnit)
-cpsTail (S.TmEmpty a) k =
+cpsTail (S.TmEmpty s) k =
   freshTm "x" $ \x -> do
-    a' <- ListK <$> cpsType a
-    let res = LetValK x a' EmptyK (JumpK k [x])
-    pure (res, S.TyList a)
+    s' <- ListK <$> cpsType s
+    let res = LetValK x s' EmptyK (JumpK k [x])
+    pure (res, S.TyList s)
 cpsTail (S.TmInt i) k =
   freshTm "x" $ \x -> do
     let res = LetValK x IntK (IntValK i) (JumpK k [x])
@@ -432,13 +432,13 @@ cpsTail (S.TmPair e1 e2) k =
         ty' <- cpsType ty
         let res = LetValK x ty' (PairK v1 v2) (JumpK k [x])
         pure (res, ty)
-cpsTail (S.TmCons e1 e2) k =
-  cps e1 $ \v1 t1 ->
-    cps e2 $ \v2 t2 -> do
+cpsTail (S.TmCons s e1 e2) k =
+  cps e1 $ \v1 _t1 ->
+    cps e2 $ \v2 _t2 -> do
       freshTm "x" $ \x -> do
-        t1' <- ListK <$> cpsType t1
-        let res = LetValK x t1' (ConsK v1 v2) (JumpK k [x])
-        pure (res, t2)
+        ty' <- ListK <$> cpsType s
+        let res = LetValK x ty' (ConsK v1 v2) (JumpK k [x])
+        pure (res, S.TyList s)
 cpsTail (S.TmConcat e1 e2) k =
   cps e1 $ \v1 _t1 ->
     cps e2 $ \v2 _t2 -> do

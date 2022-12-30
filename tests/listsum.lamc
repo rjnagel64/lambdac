@@ -4,4 +4,4 @@ letrec sum : list int -> int =
     cons (y : int) (ys : list int) -> y + sum ys
   };
 in
-sum (cons 5 (cons 4 (cons 3 (cons 2 (cons 1 (cons 0 (nil @int)))))))
+sum (cons @int 5 (cons @int 4 (cons @int 3 (cons @int 2 (cons @int 1 (cons @int 0 (nil @int)))))))

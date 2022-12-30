@@ -93,10 +93,10 @@ data Term
   | TmNegate Term
   -- e1 `cmp` e2
   | TmCmp Term TmCmp Term
-  -- [] @a
+  -- nil @a
   | TmEmpty Type
-  -- x :: xs
-  | TmCons Term Term
+  -- cons @a x xs
+  | TmCons Type Term Term
   -- case uncons e return s of nil -> e1; cons (y : t1) (ys : t2) -> e2
   | TmCaseList Term Type Term ((TmVar, Type), (TmVar, Type), Term)
   -- \ @(a : k) -> e

@@ -111,7 +111,7 @@ Term :: { Term }
      | 'inl' '@' AType '@' AType ATerm { TmInl $3 $5 $6 }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'nil' '@' AType { TmEmpty $3 }
-     | 'cons' ATerm ATerm { TmCons $2 $3 }
+     | 'cons' '@' AType ATerm ATerm { TmCons $3 $4 $5 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
      | '-' ATerm %prec UMINUS { TmNegate $2 }

@@ -6,9 +6,9 @@ letrec merge : list int -> list int -> list int =
         nil -> xs;
         cons (y : int) (ys2 : list int) ->
           if x <= y return list int then
-            cons x (merge xs2 ys)
+            cons @int x (merge xs2 ys)
           else
-            cons y (merge xs ys2)
+            cons @int y (merge xs ys2)
       }
     };
 in
@@ -23,7 +23,7 @@ letrec splithalf : list int -> list int * list int =
           nil -> (nil @int, slow);
           cons (x : int) (slow1 : list int) ->
             let p : list int * list int = go slow1 fast2 in
-              (cons x (fst p), snd p)
+              (cons @int x (fst p), snd p)
         }
       }
     };
@@ -44,7 +44,7 @@ letrec mergesort : list int -> list int =
     };
 in
 let l : list int =
-  cons 3 (cons 2 (cons 6 (cons 1 (cons 4 (cons 5 (cons 7 (nil @int)))))))
+  cons @int 3 (cons @int 2 (cons @int 6 (cons @int 1 (cons @int 4 (cons @int 5 (cons @int 7 (nil @int)))))))
 in
 mergesort l
 -- splithalf l
