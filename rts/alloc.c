@@ -11,6 +11,15 @@ static uint64_t gc_threshold = 256;
 
 // The locals vector serves as an extra set of GC roots, for values allocated
 // during the lifetime of a function.
+//
+// This is a consequence of the "straight-line code" thing.
+// Because the continuation of a let-value or let-prim is implicitly the next
+// statement, we do not call a 'suspend_*' method. Because we don't suspend,
+// the freshly-allocated value is not saved as a thunk argument, and is
+// therefore not added to the set of reachable values.
+//
+// To compensate for this, we maintain an auxiliary vector of roots, that is
+// reset upon entry to a closure's code.
 struct local_entry {
     struct alloc_header *alloc;
     type_info info;
