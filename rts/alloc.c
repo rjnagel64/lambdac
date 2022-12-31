@@ -61,7 +61,6 @@ void push_local(struct alloc_header *local, type_info info) {
 // overflow when exploring deeply, and also can avoid cycles. 
 struct gray_entry {
     struct alloc_header *alloc;
-    type_info info;
 };
 static struct gray_entry *gray_list = NULL;
 static uint64_t num_gray = 0;
@@ -77,7 +76,6 @@ void mark_gray(struct alloc_header *alloc, type_info info) {
         gray_list = realloc(gray_list, gray_capacity * sizeof(struct gray_entry));
     }
     gray_list[num_gray].alloc = alloc;
-    gray_list[num_gray].info = info;
     num_gray++;
 }
 
@@ -107,7 +105,7 @@ void collect(void) {
         // Mark this item as reachable.
         gray.alloc->mark = 1;
         // Push all subfields onto the gray list.
-        gray.info.trace(gray.alloc);
+        gray.alloc->info.trace(gray.alloc);
     }
 
     // Sweep alloc list for mark = 0, and also reset mark to 0 for other allocations.
@@ -149,6 +147,7 @@ static const bool debug_stress_gc = false;
 void cons_new_alloc(struct alloc_header *alloc, type_info info) {
     alloc->mark = 0;
     alloc->next = first_allocation;
+    alloc->info = info;
     first_allocation = alloc;
     num_allocs++;
     push_local(first_allocation, info);
