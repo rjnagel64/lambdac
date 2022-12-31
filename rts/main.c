@@ -10,8 +10,8 @@
 void program_entry(void);
 
 int main(void) {
-    // Initialize the locals vector.
-    init_locals();
+    // Initialize the GC: create the locals vector and the gray list.
+    init_gc();
 
     // Prepare the calling convention by reserving space for a buffer of
     // arguments.
@@ -38,8 +38,10 @@ int main(void) {
 
     // Cleanup.
     destroy_args();
-    destroy_locals();
-    sweep_all_allocations();
+
+    // Shut down the GC: release all memory and free the locals vector and gray
+    // list.
+    destroy_gc();
 }
 
 // vim: set et sts=4 sw=4:

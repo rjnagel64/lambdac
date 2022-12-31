@@ -28,6 +28,8 @@ static struct local_entry *locals = NULL;
 static size_t num_locals = 0;
 static size_t locals_capacity = 0;
 
+// Hmm. These are private, with only one use site. Consider inlining these
+// definitions to init_gc and destroy_gc.
 void init_locals(void) {
     locals_capacity = 8;
     locals = malloc(locals_capacity * sizeof(struct local_entry));
@@ -82,36 +84,31 @@ void mark_gray(struct alloc_header *alloc, type_info info) {
 
 
 void collect(void) {
-    // It might be better to malloc gray list at startup, realloc/resize when
-    // collecting. After all, GC happens when there isn't much memory available
-    // to allocate for the gray list.
-    gray_capacity = 8;
+    // Clear the gray list. (It should be empty anyway after the last
+    // collection, but be explicit.)
     num_gray = 0;
-    gray_list = malloc(gray_capacity * sizeof(struct gray_entry));
 
-    // Push each local onto gray_list
+    // Add the roots to the gray list:
+    // Each entry in 'locals' is a root.
     for (size_t i = 0; i < num_locals; i++) {
         mark_gray(locals[i].alloc, locals[i].info);
     }
-    // Push each field of next_step onto gray_list
+    // Mark any other roots. (Specifically, the argument data for the current
+    // thunk is a set of roots.)
     trace_roots();
 
     while (num_gray > 0) {
         // Pick an item
         struct gray_entry gray = gray_list[--num_gray];
         if (gray.alloc->mark != 0) {
-            // if marked already, continue (avoid cycles.)
+            // if marked already, continue to avoid cycles.
             continue;
         }
-        // mark as reachable
+        // Mark this item as reachable.
         gray.alloc->mark = 1;
-        // push all subfields as gray (trace)
+        // Push all subfields onto the gray list.
         gray.info.trace(gray.alloc);
     }
-
-    free(gray_list);
-    gray_list = NULL;
-    gray_capacity = 0;
 
     // Sweep alloc list for mark = 0, and also reset mark to 0 for other allocations.
     struct alloc_header *prev = NULL;
@@ -160,3 +157,23 @@ void cons_new_alloc(struct alloc_header *alloc, type_info info) {
     }
 }
 
+
+// Hmm. I could pass trace_roots as a function parameter here. That would let
+// me avoid an 'extern'.
+void init_gc(void) {
+    init_locals();
+
+    gray_capacity = 8;
+    num_gray = 0;
+    gray_list = malloc(gray_capacity * sizeof(struct gray_entry));
+}
+
+void destroy_gc(void) {
+    free(gray_list);
+    gray_list = NULL;
+    gray_capacity = 0;
+
+    destroy_locals();
+
+    sweep_all_allocations();
+}

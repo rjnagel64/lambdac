@@ -20,9 +20,11 @@ typedef struct _type_info type_info;
 #define AS_ALLOC(v) ((struct alloc_header *)(v))
 
 
+void init_gc(void);
+void destroy_gc(void);
 
-void init_locals(void);
-void destroy_locals(void);
+// The 'locals' vector acts as an additional set of GC roots for values between
+// 'suspend' calls. When suspending, this vector is cleared.
 void reset_locals(void);
 
 extern void (*trace_roots)(void);
