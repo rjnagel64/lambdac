@@ -26,7 +26,7 @@ type_info closure_info;
 // Public b/c generated code needs to define info for environment types.
 void display_env(struct alloc_header *alloc, struct string_buf *sb);
 
-struct closure *allocate_closure(struct alloc_header *env, type_info env_info, void (*enter)(void));
+struct closure *allocate_closure(struct alloc_header *env, void (*enter)(void));
 
 #define AS_CLOSURE(v) ((struct closure *)(v))
 
@@ -38,8 +38,8 @@ struct sum {
 
 type_info sum_info;
 
-struct sum *allocate_inl(struct alloc_header *v, type_info info);
-struct sum *allocate_inr(struct alloc_header *v, type_info info);
+struct sum *allocate_inl(struct alloc_header *v);
+struct sum *allocate_inr(struct alloc_header *v);
 
 #define AS_SUM(v) ((struct sum *)(v))
 #define AS_SUM_INL(v) (v)
@@ -67,7 +67,7 @@ struct pair {
 
 type_info pair_info;
 
-struct pair *allocate_pair(type_info a_info, type_info b_info, struct alloc_header *x, struct alloc_header *y);
+struct pair *allocate_pair(struct alloc_header *x, struct alloc_header *y);
 
 #define AS_PAIR(v) ((struct pair *)(v))
 
@@ -99,7 +99,7 @@ struct list_cons {
 type_info list_info;
 
 struct list *allocate_list_nil(void);
-struct list *allocate_list_cons(struct alloc_header *x, type_info info, struct list *xs);
+struct list *allocate_list_cons(struct alloc_header *x, struct list *xs);
 
 #define AS_LIST(v) ((struct list *)(v))
 #define AS_LIST_NIL(v) ((struct list_nil *)(v))

@@ -45,7 +45,6 @@ void display_env(struct alloc_header *alloc, struct string_buf *sb) {
 
 struct closure *allocate_closure(
         struct alloc_header *env,
-        type_info env_info,
         void (*enter)(void)) {
     struct closure *cl = malloc(sizeof(struct closure));
     cl->env = env;
@@ -76,7 +75,7 @@ void display_sum(struct alloc_header *alloc, struct string_buf *sb) {
 
 type_info sum_info = { trace_sum, display_sum };
 
-struct sum *allocate_inl(struct alloc_header *x, type_info x_info) {
+struct sum *allocate_inl(struct alloc_header *x) {
     struct sum *v = malloc(sizeof(struct sum));
     v->discriminant = 0;
     v->payload = x;
@@ -85,7 +84,7 @@ struct sum *allocate_inl(struct alloc_header *x, type_info x_info) {
     return v;
 }
 
-struct sum *allocate_inr(struct alloc_header *y, type_info y_info) {
+struct sum *allocate_inr(struct alloc_header *y) {
     struct sum *v = malloc(sizeof(struct sum));
     v->discriminant = 1;
     v->payload = y;
@@ -172,7 +171,7 @@ struct list *allocate_list_nil(void) {
     return AS_LIST(n);
 }
 
-struct list *allocate_list_cons(struct alloc_header *x, type_info info, struct list *xs) {
+struct list *allocate_list_cons(struct alloc_header *x, struct list *xs) {
     struct list_cons *c = malloc(sizeof(struct list_cons));
     c->header.discriminant = 1;
     c->head = x;
@@ -199,7 +198,7 @@ void display_pair(struct alloc_header *alloc, struct string_buf *sb) {
 
 type_info pair_info = { trace_pair, display_pair };
 
-struct pair *allocate_pair(type_info a_info, type_info b_info, struct alloc_header *x, struct alloc_header *y) {
+struct pair *allocate_pair(struct alloc_header *x, struct alloc_header *y) {
     struct pair *p = malloc(sizeof(struct pair));
     p->fst = x;
     p->snd = y;

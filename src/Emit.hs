@@ -591,15 +591,15 @@ emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValueAlloc envp (BoolH True) = emitBuiltinCall envp (Id "allocate_true") []
 emitValueAlloc envp (BoolH False) = emitBuiltinCall envp (Id "allocate_false") []
 emitValueAlloc envp (PairH s1 s2 x y) =
-  "allocate_pair(" ++ emitInfo envp s1 ++ ", " ++ emitInfo envp s2 ++ ", " ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
+  "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ NilH = "allocate_unit()"
 emitValueAlloc envp (InlH s y) =
-  "allocate_inl(" ++ asAlloc (emitName envp y) ++ ", " ++ emitInfo envp s ++ ")"
+  "allocate_inl(" ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc envp (InrH s y) =
-  "allocate_inr(" ++ asAlloc (emitName envp y) ++ ", " ++ emitInfo envp s ++ ")"
+  "allocate_inr(" ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ ListNilH = "allocate_list_nil()"
 emitValueAlloc envp (ListConsH s x xs) =
-  "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp s ++ ", " ++ emitName envp xs ++ ")"
+  "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ emitName envp xs ++ ")"
 emitValueAlloc _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
 
 emitPrimOp :: EnvPtr -> PrimOp -> String
@@ -675,9 +675,8 @@ allocClosure (ClosureAlloc p d envPlace _env) =
   where
     ns = namesForClosure d
     ns' = closureEnvName ns
-    args = [envArg, traceArg, enterArg]
+    args = [envArg, enterArg]
     envArg = asAlloc (show envPlace)
-    traceArg = envInfoName ns'
     enterArg = closureEnterName ns
 
 patchEnv :: Set Id -> ClosureAlloc -> [Line]
