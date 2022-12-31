@@ -347,7 +347,6 @@ emitThunkSuspend ns ty =
         consValue i s@(AllocH _) acc =
           let p = Place s (Id ("arg" ++ show i)) in
           emitPlace p :
-          ("type_info arginfo" ++ show i) :
           acc
         consValue i s acc = let p = Place s (Id ("arg" ++ show i)) in emitPlace p : acc
         consInfo j acc = ("type_info info" ++ show j) : acc
@@ -364,7 +363,8 @@ emitThunkSuspend ns ty =
         -- Because this is a right fold, the auxiliary info array is filled in reverse order.
         -- This is mildly annoying, but doesn't break anything.
         consValue i (AllocH _) (k, acc) =
-          (k+1, ("argument_infos[" ++ show k ++ "] = arginfo" ++ show i ++ ";") : acc)
+          -- TODO: Eliminate argument_infos from thunk.
+          (k+1, ("argument_infos[" ++ show k ++ "] = closure_info;") : acc)
         consValue _ _ acc = acc
         consInfo _ acc = acc
 
@@ -516,7 +516,7 @@ emitSuspend tenv envp cl xs =
     args = emitName envp cl : zipWith makeArg (thunkArgs ty) xs
 
     makeArg ThunkInfoArg (TypeArg i) = emitInfo envp i
-    makeArg (ThunkValueArg (AllocH _)) (OpaqueArg y i) = emitName envp y ++ ", " ++ emitInfo envp i
+    makeArg (ThunkValueArg (AllocH _)) (OpaqueArg y i) = emitName envp y
     makeArg (ThunkValueArg _) (OpaqueArg _ _) =
       error "only 'alloc' thunk args should be passed as opaque values"
     makeArg (ThunkValueArg (AllocH _)) (ValueArg _) =
@@ -570,7 +570,7 @@ caseInfoTable (CaseSum t s) =
   -- If the field is polymorphic, we need to pass extra info arguments to the
   -- suspend method.
   let
-    makeArg name info sort@(AllocH _) = [(name, Just sort), (info, Nothing)]
+    makeArg name info sort@(AllocH _) = [(name, Just sort)]
     makeArg name _ sort = [(name, Just sort)]
   in
   [ BranchInfo "AS_SUM_INL" (ThunkType [ThunkValueArg t]) (makeArg "payload" "info" t)
@@ -578,7 +578,7 @@ caseInfoTable (CaseSum t s) =
   ]
 caseInfoTable (CaseList t) =
   let
-    makeArg name info sort@(AllocH _) = [(name, Just sort), (info, Nothing)]
+    makeArg name info sort@(AllocH _) = [(name, Just sort)]
     makeArg name _ sort = [(name, Just sort)]
   in
   [ BranchInfo "AS_LIST_NIL" (ThunkType []) []
@@ -629,7 +629,7 @@ emitBuiltinCall envp fn args = show fn ++ "(" ++ commaSep (foldr mkArg [] args) 
   where
     mkArg (ValueArg x) acc = emitName envp x : acc
     mkArg (TypeArg i) acc = emitInfo envp i : acc
-    mkArg (OpaqueArg x i) acc = emitName envp x : emitInfo envp i : acc
+    mkArg (OpaqueArg x i) acc = emitName envp x : acc
 
 -- | Allocate a group of (mutually recursive) closures.
 --

@@ -18,7 +18,6 @@ struct int64_value *allocate_int64(int64_t x);
 struct closure {
     struct alloc_header header;
     struct alloc_header *env;
-    type_info env_info;
     void (*enter)(void);
 };
 
@@ -34,7 +33,6 @@ struct closure *allocate_closure(struct alloc_header *env, type_info env_info, v
 struct sum {
     struct alloc_header header;
     uint32_t discriminant;
-    type_info info;
     struct alloc_header *payload;
 };
 
@@ -63,8 +61,6 @@ struct bool_value *allocate_false(void);
 
 struct pair {
     struct alloc_header header;
-    type_info fst_info;
-    type_info snd_info;
     struct alloc_header *fst;
     struct alloc_header *snd;
 };
@@ -96,9 +92,6 @@ struct list_nil {
 
 struct list_cons {
     struct list header;
-    // Hmm. I guess I need to have info for every element.
-    // Annoying, but manageable.
-    type_info head_info;
     struct alloc_header *head;
     struct list *tail;
 };
