@@ -22,7 +22,6 @@ static uint64_t gc_threshold = 256;
 // reset upon entry to a closure's code.
 struct local_entry {
     struct alloc_header *alloc;
-    type_info info;
 };
 static struct local_entry *locals = NULL;
 static size_t num_locals = 0;
@@ -47,13 +46,12 @@ void reset_locals(void) {
     num_locals = 0;
 }
 
-void push_local(struct alloc_header *local, type_info info) {
+void push_local(struct alloc_header *local) {
     if (num_locals == locals_capacity) {
         locals_capacity *= 2;
         locals = realloc(locals, locals_capacity * sizeof(struct local_entry));
     }
     locals[num_locals].alloc = local;
-    locals[num_locals].info = info;
     num_locals++;
 }
 
@@ -65,7 +63,7 @@ struct gray_entry {
 static struct gray_entry *gray_list = NULL;
 static uint64_t num_gray = 0;
 static uint64_t gray_capacity = 0;
-void mark_gray(struct alloc_header *alloc, type_info info) {
+void mark_gray(struct alloc_header *alloc) {
     if (alloc == NULL) {
         // Currently, I allocate empty closure environments as 'NULL'.
         // Do not put NULLs in the gray list.
@@ -89,7 +87,7 @@ void collect(void) {
     // Add the roots to the gray list:
     // Each entry in 'locals' is a root.
     for (size_t i = 0; i < num_locals; i++) {
-        mark_gray(locals[i].alloc, locals[i].info);
+        mark_gray(locals[i].alloc);
     }
     // Mark any other roots. (Specifically, the argument data for the current
     // thunk is a set of roots.)
@@ -150,7 +148,7 @@ void cons_new_alloc(struct alloc_header *alloc, type_info info) {
     alloc->info = info;
     first_allocation = alloc;
     num_allocs++;
-    push_local(first_allocation, info);
+    push_local(first_allocation);
     if (debug_stress_gc || (num_allocs > gc_threshold)) {
         collect();
     }

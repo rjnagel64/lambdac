@@ -30,7 +30,7 @@ struct int64_value *allocate_int64(int64_t x) {
 
 void trace_closure(struct alloc_header *alloc) {
     struct closure *cl = AS_CLOSURE(alloc);
-    mark_gray(AS_ALLOC(cl->env), cl->env_info);
+    mark_gray(AS_ALLOC(cl->env));
 }
 
 void display_closure(struct alloc_header *alloc, struct string_buf *sb) {
@@ -58,7 +58,7 @@ struct closure *allocate_closure(
 
 void trace_sum(struct alloc_header *alloc) {
     struct sum *v = AS_SUM(alloc);
-    mark_gray(v->payload, v->info);
+    mark_gray(v->payload);
 }
 
 void display_sum(struct alloc_header *alloc, struct string_buf *sb) {
@@ -140,8 +140,8 @@ void trace_list(struct alloc_header *alloc) {
         // cons
         {
         struct list_cons *c = AS_LIST_CONS(l);
-        mark_gray(c->head, c->head_info);
-        mark_gray(AS_ALLOC(c->tail), list_info);
+        mark_gray(c->head);
+        mark_gray(AS_ALLOC(c->tail));
         }
         break;
     }
@@ -188,8 +188,8 @@ struct list *allocate_list_cons(struct alloc_header *x, type_info info, struct l
 
 void trace_pair(struct alloc_header *alloc) {
     struct pair *p = AS_PAIR(alloc);
-    mark_gray(p->fst, p->fst_info);
-    mark_gray(p->snd, p->snd_info);
+    mark_gray(p->fst);
+    mark_gray(p->snd);
 }
 
 void display_pair(struct alloc_header *alloc, struct string_buf *sb) {

@@ -308,7 +308,7 @@ emitThunkTrace :: ThunkNames -> ThunkType -> [Line]
 emitThunkTrace ns ty =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
-  ,"    mark_gray(AS_ALLOC(args->closure), closure_info);"] ++
+  ,"    mark_gray(AS_ALLOC(args->closure));"] ++
   body ++
   ["}"]
   where
@@ -320,7 +320,7 @@ emitThunkTrace ns ty =
     -- arginfo_data array.
     (_, body) = foldThunk consValue consInfo (0 :: Int, []) ty
       where
-        consValue i s (k, acc) = (k', ("    mark_gray(" ++ asAlloc field ++ ", " ++ info ++ ");") : acc)
+        consValue i s (k, acc) = (k', ("    mark_gray(" ++ asAlloc field ++ ");") : acc)
           where
             field = "args->arg" ++ show i
             (k', info) = case infoForSort s of
@@ -443,7 +443,7 @@ emitEnvInfo ns (EnvDecl is fs) =
             Just i -> i
       in
       let field = asAlloc (emitName envName (EnvName x)) in
-      "    mark_gray(" ++ field ++ ", " ++ emitInfo envName sInfo ++ ");"
+      "    mark_gray(" ++ field ++ ");"
 
     -- The set of type infos available in this environment, to be used for
     -- tracing polymorphic fields.

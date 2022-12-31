@@ -42,7 +42,7 @@ void destroy_gc(void);
 void reset_locals(void);
 
 extern void (*trace_roots)(void);
-void mark_gray(struct alloc_header *alloc, type_info info);
+void mark_gray(struct alloc_header *alloc);
 void sweep_all_allocations(void);
 void cons_new_alloc(struct alloc_header *alloc, type_info info);
 
