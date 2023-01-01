@@ -181,14 +181,7 @@ data TermH
 
 data Projection = ProjectFst | ProjectSnd
 
--- TODO: I don't like OpaqueArg.
--- It is currently necessary because ThunkType:s can have free type variables.
--- An alternate method would be to add a "pseudo-forall" to the thunk type, so
--- that it is closed and the extra info args can be passed up front.
---
--- (This is the "closed thunk types" proposal)
--- TODO: Rename ClosureArg to CallArg? They can be used for PrimOps, too I think.
-data ClosureArg = ValueArg Name | TypeArg Info | OpaqueArg Name Info
+data ClosureArg = ValueArg Name | TypeArg Info
 
 data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
 
@@ -422,7 +415,6 @@ pprintTerm n (AllocClosure cs e) =
 pprintClosureArg :: ClosureArg -> String
 pprintClosureArg (TypeArg i) = '@' : pprintInfo i
 pprintClosureArg (ValueArg x) = show x
-pprintClosureArg (OpaqueArg x i) = show x ++ "@" ++ pprintInfo i
 
 pprintValue :: ValueH -> String
 pprintValue (PairH _ _ x y) = "(" ++ show x ++ ", " ++ show y ++ ")"

@@ -452,7 +452,6 @@ emitSuspend tenv envp cl xs =
     args = emitName envp cl : mapMaybe makeArg (zip (thunkArgs ty) xs)
 
     makeArg (ThunkInfoArg, TypeArg i) = Nothing
-    makeArg (ThunkValueArg _, OpaqueArg y i) = Just (emitName envp y)
     makeArg (ThunkValueArg _, ValueArg y) = Just (emitName envp y)
     makeArg _ = error "calling convention mismatch: type/value param paired with value/type arg"
 

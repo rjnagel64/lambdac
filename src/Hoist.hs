@@ -355,7 +355,6 @@ hoistArgList xs = traverse f xs
   where
     f (C.TypeArg t) = TypeArg <$> infoForSort (sortOf t)
     f (C.ValueArg x) = hoistVarOccSort x >>= \case
-      (x', AllocH aa) -> OpaqueArg x' <$> infoForTyVar aa
       (x', _) -> pure (ValueArg x')
 
 -- | Hoist a variable occurrence, and also retrieve the @type_info@ that describes it.
