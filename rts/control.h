@@ -6,9 +6,8 @@
 #include "alloc.h"
 
 bool has_halted(void);
-void halt_with(struct alloc_header *x, type_info info);
+void halt_with(struct alloc_header *x);
 struct alloc_header *get_result_value(void);
-type_info get_result_info(void);
 
 extern char *argument_data;
 extern void (*next_entry_code)(void);

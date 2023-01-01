@@ -271,23 +271,6 @@ reserveArgs ns ty = "    reserve_args(" ++ argsSize ++ ", " ++ show numInfos ++ 
         consValue _ (AllocH _) acc = acc+1
         consValue _ _ acc = acc
 
--- | Attempt to obtain the 'Info' that describes a 'Sort'. However, the 'Info'
--- for a type variable 'AllocH a' requires extra information, so it is passed
--- in a different constructor for further processing.
---
--- This function is needed when emitting GC trace methods (for thunks and for
--- closure environment types)
-infoForSort :: Sort -> Either Info TyVar
-infoForSort (AllocH aa) = Right aa
-infoForSort IntegerH = Left Int64Info
-infoForSort BooleanH = Left BoolInfo
-infoForSort UnitH = Left UnitInfo
-infoForSort SumH = Left SumInfo
-infoForSort StringH = Left StringInfo
-infoForSort (ProductH _ _) = Left ProductInfo
-infoForSort (ListH _) = Left ListInfo
-infoForSort (ClosureH _) = Left ClosureInfo
-
 emitThunkArgs :: ThunkNames -> ThunkType -> [Line]
 emitThunkArgs ns ty =
   ["struct " ++ thunkArgsName ns ++ " {"
@@ -453,8 +436,8 @@ emitClosureBody csig tenv envp (AllocClosure cs e) =
   emitClosureGroup envp cs ++
   let tenv' = extendThunkEnv csig tenv cs in
   emitClosureBody csig tenv' envp e
-emitClosureBody _ _ envp (HaltH _s x i) =
-  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ", " ++ emitInfo envp i ++ ");"]
+emitClosureBody _ _ envp (HaltH s x i) =
+  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ");"]
 emitClosureBody _ tenv envp (OpenH c args) =
   [emitSuspend tenv envp c args]
 emitClosureBody _ _ envp (CaseH x kind ks) =
@@ -553,19 +536,15 @@ emitPrimOp envp (PrimConcatenate x y) = emitPrimCall envp "prim_concatenate" [x,
 emitPrimOp envp (PrimStrlen x) = emitPrimCall envp "prim_strlen" [x]
 
 emitPrimCall :: EnvPtr -> String -> [Name] -> String
-emitPrimCall envp fn xs = emitBuiltinCall envp (Id fn) (map ValueArg xs)
+emitPrimCall envp fn xs = emitBuiltinCall envp (Id fn) xs
 
 -- Hmm. I can't quite use this for emitValueAlloc, because I cannot specify
 -- primitives like unboxed integers or c string literals.
 --
 -- I also can't use this for emitValueAlloc because if the sort of a parameter
 -- is 'AllocH', I need to cast the argument with AS_ALLOC.
-emitBuiltinCall :: EnvPtr -> Id -> [ClosureArg] -> String
-emitBuiltinCall envp fn args = show fn ++ "(" ++ commaSep (foldr mkArg [] args) ++ ")"
-  where
-    mkArg (ValueArg x) acc = emitName envp x : acc
-    mkArg (TypeArg i) acc = emitInfo envp i : acc
-    mkArg (OpaqueArg x i) acc = emitName envp x : acc
+emitBuiltinCall :: EnvPtr -> Id -> [Name] -> String
+emitBuiltinCall envp fn args = show fn ++ "(" ++ commaSep (foldr (\x acc -> emitName envp x : acc) [] args) ++ ")"
 
 -- | Allocate a group of (mutually recursive) closures.
 --
@@ -632,16 +611,4 @@ emitPlace (Place s x) = typeForSort s ++ show x
 emitName :: EnvPtr -> Name -> String
 emitName _ (LocalName x) = show x
 emitName envp (EnvName x) = show envp ++ "->" ++ show x
-
-emitInfo :: EnvPtr -> Info -> String
-emitInfo _ (LocalInfo aa) = show aa
-emitInfo envp (EnvInfo aa) = show envp ++ "->" ++ show aa
-emitInfo _ Int64Info = "int64_value_info"
-emitInfo _ BoolInfo = "bool_value_info"
-emitInfo _ UnitInfo = "unit_info"
-emitInfo _ SumInfo = "sum_info"
-emitInfo _ StringInfo = "string_info"
-emitInfo _ ProductInfo = "pair_info"
-emitInfo _ ClosureInfo = "closure_info"
-emitInfo _ ListInfo = "list_info"
 

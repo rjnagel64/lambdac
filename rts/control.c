@@ -4,24 +4,19 @@
 #include "prim.h" // for closure_info
 
 static struct alloc_header *result_value = NULL;
-static type_info result_info;
 
 bool has_halted(void) {
     return result_value != NULL;
 }
 
-void halt_with(struct alloc_header *x, type_info info) {
+void halt_with(struct alloc_header *x) {
     result_value = x;
-    result_info = info;
 }
 
 struct alloc_header *get_result_value(void) {
     return result_value;
 }
 
-type_info get_result_info(void) {
-    return result_info;
-}
 
 static size_t argument_data_capacity;
 char *argument_data;
