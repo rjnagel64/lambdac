@@ -13,7 +13,7 @@ extern char *argument_data;
 extern void (*next_entry_code)(void);
 void init_args(void);
 void destroy_args(void);
-void reserve_args(size_t arguments_size, size_t num_infos);
+void reserve_args(size_t arguments_size);
 void set_next(void (*enter)(void), void (*trace_args)(void));
 
 #endif

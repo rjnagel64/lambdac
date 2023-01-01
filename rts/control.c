@@ -34,7 +34,7 @@ void destroy_args(void) {
     argument_data_capacity = 0;
 }
 
-void reserve_args(size_t arguments_size, size_t num_infos) {
+void reserve_args(size_t arguments_size) {
     if (arguments_size > argument_data_capacity) {
         argument_data = realloc(argument_data, arguments_size * sizeof(char));
         argument_data_capacity = arguments_size;

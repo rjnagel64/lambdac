@@ -85,21 +85,9 @@ namesForEnv (ClosureName f) =
 data ThunkType = ThunkType { thunkArgs :: [ThunkArg] }
 
 
--- TODO: Does this need an 'OpaqueArg' analogue?
--- More generally, is a 'Sort' really the right thing to use here?
--- ThunkType/ThunkArg are more for specifying the calling convention, an opaque
--- "this closure expects an integer, an opaque value, and a closure" as
--- arguments rather than the actual details of the argument types.
---
--- Another thing to consider is that closure sorts can now have type arguments.
--- Is there really a meaningful distinction between a top-level type/info
--- argument and a nested one?
 data ThunkArg
   = ThunkValueArg Sort
   | ThunkInfoArg
--- Hmm. This almost replicates the ordering-modulo-alpha-conversion thing.
--- The only thing I would need to do would be to map type variables to levels,
--- which requires the thunk types to be closed.
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
@@ -259,15 +247,6 @@ foldThunk consValue consInfo nil ty = go 0 0 (thunkArgs ty)
     go i j (ThunkValueArg s : ss) = consValue i s (go (i+1) j ss)
     go i j (ThunkInfoArg : ss) = consInfo j (go i (j+1) ss)
 
-reserveArgs :: ThunkNames -> ThunkType -> Line
-reserveArgs ns ty = "    reserve_args(" ++ argsSize ++ ", " ++ show numInfos ++ ");"
-  where
-    argsSize = "sizeof(struct " ++ thunkArgsName ns ++ ")"
-    numInfos = foldThunk consValue (\_ acc -> acc) (0 :: Int) ty
-      where
-        consValue _ (AllocH _) acc = acc+1
-        consValue _ _ acc = acc
-
 emitThunkArgs :: ThunkNames -> ThunkType -> [Line]
 emitThunkArgs ns ty =
   ["struct " ++ thunkArgsName ns ++ " {"
@@ -299,7 +278,7 @@ emitThunkTrace ns ty =
 emitThunkSuspend :: ThunkNames -> ThunkType -> [Line]
 emitThunkSuspend ns ty =
   ["void " ++ thunkSuspendName ns ++ "(" ++ commaSep paramList ++ ") {"
-  ,reserveArgs ns ty
+  ,"    reserve_args(sizeof(struct " ++ thunkArgsName ns ++ "));"
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
   ,"    args->closure = closure;"]++
   assignFields ty ++
@@ -484,6 +463,9 @@ data BranchInfo
   -- the name/sort of each argument to extract.
   = BranchInfo String ThunkType [(String, Sort)]
 
+-- TODO: caseInfoTable: only include casts on ctor args that are polymorphic
+-- (e.g., the payload for inl/inr, the head for cons, nothing else.)
+-- (Use CaseKind to decide what to cast to.)
 caseInfoTable :: CaseKind -> [BranchInfo]
 caseInfoTable CaseBool =
   [ BranchInfo "AS_BOOL_FALSE" (ThunkType []) []
