@@ -409,21 +409,8 @@ emitEnvInfo ns (EnvDecl is fs) =
     envName = Id "env"
     envTy = "struct " ++ envTypeName ns ++ " *"
     traceField (Place s x) =
-      let
-        -- Using the type infos in the environment, determine how to trace a field of sort 's'.
-        sInfo = case infoForSort s of
-          Left i -> i
-          Right aa -> case Map.lookup aa typeInfos of
-            Nothing -> error ("Missing info to trace polymorphic field of type " ++ show aa)
-            Just i -> i
-      in
       let field = asAlloc (emitName envName (EnvName x)) in
       "    mark_gray(" ++ field ++ ");"
-
-    -- The set of type infos available in this environment, to be used for
-    -- tracing polymorphic fields.
-    typeInfos :: Map TyVar Info
-    typeInfos = Map.fromList $ [(aa, EnvInfo i) | (i, aa) <- is]
 
 emitClosureEnter :: ThunkNames -> ClosureNames -> ThunkType -> [Line]
 emitClosureEnter tns cns ty =
@@ -491,11 +478,7 @@ emitSuspend tenv envp cl xs =
     args = emitName envp cl : zipWith makeArg (thunkArgs ty) xs
 
     makeArg ThunkInfoArg (TypeArg i) = emitInfo envp i
-    makeArg (ThunkValueArg (AllocH _)) (OpaqueArg y i) = emitName envp y
-    makeArg (ThunkValueArg _) (OpaqueArg _ _) =
-      error "only 'alloc' thunk args should be passed as opaque values"
-    makeArg (ThunkValueArg (AllocH _)) (ValueArg _) =
-      error "'alloc' thunk args should be opaque values"
+    makeArg (ThunkValueArg _) (OpaqueArg y i) = emitName envp y
     makeArg (ThunkValueArg _) (ValueArg y) = emitName envp y
     makeArg _ _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
@@ -522,8 +505,7 @@ emitCase kind envp x ks =
         method = thunkSuspendName (namesForThunk ty)
         ctor = ctorCast ++ "(" ++ emitName envp x ++ ")"
         args = emitName envp k : map mkArg argNames
-        mkArg (argName, Nothing) = ctor ++ "->" ++ argName
-        mkArg (argName, Just argSort) = asSort argSort (ctor ++ "->" ++ argName)
+        mkArg (argName, argSort) = asSort argSort (ctor ++ "->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
@@ -532,9 +514,7 @@ emitCase kind envp x ks =
 data BranchInfo
   -- How to downcast to the constructor, what thunk type to suspend with, and
   -- the name/sort of each argument to extract.
-  --
-  -- argSort is 'Just t' for a value argument, or 'Nothing' for an info argument.
-  = BranchInfo String ThunkType [(String, Maybe Sort)]
+  = BranchInfo String ThunkType [(String, Sort)]
 
 caseInfoTable :: CaseKind -> [BranchInfo]
 caseInfoTable CaseBool =
@@ -542,22 +522,13 @@ caseInfoTable CaseBool =
   , BranchInfo "AS_BOOL_TRUE" (ThunkType []) []
   ]
 caseInfoTable (CaseSum t s) =
-  -- If the field is polymorphic, we need to pass extra info arguments to the
-  -- suspend method.
-  let
-    makeArg name info sort@(AllocH _) = [(name, Just sort)]
-    makeArg name _ sort = [(name, Just sort)]
-  in
-  [ BranchInfo "AS_SUM_INL" (ThunkType [ThunkValueArg t]) (makeArg "payload" "info" t)
-  , BranchInfo "AS_SUM_INR" (ThunkType [ThunkValueArg s]) (makeArg "payload" "info" s)
+  [ BranchInfo "AS_SUM_INL" (ThunkType [ThunkValueArg t]) [("payload", t)]
+  , BranchInfo "AS_SUM_INR" (ThunkType [ThunkValueArg s]) [("payload", s)]
   ]
 caseInfoTable (CaseList t) =
-  let
-    makeArg name info sort@(AllocH _) = [(name, Just sort)]
-    makeArg name _ sort = [(name, Just sort)]
-  in
+  let makeArg name sort = [(name, sort)] in
   [ BranchInfo "AS_LIST_NIL" (ThunkType []) []
-  , BranchInfo "AS_LIST_CONS" consThunkTy (makeArg "head" "head_info" t ++ makeArg "tail" "" (ListH t))
+  , BranchInfo "AS_LIST_CONS" consThunkTy [("head", t), ("tail", ListH t)]
   ]
   where consThunkTy = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
 
