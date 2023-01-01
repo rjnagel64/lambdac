@@ -197,7 +197,6 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
     paramThunkTypes :: ClosureParam -> Set ThunkType
     paramThunkTypes (TypeParam _) = Set.empty
     paramThunkTypes (PlaceParam p) = thunkTypesOf (placeSort p)
-    paramThunkTypes (InfoParam _ s) = thunkTypesOf s
 
     thunkTypesOf :: Sort -> Set ThunkType
     thunkTypesOf (AllocH _) = Set.empty
@@ -341,7 +340,6 @@ emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params
     addParam (PlaceParam (Place (ClosureH tele) x)) acc = Map.insert x (teleThunkType tele) acc
     addParam (PlaceParam _) acc = acc
     addParam (TypeParam _) acc = acc
-    addParam (InfoParam _ _) acc = acc
 
     addPlace (Place (ClosureH tele) x) acc = Map.insert x (teleThunkType tele) acc
     addPlace (Place _ _) acc = acc
@@ -415,7 +413,6 @@ emitClosureCode csig tenv ns envName xs e =
     paramList = commaSep (envParam : mapMaybe emitParam xs)
     envParam = "struct " ++ envTypeName (closureEnvName ns) ++ " *" ++ show envName
     emitParam (TypeParam aa) = Nothing
-    emitParam (InfoParam i s) = Nothing
     emitParam (PlaceParam p) = Just (emitPlace p)
 
 

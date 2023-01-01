@@ -194,7 +194,6 @@ checkParams :: [ClosureParam] -> TC Locals
 checkParams [] = asks ctxLocals
 checkParams (PlaceParam p : params) = withPlace p $ checkParams params
 checkParams (TypeParam (TyVar aa) : params) = withInfo (InfoPlace aa) $ checkParams params
-checkParams (InfoParam _ _ : _) = throwError (NotImplemented "checkParams InfoParam")
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()

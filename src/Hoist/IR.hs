@@ -153,11 +153,10 @@ closureDeclTele (ClosureDecl _ _ params _) = ClosureTele (map f params)
   where
     f (PlaceParam p) = ValueTele (placeSort p)
     f (TypeParam aa) = TypeTele aa
-    f (InfoParam _ s) = InfoTele s
 
 data EnvDecl = EnvDecl [(Id, TyVar)] [Place]
 
-data ClosureParam = PlaceParam Place | TypeParam TyVar | InfoParam Id Sort
+data ClosureParam = PlaceParam Place | TypeParam TyVar
 
 
 
@@ -447,7 +446,6 @@ pprintPlace (Place s x) = show x ++ " : " ++ pprintSort s
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
 pprintParam (TypeParam aa) = '@' : show aa
-pprintParam (InfoParam i s) = show i ++ " : info " ++ pprintSort s
 
 pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = concatMap (pprintClosureDecl 0) cs
