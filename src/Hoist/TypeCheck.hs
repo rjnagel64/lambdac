@@ -213,9 +213,8 @@ checkTerm (LetProjectH p x proj e) = do
     (ProductH _ t', ProjectSnd) -> equalSorts (placeSort p) t'
     (_, _) -> throwError (BadProjection s proj)
   withPlace p $ checkTerm e
-checkTerm (HaltH s x i) = do
+checkTerm (HaltH s x) = do
   checkName x s
-  checkInfo i s
 checkTerm (OpenH f args) = do
   -- Infer type of closure
   ClosureTele tele <- lookupName f >>= \case
@@ -340,31 +339,3 @@ checkTele (ClosureTele ss) = go ss
     go (TypeTele (TyVar aa) : ss') = withInfo (InfoPlace aa) $ go ss'
     go (InfoTele s : ss') = checkSort s *> go ss'
 
--- | Given info @i@ and sort @s@, check that @Γ |- i : info s@.
-checkInfo :: Info -> Sort -> TC ()
-checkInfo (LocalInfo i) s = do
-  infos <- asks (localInfos . ctxLocals)
-  case Map.lookup i infos of
-    Nothing -> throwError (InfoNotInLocals i)
-    Just s' -> equalSorts s s'
-checkInfo (EnvInfo i) s = do
-  infos <- asks (envTypeInfos . ctxEnv)
-  case lookup i infos of
-    Nothing -> throwError (InfoNotInLocals i)
-    Just s' -> equalSorts s s'
-checkInfo Int64Info IntegerH = pure ()
-checkInfo Int64Info _ = throwError IncorrectInfo
-checkInfo BoolInfo BooleanH = pure ()
-checkInfo BoolInfo _ = throwError IncorrectInfo
-checkInfo UnitInfo UnitH = pure ()
-checkInfo UnitInfo _ = throwError IncorrectInfo
-checkInfo SumInfo (SumH _ _) = pure ()
-checkInfo SumInfo _ = throwError IncorrectInfo
-checkInfo StringInfo StringH = pure ()
-checkInfo StringInfo _ = throwError IncorrectInfo
-checkInfo ProductInfo (ProductH _ _) = pure ()
-checkInfo ProductInfo _ = throwError IncorrectInfo
-checkInfo ListInfo (ListH _) = pure ()
-checkInfo ListInfo _ = throwError IncorrectInfo
-checkInfo ClosureInfo (ClosureH _) = pure ()
-checkInfo ClosureInfo _ = throwError IncorrectInfo

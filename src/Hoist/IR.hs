@@ -169,8 +169,8 @@ data TermH
   | LetPrimH Place PrimOp TermH
   -- 'let x : int64 = y .fst in e'
   | LetProjectH Place Name Projection TermH
-  -- 'halt @bool x bool_info'
-  | HaltH Sort Name Info
+  -- 'halt @bool x'
+  | HaltH Sort Name
   -- 'call f (x, @int, z, $string_info)'
   | OpenH Name [ClosureArg]
   -- 'case x of { k1 | k2 | ... }'
@@ -394,7 +394,7 @@ pprintProgram :: Program -> String
 pprintProgram (Program cs srcH) = pprintClosures cs ++ ";;\n" ++ pprintTerm 0 srcH
 
 pprintTerm :: Int -> TermH -> String
-pprintTerm n (HaltH _ x _) = indent n $ "HALT " ++ show x ++ ";\n"
+pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x ++ ";\n"
 pprintTerm n (OpenH c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =

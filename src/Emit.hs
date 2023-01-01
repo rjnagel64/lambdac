@@ -436,7 +436,7 @@ emitClosureBody csig tenv envp (AllocClosure cs e) =
   emitClosureGroup envp cs ++
   let tenv' = extendThunkEnv csig tenv cs in
   emitClosureBody csig tenv' envp e
-emitClosureBody _ _ envp (HaltH s x i) =
+emitClosureBody _ _ envp (HaltH s x) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ");"]
 emitClosureBody _ tenv envp (OpenH c args) =
   [emitSuspend tenv envp c args]

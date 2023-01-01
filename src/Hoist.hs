@@ -125,8 +125,7 @@ runHoist =
 hoist :: C.TermC -> HoistM TermH
 hoist (C.HaltC x) = do
   (x', s) <- hoistVarOccSort x
-  i <- infoForSort s
-  pure (HaltH s x' i)
+  pure (HaltH s x')
 hoist (C.JumpC k xs) = do
   k' <- hoistVarOcc k
   ys <- hoistArgList (map C.ValueArg xs)
