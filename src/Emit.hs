@@ -376,11 +376,9 @@ emitEnvDecl :: EnvNames -> EnvDecl -> [Line]
 emitEnvDecl ns (EnvDecl is fs) =
   ["struct " ++ envTypeName ns ++ " {"
   ,"    struct alloc_header header;"] ++
-  map mkInfo is ++
   map mkField fs ++
   ["};"]
   where
-    mkInfo (i, _aa) = "    type_info " ++ show i ++ ";"
     mkField f = "    " ++ emitPlace f ++ ";"
 
 emitEnvAlloc :: EnvNames -> EnvDecl -> [Line]
