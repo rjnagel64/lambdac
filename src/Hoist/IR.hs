@@ -180,7 +180,7 @@ data TermH
 
 data Projection = ProjectFst | ProjectSnd
 
-data ClosureArg = ValueArg Name | TypeArg Info
+data ClosureArg = ValueArg Name | TypeArg Sort
 
 data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
 
@@ -413,7 +413,7 @@ pprintTerm n (AllocClosure cs e) =
   indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
 
 pprintClosureArg :: ClosureArg -> String
-pprintClosureArg (TypeArg i) = '@' : pprintInfo i
+pprintClosureArg (TypeArg s) = '@' : pprintSort s
 pprintClosureArg (ValueArg x) = show x
 
 pprintValue :: ValueH -> String
@@ -482,18 +482,6 @@ pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (SumH t s) = "sum " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
 pprintSort (AllocH aa) = show aa
-
-pprintInfo :: Info -> String
-pprintInfo (LocalInfo aa) = '$' : show aa
-pprintInfo (EnvInfo aa) = "$." ++ show aa
-pprintInfo Int64Info = "$int64"
-pprintInfo BoolInfo = "$bool"
-pprintInfo UnitInfo = "$unit"
-pprintInfo StringInfo = "$string"
-pprintInfo ProductInfo = "$pair"
-pprintInfo SumInfo = "$sum"
-pprintInfo ClosureInfo = "$closure"
-pprintInfo ListInfo = "$list"
 
 pprintTele :: ClosureTele -> String
 pprintTele (ClosureTele ss) = intercalate ", " (map f ss)

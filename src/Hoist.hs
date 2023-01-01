@@ -350,30 +350,9 @@ hoistVarOcc = fmap fst . hoistVarOccSort
 hoistArgList :: [C.Argument] -> HoistM [ClosureArg]
 hoistArgList xs = traverse f xs
   where
-    f (C.TypeArg t) = TypeArg <$> infoForSort (sortOf t)
+    f (C.TypeArg t) = pure (TypeArg (sortOf t))
     f (C.ValueArg x) = hoistVarOccSort x >>= \case
       (x', _) -> pure (ValueArg x')
-
-infoForSort :: Sort -> HoistM Info
-infoForSort (AllocH aa) = infoForTyVar aa
-infoForSort IntegerH = pure Int64Info
-infoForSort BooleanH = pure BoolInfo
-infoForSort UnitH = pure UnitInfo
-infoForSort (SumH _ _) = pure SumInfo
-infoForSort StringH = pure StringInfo
-infoForSort (ProductH _ _) = pure ProductInfo
-infoForSort (ListH _) = pure ListInfo
-infoForSort (ClosureH _) = pure ClosureInfo
-
-infoForTyVar :: TyVar -> HoistM Info
-infoForTyVar aa = do
-  iplaces <- asks (scopeInfos . localScope)
-  ifields <- asks (scopeInfos . envScope)
-  case Map.lookup aa iplaces of
-    Just aa' -> pure (LocalInfo aa')
-    Nothing -> case Map.lookup aa ifields of
-      Just aa' -> pure (EnvInfo aa')
-      Nothing -> error ("tyvar not in scope: " ++ show aa)
 
 -- | Bind a place name of the appropriate sort, running a monadic action in the
 -- extended environment.
