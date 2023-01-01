@@ -25,37 +25,24 @@ type_info get_result_info(void) {
 
 static size_t argument_data_capacity;
 char *argument_data;
-static size_t argument_infos_capacity;
-type_info *argument_infos;
 
 void init_args(void) {
-    // The argument_data and argument_infos arrays are initialized with enough
-    // capacity that reallocations should be rare: 1KB for arguments, 16 argument_infos.
+    // The argument_data array is initialized with enough capacity that
+    // reallocations should be rare: 1KB for arguments.
     argument_data_capacity = 1024;
     argument_data = malloc(argument_data_capacity * sizeof(char));
-    argument_infos_capacity = 16;
-    argument_infos = malloc(argument_infos_capacity * sizeof(type_info));
 }
 
 void destroy_args(void) {
     free(argument_data);
     argument_data = NULL;
     argument_data_capacity = 0;
-
-    free(argument_infos);
-    argument_infos = NULL;
-    argument_infos_capacity = 0;
 }
 
 void reserve_args(size_t arguments_size, size_t num_infos) {
     if (arguments_size > argument_data_capacity) {
         argument_data = realloc(argument_data, arguments_size * sizeof(char));
         argument_data_capacity = arguments_size;
-    }
-
-    if (num_infos > argument_infos_capacity) {
-        argument_infos = realloc(argument_infos, num_infos * sizeof(type_info));
-        argument_infos_capacity = num_infos;
     }
 }
 
