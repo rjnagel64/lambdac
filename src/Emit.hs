@@ -240,12 +240,12 @@ emitThunkDecl t =
   emitThunkSuspend ns t
   where ns = namesForThunk t
 
-foldThunk :: (Int -> Sort -> b -> b) -> (Int -> b -> b) -> b -> ThunkType -> b
-foldThunk consValue consInfo nil ty = go 0 0 (thunkArgs ty)
+foldThunk :: (Int -> Sort -> b -> b) -> b -> ThunkType -> b
+foldThunk consValue nil ty = go 0 (thunkArgs ty)
   where
-    go _ _ [] = nil
-    go i j (ThunkValueArg s : ss) = consValue i s (go (i+1) j ss)
-    go i j (ThunkInfoArg : ss) = consInfo j (go i (j+1) ss)
+    go _ [] = nil
+    go i (ThunkValueArg s : ss) = consValue i s (go (i+1) ss)
+    go i (ThunkInfoArg : ss) = go i ss
 
 emitThunkArgs :: ThunkNames -> ThunkType -> [Line]
 emitThunkArgs ns ty =
@@ -254,12 +254,11 @@ emitThunkArgs ns ty =
   declareFields ty ++
   ["};"]
   where
-    declareFields = foldThunk consValue consInfo []
+    declareFields = foldThunk consValue []
       where
         consValue i s acc =
           let p = Place s (Id ("arg" ++ show i)) in
           ("    " ++ emitPlace p ++ ";") : acc
-        consInfo j acc = acc
 
 emitThunkTrace :: ThunkNames -> ThunkType -> [Line]
 emitThunkTrace ns ty =
@@ -270,10 +269,8 @@ emitThunkTrace ns ty =
   ["}"]
   where
     argsTy = "struct " ++ thunkArgsName ns ++ " *"
-    body = foldThunk consValue consInfo [] ty
-      where
-        consValue i s acc = ("    mark_gray(" ++ asAlloc ("args->arg" ++ show i) ++ ");") : acc
-        consInfo _ acc = acc -- Don't need to trace info arguments.
+    body = foldThunk consValue [] ty
+      where consValue i s acc = ("    mark_gray(" ++ asAlloc ("args->arg" ++ show i) ++ ");") : acc
 
 emitThunkSuspend :: ThunkNames -> ThunkType -> [Line]
 emitThunkSuspend ns ty =
@@ -286,20 +283,18 @@ emitThunkSuspend ns ty =
   ,"}"]
   where
     argsTy = "struct " ++ thunkArgsName ns ++ " *"
-    paramList = "struct closure *closure" : foldThunk consValue consInfo [] ty
+    paramList = "struct closure *closure" : foldThunk consValue [] ty
       where
         consValue i s@(AllocH _) acc =
           let p = Place s (Id ("arg" ++ show i)) in
           emitPlace p :
           acc
         consValue i s acc = let p = Place s (Id ("arg" ++ show i)) in emitPlace p : acc
-        consInfo j acc = acc
-    assignFields = foldThunk consValue consInfo []
+    assignFields = foldThunk consValue []
       where
         consValue i _ acc =
           let arg = "arg" ++ show i in
           ("    args->" ++ arg ++ " = " ++ arg ++ ";") : acc
-        consInfo j acc = acc
 
 emitClosureDecl :: ClosureSig -> ClosureDecl -> [Line]
 emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params e) =
@@ -374,10 +369,8 @@ emitClosureEnter tns cns ty =
   where
     argsTy = "struct " ++ thunkArgsName tns ++ " *"
     envTy = "struct " ++ envTypeName (closureEnvName cns) ++ " *"
-    argList = "env" : foldThunk consValue consInfo [] ty
-      where
-        consValue i s acc = ("args->arg" ++ show i) : acc
-        consInfo j acc = acc
+    argList = "env" : foldThunk consValue [] ty
+      where consValue i s acc = ("args->arg" ++ show i) : acc
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.
@@ -452,32 +445,43 @@ emitCase kind envp x ks =
         method = thunkSuspendName (namesForThunk ty)
         ctor = ctorCast ++ "(" ++ emitName envp x ++ ")"
         args = emitName envp k : map mkArg argNames
-        mkArg (argName, argSort) = asSort argSort (ctor ++ "->" ++ argName)
+        mkArg (argName, Nothing) = ctor ++ "->" ++ argName
+        mkArg (argName, Just argSort) = asSort argSort (ctor ++ "->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
 
 data BranchInfo
-  -- How to downcast to the constructor, what thunk type to suspend with, and
-  -- the name/sort of each argument to extract.
-  = BranchInfo String ThunkType [(String, Sort)]
+  -- How to downcast to the constructor, what thunk type to suspend with, the
+  -- name of each argument, and for each argument, an (optional) sort to cast to.
+  = BranchInfo String ThunkType [(String, Maybe Sort)]
 
--- TODO: caseInfoTable: only include casts on ctor args that are polymorphic
--- (e.g., the payload for inl/inr, the head for cons, nothing else.)
--- (Use CaseKind to decide what to cast to.)
+-- Note: Only constructor arguments that are polymorphic need to have a cast
+-- applied.
+--
+-- In other words, when scrutinizing 'cons @int z zs : list int', 'z' is stored
+-- as a 'struct alloc_header *' and 'zs' is stored as a 'struct list *'. The
+-- continuation expects 'struct int64_value *' and 'struct list *'.
+--
+-- Therefore, we must cast 'AS_INT64(ctor->head)' but can leave 'ctor->tail' as
+-- is when suspending.
+--
+-- More generally, if a data type's constructor has a field of sort 'AllocH
+-- aa', then that field should be cast to 't', where the case kind specifies
+-- that '[aa := t]'
 caseInfoTable :: CaseKind -> [BranchInfo]
 caseInfoTable CaseBool =
   [ BranchInfo "AS_BOOL_FALSE" (ThunkType []) []
   , BranchInfo "AS_BOOL_TRUE" (ThunkType []) []
   ]
 caseInfoTable (CaseSum t s) =
-  [ BranchInfo "AS_SUM_INL" (ThunkType [ThunkValueArg t]) [("payload", t)]
-  , BranchInfo "AS_SUM_INR" (ThunkType [ThunkValueArg s]) [("payload", s)]
+  [ BranchInfo "AS_SUM_INL" (ThunkType [ThunkValueArg t]) [("payload", Just t)]
+  , BranchInfo "AS_SUM_INR" (ThunkType [ThunkValueArg s]) [("payload", Just s)]
   ]
 caseInfoTable (CaseList t) =
   [ BranchInfo "AS_LIST_NIL" (ThunkType []) []
-  , BranchInfo "AS_LIST_CONS" consThunkTy [("head", t), ("tail", ListH t)]
+  , BranchInfo "AS_LIST_CONS" consThunkTy [("head", Just t), ("tail", Nothing)]
   ]
   where consThunkTy = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
 
@@ -561,11 +565,9 @@ allocEnv recNames envp (ClosureAlloc _p d envPlace (EnvAlloc fields)) =
 
 allocClosure :: ClosureAlloc -> Line
 allocClosure (ClosureAlloc p d envPlace _env) =
-  "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep args ++ ");"
+  "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep [envArg, enterArg] ++ ");"
   where
     ns = namesForClosure d
-    ns' = closureEnvName ns
-    args = [envArg, enterArg]
     envArg = asAlloc (show envPlace)
     enterArg = closureEnterName ns
 
