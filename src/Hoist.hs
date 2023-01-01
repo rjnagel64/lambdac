@@ -85,11 +85,7 @@ deriving newtype instance MonadState (Set ClosureName) HoistM
 
 data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
 
--- Hmm. Why is Scope 'Map C.Name Place', but then 'Map H.TyVar InfoPlace'?
---
--- 'scopeInfos' maps an in-scope (hoist) type variable to the 'Id' of an info
--- that describes that type.
-data Scope = Scope { scopePlaces :: Map C.Name Place, scopeInfos :: Map TyVar Id }
+data Scope = Scope { scopePlaces :: Map C.Name Place }
 
 -- Hmm. Might consider using a DList here. I think there might be a left-nested
 -- append happening.
@@ -116,7 +112,7 @@ runHoist =
   runHoistM
   where
     emptyEnv = HoistEnv emptyScope emptyScope
-    emptyScope = Scope Map.empty Map.empty
+    emptyScope = Scope Map.empty
 
 
 -- | After closure conversion, the code for each function and continuation can
@@ -171,9 +167,9 @@ hoist (C.LetFunC fs e) = do
       ((f, p), (p, def))) fs
 
   let
-    extend (HoistEnv (Scope places infos) envsc) =
+    extend (HoistEnv (Scope places) envsc) =
       let places' = foldr (uncurry Map.insert) places fbinds in
-      HoistEnv (Scope places' infos) envsc
+      HoistEnv (Scope places') envsc
   local extend $ do
     allocs <- for fs' $ \ (p, C.FunClosureDef f env params body) -> do
       -- Pick a name for the closure's code
@@ -201,9 +197,9 @@ hoist (C.LetContC ks e) = do
       ((k, p), (p, def))) ks
 
   let
-    extend (HoistEnv (Scope places infos) envsc) =
+    extend (HoistEnv (Scope places) envsc) =
       let places' = foldr (uncurry Map.insert) places kbinds in
-      HoistEnv (Scope places' infos) envsc
+      HoistEnv (Scope places') envsc
   local extend $ do
     allocs <- for ks' $ \ (p, C.ContClosureDef k env params body) -> do
       -- Pick a name for the closure's code
@@ -232,8 +228,7 @@ hoistEnvDef (C.EnvDef tyfields fields) = do
   let envd = EnvDecl declTyFields declFields
 
   let scPlaces = Map.fromList $ map (\ (x, s) -> (x, asPlace s x)) fields
-  let scInfoPlaces = Map.fromList $ map (\ (aa, k) -> (asTyVar aa, infoPlaceName aa)) tyfields
-  let envsc = Scope scPlaces scInfoPlaces
+  let envsc = Scope scPlaces
 
   -- Note: When allocating a recursive environment, we need to have the current
   -- bind group in scope. consider even-odd:
@@ -288,7 +283,7 @@ nameClosureCode c = do
     nameClosureCode (C.prime c)
 
 convertParameters :: [C.ClosureParam] -> (Scope, [ClosureParam])
-convertParameters params = (Scope places infoPlaces, params')
+convertParameters params = (Scope places, params')
   where
     -- The reason why this fold looks weird is because it uses the
     -- foldl-via-foldr trick: using a chain of updates as the accumulating
@@ -299,24 +294,23 @@ convertParameters params = (Scope places infoPlaces, params')
     -- operations to build the Hoist parameter telescope
     --
     -- I guess I could have used foldl and a DList H.ClosureParam, but eh, whatever.
-    (places, infoPlaces, params') =
-      let (ps, is, te) = foldr addParam (id, id, []) params in
-      (ps Map.empty, is Map.empty, te)
+    (places, params') =
+      let (ps, te) = foldr addParam (id, []) params in
+      (ps Map.empty, te)
 
-    addParam (C.TypeParam aa k) (ps, is, tele) =
+    addParam (C.TypeParam aa k) (ps, tele) =
       let aa' = asTyVar aa in
-      let i = infoPlaceName aa in
-      (ps, is . Map.insert aa' i, TypeParam aa' : tele)
-    addParam (C.ValueParam x s) (ps, is, tele) =
+      (ps, TypeParam aa' : tele)
+    addParam (C.ValueParam x s) (ps, tele) =
       let p = asPlace s x in
-      (ps . Map.insert x p, is, PlaceParam p : tele)
+      (ps . Map.insert x p, PlaceParam p : tele)
 
 -- | Pick a name for the environment parameter, that will not clash with
 -- anything already in scope.
 pickEnvironmentName :: HoistM Id
 pickEnvironmentName = do
   HoistEnv locals env <- ask
-  let scopeNames (Scope places infos) = foldMap (Set.singleton . placeName) places <> foldMap Set.singleton infos
+  let scopeNames (Scope places) = foldMap (Set.singleton . placeName) places
   let scope = scopeNames locals <> scopeNames env
   let go i = let envp = Id ("env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
@@ -324,7 +318,7 @@ pickEnvironmentName = do
 pickEnvironmentPlace :: Id -> HoistM Id
 pickEnvironmentPlace (Id cl) = do
   HoistEnv locals env <- ask
-  let scopeNames (Scope places infos) = foldMap (Set.singleton . placeName) places <> foldMap Set.singleton infos
+  let scopeNames (Scope places) = foldMap (Set.singleton . placeName) places
   let scope = scopeNames locals <> scopeNames env
   let go i = let envp = Id (cl ++ "_env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
@@ -359,7 +353,7 @@ hoistArgList xs = traverse f xs
 withPlace :: C.Name -> C.Sort -> HoistM a -> HoistM (Place, a)
 withPlace x s m = do
   x' <- makePlace x s
-  let f (HoistEnv (Scope places fields) env) = HoistEnv (Scope (Map.insert x x' places) fields) env
+  let f (HoistEnv (Scope places) env) = HoistEnv (Scope (Map.insert x x' places)) env
   a <- local f m
   pure (x', a)
 
