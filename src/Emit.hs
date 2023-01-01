@@ -300,7 +300,7 @@ emitThunkArgs ns ty =
         consValue i s acc =
           let p = Place s (Id ("arg" ++ show i)) in
           ("    " ++ emitPlace p ++ ";") : acc
-        consInfo j acc = ("    type_info info" ++ show j ++ ";") : acc
+        consInfo j acc = acc
 
 emitThunkTrace :: ThunkNames -> ThunkType -> [Line]
 emitThunkTrace ns ty =
@@ -340,9 +340,7 @@ emitThunkSuspend ns ty =
         consValue i _ acc =
           let arg = "arg" ++ show i in
           ("    args->" ++ arg ++ " = " ++ arg ++ ";") : acc
-        consInfo j acc =
-          let arg = "info" ++ show j in
-          ("    args->" ++ arg ++ " = unit_info;") : acc
+        consInfo j acc = acc
 
 emitClosureDecl :: ClosureSig -> ClosureDecl -> [Line]
 emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params e) =
@@ -433,9 +431,6 @@ emitClosureCode csig tenv ns envName xs e =
   where
     paramList = commaSep (envParam : mapMaybe emitParam xs)
     envParam = "struct " ++ envTypeName (closureEnvName ns) ++ " *" ++ show envName
-    -- Hmm. Really, the type param should not emit an argument at all.
-    -- Instead, the 'type_info' value should be passed as an InfoParam.
-    -- However, I have not implemented that yet.
     emitParam (TypeParam aa) = Nothing
     emitParam (InfoParam i s) = Nothing
     emitParam (PlaceParam p) = Just (emitPlace p)
