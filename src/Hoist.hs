@@ -244,11 +244,9 @@ hoistEnvDef (C.EnvDef tyfields fields) = do
   -- ...
   -- In order to construct the environments { odd0 = odd0 } and { even0 = even0 },
   -- we need to have 'even0' and 'odd0' in the local scope.
-  allocTyFields <- for tyfields $ \ (aa, k) ->
-    EnvInfoArg (infoPlaceName aa) <$> infoForTyVar (asTyVar aa)
   allocFields <- for fields $ \ (x, s) ->
     EnvValueArg (placeName (asPlace s x)) <$> hoistVarOcc x
-  let enva = EnvAlloc allocTyFields allocFields
+  let enva = EnvAlloc allocFields
   pure (envd, envsc, enva)
 
 hoistValue :: C.ValueC -> HoistM ValueH

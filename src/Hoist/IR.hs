@@ -29,7 +29,6 @@ module Hoist.IR
     , CaseKind(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
-    , EnvAllocInfoArg(..)
     , EnvAllocValueArg(..)
     , ValueH(..)
     , PrimOp(..)
@@ -195,11 +194,12 @@ data ClosureAlloc
 
 data EnvAlloc
   = EnvAlloc {
-    envAllocInfoArgs :: [EnvAllocInfoArg]
-  , envAllocValueArgs :: [EnvAllocValueArg]
+    -- Hmm. While I definitely do not want a bunch of info args, I may still
+    -- want to have a list of type/tyvar arguments here (for type-checking
+    -- purposes, since EnvAlloc represents constructing a value of type 'exists
+    -- aa+. (singleton aa)+ × t+', though the type portions get erased.)
+    envAllocValueArgs :: [EnvAllocValueArg]
   }
-
-data EnvAllocInfoArg = EnvInfoArg Id Info
 
 data EnvAllocValueArg = EnvValueArg Id Name
 
@@ -466,11 +466,8 @@ pprintClosureAlloc n (ClosureAlloc p d _envPlace env) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ pprintEnvAlloc env ++ "\n"
 
 pprintEnvAlloc :: EnvAlloc -> String
-pprintEnvAlloc (EnvAlloc info fields) =
-  "{" ++ intercalate ", " (map pprintAllocInfo info ++ map pprintAllocArg fields) ++ "}"
-
-pprintAllocInfo :: EnvAllocInfoArg -> String
-pprintAllocInfo (EnvInfoArg field i) = show field ++ " = " ++ pprintInfo i
+pprintEnvAlloc (EnvAlloc fields) =
+  "{" ++ intercalate ", " (map pprintAllocArg fields) ++ "}"
 
 pprintAllocArg :: EnvAllocValueArg -> String
 pprintAllocArg (EnvValueArg field x) = show field ++ " = " ++ show x

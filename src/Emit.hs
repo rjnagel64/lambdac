@@ -573,7 +573,7 @@ extendThunkEnv csig (localThunkTys, envThunkTys) closures =
       Just ty -> (x, ty)
 
 allocEnv :: Set Id -> EnvPtr -> ClosureAlloc -> Line
-allocEnv recNames envp (ClosureAlloc _p d envPlace (EnvAlloc info fields)) =
+allocEnv recNames envp (ClosureAlloc _p d envPlace (EnvAlloc fields)) =
   "    struct " ++ envTypeName ns' ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
   where
     ns' = closureEnvName (namesForClosure d)
@@ -593,7 +593,7 @@ allocClosure (ClosureAlloc p d envPlace _env) =
     enterArg = closureEnterName ns
 
 patchEnv :: Set Id -> ClosureAlloc -> [Line]
-patchEnv recNames (ClosureAlloc _ _ envPlace (EnvAlloc _info fields)) = concatMap patchField fields
+patchEnv recNames (ClosureAlloc _ _ envPlace (EnvAlloc fields)) = concatMap patchField fields
   where
     patchField (EnvValueArg f (LocalName x)) =
       if Set.member f recNames then
