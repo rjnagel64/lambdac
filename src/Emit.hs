@@ -294,9 +294,6 @@ emitThunkArgs ns ty =
   declareFields ty ++
   ["};"]
   where
-    -- Note: 'arginfo' values passed by OpaqueArg are not stored in 'struct args_$ty'.
-    -- Instead, space is allocated in emitThunkSuspend and arginfo values are
-    -- stored in an auxiliary array.
     declareFields = foldThunk consValue consInfo []
       where
         consValue i s acc =
@@ -313,21 +310,9 @@ emitThunkTrace ns ty =
   ["}"]
   where
     argsTy = "struct " ++ thunkArgsName ns ++ " *"
-    -- The accumulator has two parameters.
-    -- The second is a list of lines, as usual.
-    -- The first is the number of AllocH value arguments that have been
-    -- encountered, because those are the ones that need to index into the
-    -- arginfo_data array.
-    (_, body) = foldThunk consValue consInfo (0 :: Int, []) ty
+    body = foldThunk consValue consInfo [] ty
       where
-        consValue i s (k, acc) = (k', ("    mark_gray(" ++ asAlloc field ++ ");") : acc)
-          where
-            field = "args->arg" ++ show i
-            (k', info) = case infoForSort s of
-              -- Environment pointer is null here, because AllocH arguments have
-              -- their info in the auxiliary array, not in 'args'.
-              Left sInfo -> (k, emitInfo (Id "NULL") sInfo)
-              Right _ -> (k+1, "argument_infos[" ++ show k ++ "]")
+        consValue i s acc = ("    mark_gray(" ++ asAlloc ("args->arg" ++ show i) ++ ");") : acc
         consInfo _ acc = acc -- Don't need to trace info arguments.
 
 emitThunkSuspend :: ThunkNames -> ThunkType -> [Line]
@@ -337,7 +322,6 @@ emitThunkSuspend ns ty =
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
   ,"    args->closure = closure;"]++
   assignFields ty ++
-  assignArgInfos ty ++
   ["    set_next(closure->enter, " ++ thunkTraceName ns ++ ");"
   ,"}"]
   where
@@ -358,15 +342,6 @@ emitThunkSuspend ns ty =
         consInfo j acc =
           let arg = "info" ++ show j in
           ("    args->" ++ arg ++ " = " ++ arg ++ ";") : acc
-    assignArgInfos = snd . foldThunk consValue consInfo (0 :: Int, [])
-      where
-        -- Because this is a right fold, the auxiliary info array is filled in reverse order.
-        -- This is mildly annoying, but doesn't break anything.
-        consValue i (AllocH _) (k, acc) =
-          -- TODO: Eliminate argument_infos from thunk.
-          (k+1, ("argument_infos[" ++ show k ++ "] = closure_info;") : acc)
-        consValue _ _ acc = acc
-        consInfo _ acc = acc
 
 emitClosureDecl :: ClosureSig -> ClosureDecl -> [Line]
 emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params e) =
