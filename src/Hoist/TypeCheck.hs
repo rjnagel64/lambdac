@@ -284,13 +284,11 @@ checkValue (BoolH _) BooleanH = pure ()
 checkValue (BoolH _) _ = throwError BadValue
 checkValue NilH UnitH = pure ()
 checkValue NilH _ = throwError BadValue
-checkValue (InlH i x) SumH = do
-  s <- lookupName x
-  checkInfo i s
+checkValue (InlH i x) (SumH t s) = do
+  checkName x t
 checkValue (InlH _ _) _ = throwError BadValue
-checkValue (InrH i x) SumH = do
-  s <- lookupName x
-  checkInfo i s
+checkValue (InrH i y) (SumH t s) = do
+  checkName y s
 checkValue (InrH _ _) _ = throwError BadValue
 checkValue (PairH i j x y) (ProductH s t) = do
   s' <- lookupName x
@@ -316,7 +314,7 @@ checkCase x CaseBool [kf, kt] = do
   checkName kf (ClosureH (ClosureTele []))
   checkName kt (ClosureH (ClosureTele []))
 checkCase x (CaseSum a b) [kl, kr] = do
-  checkName x SumH
+  checkName x (SumH a b)
   checkName kl (ClosureH (ClosureTele [ValueTele a]))
   checkName kr (ClosureH (ClosureTele [ValueTele b]))
 checkCase x (CaseList a) [kn, kc] = do
@@ -331,9 +329,9 @@ checkSort (AllocH aa) = lookupTyVar aa
 checkSort UnitH = pure ()
 checkSort IntegerH = pure ()
 checkSort BooleanH = pure ()
-checkSort SumH = pure ()
 checkSort StringH = pure ()
 checkSort (ProductH t s) = checkSort t *> checkSort s
+checkSort (SumH t s) = checkSort t *> checkSort s
 checkSort (ListH t) = checkSort t
 checkSort (ClosureH tele) = checkTele tele
 
@@ -365,7 +363,7 @@ checkInfo BoolInfo BooleanH = pure ()
 checkInfo BoolInfo _ = throwError IncorrectInfo
 checkInfo UnitInfo UnitH = pure ()
 checkInfo UnitInfo _ = throwError IncorrectInfo
-checkInfo SumInfo SumH = pure ()
+checkInfo SumInfo (SumH _ _) = pure ()
 checkInfo SumInfo _ = throwError IncorrectInfo
 checkInfo StringInfo StringH = pure ()
 checkInfo StringInfo _ = throwError IncorrectInfo

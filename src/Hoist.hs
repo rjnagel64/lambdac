@@ -56,9 +56,9 @@ sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH
 sortOf C.Boolean = BooleanH
 sortOf C.Unit = UnitH
-sortOf (C.Sum _ _) = SumH
 sortOf C.String = StringH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
+sortOf (C.Sum t s) = SumH (sortOf t) (sortOf s)
 sortOf (C.List t) = ListH (sortOf t)
 sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
   where
@@ -369,7 +369,7 @@ infoForSort (AllocH aa) = infoForTyVar aa
 infoForSort IntegerH = pure Int64Info
 infoForSort BooleanH = pure BoolInfo
 infoForSort UnitH = pure UnitInfo
-infoForSort SumH = pure SumInfo
+infoForSort (SumH _ _) = pure SumInfo
 infoForSort StringH = pure StringInfo
 infoForSort (ProductH _ _) = pure ProductInfo
 infoForSort (ListH _) = pure ListInfo

@@ -129,8 +129,8 @@ thunkTypeCode (ThunkType ts) = map argcode ts
     tycode' (ClosureH _) = 'C'
     tycode' (AllocH _) = 'A'
     tycode' (ListH _) = 'L'
-    tycode' SumH = 'S'
     tycode' (ProductH _ _) = 'Q'
+    tycode' (SumH _ _) = 'S'
 
 data ThunkNames
   = ThunkNames {
@@ -156,10 +156,10 @@ typeForSort :: Sort -> String
 typeForSort (AllocH _) = "struct alloc_header *"
 typeForSort (ClosureH _) = "struct closure *"
 typeForSort IntegerH = "struct int64_value *"
-typeForSort SumH = "struct sum *"
 typeForSort StringH = "struct string_value *"
 typeForSort BooleanH = "struct bool_value *"
 typeForSort (ProductH _ _) = "struct pair *"
+typeForSort (SumH _ _) = "struct sum *"
 typeForSort UnitH = "struct unit *"
 typeForSort (ListH _) = "struct list *"
 
@@ -167,10 +167,10 @@ asSort :: Sort -> String -> String
 asSort (AllocH _) x = asAlloc x
 asSort IntegerH x = "AS_INT64(" ++ x ++ ")"
 asSort (ClosureH _) x = "AS_CLOSURE(" ++ x ++ ")"
-asSort SumH x = "AS_SUM(" ++ x ++ ")"
 asSort StringH x = "AS_STRING(" ++ x ++ ")"
 asSort BooleanH x = "AS_BOOL(" ++ x ++ ")"
 asSort (ProductH _ _) x = "AS_PAIR(" ++ x ++ ")"
+asSort (SumH _ _) x = "AS_SUM(" ++ x ++ ")"
 asSort UnitH x = "AS_UNIT(" ++ x ++ ")"
 asSort (ListH _s) x = "AS_LIST(" ++ x ++ ")"
 
@@ -203,11 +203,11 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
     thunkTypesOf (AllocH _) = Set.empty
     thunkTypesOf IntegerH = Set.empty
     thunkTypesOf BooleanH = Set.empty
-    thunkTypesOf SumH = Set.empty
     thunkTypesOf StringH = Set.empty
     thunkTypesOf UnitH = Set.empty
     thunkTypesOf (ClosureH tele) = Set.insert (teleThunkType tele) (teleThunkTypes tele)
     thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
+    thunkTypesOf (SumH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
     thunkTypesOf (ListH t) = thunkTypesOf t
 
     teleThunkTypes :: ClosureTele -> Set ThunkType

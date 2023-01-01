@@ -97,9 +97,9 @@ data Sort
   | IntegerH
   | BooleanH
   | UnitH
-  | SumH
   | StringH
   | ProductH Sort Sort
+  | SumH Sort Sort
   | ListH Sort
   | ClosureH ClosureTele
 
@@ -263,10 +263,10 @@ ftv (AllocH aa) = unitFV aa
 ftv UnitH = mempty
 ftv IntegerH = mempty
 ftv BooleanH = mempty
-ftv SumH = mempty
 ftv StringH = mempty
 ftv (ListH t) = ftv t
 ftv (ProductH t s) = ftv t <> ftv s
+ftv (SumH t s) = ftv t <> ftv s
 ftv (ClosureH tele) = ftvTele tele
 
 ftvTele :: ClosureTele -> FV
@@ -305,12 +305,12 @@ equalSort _ BooleanH BooleanH = True
 equalSort _ BooleanH _ = False
 equalSort _ UnitH UnitH = True
 equalSort _ UnitH _ = False
-equalSort _ SumH SumH = True
-equalSort _ SumH _ = False
 equalSort _ StringH StringH = True
 equalSort _ StringH _ = False
 equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
 equalSort _ (ProductH _ _) _ = False
+equalSort ae (SumH s1 s2) (SumH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
+equalSort _ (SumH _ _) _ = False
 equalSort ae (ListH s) (ListH t) = equalSort ae s t
 equalSort _ (ListH _) _ = False
 equalSort ae (ClosureH ss) (ClosureH ts) = equalTele ae ss ts
@@ -371,9 +371,9 @@ substSort sub (AllocH aa) = case Map.lookup aa (substMapping sub) of
 substSort _ IntegerH = IntegerH
 substSort _ BooleanH = BooleanH
 substSort _ UnitH = UnitH
-substSort _ SumH = SumH
 substSort _ StringH = StringH
 substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
+substSort sub (SumH s t) = SumH (substSort sub s) (substSort sub t)
 substSort sub (ListH t) = ListH (substSort sub t)
 substSort sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele sub tele))
 
@@ -479,10 +479,10 @@ pprintSort :: Sort -> String
 pprintSort IntegerH = "int"
 pprintSort BooleanH = "bool"
 pprintSort UnitH = "unit"
-pprintSort SumH = "sum"
 pprintSort StringH = "string"
 pprintSort (ListH t) = "list " ++ pprintSort t
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
+pprintSort (SumH t s) = "sum " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
 pprintSort (AllocH aa) = show aa
 
@@ -492,9 +492,9 @@ pprintInfo (EnvInfo aa) = "$." ++ show aa
 pprintInfo Int64Info = "$int64"
 pprintInfo BoolInfo = "$bool"
 pprintInfo UnitInfo = "$unit"
-pprintInfo SumInfo = "$sum"
 pprintInfo StringInfo = "$string"
 pprintInfo ProductInfo = "$pair"
+pprintInfo SumInfo = "$sum"
 pprintInfo ClosureInfo = "$closure"
 pprintInfo ListInfo = "$list"
 
