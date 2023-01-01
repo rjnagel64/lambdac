@@ -5,6 +5,7 @@ module Emit
 
 import Data.Function (on)
 import Data.List (intercalate)
+import Data.Maybe (mapMaybe)
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -333,7 +334,7 @@ emitThunkSuspend ns ty =
           emitPlace p :
           acc
         consValue i s acc = let p = Place s (Id ("arg" ++ show i)) in emitPlace p : acc
-        consInfo j acc = ("type_info info" ++ show j) : acc
+        consInfo j acc = acc
     assignFields = foldThunk consValue consInfo []
       where
         consValue i _ acc =
@@ -341,7 +342,7 @@ emitThunkSuspend ns ty =
           ("    args->" ++ arg ++ " = " ++ arg ++ ";") : acc
         consInfo j acc =
           let arg = "info" ++ show j in
-          ("    args->" ++ arg ++ " = " ++ arg ++ ";") : acc
+          ("    args->" ++ arg ++ " = unit_info;") : acc
 
 emitClosureDecl :: ClosureSig -> ClosureDecl -> [Line]
 emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params e) =
@@ -386,16 +387,13 @@ emitEnvAlloc :: EnvNames -> EnvDecl -> [Line]
 emitEnvAlloc ns (EnvDecl is fs) =
   ["struct " ++ envTypeName ns ++ " *" ++ envAllocName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ envTypeName ns ++ " *_env = malloc(sizeof(struct " ++ envTypeName ns ++ "));"]++
-  map assignInfo is ++
   map assignField fs ++
   ["    cons_new_alloc(AS_ALLOC(_env), " ++ envInfoName ns ++ ");"
   ,"    return _env;"
   ,"}"]
   where
     paramList = if null params then "void" else commaSep params
-    params = map (\ (i, aa) -> "type_info " ++ show i) is ++ map emitPlace fs
-
-    assignInfo (i, _aa) = "    _env->" ++ show i ++ " = " ++ show i ++ ";"
+    params = map emitPlace fs
     assignField (Place _ x) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
 
 emitEnvInfo :: EnvNames -> EnvDecl -> [Line]
@@ -425,7 +423,7 @@ emitClosureEnter tns cns ty =
     argList = "env" : foldThunk consValue consInfo [] ty
       where
         consValue i s acc = ("args->arg" ++ show i) : acc
-        consInfo j acc = ("args->info" ++ show j) : acc
+        consInfo j acc = acc
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.
@@ -435,14 +433,14 @@ emitClosureCode csig tenv ns envName xs e =
   emitClosureBody csig tenv envName e ++
   ["}"]
   where
-    paramList = commaSep (envParam : map emitParam xs)
+    paramList = commaSep (envParam : mapMaybe emitParam xs)
     envParam = "struct " ++ envTypeName (closureEnvName ns) ++ " *" ++ show envName
     -- Hmm. Really, the type param should not emit an argument at all.
     -- Instead, the 'type_info' value should be passed as an InfoParam.
     -- However, I have not implemented that yet.
-    emitParam (TypeParam (TyVar aa)) = "type_info " ++ show aa
-    emitParam (InfoParam i s) = "type_info " ++ show i
-    emitParam (PlaceParam p) = emitPlace p
+    emitParam (TypeParam aa) = Nothing
+    emitParam (InfoParam i s) = Nothing
+    emitParam (PlaceParam p) = Just (emitPlace p)
 
 
 emitClosureBody :: ClosureSig -> ThunkEnv -> EnvPtr -> TermH -> [Line]
@@ -475,12 +473,12 @@ emitSuspend tenv envp cl xs =
   where
     ty = lookupThunkTy tenv cl
     method = thunkSuspendName (namesForThunk ty)
-    args = emitName envp cl : zipWith makeArg (thunkArgs ty) xs
+    args = emitName envp cl : mapMaybe makeArg (zip (thunkArgs ty) xs)
 
-    makeArg ThunkInfoArg (TypeArg i) = emitInfo envp i
-    makeArg (ThunkValueArg _) (OpaqueArg y i) = emitName envp y
-    makeArg (ThunkValueArg _) (ValueArg y) = emitName envp y
-    makeArg _ _ = error "calling convention mismatch: type/value param paired with value/type arg"
+    makeArg (ThunkInfoArg, TypeArg i) = Nothing
+    makeArg (ThunkValueArg _, OpaqueArg y i) = Just (emitName envp y)
+    makeArg (ThunkValueArg _, ValueArg y) = Just (emitName envp y)
+    makeArg _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
 lookupThunkTy :: ThunkEnv -> Name -> ThunkType
 lookupThunkTy (localThunkTys, _) (LocalName x) = case Map.lookup x localThunkTys of
@@ -526,7 +524,6 @@ caseInfoTable (CaseSum t s) =
   , BranchInfo "AS_SUM_INR" (ThunkType [ThunkValueArg s]) [("payload", s)]
   ]
 caseInfoTable (CaseList t) =
-  let makeArg name sort = [(name, sort)] in
   [ BranchInfo "AS_LIST_NIL" (ThunkType []) []
   , BranchInfo "AS_LIST_CONS" consThunkTy [("head", t), ("tail", ListH t)]
   ]
@@ -611,8 +608,7 @@ allocEnv recNames envp (ClosureAlloc _p d envPlace (EnvAlloc info fields)) =
     ns' = closureEnvName (namesForClosure d)
 
     call = envAllocName ns' ++ "(" ++ commaSep args ++ ")"
-    args = map emitInfoArg info ++ map emitAllocArg fields
-    emitInfoArg (EnvInfoArg _ i) = emitInfo envp i
+    args = map emitAllocArg fields
     emitAllocArg (EnvValueArg f x) = if Set.member f recNames then "NULL" else emitName envp x
 
 allocClosure :: ClosureAlloc -> Line
