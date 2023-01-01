@@ -4,14 +4,12 @@ module Hoist.IR
     ( Id(..)
     , Name(..)
     , Place(..)
-    , InfoPlace(..)
     , TyVar(..)
     , ClosureName(..)
 
     , Sort(..)
     , ClosureTele(..)
     , TeleEntry(..)
-    , Info(..)
 
     , Subst
     , singleSubst
@@ -66,13 +64,6 @@ instance Show Name where
 -- sort that specifies what values can be stored there.
 data Place = Place { placeSort :: Sort, placeName :: Id }
 
--- | A 'InfoPlace' is a location that can hold a @type_info@.
---
--- Hmm. Right now, @InfoPlace (Id "aa")@ beasically means `aa : info aa`. Aside
--- from muddling term/info and type namespaces, it also overlaps with
--- InfoPlace2 (denoting `i : info t`.
-data InfoPlace = InfoPlace { infoName :: Id }
-
 data TyVar = TyVar Id
   deriving (Eq, Ord)
 
@@ -115,30 +106,6 @@ data TeleEntry
 instance Eq Sort where
   (==) = equalSort emptyAE
 
-
--- | 'Info' is used to represent @type_info@ values that are passed at runtime.
--- This is dynamic information.
-data Info
-  -- @a0@
-  = LocalInfo Id
-  -- @env->b1@
-  | EnvInfo Id
-  -- @int64_info@
-  | Int64Info
-  -- @bool_info@
-  | BoolInfo
-  -- @unit_info@
-  | UnitInfo
-  -- @sum_info@
-  | SumInfo
-  -- @string_info@
-  | StringInfo
-  -- @pair_info@
-  | ProductInfo
-  -- @closure_info@
-  | ClosureInfo
-  -- @list_info@
-  | ListInfo
 
 
 data ClosureDecl

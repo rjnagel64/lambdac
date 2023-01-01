@@ -123,8 +123,9 @@ withPlace p m = do
 withPlaces :: [Place] -> TC a -> TC a
 withPlaces ps = foldr (.) id (map withPlace ps)
 
-withInfo :: InfoPlace -> TC a -> TC a
-withInfo (InfoPlace i) m = local (\ (Context locals env) -> Context (extend locals) env) m
+-- Needs a better name. withTyVar or something.
+withInfo :: Id -> TC a -> TC a
+withInfo i m = local (\ (Context locals env) -> Context (extend locals) env) m
   where
     extend (Locals places tys infos) = Locals places (Set.insert i tys) infos
 
@@ -167,7 +168,6 @@ checkEnv (EnvDecl tys places) = do
   checkUniqueLabels [placeName p | p <- places]
 
   infos <- for tys $ \ (i, aa) -> do
-    -- Once InfoPlace is replaced by InfoPlace2, these two lines can go away.
     let infoLabel = i
     let infoSort = AllocH aa
     checkSort infoSort
@@ -193,7 +193,7 @@ checkUniqueLabels ls = do
 checkParams :: [ClosureParam] -> TC Locals
 checkParams [] = asks ctxLocals
 checkParams (PlaceParam p : params) = withPlace p $ checkParams params
-checkParams (TypeParam (TyVar aa) : params) = withInfo (InfoPlace aa) $ checkParams params
+checkParams (TypeParam (TyVar aa) : params) = withInfo aa $ checkParams params
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()
@@ -335,5 +335,5 @@ checkTele (ClosureTele ss) = go ss
   where
     go [] = pure ()
     go (ValueTele s : ss') = checkSort s *> go ss'
-    go (TypeTele (TyVar aa) : ss') = withInfo (InfoPlace aa) $ go ss'
+    go (TypeTele (TyVar aa) : ss') = withInfo aa $ go ss'
 
