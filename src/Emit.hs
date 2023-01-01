@@ -508,15 +508,15 @@ emitValueAlloc :: EnvPtr -> ValueH -> String
 emitValueAlloc _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValueAlloc envp (BoolH True) = emitBuiltinCall envp (Id "allocate_true") []
 emitValueAlloc envp (BoolH False) = emitBuiltinCall envp (Id "allocate_false") []
-emitValueAlloc envp (PairH s1 s2 x y) =
+emitValueAlloc envp (PairH x y) =
   "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ NilH = "allocate_unit()"
-emitValueAlloc envp (InlH s y) =
+emitValueAlloc envp (InlH y) =
   "allocate_inl(" ++ asAlloc (emitName envp y) ++ ")"
-emitValueAlloc envp (InrH s y) =
+emitValueAlloc envp (InrH y) =
   "allocate_inr(" ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ ListNilH = "allocate_list_nil()"
-emitValueAlloc envp (ListConsH s x xs) =
+emitValueAlloc envp (ListConsH x xs) =
   "allocate_list_cons(" ++ asAlloc (emitName envp x) ++ ", " ++ emitName envp xs ++ ")"
 emitValueAlloc _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
 

@@ -256,13 +256,13 @@ hoistValue :: C.ValueC -> HoistM ValueH
 hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
 hoistValue (C.BoolC b) = pure (BoolH b)
 hoistValue (C.PairC x y) =
-  (\ (x', i) (y', j) -> PairH i j x' y') <$> hoistVarOccInfo x <*> hoistVarOccInfo y
+  PairH <$> hoistVarOcc x <*> hoistVarOcc y
 hoistValue C.NilC = pure NilH
-hoistValue (C.InlC x) = (\ (x', i) -> InlH i x') <$> hoistVarOccInfo x
-hoistValue (C.InrC x) = (\ (x', i) -> InrH i x') <$> hoistVarOccInfo x
+hoistValue (C.InlC x) = InlH <$> hoistVarOcc x
+hoistValue (C.InrC x) = InrH <$> hoistVarOcc x
 hoistValue C.EmptyC = pure ListNilH
 hoistValue (C.ConsC x xs) =
-  (\ (x', i) xs' -> ListConsH i x' xs') <$> hoistVarOccInfo x <*> hoistVarOcc xs
+  ListConsH <$> hoistVarOcc x <*> hoistVarOcc xs
 hoistValue (C.StringC s) = pure (StringValH s)
 
 hoistArith :: C.ArithC -> HoistM PrimOp
@@ -356,13 +356,6 @@ hoistArgList xs = traverse f xs
     f (C.TypeArg t) = TypeArg <$> infoForSort (sortOf t)
     f (C.ValueArg x) = hoistVarOccSort x >>= \case
       (x', _) -> pure (ValueArg x')
-
--- | Hoist a variable occurrence, and also retrieve the @type_info@ that describes it.
-hoistVarOccInfo :: C.Name -> HoistM (Name, Info)
-hoistVarOccInfo x = do
-  (x', s) <- hoistVarOccSort x
-  s' <- infoForSort s
-  pure (x', s')
 
 infoForSort :: Sort -> HoistM Info
 infoForSort (AllocH aa) = infoForTyVar aa

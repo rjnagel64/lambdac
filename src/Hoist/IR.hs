@@ -206,12 +206,12 @@ data EnvAllocValueArg = EnvValueArg Id Name
 data ValueH
   = IntH Int64
   | BoolH Bool
-  | PairH Info Info Name Name
+  | PairH Name Name
   | NilH
-  | InlH Info Name
-  | InrH Info Name
+  | InlH Name
+  | InrH Name
   | ListNilH
-  | ListConsH Info Name Name
+  | ListConsH Name Name
   | StringValH String
 
 data PrimOp
@@ -417,14 +417,14 @@ pprintClosureArg (TypeArg i) = '@' : pprintInfo i
 pprintClosureArg (ValueArg x) = show x
 
 pprintValue :: ValueH -> String
-pprintValue (PairH _ _ x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue NilH = "()"
 pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"
-pprintValue (InlH _ x) = "inl " ++ show x
-pprintValue (InrH _ y) = "inr " ++ show y
+pprintValue (InlH x) = "inl " ++ show x
+pprintValue (InrH y) = "inr " ++ show y
 pprintValue ListNilH = "nil"
-pprintValue (ListConsH _ x xs) = "cons " ++ show x ++ " " ++ show xs
+pprintValue (ListConsH x xs) = "cons " ++ show x ++ " " ++ show xs
 pprintValue (StringValH s) = show s
 
 pprintPrim :: PrimOp -> String
