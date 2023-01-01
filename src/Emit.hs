@@ -109,7 +109,6 @@ teleThunkType (ClosureTele ss) = ThunkType (map f ss)
   where
     f (ValueTele s) = ThunkValueArg s
     f (TypeTele aa) = ThunkInfoArg -- Hmm. type args aren't really info args, though.
-    f (InfoTele s) = ThunkInfoArg
 
 thunkTypeCode :: ThunkType -> String
 thunkTypeCode (ThunkType ts) = map argcode ts
@@ -217,7 +216,6 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
     entryThunkTypes :: TeleEntry -> Set ThunkType
     entryThunkTypes (ValueTele s) = thunkTypesOf s
     entryThunkTypes (TypeTele aa) = Set.empty
-    entryThunkTypes (InfoTele s) = thunkTypesOf s
 
 
 

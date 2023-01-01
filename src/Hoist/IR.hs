@@ -111,7 +111,6 @@ newtype ClosureTele = ClosureTele [TeleEntry]
 data TeleEntry
   = ValueTele Sort
   | TypeTele TyVar
-  | InfoTele Sort
 
 instance Eq Sort where
   (==) = equalSort emptyAE
@@ -274,7 +273,6 @@ ftvTele (ClosureTele tele) = go tele
     go [] = mempty
     go (ValueTele s : rest) = ftv s <> go rest
     go (TypeTele aa : rest) = bindFV aa (go rest)
-    go (InfoTele s : rest) = ftv s <> go rest
 
 -- | An environment used when checking alpha-equality.
 -- Contains the deBruijn level and a mapping from bound variables to levels for
@@ -324,8 +322,6 @@ equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
     go ae (TypeTele aa : ls) (TypeTele bb : rs) =
       go (bindAE aa bb ae) ls rs
     go _ (TypeTele _ : _) (_ : _) = False
-    go ae (InfoTele s : ls) (InfoTele t : rs) = equalSort ae s t && go ae ls rs
-    go _ (InfoTele _ : _) (_ : _) = False
     go _ (_ : _) [] = False
     go _ [] (_ : _) = False
 
@@ -381,7 +377,6 @@ substTele _ [] = []
 substTele sub (ValueTele s : tele) = ValueTele (substSort sub s) : substTele sub tele
 substTele sub (TypeTele aa : tele) = case substBind sub aa of
   (sub', aa') -> TypeTele aa' : substTele sub' tele
-substTele sub (InfoTele s : tele) = InfoTele (substSort sub s) : substTele sub tele
 
 
 -- Pretty-printing
@@ -486,4 +481,3 @@ pprintTele (ClosureTele ss) = intercalate ", " (map f ss)
   where
     f (ValueTele s) = pprintSort s
     f (TypeTele aa) = "forall " ++ show aa
-    f (InfoTele s) = "info " ++ pprintSort s

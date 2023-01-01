@@ -336,5 +336,4 @@ checkTele (ClosureTele ss) = go ss
     go [] = pure ()
     go (ValueTele s : ss') = checkSort s *> go ss'
     go (TypeTele (TyVar aa) : ss') = withInfo (InfoPlace aa) $ go ss'
-    go (InfoTele s : ss') = checkSort s *> go ss'
 
