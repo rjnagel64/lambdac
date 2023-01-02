@@ -96,7 +96,7 @@ teleThunkType :: ClosureTele -> ThunkType
 teleThunkType (ClosureTele ss) = ThunkType (map f ss)
   where
     f (ValueTele s) = ThunkValueArg s
-    f (TypeTele aa) = ThunkInfoArg -- Hmm. type args aren't really info args, though.
+    f (TypeTele aa k) = ThunkInfoArg -- Hmm. type args aren't really info args, though.
 
 thunkTypeCode :: ThunkType -> String
 thunkTypeCode (ThunkType ts) = map argcode ts
@@ -182,7 +182,7 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
       where ty = closureDeclType cd
 
     paramThunkTypes :: ClosureParam -> Set ThunkType
-    paramThunkTypes (TypeParam _) = Set.empty
+    paramThunkTypes (TypeParam _ _) = Set.empty
     paramThunkTypes (PlaceParam p) = thunkTypesOf (placeSort p)
 
     thunkTypesOf :: Sort -> Set ThunkType
@@ -203,7 +203,7 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
 
     entryThunkTypes :: TeleEntry -> Set ThunkType
     entryThunkTypes (ValueTele s) = thunkTypesOf s
-    entryThunkTypes (TypeTele aa) = Set.empty
+    entryThunkTypes (TypeTele aa k) = Set.empty
 
 
 
@@ -310,7 +310,7 @@ emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params
     thunkEnv = (foldr addParam Map.empty params, foldr addPlace Map.empty places)
     addParam (PlaceParam (Place (ClosureH tele) x)) acc = Map.insert x (teleThunkType tele) acc
     addParam (PlaceParam _) acc = acc
-    addParam (TypeParam _) acc = acc
+    addParam (TypeParam _ _) acc = acc
 
     addPlace (Place (ClosureH tele) x) acc = Map.insert x (teleThunkType tele) acc
     addPlace (Place _ _) acc = acc
@@ -381,7 +381,7 @@ emitClosureCode csig tenv ns envName xs e =
   where
     paramList = commaSep (envParam : mapMaybe emitParam xs)
     envParam = "struct " ++ envTypeName (closureEnvName ns) ++ " *" ++ show envName
-    emitParam (TypeParam aa) = Nothing
+    emitParam (TypeParam aa k) = Nothing
     emitParam (PlaceParam p) = Just (emitPlace p)
 
 

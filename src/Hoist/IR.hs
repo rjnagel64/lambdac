@@ -11,6 +11,8 @@ module Hoist.IR
     , ClosureTele(..)
     , TeleEntry(..)
 
+    , Kind(..)
+
     , Subst
     , singleSubst
     , substSort
@@ -101,11 +103,13 @@ newtype ClosureTele = ClosureTele [TeleEntry]
 
 data TeleEntry
   = ValueTele Sort
-  | TypeTele TyVar
+  | TypeTele TyVar Kind
 
 instance Eq Sort where
   (==) = equalSort emptyAE
 
+data Kind = Star
+  deriving (Eq)
 
 
 data ClosureDecl
@@ -118,11 +122,12 @@ closureDeclTele :: ClosureDecl -> ClosureTele
 closureDeclTele (ClosureDecl _ _ params _) = ClosureTele (map f params)
   where
     f (PlaceParam p) = ValueTele (placeSort p)
-    f (TypeParam aa) = TypeTele aa
+    f (TypeParam aa k) = TypeTele aa k
 
-data EnvDecl = EnvDecl [(Id, TyVar)] [Place]
+-- Hmm. EnvDecl does not need field names for the captured (singleton) types.
+data EnvDecl = EnvDecl [(Id, TyVar, Kind)] [Place]
 
-data ClosureParam = PlaceParam Place | TypeParam TyVar
+data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
 
 
 
@@ -239,7 +244,7 @@ ftvTele (ClosureTele tele) = go tele
   where
     go [] = mempty
     go (ValueTele s : rest) = ftv s <> go rest
-    go (TypeTele aa : rest) = bindFV aa (go rest)
+    go (TypeTele aa _ : rest) = bindFV aa (go rest)
 
 -- | An environment used when checking alpha-equality.
 -- Contains the deBruijn level and a mapping from bound variables to levels for
@@ -286,9 +291,9 @@ equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
     go _ [] [] = True
     go ae (ValueTele s : ls) (ValueTele t : rs) = equalSort ae s t && go ae ls rs
     go _ (ValueTele _ : _) (_ : _) = False
-    go ae (TypeTele aa : ls) (TypeTele bb : rs) =
-      go (bindAE aa bb ae) ls rs
-    go _ (TypeTele _ : _) (_ : _) = False
+    go ae (TypeTele aa k1 : ls) (TypeTele bb k2 : rs) =
+      k1 == k2 && go (bindAE aa bb ae) ls rs
+    go _ (TypeTele _ _ : _) (_ : _) = False
     go _ (_ : _) [] = False
     go _ [] (_ : _) = False
 
@@ -342,8 +347,8 @@ substSort sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele s
 substTele :: Subst -> [TeleEntry] -> [TeleEntry]
 substTele _ [] = []
 substTele sub (ValueTele s : tele) = ValueTele (substSort sub s) : substTele sub tele
-substTele sub (TypeTele aa : tele) = case substBind sub aa of
-  (sub', aa') -> TypeTele aa' : substTele sub' tele
+substTele sub (TypeTele aa k1 : tele) = case substBind sub aa of
+  (sub', aa') -> TypeTele aa' k1 : substTele sub' tele
 
 
 -- Pretty-printing
@@ -407,7 +412,7 @@ pprintPlace (Place s x) = show x ++ " : " ++ pprintSort s
 
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
-pprintParam (TypeParam aa) = '@' : show aa
+pprintParam (TypeParam aa k) = '@' : show aa ++ " : " ++ pprintKind k
 
 pprintClosures :: [ClosureDecl] -> String
 pprintClosures cs = concatMap (pprintClosureDecl 0) cs
@@ -418,7 +423,7 @@ pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
   pprintTerm (n+2) e
   where
     envParam = show name ++ " : {" ++ intercalate ", " (infoFields ++ valueFields) ++ "}"
-    infoFields = map (\ (i, aa) -> '@' : show i ++ " : info " ++ show aa) is
+    infoFields = map (\ (i, aa, k) -> '@' : show i ++ " : info " ++ show aa) is
     valueFields = map pprintPlace fs
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
@@ -447,4 +452,7 @@ pprintTele :: ClosureTele -> String
 pprintTele (ClosureTele ss) = intercalate ", " (map f ss)
   where
     f (ValueTele s) = pprintSort s
-    f (TypeTele aa) = "forall " ++ show aa
+    f (TypeTele aa k) = "forall " ++ show aa ++ " : " ++ pprintKind k
+
+pprintKind :: Kind -> String
+pprintKind Star = "*"

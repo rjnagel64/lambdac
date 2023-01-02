@@ -63,8 +63,11 @@ sortOf (C.List t) = ListH (sortOf t)
 sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
   where
     f (C.ValueTele s) = ValueTele (sortOf s)
-    f (C.TypeTele aa k) = TypeTele (asTyVar aa)
+    f (C.TypeTele aa k) = TypeTele (asTyVar aa) (kindOf k)
 sortOf (C.Alloc aa) = AllocH (asTyVar aa)
+
+kindOf :: C.Kind -> Kind
+kindOf C.Star = Star
 
 caseKind :: C.CaseKind -> CaseKind
 caseKind C.CaseBool = CaseBool
@@ -223,7 +226,7 @@ hoist (C.LetContC ks e) = do
 
 hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, Scope, EnvAlloc)
 hoistEnvDef (C.EnvDef tyfields fields) = do
-  let declTyFields = map (\ (aa, k) -> (infoPlaceName aa, asTyVar aa)) tyfields
+  let declTyFields = map (\ (aa, k) -> (infoPlaceName aa, asTyVar aa, kindOf k)) tyfields
   let declFields = map (\ (x, s) -> asPlace s x) fields
   let envd = EnvDecl declTyFields declFields
 
@@ -300,7 +303,7 @@ convertParameters params = (Scope places, params')
 
     addParam (C.TypeParam aa k) (ps, tele) =
       let aa' = asTyVar aa in
-      (ps, TypeParam aa' : tele)
+      (ps, TypeParam aa' (kindOf k) : tele)
     addParam (C.ValueParam x s) (ps, tele) =
       let p = asPlace s x in
       (ps . Map.insert x p, PlaceParam p : tele)

@@ -164,10 +164,10 @@ checkEnvDecl :: EnvDecl -> TC EnvType
 -- Check that all (info/field) labels are disjoint, and that each field type is
 -- well-formed.
 checkEnvDecl (EnvDecl tys places) = do
-  checkUniqueLabels [i | (i, aa) <- tys]
+  checkUniqueLabels [i | (i, aa, k) <- tys]
   checkUniqueLabels [placeName p | p <- places]
 
-  infos <- for tys $ \ (i, aa) -> do
+  infos <- for tys $ \ (i, aa, k) -> do
     let infoLabel = i
     let infoSort = AllocH aa
     checkSort infoSort
@@ -193,7 +193,7 @@ checkUniqueLabels ls = do
 checkParams :: [ClosureParam] -> TC Locals
 checkParams [] = asks ctxLocals
 checkParams (PlaceParam p : params) = withPlace p $ checkParams params
-checkParams (TypeParam (TyVar aa) : params) = withInfo aa $ checkParams params
+checkParams (TypeParam (TyVar aa) k : params) = withInfo aa $ checkParams params
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()
@@ -335,5 +335,5 @@ checkTele (ClosureTele ss) = go ss
   where
     go [] = pure ()
     go (ValueTele s : ss') = checkSort s *> go ss'
-    go (TypeTele (TyVar aa) : ss') = withInfo aa $ go ss'
+    go (TypeTele (TyVar aa) k : ss') = withInfo aa $ go ss'
 
