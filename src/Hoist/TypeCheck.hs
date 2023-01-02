@@ -149,7 +149,7 @@ checkClosure :: ClosureDecl -> TC ()
 checkClosure decl@(ClosureDecl cl (envp, envd) params body) = do
   -- Check the environment and parameters to populate the environment scope for
   -- the typing context
-  envTy <- checkEnv envd
+  envTy <- checkEnvDecl envd
   -- Check that the parameter list is well-formed, and extract the initial
   -- contents of the local scope for the typing context.
   localScope <- local (\_ -> Context emptyLocals envTy) $ checkParams params
@@ -160,10 +160,10 @@ checkClosure decl@(ClosureDecl cl (envp, envd) params body) = do
   let declTy = ClosureDeclType [] envTy tele
   modify (declareClosure cl declTy)
 
-checkEnv :: EnvDecl -> TC EnvType
+checkEnvDecl :: EnvDecl -> TC EnvType
 -- Check that all (info/field) labels are disjoint, and that each field type is
 -- well-formed.
-checkEnv (EnvDecl tys places) = do
+checkEnvDecl (EnvDecl tys places) = do
   checkUniqueLabels [i | (i, aa) <- tys]
   checkUniqueLabels [placeName p | p <- places]
 

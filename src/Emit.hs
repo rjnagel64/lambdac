@@ -223,7 +223,6 @@ prologue = ["#include \"rts.h\""]
 emitEntryPoint :: ClosureSig -> TermH -> [Line]
 emitEntryPoint csig e =
   ["void program_entry(void) {"] ++
-  -- There is no top-level environment. All names are local.
   emitClosureBody csig thunkEnv envp e ++
   ["}"]
   where
@@ -524,7 +523,7 @@ emitPrimCall envp fn xs = emitBuiltinCall envp (Id fn) xs
 -- I also can't use this for emitValueAlloc because if the sort of a parameter
 -- is 'AllocH', I need to cast the argument with AS_ALLOC.
 emitBuiltinCall :: EnvPtr -> Id -> [Name] -> String
-emitBuiltinCall envp fn args = show fn ++ "(" ++ commaSep (foldr (\x acc -> emitName envp x : acc) [] args) ++ ")"
+emitBuiltinCall envp fn args = show fn ++ "(" ++ commaSep (map (emitName envp) args) ++ ")"
 
 -- | Allocate a group of (mutually recursive) closures.
 --

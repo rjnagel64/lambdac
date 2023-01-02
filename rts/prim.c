@@ -155,7 +155,7 @@ void display_list(struct alloc_header *alloc, struct string_buf *sb) {
         string_buf_push(sb, "cons ");
         c->head->info.display(c->head, sb);
         string_buf_push(sb, " ");
-        list_info.display(AS_ALLOC(c->tail), sb);
+        display_list(AS_ALLOC(c->tail), sb);
         }
         break;
     }

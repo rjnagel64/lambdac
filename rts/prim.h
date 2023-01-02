@@ -8,8 +8,6 @@ struct int64_value {
     int64_t value;
 };
 
-type_info int64_value_info;
-
 // Corresponds to Int64# constructor? No discriminant, though.
 struct int64_value *allocate_int64(int64_t x);
 
@@ -20,8 +18,6 @@ struct closure {
     struct alloc_header *env;
     void (*enter)(void);
 };
-
-type_info closure_info;
 
 // Public b/c generated code needs to define info for environment types.
 void display_env(struct alloc_header *alloc, struct string_buf *sb);
@@ -36,8 +32,6 @@ struct sum {
     struct alloc_header *payload;
 };
 
-type_info sum_info;
-
 struct sum *allocate_inl(struct alloc_header *v);
 struct sum *allocate_inr(struct alloc_header *v);
 
@@ -49,8 +43,6 @@ struct bool_value {
     struct alloc_header header;
     uint8_t discriminant;
 };
-
-type_info bool_value_info;
 
 struct bool_value *allocate_true(void);
 struct bool_value *allocate_false(void);
@@ -65,8 +57,6 @@ struct pair {
     struct alloc_header *snd;
 };
 
-type_info pair_info;
-
 struct pair *allocate_pair(struct alloc_header *x, struct alloc_header *y);
 
 #define AS_PAIR(v) ((struct pair *)(v))
@@ -74,8 +64,6 @@ struct pair *allocate_pair(struct alloc_header *x, struct alloc_header *y);
 struct unit {
     struct alloc_header header;
 };
-
-type_info unit_info;
 
 struct unit *allocate_unit(void);
 
@@ -95,8 +83,6 @@ struct list_cons {
     struct alloc_header *head;
     struct list *tail;
 };
-
-type_info list_info;
 
 struct list *allocate_list_nil(void);
 struct list *allocate_list_cons(struct alloc_header *x, struct list *xs);
@@ -120,8 +106,6 @@ struct string_value {
     char contents[];
 };
 
-type_info string_info;
-
 struct string_value *allocate_string(char *contents);
 
 #define AS_STRING(v) ((struct string_value *)(v))
@@ -143,8 +127,5 @@ struct bool_value *prim_geint64(struct int64_value *x, struct int64_value *y);
 // Primitive operators on strings
 struct string_value *prim_concatenate(struct string_value *x, struct string_value *y);
 struct int64_value *prim_strlen(struct string_value *x);
-// Use the type_info.display() method to convert polymorphic type to string.
-// Hopefully, this will eventually become obsolete.
-// struct string_value *prim_tostring(struct alloc_header *alloc, type_info info);
 
 #endif
