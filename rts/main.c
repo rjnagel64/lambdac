@@ -31,7 +31,7 @@ int main(void) {
     // Once I have a functioning IO system, this can go away.
     struct string_buf *sb = string_buf_new();
     struct alloc_header *result_value = get_result_value();
-    result_value->info.display(result_value, sb);
+    result_value->info->display(result_value, sb);
     printf("result = %s\n", string_buf_contents(sb));
     string_buf_destroy(sb);
 

@@ -18,13 +18,13 @@ void display_int64_value(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push(sb, buf);
 }
 
-type_info int64_value_info = { trace_int64_value, display_int64_value };
+const type_info int64_value_info = { trace_int64_value, display_int64_value };
 
 struct int64_value *allocate_int64(int64_t x) {
     struct int64_value *v = malloc(sizeof(struct int64_value));
     v->value = (uintptr_t)x;
 
-    cons_new_alloc(AS_ALLOC(v), int64_value_info);
+    cons_new_alloc(AS_ALLOC(v), &int64_value_info);
     return v;
 }
 
@@ -37,7 +37,7 @@ void display_closure(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push(sb, "<closure>");
 }
 
-type_info closure_info = { trace_closure, display_closure };
+const type_info closure_info = { trace_closure, display_closure };
 
 void display_env(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push(sb, "<env>");
@@ -50,7 +50,7 @@ struct closure *allocate_closure(
     cl->env = env;
     cl->enter = enter;
 
-    cons_new_alloc(AS_ALLOC(cl), closure_info);
+    cons_new_alloc(AS_ALLOC(cl), &closure_info);
     return cl;
 }
 
@@ -64,23 +64,23 @@ void display_sum(struct alloc_header *alloc, struct string_buf *sb) {
     switch (v->discriminant) {
     case 0:
         string_buf_push(sb, "inl ");
-        v->payload->info.display(v->payload, sb);
+        v->payload->info->display(v->payload, sb);
         break;
     case 1:
         string_buf_push(sb, "inr ");
-        v->payload->info.display(v->payload, sb);
+        v->payload->info->display(v->payload, sb);
         break;
     }
 }
 
-type_info sum_info = { trace_sum, display_sum };
+const type_info sum_info = { trace_sum, display_sum };
 
 struct sum *allocate_inl(struct alloc_header *x) {
     struct sum *v = malloc(sizeof(struct sum));
     v->discriminant = 0;
     v->payload = x;
 
-    cons_new_alloc(AS_ALLOC(v), sum_info);
+    cons_new_alloc(AS_ALLOC(v), &sum_info);
     return v;
 }
 
@@ -89,7 +89,7 @@ struct sum *allocate_inr(struct alloc_header *y) {
     v->discriminant = 1;
     v->payload = y;
 
-    cons_new_alloc(AS_ALLOC(v), sum_info);
+    cons_new_alloc(AS_ALLOC(v), &sum_info);
     return v;
 }
 
@@ -105,13 +105,13 @@ void display_bool_value(struct alloc_header *alloc, struct string_buf *sb) {
     }
 }
 
-type_info bool_value_info = { trace_bool_value, display_bool_value };
+const type_info bool_value_info = { trace_bool_value, display_bool_value };
 
 struct bool_value *allocate_true(void) {
     struct bool_value *v = malloc(sizeof(struct bool_value));
     v->discriminant = 1;
 
-    cons_new_alloc(AS_ALLOC(v), bool_value_info);
+    cons_new_alloc(AS_ALLOC(v), &bool_value_info);
     return v;
 }
 
@@ -119,7 +119,7 @@ struct bool_value *allocate_false(void) {
     struct bool_value *v = malloc(sizeof(struct bool_value));
     v->discriminant = 0;
 
-    cons_new_alloc(AS_ALLOC(v), bool_value_info);
+    cons_new_alloc(AS_ALLOC(v), &bool_value_info);
     return v;
 }
 
@@ -153,7 +153,7 @@ void display_list(struct alloc_header *alloc, struct string_buf *sb) {
         {
         struct list_cons *c = AS_LIST_CONS(l);
         string_buf_push(sb, "cons ");
-        c->head->info.display(c->head, sb);
+        c->head->info->display(c->head, sb);
         string_buf_push(sb, " ");
         display_list(AS_ALLOC(c->tail), sb);
         }
@@ -161,13 +161,13 @@ void display_list(struct alloc_header *alloc, struct string_buf *sb) {
     }
 }
 
-type_info list_info = { trace_list, display_list };
+const type_info list_info = { trace_list, display_list };
 
 struct list *allocate_list_nil(void) {
     struct list_nil *n = malloc(sizeof(struct list_nil));
     n->header.discriminant = 0;
 
-    cons_new_alloc(AS_ALLOC(n), list_info);
+    cons_new_alloc(AS_ALLOC(n), &list_info);
     return AS_LIST(n);
 }
 
@@ -177,7 +177,7 @@ struct list *allocate_list_cons(struct alloc_header *x, struct list *xs) {
     c->head = x;
     c->tail = xs;
 
-    cons_new_alloc(AS_ALLOC(c), list_info);
+    cons_new_alloc(AS_ALLOC(c), &list_info);
     return AS_LIST(c);
 }
 
@@ -190,19 +190,19 @@ void trace_pair(struct alloc_header *alloc) {
 void display_pair(struct alloc_header *alloc, struct string_buf *sb) {
     struct pair *p = AS_PAIR(alloc);
     string_buf_push(sb, "(");
-    p->fst->info.display(p->fst, sb);
+    p->fst->info->display(p->fst, sb);
     string_buf_push(sb, ", ");
-    p->snd->info.display(p->snd, sb);
+    p->snd->info->display(p->snd, sb);
     string_buf_push(sb, ")");
 }
 
-type_info pair_info = { trace_pair, display_pair };
+const type_info pair_info = { trace_pair, display_pair };
 
 struct pair *allocate_pair(struct alloc_header *x, struct alloc_header *y) {
     struct pair *p = malloc(sizeof(struct pair));
     p->fst = x;
     p->snd = y;
-    cons_new_alloc(AS_ALLOC(p), pair_info);
+    cons_new_alloc(AS_ALLOC(p), &pair_info);
     return p;
 }
 
@@ -213,11 +213,11 @@ void display_unit(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push(sb, "()");
 }
 
-type_info unit_info = { trace_unit, display_unit };
+const type_info unit_info = { trace_unit, display_unit };
 
 struct unit *allocate_unit(void) {
     struct unit *n = malloc(sizeof(struct unit));
-    cons_new_alloc(AS_ALLOC(n), unit_info);
+    cons_new_alloc(AS_ALLOC(n), &unit_info);
     return n;
 }
 
@@ -233,13 +233,13 @@ void display_string(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push(sb, "\"");
 }
 
-type_info string_info = { trace_string, display_string };
+const type_info string_info = { trace_string, display_string };
 
 struct string_value *allocate_string(char *contents) {
     uint64_t len = strlen(contents);
     struct string_value *s = malloc(sizeof(struct string_value) + len * sizeof(char));
     memcpy(s->contents, contents, len+1); // Include null terminator.
-    cons_new_alloc(AS_ALLOC(s), string_info);
+    cons_new_alloc(AS_ALLOC(s), &string_info);
     return s;
 }
 

@@ -103,7 +103,7 @@ void collect(void) {
         // Mark this item as reachable.
         gray.alloc->mark = 1;
         // Push all subfields onto the gray list.
-        gray.alloc->info.trace(gray.alloc);
+        gray.alloc->info->trace(gray.alloc);
     }
 
     // Sweep alloc list for mark = 0, and also reset mark to 0 for other allocations.
@@ -142,7 +142,7 @@ void sweep_all_allocations(void) {
 
 // Set this constant to 'true' in order to GC on every allocation.
 static const bool debug_stress_gc = false;
-void cons_new_alloc(struct alloc_header *alloc, type_info info) {
+void cons_new_alloc(struct alloc_header *alloc, const type_info *info) {
     alloc->mark = 0;
     alloc->next = first_allocation;
     alloc->info = info;

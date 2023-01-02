@@ -336,7 +336,7 @@ emitEnvAlloc ns (EnvDecl is fs) =
   ["struct " ++ envTypeName ns ++ " *" ++ envAllocName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ envTypeName ns ++ " *_env = malloc(sizeof(struct " ++ envTypeName ns ++ "));"]++
   map assignField fs ++
-  ["    cons_new_alloc(AS_ALLOC(_env), " ++ envInfoName ns ++ ");"
+  ["    cons_new_alloc(AS_ALLOC(_env), &" ++ envInfoName ns ++ ");"
   ,"    return _env;"
   ,"}"]
   where
@@ -350,7 +350,7 @@ emitEnvInfo ns (EnvDecl is fs) =
   ,"    " ++ envTy ++ show envName ++ " = (" ++ envTy ++ ")alloc;"] ++
   map traceField fs ++
   ["}"
-  ,"type_info " ++ envInfoName ns ++ " = { " ++ envTraceName ns ++ ", display_env };"]
+  ,"const type_info " ++ envInfoName ns ++ " = { " ++ envTraceName ns ++ ", display_env };"]
   where
     envName = Id "env"
     envTy = "struct " ++ envTypeName ns ++ " *"

@@ -22,13 +22,10 @@ typedef struct _type_info type_info;
 // The header contains an integer mark (for mark-sweep), a pointer to the next
 // allocation (for precise sweeping), and an info table that tells how to trace
 // the value.
-//
-// TODO: alloc_header.info should be a pointer, so that I can have static
-// and/or constant info tables shared across many values.
 struct alloc_header {
     uint32_t mark;
     struct alloc_header *next;
-    type_info info;
+    const type_info *info;
 };
 
 #define AS_ALLOC(v) ((struct alloc_header *)(v))
@@ -44,6 +41,6 @@ void reset_locals(void);
 extern void (*trace_roots)(void);
 void mark_gray(struct alloc_header *alloc);
 void sweep_all_allocations(void);
-void cons_new_alloc(struct alloc_header *alloc, type_info info);
+void cons_new_alloc(struct alloc_header *alloc, const type_info *info);
 
 #endif
