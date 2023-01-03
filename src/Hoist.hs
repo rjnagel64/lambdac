@@ -194,31 +194,33 @@ hoist (C.LetFunC fs e) = do
     e' <- hoist e
     pure (AllocClosure allocs e')
 hoist (C.LetContC ks e) = do
-  (kbinds, allocs) <- fmap unzip $ for ks $ \def@(C.ContClosureDef k env params body) -> do
-    let kplace = asPlace (C.contClosureSort def) k
-    -- Pick a name for the closure's code
-    kcode <- nameClosureCode k
-    envp <- pickEnvironmentPlace (placeName kplace)
-
-    (envd, newEnv, enva) <- hoistEnvDef env
-
-    -- hoist the closure code and emit
-    let (newLocals, params') = convertParameters (C.makeClosureParams [] params)
-    local (\ (HoistEnv _ _) -> HoistEnv newLocals newEnv) $ do
-      envn <- pickEnvironmentName
-      body' <- hoist body
-      let decl = ClosureDecl kcode (envn, envd) params' body'
-      tellClosure decl
-
-    let alloc = ClosureAlloc kplace kcode envp enva
-    pure ((k, kplace), alloc)
-
+  (kbinds, allocs) <- fmap unzip $ traverse (\ (k, def) -> hoistContClosure k def) ks
   let
     extend (HoistEnv (Scope places) envsc) =
       let places' = foldr (uncurry Map.insert) places kbinds in
       HoistEnv (Scope places') envsc
   e' <- local extend $ hoist e
   pure (AllocClosure allocs e')
+
+hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
+hoistContClosure k def@(C.ContClosureDef env params body) = do
+  let kplace = asPlace (C.contClosureSort def) k
+  -- Pick a name for the closure's code
+  kcode <- nameClosureCode k
+  envp <- pickEnvironmentPlace (placeName kplace)
+
+  (envd, newEnv, enva) <- hoistEnvDef env
+
+  -- hoist the closure code and emit
+  let (newLocals, params') = convertParameters (C.makeClosureParams [] params)
+  local (\ (HoistEnv _ _) -> HoistEnv newLocals newEnv) $ do
+    envn <- pickEnvironmentName
+    body' <- hoist body
+    let decl = ClosureDecl kcode (envn, envd) params' body'
+    tellClosure decl
+
+  let alloc = ClosureAlloc kplace kcode envp enva
+  pure ((k, kplace), alloc)
 
 hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, Scope, EnvAlloc)
 hoistEnvDef (C.EnvDef tyfields fields) = do
@@ -351,15 +353,11 @@ hoistArgList xs = traverse f xs
 -- extended environment.
 withPlace :: C.Name -> C.Sort -> HoistM a -> HoistM (Place, a)
 withPlace x s m = do
-  x' <- makePlace x s
-  let f (HoistEnv (Scope places) env) = HoistEnv (Scope (Map.insert x x' places)) env
-  a <- local f m
+  inScope <- asks (scopePlaces . localScope)
+  x' <- go x inScope
+  let extend (HoistEnv (Scope places) env) = HoistEnv (Scope (Map.insert x x' places)) env
+  a <- local extend m
   pure (x', a)
-
-makePlace :: C.Name -> C.Sort -> HoistM Place
-makePlace x s = do
-  places <- asks (scopePlaces . localScope)
-  go x places
   where
     -- I think this is fine. We might shadow local names, which is bad, but
     -- environment references are guarded by 'env->'.
@@ -367,6 +365,5 @@ makePlace x s = do
     go v ps = case Map.lookup v ps of
       Nothing -> pure (asPlace s v)
       Just _ -> go (C.prime v) ps
-
 
 

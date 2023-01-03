@@ -215,7 +215,7 @@ cconvFunDef (K.AbsDef _ f as ks e) = do
   let fnName (K.TmVar x i) = Name x i
   pure (FunClosureDef (fnName f) env params' e')
 
-cconvContDef :: K.ContDef a -> ConvM ContClosureDef
+cconvContDef :: K.ContDef a -> ConvM (Name, ContClosureDef)
 cconvContDef (K.ContDef _ k xs e) = do
   ((xs', e'), flds) <- listen $
     withTms xs $ \xs' -> do
@@ -223,7 +223,7 @@ cconvContDef (K.ContDef _ k xs e) = do
       pure (xs', e')
   env <- makeClosureEnv flds
   let contName (K.CoVar x i) = Name x i
-  pure (ContClosureDef (contName k) env xs' e')
+  pure (contName k, ContClosureDef env xs' e')
 
 makeClosureEnv :: Fields -> ConvM EnvDef
 makeClosureEnv flds = do

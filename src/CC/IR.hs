@@ -123,7 +123,7 @@ data TermC
   | LetCompareC (Name, Sort) CmpC TermC
   | LetConcatC (Name, Sort) Name Name TermC -- let x = y ++ z in e, concatenation
   | LetFunC [FunClosureDef] TermC
-  | LetContC [ContClosureDef] TermC
+  | LetContC [(Name, ContClosureDef)] TermC
   -- Invoke a closure by providing values for the remaining arguments.
   | JumpC Name [Name] -- k x...
   | CallC Name [Argument] [Name] -- f (x | @t)+ k+
@@ -178,8 +178,7 @@ paramsSort params = Closure (map f params)
 -- | A continuation definition, @k {aa+; x+} y+ = e@.
 data ContClosureDef
   = ContClosureDef {
-    contClosureName :: Name
-  , contEnvDef :: EnvDef
+    contEnvDef :: EnvDef
   -- Eventually, continuation closures will need to take type arguments as well.
   -- Specifically, this is required when unpacking existential types.
   -- However, I'm not quite sure that making contClosureParams a full-on
@@ -191,7 +190,7 @@ data ContClosureDef
   }
 
 contClosureSort :: ContClosureDef -> Sort
-contClosureSort (ContClosureDef _ _ params _) = paramsSort (makeClosureParams [] params)
+contClosureSort (ContClosureDef _ params _) = paramsSort (makeClosureParams [] params)
 
 -- | Closures environments capture two sets of names: those from outer scopes,
 -- and those from the same recursive bind group.
@@ -229,8 +228,8 @@ pprintTerm n (CallC f xs ks) =
     pprintArg (TypeArg t) = pprintSort t
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
-pprintTerm n (LetContC fs e) =
-  indent n "letcont\n" ++ concatMap (pprintContClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
+pprintTerm n (LetContC ks e) =
+  indent n "letcont\n" ++ concatMap (pprintContClosureDef (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetValC x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFstC x y e) =
@@ -298,8 +297,8 @@ pprintFunClosureDef n (FunClosureDef f env params e) =
   pprintEnvDef n env ++
   indent n (show f ++ " (" ++ pprintClosureParams params ++ ") =\n") ++ pprintTerm (n+2) e
 
-pprintContClosureDef :: Int -> ContClosureDef -> String
-pprintContClosureDef n (ContClosureDef k env xs e) =
+pprintContClosureDef :: Int -> (Name, ContClosureDef) -> String
+pprintContClosureDef n (k, ContClosureDef env xs e) =
   pprintEnvDef n env ++ indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     params = "(" ++ intercalate ", " args ++ ")"
