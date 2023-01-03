@@ -194,35 +194,31 @@ hoist (C.LetFunC fs e) = do
     e' <- hoist e
     pure (AllocClosure allocs e')
 hoist (C.LetContC ks e) = do
-  let
-    (kbinds, ks') = unzip $ map (\def@(C.ContClosureDef k _ _ _) -> 
-      let p = asPlace (C.contClosureSort def) k in
-      ((k, p), (p, def))) ks
+  (kbinds, allocs) <- fmap unzip $ for ks $ \def@(C.ContClosureDef k env params body) -> do
+    let kplace = asPlace (C.contClosureSort def) k
+    -- Pick a name for the closure's code
+    kcode <- nameClosureCode k
+    envp <- pickEnvironmentPlace (placeName kplace)
+
+    (envd, newEnv, enva) <- hoistEnvDef env
+
+    -- hoist the closure code and emit
+    let (newLocals, params') = convertParameters (C.makeClosureParams [] params)
+    local (\ (HoistEnv _ _) -> HoistEnv newLocals newEnv) $ do
+      envn <- pickEnvironmentName
+      body' <- hoist body
+      let decl = ClosureDecl kcode (envn, envd) params' body'
+      tellClosure decl
+
+    let alloc = ClosureAlloc kplace kcode envp enva
+    pure ((k, kplace), alloc)
 
   let
     extend (HoistEnv (Scope places) envsc) =
       let places' = foldr (uncurry Map.insert) places kbinds in
       HoistEnv (Scope places') envsc
-  local extend $ do
-    allocs <- for ks' $ \ (p, C.ContClosureDef k env params body) -> do
-      -- Pick a name for the closure's code
-      kcode <- nameClosureCode k
-      envp <- pickEnvironmentPlace (placeName p)
-
-      (envd, newEnv, enva) <- hoistEnvDef env
-
-      -- hoist the closure code and emit
-      let (newLocals, params') = convertParameters (C.makeClosureParams [] params)
-      local (\ (HoistEnv _ _) -> HoistEnv newLocals newEnv) $ do
-        envn <- pickEnvironmentName
-        body' <- hoist body
-        let decl = ClosureDecl kcode (envn, envd) params' body'
-        tellClosure decl
-
-      let alloc = ClosureAlloc p kcode envp enva
-      pure alloc
-    e' <- hoist e
-    pure (AllocClosure allocs e')
+  e' <- local extend $ hoist e
+  pure (AllocClosure allocs e')
 
 hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, Scope, EnvAlloc)
 hoistEnvDef (C.EnvDef tyfields fields) = do
