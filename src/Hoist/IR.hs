@@ -17,9 +17,9 @@ module Hoist.IR
     , singleSubst
     , substSort
 
-    , ClosureDecl(..)
-    , closureDeclName
-    , closureDeclTele
+    , CodeDecl(..)
+    , codeDeclName
+    , codeDeclTele
     , EnvDecl(..)
     , ClosureParam(..)
 
@@ -112,17 +112,14 @@ data Kind = Star
   deriving (Eq)
 
 
--- Hmm. This should be renamed to CodeDecl, because it is a top-level 'code'
--- declaration. (that is, a closed top-level function with explicit environment
--- parameter.)
-data ClosureDecl
-  = ClosureDecl CodeLabel (Id, EnvDecl) [ClosureParam] TermH
+data CodeDecl
+  = CodeDecl CodeLabel (Id, EnvDecl) [ClosureParam] TermH
 
-closureDeclName :: ClosureDecl -> CodeLabel
-closureDeclName (ClosureDecl c _ _ _) = c 
+codeDeclName :: CodeDecl -> CodeLabel
+codeDeclName (CodeDecl c _ _ _) = c 
 
-closureDeclTele :: ClosureDecl -> ClosureTele
-closureDeclTele (ClosureDecl _ _ params _) = ClosureTele (map f params)
+codeDeclTele :: CodeDecl -> ClosureTele
+codeDeclTele (CodeDecl _ _ params _) = ClosureTele (map f params)
   where
     f (PlaceParam p) = ValueTele (placeSort p)
     f (TypeParam aa k) = TypeTele aa k
@@ -202,7 +199,7 @@ data PrimOp
   | PrimStrlen Name
 
 
-data Program = Program [ClosureDecl] TermH
+data Program = Program [CodeDecl] TermH
 
 
 -- Nameplate operations: FV, alpha-equality, and substitution
@@ -417,11 +414,11 @@ pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
 pprintParam (TypeParam aa k) = '@' : show aa ++ " : " ++ pprintKind k
 
-pprintClosures :: [ClosureDecl] -> String
+pprintClosures :: [CodeDecl] -> String
 pprintClosures cs = concatMap (pprintClosureDecl 0) cs
 
-pprintClosureDecl :: Int -> ClosureDecl -> String
-pprintClosureDecl n (ClosureDecl f (name, EnvDecl is fs) params e) =
+pprintClosureDecl :: Int -> CodeDecl -> String
+pprintClosureDecl n (CodeDecl f (name, EnvDecl is fs) params e) =
   indent n ("code " ++ show f ++ " (" ++ envParam ++ "; " ++ intercalate ", " (map pprintParam params) ++ ") =\n") ++
   pprintTerm (n+2) e
   where

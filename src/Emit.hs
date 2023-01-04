@@ -166,20 +166,20 @@ asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 
 
 -- | Compute the thunk type of a closure declaration.
-closureDeclType :: ClosureDecl -> ThunkType
-closureDeclType decl = teleThunkType (closureDeclTele decl)
+codeDeclType :: CodeDecl -> ThunkType
+codeDeclType decl = teleThunkType (codeDeclTele decl)
 
 -- TODO: collectThunkTypes overapproximates the set of thunk types needed by a program.
 -- This bloats the output substantially as program complexity increases.
 -- Instead, I should only record the thunk types I actually use.
 --
 -- (I believe this means traversing the program and counting each OpenH construct)
-collectThunkTypes :: [ClosureDecl] -> Set ThunkType
+collectThunkTypes :: [CodeDecl] -> Set ThunkType
 collectThunkTypes cs = foldMap closureThunkTypes cs
   where
-    closureThunkTypes :: ClosureDecl -> Set ThunkType
-    closureThunkTypes cd@(ClosureDecl _ _ params _) = Set.insert ty (foldMap paramThunkTypes params)
-      where ty = closureDeclType cd
+    closureThunkTypes :: CodeDecl -> Set ThunkType
+    closureThunkTypes cd@(CodeDecl _ _ params _) = Set.insert ty (foldMap paramThunkTypes params)
+      where ty = codeDeclType cd
 
     paramThunkTypes :: ClosureParam -> Set ThunkType
     paramThunkTypes (TypeParam _ _) = Set.empty
@@ -214,7 +214,7 @@ emitProgram (Program cs e) =
   concatMap (emitClosureDecl closureSig) cs ++
   emitEntryPoint closureSig e
   where
-    closureSig = Map.fromList [(closureDeclName cd, closureDeclType cd) | cd <- cs]
+    closureSig = Map.fromList [(codeDeclName cd, codeDeclType cd) | cd <- cs]
     ts = Set.toList $ collectThunkTypes cs
 
 prologue :: [Line]
@@ -295,15 +295,15 @@ emitThunkSuspend ns ty =
           let arg = "arg" ++ show i in
           ("    args->" ++ arg ++ " = " ++ arg ++ ";") : acc
 
-emitClosureDecl :: ClosureSig -> ClosureDecl -> [Line]
-emitClosureDecl csig cd@(ClosureDecl d (envName, envd@(EnvDecl _ places)) params e) =
+emitClosureDecl :: ClosureSig -> CodeDecl -> [Line]
+emitClosureDecl csig cd@(CodeDecl d (envName, envd@(EnvDecl _ places)) params e) =
   emitClosureEnv cns envd ++
   emitClosureCode csig thunkEnv cns envName params e ++
   emitClosureEnter tns cns ty
   where
     cns = namesForClosure d
     tns = namesForThunk ty
-    ty = closureDeclType cd
+    ty = codeDeclType cd
 
     -- The thunkEnv maps variables to their thunk type, so that the correct
     -- suspend method can be picked in emitSuspend

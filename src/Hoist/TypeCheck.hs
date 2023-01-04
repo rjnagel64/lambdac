@@ -145,8 +145,8 @@ checkEntryPoint :: TermH -> TC ()
 checkEntryPoint e = checkTerm e
 
 -- | Type-check a top-level code declaration and add it to the signature.
-checkClosure :: ClosureDecl -> TC ()
-checkClosure decl@(ClosureDecl cl (envp, envd) params body) = do
+checkClosure :: CodeDecl -> TC ()
+checkClosure decl@(CodeDecl cl (envp, envd) params body) = do
   -- Check the environment and parameters to populate the environment scope for
   -- the typing context
   envTy <- checkEnvDecl envd
@@ -156,7 +156,7 @@ checkClosure decl@(ClosureDecl cl (envp, envd) params body) = do
   -- Use the parameter list and environment to type-check the closure body.
   local (\_ -> Context localScope envTy) $ checkTerm body
   -- Extend the signature with the new closure declaration.
-  let tele = closureDeclTele decl
+  let tele = codeDeclTele decl
   let declTy = ClosureDeclType [] envTy tele
   modify (declareClosure cl declTy)
 

@@ -92,13 +92,13 @@ data Scope = Scope { scopePlaces :: Map C.Name Place }
 
 -- Hmm. Might consider using a DList here. I think there might be a left-nested
 -- append happening.
-newtype ClosureDecls = ClosureDecls { getClosureDecls :: [ClosureDecl] }
+newtype ClosureDecls = ClosureDecls { getClosureDecls :: [CodeDecl] }
 
 deriving newtype instance Semigroup ClosureDecls
 deriving newtype instance Monoid ClosureDecls
 
 
-tellClosure :: ClosureDecl -> HoistM ()
+tellClosure :: CodeDecl -> HoistM ()
 tellClosure cs = tell (ClosureDecls [cs])
 
 
@@ -185,7 +185,7 @@ hoist (C.LetFunC fs e) = do
       local (\ (HoistEnv _ _) -> HoistEnv newLocals newEnv) $ do
         envn <- pickEnvironmentName
         body' <- hoist body
-        let decl = ClosureDecl fcode (envn, envd) params' body'
+        let decl = CodeDecl fcode (envn, envd) params' body'
         tellClosure decl
 
       let alloc = ClosureAlloc p fcode envp enva
@@ -215,7 +215,7 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
   local (\ (HoistEnv _ _) -> HoistEnv newLocals newEnv) $ do
     envn <- pickEnvironmentName
     body' <- hoist body
-    let decl = ClosureDecl kcode (envn, envd) params' body'
+    let decl = CodeDecl kcode (envn, envd) params' body'
     tellClosure decl
 
   let alloc = ClosureAlloc kplace kcode envp enva
