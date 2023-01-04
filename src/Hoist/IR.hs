@@ -5,7 +5,7 @@ module Hoist.IR
     , Name(..)
     , Place(..)
     , TyVar(..)
-    , ClosureName(..)
+    , CodeLabel(..)
 
     , Sort(..)
     , ClosureTele(..)
@@ -72,14 +72,14 @@ data TyVar = TyVar Id
 instance Show TyVar where
   show (TyVar aa) = show aa
 
--- | 'ClosureName's are used to refer to top-level functions and continuations.
--- They are introduced by (hoisting) function/continuation closure bindings,
--- and used when allocating function/continuation closures.
-newtype ClosureName = ClosureName String
+-- | 'CodeLabel's are used to reference top-level code definitions. In
+-- particular, a closure is constructed by pairing a code name with an
+-- appropriate closure environment.
+newtype CodeLabel = CodeLabel String
   deriving (Eq, Ord)
 
-instance Show ClosureName where
-  show (ClosureName d) = d
+instance Show CodeLabel where
+  show (CodeLabel d) = d
 
 
 
@@ -112,10 +112,13 @@ data Kind = Star
   deriving (Eq)
 
 
+-- Hmm. This should be renamed to CodeDecl, because it is a top-level 'code'
+-- declaration. (that is, a closed top-level function with explicit environment
+-- parameter.)
 data ClosureDecl
-  = ClosureDecl ClosureName (Id, EnvDecl) [ClosureParam] TermH
+  = ClosureDecl CodeLabel (Id, EnvDecl) [ClosureParam] TermH
 
-closureDeclName :: ClosureDecl -> ClosureName
+closureDeclName :: ClosureDecl -> CodeLabel
 closureDeclName (ClosureDecl c _ _ _) = c 
 
 closureDeclTele :: ClosureDecl -> ClosureTele
@@ -157,7 +160,7 @@ data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
 data ClosureAlloc
   = ClosureAlloc {
     closurePlace :: Place
-  , closureDecl :: ClosureName
+  , closureDecl :: CodeLabel
   , closureEnvPlace :: Id
   , closureEnv :: EnvAlloc
   }

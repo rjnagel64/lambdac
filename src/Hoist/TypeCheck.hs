@@ -27,7 +27,7 @@ deriving newtype instance MonadState Signature TC
 
 -- | The signature stores information about top-level declarations. Currently,
 -- this only includes code declarations.
-data Signature = Signature { sigClosures :: Map ClosureName ClosureDeclType }
+data Signature = Signature { sigClosures :: Map CodeLabel ClosureDeclType }
 
 -- | Represents the type of a closure, a code pointer with environment
 -- @code[aa+](t; S)@.
@@ -52,7 +52,7 @@ data TCError
   = TypeMismatch Sort Sort
   | NameNotInLocals Id
   | TyVarNotInLocals TyVar
-  | ClosureNotInLocals ClosureName
+  | ClosureNotInLocals CodeLabel
   | InfoNotInLocals Id
   | NotImplemented String
   | IncorrectInfo
@@ -79,7 +79,7 @@ bindPlace (Place s x) (Locals places tys infos) = Locals (Map.insert x s places)
 emptySignature :: Signature
 emptySignature = Signature { sigClosures = Map.empty }
 
-declareClosure :: ClosureName -> ClosureDeclType -> Signature -> Signature
+declareClosure :: CodeLabel -> ClosureDeclType -> Signature -> Signature
 declareClosure cl ty (Signature clos) = Signature (Map.insert cl ty clos)
 
 
@@ -102,7 +102,7 @@ lookupTyVar (TyVar aa) = do
     True -> pure ()
     False -> throwError $ TyVarNotInLocals (TyVar aa)
 
-lookupCodeDecl :: ClosureName -> TC ClosureDeclType
+lookupCodeDecl :: CodeLabel -> TC ClosureDeclType
 lookupCodeDecl c = do
   sig <- gets sigClosures
   case Map.lookup c sig of

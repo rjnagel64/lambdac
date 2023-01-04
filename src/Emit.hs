@@ -37,7 +37,7 @@ type EnvPtr = Id
 type Line = String
 
 -- Associate each closure with its calling convention
-type ClosureSig = Map ClosureName ThunkType
+type ClosureSig = Map CodeLabel ThunkType
 -- Associate closures in the local environment with their calling conventions.
 -- (Split into two parts, because of local declarations vs. declarations from
 -- the closure env)
@@ -58,16 +58,16 @@ data EnvNames
   , envTraceName :: String
   }
 
-namesForClosure :: ClosureName -> ClosureNames
-namesForClosure (ClosureName f) =
+namesForClosure :: CodeLabel -> ClosureNames
+namesForClosure (CodeLabel f) =
   ClosureNames {
-    closureEnvName = namesForEnv (ClosureName f)
+    closureEnvName = namesForEnv (CodeLabel f)
   , closureCodeName = f ++ "_code"
   , closureEnterName = "enter_" ++ f
   }
 
-namesForEnv :: ClosureName -> EnvNames
-namesForEnv (ClosureName f) =
+namesForEnv :: CodeLabel -> EnvNames
+namesForEnv (CodeLabel f) =
   EnvNames {
     envTypeName = f ++ "_env"
   , envInfoName = f ++ "_env_info"
@@ -544,7 +544,7 @@ extendThunkEnv :: ClosureSig -> ThunkEnv -> [ClosureAlloc] -> ThunkEnv
 extendThunkEnv csig (localThunkTys, envThunkTys) closures =
   (foldr (uncurry Map.insert) localThunkTys cs'', envThunkTys)
   where
-    cs' :: [(Id, ClosureName)]
+    cs' :: [(Id, CodeLabel)]
     cs' = [(placeName (closurePlace c), closureDecl c) | c <- closures]
     cs'' :: [(Id, ThunkType)]
     cs'' = map f cs'

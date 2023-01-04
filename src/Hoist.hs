@@ -77,14 +77,14 @@ caseKind (C.CaseList a) = CaseList (sortOf a)
 
 
 -- Hmm. Instead of 'Writer', would an 'Update' monad be applicable here?
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set ClosureName) (Writer ClosureDecls)) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set CodeLabel) (Writer ClosureDecls)) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter ClosureDecls HoistM
-deriving newtype instance MonadState (Set ClosureName) HoistM
+deriving newtype instance MonadState (Set CodeLabel) HoistM
 
 data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
 
@@ -154,15 +154,14 @@ hoist (C.LetArithC (x, s) op e) = do
   op' <- hoistArith op
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' op' e')
-hoist (C.LetCompareC (x, s) cmp e) = do
-  cmp' <- hoistCmp cmp
+hoist (C.LetCompareC (x, s) op e) = do
+  op' <- hoistCmp op
   (x', e') <- withPlace x s $ hoist e
-  pure (LetPrimH x' cmp' e')
+  pure (LetPrimH x' op' e')
 hoist (C.LetConcatC (x, s) y z e) = do
-  y' <- hoistVarOcc y
-  z' <- hoistVarOcc z
+  op' <- PrimConcatenate <$> hoistVarOcc y <*> hoistVarOcc z
   (x', e') <- withPlace x s $ hoist e
-  pure (LetPrimH x' (PrimConcatenate y' z') e')
+  pure (LetPrimH x' op' e')
 hoist (C.LetFunC fs e) = do
   let
     (fbinds, fs') = unzip $ map (\def@(C.FunClosureDef f _ _ _) -> 
@@ -273,11 +272,10 @@ hoistCmp (C.GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (C.GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 
 
-nameClosureCode :: C.Name -> HoistM ClosureName
-nameClosureCode c = do
+nameClosureCode :: C.Name -> HoistM CodeLabel
+nameClosureCode c@(C.Name x i) = do
+  let c' = CodeLabel (x ++ show i)
   decls <- get
-  let asClosureName (C.Name x i) = ClosureName (x ++ show i)
-  let c' = asClosureName c
   if Set.notMember c' decls then
     put (Set.insert c' decls) *> pure c'
   else
