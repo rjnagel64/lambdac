@@ -246,15 +246,15 @@ hoistEnvDef (C.EnvDef tyfields fields) = do
 
 hoistValue :: C.ValueC -> HoistM ValueH
 hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
-hoistValue (C.BoolC b) = pure (BoolH b)
+hoistValue (C.BoolC b) = pure (CtorAppH (BoolH b))
 hoistValue (C.PairC x y) =
   PairH <$> hoistVarOcc x <*> hoistVarOcc y
 hoistValue C.NilC = pure NilH
-hoistValue (C.InlC x) = InlH <$> hoistVarOcc x
-hoistValue (C.InrC x) = InrH <$> hoistVarOcc x
-hoistValue C.EmptyC = pure ListNilH
+hoistValue (C.InlC x) = (CtorAppH . InlH) <$> hoistVarOcc x
+hoistValue (C.InrC x) = (CtorAppH . InrH) <$> hoistVarOcc x
+hoistValue C.EmptyC = pure (CtorAppH ListNilH)
 hoistValue (C.ConsC x xs) =
-  ListConsH <$> hoistVarOcc x <*> hoistVarOcc xs
+  ((CtorAppH .) . ListConsH) <$> hoistVarOcc x <*> hoistVarOcc xs
 hoistValue (C.StringC s) = pure (StringValH s)
 
 hoistArith :: C.ArithC -> HoistM PrimOp

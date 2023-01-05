@@ -278,26 +278,26 @@ checkPrimOp (PrimStrlen x) = checkName x StringH *> pure IntegerH
 checkValue :: ValueH -> Sort -> TC ()
 checkValue (IntH _) IntegerH = pure ()
 checkValue (IntH _) _ = throwError BadValue
-checkValue (BoolH _) BooleanH = pure ()
-checkValue (BoolH _) _ = throwError BadValue
+-- checkValue (BoolH _) BooleanH = pure ()
+-- checkValue (BoolH _) _ = throwError BadValue
 checkValue NilH UnitH = pure ()
 checkValue NilH _ = throwError BadValue
-checkValue (InlH x) (SumH t s) = do
-  checkName x t
-checkValue (InlH _) _ = throwError BadValue
-checkValue (InrH y) (SumH t s) = do
-  checkName y s
-checkValue (InrH _) _ = throwError BadValue
+-- checkValue (InlH x) (SumH t s) = do
+--   checkName x t
+-- checkValue (InlH _) _ = throwError BadValue
+-- checkValue (InrH y) (SumH t s) = do
+--   checkName y s
+-- checkValue (InrH _) _ = throwError BadValue
 checkValue (PairH x y) (ProductH s t) = do
   checkName x s
   checkName y t
 checkValue (PairH _ _) _ = throwError BadValue
-checkValue ListNilH (ListH _) = pure ()
-checkValue ListNilH _ = throwError BadValue
-checkValue (ListConsH x xs) (ListH t) = do
-  checkName x t
-  checkName xs (ListH t) 
-checkValue (ListConsH _ _) _ = throwError BadValue
+-- checkValue ListNilH (ListH _) = pure ()
+-- checkValue ListNilH _ = throwError BadValue
+-- checkValue (ListConsH x xs) (ListH t) = do
+--   checkName x t
+--   checkName xs (ListH t) 
+-- checkValue (ListConsH _ _) _ = throwError BadValue
 checkValue (StringValH _) StringH = pure ()
 checkValue (StringValH _) _ = throwError BadValue
 

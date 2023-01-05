@@ -31,6 +31,7 @@ module Hoist.IR
     , EnvAlloc(..)
     , EnvAllocValueArg(..)
     , ValueH(..)
+    , CtorAppH(..)
     , PrimOp(..)
 
     , Program(..)
@@ -132,7 +133,7 @@ data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
 
 
 data TermH
-  -- 'let x : bool = true in e'
+  -- 'let x : int = 17 in e'
   = LetValH Place ValueH TermH
   -- 'let z : bool = prim_int64gt(x, y) in e'
   | LetPrimH Place PrimOp TermH
@@ -152,6 +153,8 @@ data Projection = ProjectFst | ProjectSnd
 
 data ClosureArg = ValueArg Name | TypeArg Sort
 
+-- 'CaseKind' is really more like 'TyConApp' (it has a TyCon and a sequence of
+-- applied arguments)
 data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
 
 data ClosureAlloc
@@ -175,14 +178,17 @@ data EnvAllocValueArg = EnvValueArg Id Name
 
 data ValueH
   = IntH Int64
-  | BoolH Bool
+  | StringValH String
   | PairH Name Name
   | NilH
+  | CtorAppH CtorAppH
+
+data CtorAppH
+  = BoolH Bool
   | InlH Name
   | InrH Name
   | ListNilH
   | ListConsH Name Name
-  | StringValH String
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -302,10 +308,6 @@ equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
 -- capture when it passes under type variable binders.
 data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Sort }
 
--- | Construct the empty/identity substitution.
-emptySubst :: Subst
-emptySubst = Subst { substScope = Set.empty, substMapping = Map.empty }
-
 -- | Construct a singleton substitution, @[aa := s]@.
 singleSubst :: TyVar -> Sort -> Subst
 singleSubst aa s =
@@ -386,12 +388,15 @@ pprintValue :: ValueH -> String
 pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue NilH = "()"
 pprintValue (IntH i) = show i
-pprintValue (BoolH b) = if b then "true" else "false"
-pprintValue (InlH x) = "inl " ++ show x
-pprintValue (InrH y) = "inr " ++ show y
-pprintValue ListNilH = "nil"
-pprintValue (ListConsH x xs) = "cons " ++ show x ++ " " ++ show xs
 pprintValue (StringValH s) = show s
+pprintValue (CtorAppH capp) = pprintCtorApp capp
+
+pprintCtorApp :: CtorAppH -> String
+pprintCtorApp (BoolH b) = if b then "true" else "false"
+pprintCtorApp (InlH x) = "inl " ++ show x
+pprintCtorApp (InrH y) = "inr " ++ show y
+pprintCtorApp ListNilH = "nil"
+pprintCtorApp (ListConsH x xs) = "cons " ++ show x ++ " " ++ show xs
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
