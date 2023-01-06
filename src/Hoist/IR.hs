@@ -32,7 +32,9 @@ module Hoist.IR
     , EnvAllocValueArg(..)
     , ValueH(..)
     , CtorAppH(..)
+    , Ctor(..)
     , PrimOp(..)
+
 
     , Program(..)
     , pprintProgram
@@ -189,6 +191,9 @@ data CtorAppH
   | InrH Name
   | ListNilH
   | ListConsH Name Name
+
+newtype Ctor = Ctor String
+  deriving (Eq, Ord)
 
 data PrimOp
   = PrimAddInt64 Name Name

@@ -1,4 +1,4 @@
-cabal-version:      3.0
+cabal-version:      3.4
 name:               lambdac
 version:            0.1.0.0
 synopsis:           Experiments with compiler backends for functional languages
@@ -18,7 +18,7 @@ library
       -Wincomplete-uni-patterns
       -Wincomplete-record-updates
     build-depends:
-        base ^>=4.16.0.0
+        base ^>=4.17.0.0
       , containers ^>=0.6.5.1
       , mtl ^>=2.2.2
       , array ^>=0.5.4.0
@@ -65,7 +65,7 @@ executable lambdac
     default-language: Haskell2010
     main-is: Main.hs
     build-depends:
-        base ^>=4.16.0.0
+        base ^>=4.17.0.0
       , lambdac
       , optparse-applicative ^>=0.17.0
       , typed-process ^>=0.2.8.0

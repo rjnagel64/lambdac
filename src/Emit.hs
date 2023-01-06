@@ -439,15 +439,15 @@ emitCase kind envp x ks =
   ,"    }"]
   where
     branches = case kind of
-      CaseBool -> zip ["false", "true"] ks
-      CaseSum _ _ -> zip ["inl", "inr"] ks
-      CaseList _ -> zip ["nil", "cons"] ks
-    branchInfoTable = caseInfoTable kind
+      CaseBool -> zip [Ctor "false", Ctor "true"] ks
+      CaseSum _ _ -> zip [Ctor "inl", Ctor "inr"] ks
+      CaseList _ -> zip [Ctor "nil", Ctor "cons"] ks
+    tab = ctorInfoTable kind
 
-    emitCaseBranch :: (String, Name) -> [String]
+    emitCaseBranch :: (Ctor, Name) -> [String]
     emitCaseBranch (ctor, k) =
       let
-        BranchInfo i ctorCast ty argNames = branchInfoTable Map.! ctor
+        (BranchInfo i ctorCast ty argNames, _) = tab Map.! ctor
         method = thunkSuspendName (namesForThunk ty)
         ctorVal = ctorCast ++ "(" ++ emitName envp x ++ ")"
         args = emitName envp k : map mkArg argNames
@@ -457,6 +457,9 @@ emitCase kind envp x ks =
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
+
+data CtorInfo
+  = CtorInfo String [Bool]
 
 data BranchInfo
   -- How to downcast to the constructor, what thunk type to suspend with, the
@@ -476,18 +479,42 @@ data BranchInfo
 -- More generally, if a data type's constructor has a field of sort 'AllocH
 -- aa', then that field should be cast to 't', where the case kind specifies
 -- that '[aa := t]'
-caseInfoTable :: CaseKind -> Map String BranchInfo
-caseInfoTable CaseBool = Map.fromList $
-  [ ("false", BranchInfo 0 "AS_BOOL_FALSE" (ThunkType []) [])
-  , ("true", BranchInfo 1 "AS_BOOL_TRUE" (ThunkType []) [])
+ctorInfoTable :: CaseKind -> Map Ctor (BranchInfo, CtorInfo)
+ctorInfoTable CaseBool = Map.fromList $
+  [ (Ctor "false",
+      ( BranchInfo 0 "AS_BOOL_FALSE" (ThunkType []) []
+      , CtorInfo "allocate_false" []
+      )
+    )
+  , (Ctor "true",
+      ( BranchInfo 1 "AS_BOOL_TRUE" (ThunkType []) []
+      , CtorInfo "allocate_true" []
+      )
+    )
   ]
-caseInfoTable (CaseSum t s) = Map.fromList $
-  [ ("inl", BranchInfo 0 "AS_SUM_INL" (ThunkType [ThunkValueArg t]) [("payload", Just t)])
-  , ("inr", BranchInfo 1 "AS_SUM_INR" (ThunkType [ThunkValueArg s]) [("payload", Just s)])
+ctorInfoTable (CaseSum t s) = Map.fromList $
+  [ (Ctor "inl",
+      ( BranchInfo 0 "AS_SUM_INL" (ThunkType [ThunkValueArg t]) [("payload", Just t)]
+      , CtorInfo "allocate_inl" [True]
+      )
+    )
+  , (Ctor "inr",
+      ( BranchInfo 1 "AS_SUM_INR" (ThunkType [ThunkValueArg s]) [("payload", Just s)]
+      , CtorInfo "allocate_inr" [True]
+      )
+    )
   ]
-caseInfoTable (CaseList t) = Map.fromList $
-  [ ("nil", BranchInfo 0 "AS_LIST_NIL" (ThunkType []) [])
-  , ("cons", BranchInfo 1 "AS_LIST_CONS" consThunkTy [("head", Just t), ("tail", Nothing)])
+ctorInfoTable (CaseList t) = Map.fromList $
+  [ (Ctor "nil",
+      ( BranchInfo 0 "AS_LIST_NIL" (ThunkType []) []
+      , CtorInfo "allocate_list_nil" []
+      )
+    )
+  , (Ctor "cons",
+      ( BranchInfo 1 "AS_LIST_CONS" consThunkTy [("head", Just t), ("tail", Nothing)]
+      , CtorInfo "allocate_list_cons" [True, False]
+      )
+    )
   ]
   where consThunkTy = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
 
@@ -497,47 +524,30 @@ emitValueAlloc _ _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
 emitValueAlloc envp _ (PairH x y) =
   "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ _ NilH = "allocate_unit()"
-emitValueAlloc envp s (CtorAppH capp) =
+emitValueAlloc envp ty (CtorAppH capp) =
   let
-    kind = case s of
+    kind = case ty of
       BooleanH -> CaseBool
       SumH t s -> CaseSum t s
       ListH t -> CaseList t
       _ -> error "not a constructed type"
   in
-  emitCtorAlloc' envp kind capp
+  emitCtorAlloc envp kind capp
 
-emitCtorAlloc' :: EnvPtr -> CaseKind -> CtorAppH -> String
-emitCtorAlloc' envp kind capp = allocFn ++ "(" ++ commaSep args' ++ ")"
+emitCtorAlloc :: EnvPtr -> CaseKind -> CtorAppH -> String
+emitCtorAlloc envp kind capp = allocFn ++ "(" ++ commaSep args' ++ ")"
   where
-    CtorInfo allocFn argCasts = ctorInfoTable kind Map.! ctorName
+    (_, CtorInfo allocFn argCasts) = ctorInfoTable kind Map.! ctorName
     (ctorName, args) = case capp of
-      BoolH True -> ("true", [])
-      BoolH False -> ("false", [])
-      InlH x -> ("inl", [x])
-      InrH x -> ("inr", [x])
-      ListNilH -> ("nil", [])
-      ListConsH x xs -> ("cons", [x, xs])
+      BoolH True -> (Ctor "true", [])
+      BoolH False -> (Ctor "false", [])
+      InlH x -> (Ctor "inl", [x])
+      InrH x -> (Ctor "inr", [x])
+      ListNilH -> (Ctor "nil", [])
+      ListConsH x xs -> (Ctor "cons", [x, xs])
     args' = zipWith makeArg args argCasts
     makeArg x False = emitName envp x
     makeArg x True = asAlloc (emitName envp x)
-
-data CtorInfo
-  = CtorInfo String [Bool]
-
-ctorInfoTable :: CaseKind -> Map String CtorInfo
-ctorInfoTable CaseBool = Map.fromList $
-  [ ("false", CtorInfo "allocate_false" [])
-  , ("true", CtorInfo "allocate_true" [])
-  ]
-ctorInfoTable (CaseSum t s) = Map.fromList $
-  [ ("inl", CtorInfo "allocate_inl" [True])
-  , ("inr", CtorInfo "allocate_inr" [True])
-  ]
-ctorInfoTable (CaseList t) = Map.fromList $
-  [ ("nil", CtorInfo "allocate_list_nil" [])
-  , ("cons", CtorInfo "allocate_list_cons" [True, False])
-  ]
 
 emitPrimOp :: EnvPtr -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
