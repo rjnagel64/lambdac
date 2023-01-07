@@ -442,29 +442,32 @@ emitCase kind envp x ks =
       CaseBool -> zip [Ctor "false", Ctor "true"] ks
       CaseSum _ _ -> zip [Ctor "inl", Ctor "inr"] ks
       CaseList _ -> zip [Ctor "nil", Ctor "cons"] ks
-    tab = ctorInfoTable kind
+    tab = ctorDescTable kind
 
     emitCaseBranch :: (Ctor, Name) -> [String]
     emitCaseBranch (ctor, k) =
       let
-        (BranchInfo i ctorCast ty argNames, _) = tab Map.! ctor
-        method = thunkSuspendName (namesForThunk ty)
-        ctorVal = ctorCast ++ "(" ++ emitName envp x ++ ")"
-        args = emitName envp k : map mkArg argNames
+        desc = tab Map.! ctor
+        method = thunkSuspendName (namesForThunk (ctorThunkType desc))
+        ctorVal = (ctorDowncast desc) ++ "(" ++ emitName envp x ++ ")"
+        args = emitName envp k : map mkArg (ctorArgCasts desc)
         mkArg (argName, Nothing) = ctorVal ++ "->" ++ argName
         mkArg (argName, Just argSort) = asSort argSort (ctorVal ++ "->" ++ argName)
       in
-        ["    case " ++ show i ++ ":"
+        ["    case " ++ show (ctorDiscriminant desc) ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
 
-data CtorInfo
-  = CtorInfo String [Bool]
-
-data BranchInfo
-  -- How to downcast to the constructor, what thunk type to suspend with, the
-  -- name of each argument, and for each argument, an (optional) sort to cast to.
-  = BranchInfo Int String ThunkType [(String, Maybe Sort)]
+data CtorDesc
+  = CtorDesc {
+    ctorDiscriminant :: Int
+  , ctorAllocate :: String
+  , ctorDowncast :: String
+  -- Hmm. I think I can compute thunkType from argCasts?
+  -- Actually, no not quite. Both can be computed from a constructor's type telescope, though.
+  , ctorThunkType :: ThunkType
+  , ctorArgCasts :: [(String, Maybe Sort)]
+  }
 
 -- Note: Only constructor arguments that are polymorphic need to have a cast
 -- applied.
@@ -479,41 +482,59 @@ data BranchInfo
 -- More generally, if a data type's constructor has a field of sort 'AllocH
 -- aa', then that field should be cast to 't', where the case kind specifies
 -- that '[aa := t]'
-ctorInfoTable :: CaseKind -> Map Ctor (BranchInfo, CtorInfo)
-ctorInfoTable CaseBool = Map.fromList $
-  [ (Ctor "false",
-      ( BranchInfo 0 "AS_BOOL_FALSE" (ThunkType []) []
-      , CtorInfo "allocate_false" []
-      )
+ctorDescTable :: CaseKind -> Map Ctor CtorDesc
+ctorDescTable CaseBool = Map.fromList $
+  [ (Ctor "false", CtorDesc {
+        ctorDiscriminant = 0
+      , ctorAllocate = "allocate_false"
+      , ctorDowncast = "AS_BOOL_FALSE"
+      , ctorThunkType = ThunkType []
+      , ctorArgCasts = []
+      }
     )
-  , (Ctor "true",
-      ( BranchInfo 1 "AS_BOOL_TRUE" (ThunkType []) []
-      , CtorInfo "allocate_true" []
-      )
-    )
-  ]
-ctorInfoTable (CaseSum t s) = Map.fromList $
-  [ (Ctor "inl",
-      ( BranchInfo 0 "AS_SUM_INL" (ThunkType [ThunkValueArg t]) [("payload", Just t)]
-      , CtorInfo "allocate_inl" [True]
-      )
-    )
-  , (Ctor "inr",
-      ( BranchInfo 1 "AS_SUM_INR" (ThunkType [ThunkValueArg s]) [("payload", Just s)]
-      , CtorInfo "allocate_inr" [True]
-      )
+  , (Ctor "true", CtorDesc {
+        ctorDiscriminant = 1
+      , ctorAllocate = "allocate_true"
+      , ctorDowncast = "AS_BOOL_TRUE"
+      , ctorThunkType = ThunkType []
+      , ctorArgCasts = []
+      }
     )
   ]
-ctorInfoTable (CaseList t) = Map.fromList $
-  [ (Ctor "nil",
-      ( BranchInfo 0 "AS_LIST_NIL" (ThunkType []) []
-      , CtorInfo "allocate_list_nil" []
-      )
+ctorDescTable (CaseSum t s) = Map.fromList $
+  [ (Ctor "inl", CtorDesc {
+        ctorDiscriminant = 0
+      , ctorAllocate = "allocate_inl"
+      , ctorDowncast = "AS_SUM_INL"
+      , ctorThunkType = ThunkType [ThunkValueArg t]
+      , ctorArgCasts = [("payload", Just t)]
+      }
     )
-  , (Ctor "cons",
-      ( BranchInfo 1 "AS_LIST_CONS" consThunkTy [("head", Just t), ("tail", Nothing)]
-      , CtorInfo "allocate_list_cons" [True, False]
-      )
+  , (Ctor "inr", CtorDesc {
+        ctorDiscriminant = 1
+      , ctorAllocate = "allocate_inr"
+      , ctorDowncast = "AS_SUM_INR"
+      , ctorThunkType = ThunkType [ThunkValueArg s]
+      , ctorArgCasts = [("payload", Just s)]
+      }
+    )
+  ]
+ctorDescTable (CaseList t) = Map.fromList $
+  [ (Ctor "nil", CtorDesc {
+        ctorDiscriminant = 0
+      , ctorAllocate = "allocate_list_nil"
+      , ctorDowncast = "AS_LIST_NIL"
+      , ctorThunkType = ThunkType []
+      , ctorArgCasts = []
+      }
+    )
+  , (Ctor "cons", CtorDesc {
+        ctorDiscriminant = 1
+      , ctorAllocate = "allocate_list_cons"
+      , ctorDowncast = "AS_LIST_CONS"
+      , ctorThunkType = consThunkTy
+      , ctorArgCasts = [("head", Just t), ("tail", Nothing)]
+      }
     )
   ]
   where consThunkTy = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
@@ -535,9 +556,9 @@ emitValueAlloc envp ty (CtorAppH capp) =
   emitCtorAlloc envp kind capp
 
 emitCtorAlloc :: EnvPtr -> CaseKind -> CtorAppH -> String
-emitCtorAlloc envp kind capp = allocFn ++ "(" ++ commaSep args' ++ ")"
+emitCtorAlloc envp kind capp = ctorAllocate desc ++ "(" ++ commaSep args' ++ ")"
   where
-    (_, CtorInfo allocFn argCasts) = ctorInfoTable kind Map.! ctorName
+    desc = ctorDescTable kind Map.! ctorName
     (ctorName, args) = case capp of
       BoolH True -> (Ctor "true", [])
       BoolH False -> (Ctor "false", [])
@@ -545,9 +566,9 @@ emitCtorAlloc envp kind capp = allocFn ++ "(" ++ commaSep args' ++ ")"
       InrH x -> (Ctor "inr", [x])
       ListNilH -> (Ctor "nil", [])
       ListConsH x xs -> (Ctor "cons", [x, xs])
-    args' = zipWith makeArg args argCasts
-    makeArg x False = emitName envp x
-    makeArg x True = asAlloc (emitName envp x)
+    args' = zipWith makeArg args (ctorArgCasts desc)
+    makeArg x (_, Nothing) = emitName envp x
+    makeArg x (_, Just _) = asAlloc (emitName envp x)
 
 emitPrimOp :: EnvPtr -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
