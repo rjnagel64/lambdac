@@ -430,18 +430,14 @@ lookupThunkTy (_, envThunkTys) (EnvName x) = case Map.lookup x envThunkTys of
   Just ty -> ty
 
 
-emitCase :: CaseKind -> EnvPtr -> Name -> [Name] -> [Line]
-emitCase kind envp x ks =
+emitCase :: CaseKind -> EnvPtr -> Name -> [(Ctor, Name)] -> [Line]
+emitCase kind envp x branches =
   ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch branches ++
   ["    default:"
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    branches = case kind of
-      CaseBool -> zip [Ctor "false", Ctor "true"] ks
-      CaseSum _ _ -> zip [Ctor "inl", Ctor "inr"] ks
-      CaseList _ -> zip [Ctor "nil", Ctor "cons"] ks
     tab = ctorDescTable kind
 
     emitCaseBranch :: (Ctor, Name) -> [String]

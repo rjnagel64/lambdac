@@ -58,7 +58,7 @@ data TCError
   | IncorrectInfo
   | BadValue
   | BadProjection Sort Projection
-  | BadCase CaseKind [Name]
+  | BadCase CaseKind [(Ctor, Name)]
   | BadOpen Name Sort
   | WrongClosureArg
   | DuplicateLabels [String]
@@ -301,16 +301,16 @@ checkValue (PairH _ _) _ = throwError BadValue
 checkValue (StringValH _) StringH = pure ()
 checkValue (StringValH _) _ = throwError BadValue
 
-checkCase :: Name -> CaseKind -> [Name] -> TC ()
-checkCase x CaseBool [kf, kt] = do
+checkCase :: Name -> CaseKind -> [(Ctor, Name)] -> TC ()
+checkCase x CaseBool [(cf, kf), (ct, kt)] = do
   checkName x BooleanH
   checkName kf (ClosureH (ClosureTele []))
   checkName kt (ClosureH (ClosureTele []))
-checkCase x (CaseSum a b) [kl, kr] = do
+checkCase x (CaseSum a b) [(cl, kl), (cr, kr)] = do
   checkName x (SumH a b)
   checkName kl (ClosureH (ClosureTele [ValueTele a]))
   checkName kr (ClosureH (ClosureTele [ValueTele b]))
-checkCase x (CaseList a) [kn, kc] = do
+checkCase x (CaseList a) [(cn, kn), (cc, kc)] = do
   checkName x (ListH a)
   checkName kn (ClosureH (ClosureTele []))
   checkName kc (ClosureH (ClosureTele [ValueTele a, ValueTele (ListH a)]))

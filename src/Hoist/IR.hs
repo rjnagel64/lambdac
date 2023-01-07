@@ -145,8 +145,8 @@ data TermH
   | HaltH Sort Name
   -- 'call f (x, @int, z, $string_info)'
   | OpenH Name [ClosureArg]
-  -- 'case x of { k1 | k2 | ... }'
-  | CaseH Name CaseKind [Name]
+  -- 'case x of { c1 -> k1 | c2 -> k2 | ... }'
+  | CaseH Name CaseKind [(Ctor, Name)]
   -- 'letrec (f1 : closure(ss) = #f1 { env1 })+ in e'
   -- Closures may be mutually recursive, so they are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
@@ -194,6 +194,9 @@ data CtorAppH
 
 newtype Ctor = Ctor String
   deriving (Eq, Ord)
+
+instance Show Ctor where
+  show (Ctor c) = c
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -371,7 +374,7 @@ pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x 
 pprintTerm n (OpenH c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
-  let branches = intercalate " | " (map show ks) in
+  let branches = intercalate " | " (map (\ (c, k) -> show c ++ " -> " ++ show k) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e

@@ -135,9 +135,14 @@ hoist (C.CallC f xs ks) = do
   pure (OpenH f' ys)
 hoist (C.CaseC x t ks) = do
   x' <- hoistVarOcc x
-  let kind = caseKind t
+  let
+    kind = caseKind t
+    ctors = case kind of
+      CaseBool -> [Ctor "false", Ctor "true"]
+      CaseSum _ _ -> [Ctor "inl", Ctor "inr"]
+      CaseList _ -> [Ctor "nil", Ctor "cons"]
   ks' <- traverse hoistVarOcc ks
-  pure $ CaseH x' kind ks'
+  pure $ CaseH x' kind (zip ctors ks')
 hoist (C.LetValC (x, s) v e) = do
   v' <- hoistValue v
   (x', e') <- withPlace x s $ hoist e
