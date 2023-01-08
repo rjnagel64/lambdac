@@ -155,8 +155,7 @@ data Projection = ProjectFst | ProjectSnd
 
 data ClosureArg = ValueArg Name | TypeArg Sort
 
--- 'CaseKind' is really more like 'TyConApp' (it has a TyCon and a sequence of
--- applied arguments)
+-- Consider renaming 'CaseKind' to 'TyConApp'.
 data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
 
 data ClosureAlloc

@@ -445,7 +445,7 @@ emitCase kind envp x branches =
       let
         desc = tab Map.! ctor
         method = thunkSuspendName (namesForThunk (ctorThunkType desc))
-        ctorVal = (ctorDowncast desc) ++ "(" ++ emitName envp x ++ ")"
+        ctorVal = ctorDowncast desc ++ "(" ++ emitName envp x ++ ")"
         args = emitName envp k : map mkArg (ctorArgCasts desc)
         mkArg (argName, Nothing) = ctorVal ++ "->" ++ argName
         mkArg (argName, Just argSort) = asSort argSort (ctorVal ++ "->" ++ argName)
@@ -453,6 +453,45 @@ emitCase kind envp x branches =
         ["    case " ++ show (ctorDiscriminant desc) ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
+
+emitValueAlloc :: EnvPtr -> Sort -> ValueH -> String
+emitValueAlloc _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
+emitValueAlloc _ _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
+emitValueAlloc envp _ (PairH x y) =
+  "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
+emitValueAlloc _ _ NilH = "allocate_unit()"
+emitValueAlloc envp ty (CtorAppH capp) =
+  let
+    kind = case ty of
+      BooleanH -> CaseBool
+      SumH t s -> CaseSum t s
+      ListH t -> CaseList t
+      _ -> error "not a constructed type"
+  in
+  emitCtorAlloc envp kind capp
+
+emitCtorAlloc :: EnvPtr -> CaseKind -> CtorAppH -> String
+emitCtorAlloc envp kind capp = ctorAllocate desc ++ "(" ++ commaSep args' ++ ")"
+  where
+    desc = ctorDescTable kind Map.! ctorName
+    (ctorName, args) = case capp of
+      BoolH True -> (Ctor "true", [])
+      BoolH False -> (Ctor "false", [])
+      InlH x -> (Ctor "inl", [x])
+      InrH x -> (Ctor "inr", [x])
+      ListNilH -> (Ctor "nil", [])
+      ListConsH x xs -> (Ctor "cons", [x, xs])
+    args' = zipWith makeArg args (ctorArgCasts desc)
+    makeArg x (_, Nothing) = emitName envp x
+    makeArg x (_, Just _) = asAlloc (emitName envp x)
+
+-- Hmm. Consider 'Id' instead of 'String' for these fields
+data DataDesc
+  = DataDesc {
+    dataName :: String
+  , dataUpcast :: String
+  , dataCtors :: Map Ctor CtorDesc
+  }
 
 data CtorDesc
   = CtorDesc {
@@ -534,37 +573,6 @@ ctorDescTable (CaseList t) = Map.fromList $
     )
   ]
   where consThunkTy = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
-
-emitValueAlloc :: EnvPtr -> Sort -> ValueH -> String
-emitValueAlloc _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
-emitValueAlloc _ _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
-emitValueAlloc envp _ (PairH x y) =
-  "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
-emitValueAlloc _ _ NilH = "allocate_unit()"
-emitValueAlloc envp ty (CtorAppH capp) =
-  let
-    kind = case ty of
-      BooleanH -> CaseBool
-      SumH t s -> CaseSum t s
-      ListH t -> CaseList t
-      _ -> error "not a constructed type"
-  in
-  emitCtorAlloc envp kind capp
-
-emitCtorAlloc :: EnvPtr -> CaseKind -> CtorAppH -> String
-emitCtorAlloc envp kind capp = ctorAllocate desc ++ "(" ++ commaSep args' ++ ")"
-  where
-    desc = ctorDescTable kind Map.! ctorName
-    (ctorName, args) = case capp of
-      BoolH True -> (Ctor "true", [])
-      BoolH False -> (Ctor "false", [])
-      InlH x -> (Ctor "inl", [x])
-      InrH x -> (Ctor "inr", [x])
-      ListNilH -> (Ctor "nil", [])
-      ListConsH x xs -> (Ctor "cons", [x, xs])
-    args' = zipWith makeArg args (ctorArgCasts desc)
-    makeArg x (_, Nothing) = emitName envp x
-    makeArg x (_, Just _) = asAlloc (emitName envp x)
 
 emitPrimOp :: EnvPtr -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
