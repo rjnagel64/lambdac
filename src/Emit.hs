@@ -208,14 +208,25 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
 
 
 emitProgram :: Program -> [Line]
-emitProgram (Program cs e) =
+emitProgram (Program ds e) =
   prologue ++
   concatMap emitThunkDecl ts ++
-  concatMap (emitClosureDecl closureSig) cs ++
+  declLines ++
+  -- concatMap (emitClosureDecl closureSig) ds ++
   emitEntryPoint closureSig e
   where
-    closureSig = Map.fromList [(codeDeclName cd, codeDeclType cd) | cd <- cs]
-    ts = Set.toList $ collectThunkTypes cs
+    declLines = emitDecls closureSig ds
+    closureSig = Map.fromList [(codeDeclName cd, codeDeclType cd) | DeclCode cd <- ds]
+    ts = Set.toList $ collectThunkTypes [cd | DeclCode cd <- ds]
+
+-- Hmm. This should probably be more like a State ClosureSig than a Reader ClosureSig,
+-- but I've been lax about the ordering of top-level closures, I think.
+emitDecls :: ClosureSig -> [Decl] -> [Line]
+emitDecls sig [] = []
+emitDecls sig (DeclCode cd : ds) =
+  let (ls) = emitDecls sig ds in
+  emitClosureDecl sig cd ++ ls
+emitDecls sig (DeclData dd : ds) = error "Not implemented: emit DataDecl"
 
 prologue :: [Line]
 prologue = ["#include \"rts.h\""]

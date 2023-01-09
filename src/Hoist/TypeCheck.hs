@@ -33,11 +33,12 @@ data Signature = Signature { sigClosures :: Map CodeLabel ClosureDeclType }
 -- @code[aa+](t; S)@.
 data ClosureDeclType = ClosureDeclType [TyVar] EnvType ClosureTele
 
--- | Represents the type of a closure environment, @{(m : info t)+; (l : s)+}@.
-data EnvType = EnvType { envTypeInfos :: [(Id, Sort)], envTypeFields :: [(Id, Sort)] }
+-- | Represents the type of a closure environment, @∃(aa : k)+. { (l : s)+ }@.
+data EnvType = EnvType { envTyVars :: [(Id, Sort)], envFields :: [(Id, Sort)] }
 
--- | The typing context is split into two scopes: local information and
--- environment information.
+-- | The typing context contains the type of each item in scope, plus the type
+-- of the environment parameter.
+-- (The environment is still somewhat special, so it cannot simply be included in Locals)
 data Context = Context { ctxLocals :: Locals, ctxEnv :: EnvType }
 
 -- | The local scope contains information about each identifier in the context,
@@ -45,7 +46,7 @@ data Context = Context { ctxLocals :: Locals, ctxEnv :: EnvType }
 -- Values record their sort, @x : t@.
 -- Type variables record their presence, @a : type@.
 -- Info variables record the sort they describe, @i : info t@.
-data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Set Id, localInfos :: Map Id Sort }
+data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Set TyVar, localInfos :: Map Id Sort }
 
 -- | Ways in which a Hoist IR program can be invalid.
 data TCError
@@ -67,7 +68,11 @@ runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
   where
     emptyContext = Context { ctxLocals = emptyLocals, ctxEnv = emptyEnv }
-    emptyEnv = EnvType { envTypeInfos = [], envTypeFields = [] }
+    -- Dummy value, as the program entry point is not in a closure decl, so it
+    -- does not have an environment parameter.
+    --
+    -- Therefore, use @∃.{}@, which is isomorphic to ().
+    emptyEnv = EnvType { envTyVars = [], envFields = [] }
 
 
 emptyLocals :: Locals
@@ -90,17 +95,17 @@ lookupName (LocalName x) = do
     Just s -> pure s
     Nothing -> throwError $ NameNotInLocals x
 lookupName (EnvName x) = do
-  ctx <- asks (envTypeFields . ctxEnv)
+  ctx <- asks (envFields . ctxEnv)
   case lookup x ctx of
     Just s -> pure s
     Nothing -> throwError $ NameNotInLocals x
 
 lookupTyVar :: TyVar -> TC ()
-lookupTyVar (TyVar aa) = do
+lookupTyVar aa = do
   ctx <- asks (localTypes . ctxLocals)
   case Set.member aa ctx of
     True -> pure ()
-    False -> throwError $ TyVarNotInLocals (TyVar aa)
+    False -> throwError $ TyVarNotInLocals aa
 
 lookupCodeDecl :: CodeLabel -> TC ClosureDeclType
 lookupCodeDecl c = do
@@ -123,11 +128,10 @@ withPlace p m = do
 withPlaces :: [Place] -> TC a -> TC a
 withPlaces ps = foldr (.) id (map withPlace ps)
 
--- Needs a better name. withTyVar or something.
-withInfo :: Id -> TC a -> TC a
-withInfo i m = local (\ (Context locals env) -> Context (extend locals) env) m
+withTyVar :: TyVar -> TC a -> TC a
+withTyVar aa m = local (\ (Context locals env) -> Context (extend locals) env) m
   where
-    extend (Locals places tys infos) = Locals places (Set.insert i tys) infos
+    extend (Locals places tys infos) = Locals places (Set.insert aa tys) infos
 
 
 
@@ -139,7 +143,11 @@ checkName x s = do
 
 
 checkProgram :: Program -> TC ()
-checkProgram (Program cs e) = traverse_ checkClosure cs *> checkEntryPoint e
+checkProgram (Program ds e) = traverse_ checkDecl ds *> checkEntryPoint e
+
+checkDecl :: Decl -> TC ()
+checkDecl (DeclCode cd) = checkClosure cd
+checkDecl (DeclData dd) = throwError (NotImplemented "check DataDecl")
 
 checkEntryPoint :: TermH -> TC ()
 checkEntryPoint e = checkTerm e
@@ -193,7 +201,7 @@ checkUniqueLabels ls = do
 checkParams :: [ClosureParam] -> TC Locals
 checkParams [] = asks ctxLocals
 checkParams (PlaceParam p : params) = withPlace p $ checkParams params
-checkParams (TypeParam (TyVar aa) k : params) = withInfo aa $ checkParams params
+checkParams (TypeParam aa k : params) = withTyVar aa $ checkParams params
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()
@@ -335,5 +343,5 @@ checkTele (ClosureTele ss) = go ss
   where
     go [] = pure ()
     go (ValueTele s : ss') = checkSort s *> go ss'
-    go (TypeTele (TyVar aa) k : ss') = withInfo aa $ go ss'
+    go (TypeTele aa k : ss') = withTyVar aa $ go ss'
 

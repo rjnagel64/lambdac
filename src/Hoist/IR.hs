@@ -37,6 +37,7 @@ module Hoist.IR
 
 
     , Program(..)
+    , Decl(..)
     , pprintProgram
     ) where
 
@@ -85,34 +86,24 @@ instance Show CodeLabel where
   show (CodeLabel d) = d
 
 
+newtype TyCon = TyCon String
 
--- | A 'Sort' describes the runtime layout of a value. It is static information.
-data Sort
-  = AllocH TyVar
-  | IntegerH
-  | BooleanH
-  | UnitH
-  | StringH
-  | ProductH Sort Sort
-  | SumH Sort Sort
-  | ListH Sort
-  | ClosureH ClosureTele
+instance Show TyCon where
+  show (TyCon tc) = tc
 
--- It's a bit unfortunate, but I do need to have separate telescopes for
--- parameters and types. The difference is that parameters need names for each
--- value, but closure types ignore value parameter names, and also cannot infer
--- those names.
-newtype ClosureTele = ClosureTele [TeleEntry]
+newtype Ctor = Ctor String
+  deriving (Eq, Ord)
 
-data TeleEntry
-  = ValueTele Sort
-  | TypeTele TyVar Kind
+instance Show Ctor where
+  show (Ctor c) = c
 
-instance Eq Sort where
-  (==) = equalSort emptyAE
 
-data Kind = Star
-  deriving (Eq)
+
+data Program = Program [Decl] TermH
+
+data Decl
+  = DeclCode CodeDecl
+  | DeclData DataDecl
 
 
 data CodeDecl
@@ -131,6 +122,50 @@ codeDeclTele (CodeDecl _ _ params _) = ClosureTele (map f params)
 data EnvDecl = EnvDecl [(Id, TyVar, Kind)] [Place]
 
 data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
+
+
+data DataDecl
+  = DataDecl TyCon Kind [(TyVar, Kind)] [CtorDecl]
+
+data CtorDecl
+  -- Can't just use 'ClosureTele' here, because ctor applications actually return a value.
+  -- (Also, I don't support existential ADTs yet, so I can't have TypeTele in here.)
+  --
+  -- Also, I don't have GADTs, so the return type is redundant (it's just the
+  -- tycon applied to the parameters)
+  = CtorDecl Ctor [Sort]
+
+
+-- | A 'Sort' describes the runtime layout of a value. It is static information.
+data Sort
+  = AllocH TyVar
+  | IntegerH
+  | BooleanH
+  | UnitH
+  | StringH
+  | ProductH Sort Sort
+  | SumH Sort Sort
+  | ListH Sort
+  | ClosureH ClosureTele
+
+-- asTyConApp :: Sort -> Maybe TyConApp
+
+-- It's a bit unfortunate, but I do need to have separate telescopes for
+-- parameters and types. The difference is that parameters need names for each
+-- value, but closure types ignore value parameter names, and also cannot infer
+-- those names.
+newtype ClosureTele = ClosureTele [TeleEntry]
+
+data TeleEntry
+  = ValueTele Sort
+  | TypeTele TyVar Kind
+
+instance Eq Sort where
+  (==) = equalSort emptyAE
+
+data Kind = Star
+  deriving (Eq)
+
 
 
 
@@ -191,12 +226,6 @@ data CtorAppH
   | ListNilH
   | ListConsH Name Name
 
-newtype Ctor = Ctor String
-  deriving (Eq, Ord)
-
-instance Show Ctor where
-  show (Ctor c) = c
-
 data PrimOp
   = PrimAddInt64 Name Name
   | PrimSubInt64 Name Name
@@ -211,8 +240,6 @@ data PrimOp
   | PrimConcatenate Name Name
   | PrimStrlen Name
 
-
-data Program = Program [CodeDecl] TermH
 
 
 -- Nameplate operations: FV, alpha-equality, and substitution
@@ -366,7 +393,7 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintProgram :: Program -> String
-pprintProgram (Program cs srcH) = pprintClosures cs ++ ";;\n" ++ pprintTerm 0 srcH
+pprintProgram (Program ds srcH) = pprintDecls ds ++ ";;\n" ++ pprintTerm 0 srcH
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x ++ ";\n"
@@ -426,8 +453,11 @@ pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
 pprintParam (TypeParam aa k) = '@' : show aa ++ " : " ++ pprintKind k
 
-pprintClosures :: [CodeDecl] -> String
-pprintClosures cs = concatMap (pprintClosureDecl 0) cs
+pprintDecls :: [Decl] -> String
+pprintDecls ds = concatMap pprintDecl ds
+  where
+    pprintDecl (DeclCode cd) = pprintClosureDecl 0 cd
+    pprintDecl (DeclData dd) = error "not implemented: ppr DataDecl"
 
 pprintClosureDecl :: Int -> CodeDecl -> String
 pprintClosureDecl n (CodeDecl f (name, EnvDecl is fs) params e) =

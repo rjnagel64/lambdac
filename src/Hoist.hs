@@ -105,7 +105,7 @@ tellClosure cs = tell (ClosureDecls [cs])
 hoistProgram :: C.TermC -> Program
 hoistProgram srcC =
   let (srcH, cs) = runHoist (hoist srcC) in
-  Program (getClosureDecls cs) srcH
+  Program (map DeclCode $ getClosureDecls cs) srcH
 
 runHoist :: HoistM a -> (a, ClosureDecls)
 runHoist =
