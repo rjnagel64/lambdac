@@ -39,7 +39,9 @@ type Line = String
 -- Associate closures in the local environment with their calling conventions.
 -- (Split into two parts, because of local declarations vs. declarations from
 -- the closure env)
-type ThunkEnv = (Map Id ThunkType, Map Id ThunkType)
+--
+-- (Alternately, I could have 'Map Name ThunkType'. Hmm.)
+data ThunkEnv = ThunkEnv (Map Id ThunkType) (Map Id ThunkType)
 
 data ClosureNames
   = ClosureNames {
@@ -237,7 +239,7 @@ emitEntryPoint e =
     envp = Id "NULL"
     -- Likewise, there are no fields in the environment.
     -- Also, we start with no local variables.
-    thunkEnv = (Map.empty, Map.empty)
+    thunkEnv = ThunkEnv Map.empty Map.empty
 
 emitThunkDecl :: ThunkType -> [Line]
 emitThunkDecl t =
@@ -314,7 +316,7 @@ emitClosureDecl cd@(CodeDecl d (envName, envd@(EnvDecl _ places)) params e) =
 
     -- The thunkEnv maps variables to their thunk type, so that the correct
     -- suspend method can be picked in emitSuspend
-    thunkEnv = (foldr addParam Map.empty params, foldr addPlace Map.empty places)
+    thunkEnv = ThunkEnv (foldr addParam Map.empty params) (foldr addPlace Map.empty places)
     addParam (PlaceParam (Place (ClosureH tele) x)) acc = Map.insert x (teleThunkType tele) acc
     addParam (PlaceParam _) acc = acc
     addParam (TypeParam _ _) acc = acc
@@ -429,10 +431,10 @@ emitSuspend tenv envp cl xs =
     makeArg _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
 lookupThunkTy :: ThunkEnv -> Name -> ThunkType
-lookupThunkTy (localThunkTys, _) (LocalName x) = case Map.lookup x localThunkTys of
+lookupThunkTy (ThunkEnv localThunkTys _) (LocalName x) = case Map.lookup x localThunkTys of
   Nothing -> error ("missing thunk type for name " ++ show x)
   Just ty -> ty
-lookupThunkTy (_, envThunkTys) (EnvName x) = case Map.lookup x envThunkTys of
+lookupThunkTy (ThunkEnv _ envThunkTys) (EnvName x) = case Map.lookup x envThunkTys of
   Nothing -> error ("missing thunk type for name " ++ show x)
   Just ty -> ty
 
@@ -622,8 +624,8 @@ emitClosureGroup envp closures =
   where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ <- closures]
 
 extendThunkEnv :: ThunkEnv -> [ClosureAlloc] -> ThunkEnv
-extendThunkEnv (localThunkTys, envThunkTys) allocs =
-  (foldr (uncurry Map.insert) localThunkTys tys, envThunkTys)
+extendThunkEnv (ThunkEnv localThunkTys envThunkTys) allocs =
+  ThunkEnv (foldr (uncurry Map.insert) localThunkTys tys) envThunkTys
   where
     tys = map f allocs
     f (ClosureAlloc p _ _ _) = case placeSort p of
