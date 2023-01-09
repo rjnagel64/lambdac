@@ -228,7 +228,7 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
 
 hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, Scope, EnvAlloc)
 hoistEnvDef (C.EnvDef tyfields fields) = do
-  let declTyFields = map (\ (aa, k) -> (infoPlaceName aa, asTyVar aa, kindOf k)) tyfields
+  let declTyFields = map (\ (aa, k) -> (asTyVar aa, kindOf k)) tyfields
   let declFields = map (\ (x, s) -> asPlace s x) fields
   let envd = EnvDecl declTyFields declFields
 

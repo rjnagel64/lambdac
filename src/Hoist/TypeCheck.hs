@@ -34,7 +34,7 @@ data Signature = Signature { sigClosures :: Map CodeLabel ClosureDeclType }
 data ClosureDeclType = ClosureDeclType [TyVar] EnvType ClosureTele
 
 -- | Represents the type of a closure environment, @∃(aa : k)+. { (l : s)+ }@.
-data EnvType = EnvType { envTyVars :: [(Id, Sort)], envFields :: [(Id, Sort)] }
+data EnvType = EnvType { envTyVars :: [(TyVar, Kind)], envFields :: [(Id, Sort)] }
 
 -- | The typing context contains the type of each item in scope, plus the type
 -- of the environment parameter.
@@ -172,18 +172,14 @@ checkEnvDecl :: EnvDecl -> TC EnvType
 -- Check that all (info/field) labels are disjoint, and that each field type is
 -- well-formed.
 checkEnvDecl (EnvDecl tys places) = do
-  checkUniqueLabels [i | (i, aa, k) <- tys]
   checkUniqueLabels [placeName p | p <- places]
 
-  infos <- for tys $ \ (i, aa, k) -> do
-    let infoLabel = i
-    let infoSort = AllocH aa
-    checkSort infoSort
-    pure (infoLabel, infoSort)
+  -- Hmm. I think I need to bring 'tys' into scope to check the sorts here,
+  -- since 'tys' are like a sequence of existential quantifiers.
   fields <- for places $ \ (Place s x) -> do
     checkSort s
     pure (x, s)
-  pure (EnvType infos fields)
+  pure (EnvType tys fields)
 
 -- | Use a Map to count muliplicity of each label.
 -- Report labels that appear more than once.

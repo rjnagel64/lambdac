@@ -119,7 +119,7 @@ codeDeclTele (CodeDecl _ _ params _) = ClosureTele (map f params)
     f (TypeParam aa k) = TypeTele aa k
 
 -- Hmm. EnvDecl does not need field names for the captured (singleton) types.
-data EnvDecl = EnvDecl [(Id, TyVar, Kind)] [Place]
+data EnvDecl = EnvDecl [(TyVar, Kind)] [Place]
 
 data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
 
@@ -465,7 +465,7 @@ pprintClosureDecl n (CodeDecl f (name, EnvDecl is fs) params e) =
   pprintTerm (n+2) e
   where
     envParam = show name ++ " : {" ++ intercalate ", " (infoFields ++ valueFields) ++ "}"
-    infoFields = map (\ (i, aa, k) -> '@' : show i ++ " : info " ++ show aa) is
+    infoFields = map (\ (aa, k) -> "@" ++ show aa) is
     valueFields = map pprintPlace fs
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
