@@ -152,6 +152,11 @@ RULES
 -- In particular, this might let me eventually remove OpaqueArg
 -- Hmm. Maybe when calling a closure that has a pseudo-forall?
 
+-- TODO: The pseduo-forall is unnecessary. A closure environment may capture
+-- type variables, which are existentially quantified (i.e., the type of an
+-- environment is '∃(aa : k)+. { (l : t)+ }')
+-- This is equivalent to the pseudo-forall (map from exists =~= univ), but simpler.
+
 Like other IRs in the LambdaC compiler, Hoist IR is CPS/ANF-based and
 explicitly typed. Its distinctive feature is that closure definitions have been
 lifted to become global code declarations, and that allocation of closures and
