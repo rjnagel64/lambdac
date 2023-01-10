@@ -3,8 +3,6 @@ module Hoist.TypeCheck (checkProgram, runTC, TCError(..)) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
 
 import Data.Foldable (traverse_, for_)
 import Data.Traversable (for)
@@ -46,7 +44,7 @@ data Context = Context { ctxLocals :: Locals, ctxEnv :: EnvType }
 -- Values record their sort, @x : t@.
 -- Type variables record their kind, @aa : k@.
 -- Info variables record the sort they describe, @i : info t@.
-data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Map TyVar Kind, localInfos :: Map Id Sort }
+data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Map TyVar Kind }
 
 -- | Ways in which a Hoist IR program can be invalid.
 data TCError
@@ -76,10 +74,10 @@ runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignatur
 
 
 emptyLocals :: Locals
-emptyLocals = Locals Map.empty Map.empty Map.empty
+emptyLocals = Locals Map.empty Map.empty
 
 bindPlace :: Place -> Locals -> Locals
-bindPlace (Place s x) (Locals places tys infos) = Locals (Map.insert x s places) tys infos
+bindPlace (Place s x) (Locals places tys) = Locals (Map.insert x s places) tys
 
 emptySignature :: Signature
 emptySignature = Signature { sigClosures = Map.empty }
@@ -131,7 +129,7 @@ withPlaces ps = foldr (.) id (map withPlace ps)
 withTyVar :: TyVar -> Kind -> TC a -> TC a
 withTyVar aa k m = local (\ (Context locals env) -> Context (extend locals) env) m
   where
-    extend (Locals places tys infos) = Locals places (Map.insert aa k tys) infos
+    extend (Locals places tys) = Locals places (Map.insert aa k tys)
 
 
 
