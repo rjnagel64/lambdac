@@ -16,6 +16,7 @@ module Hoist.IR
     , Subst
     , singleSubst
     , substSort
+    , substTele
 
     , CodeDecl(..)
     , codeDeclName

@@ -28,8 +28,8 @@ deriving newtype instance MonadState Signature TC
 data Signature = Signature { sigClosures :: Map CodeLabel ClosureDeclType }
 
 -- | Represents the type of a closure, a code pointer with environment
--- @code[aa+](t; S)@.
-data ClosureDeclType = ClosureDeclType [TyVar] EnvType ClosureTele
+-- @code(t; S)@.
+data ClosureDeclType = ClosureDeclType EnvType ClosureTele
 
 -- | Represents the type of a closure environment, @∃(aa : k)+. { (l : s)+ }@.
 data EnvType = EnvType { envTyVars :: [(TyVar, Kind)], envFields :: [(Id, Sort)] }
@@ -60,6 +60,7 @@ data TCError
   | BadCase CaseKind [(Ctor, Name)]
   | BadOpen Name Sort
   | WrongClosureArg
+  | ArgumentCountMismatch
   | DuplicateLabels [String]
 
 runTC :: TC a -> Either TCError a
@@ -163,7 +164,7 @@ checkClosure decl@(CodeDecl cl (envp, envd) params body) = do
   local (\_ -> Context localScope envTy) $ checkTerm body
   -- Extend the signature with the new closure declaration.
   let tele = codeDeclTele decl
-  let declTy = ClosureDeclType [] envTy tele
+  let declTy = ClosureDeclType envTy tele
   modify (declareClosure cl declTy)
 
 checkEnvDecl :: EnvDecl -> TC EnvType
@@ -228,14 +229,8 @@ checkTerm (AllocClosure cs e) = do
   let binds = map closurePlace cs
   withPlaces binds $ do
     for_ cs $ \ (ClosureAlloc p c envPlace env) -> do
-      ClosureDeclType aas envTy tele <- lookupCodeDecl c
-      -- instantiate aas (not yet present in Hoist)
-      -- _
-      -- check envTy
+      ClosureDeclType envTy tele <- lookupCodeDecl c
       checkEnvAlloc env envTy
-      -- Check that the RHS has the correct sort.
-      -- Once I implement the pseduo-forall/closed thunk types thing, this line
-      -- should probably involve 'aas'.
       equalSorts (placeSort p) (ClosureH tele)
     checkTerm e
 
@@ -249,16 +244,14 @@ checkCallArgs [] [] = pure ()
 checkCallArgs (ValueTele s : tele) (ValueArg x : args) = do
   checkName x s
   checkCallArgs tele args
-checkCallArgs (ValueTele _ : _) (_ : args) = throwError WrongClosureArg
--- checkCallArgs (TypeTele aa : tele) (TypeArg i : args) = do
---   checkSort s
---   -- Aargh, this TypeArg passes an 'Info', not a Sort
---   -- It's another example of the type param/type+info/info muddle
---   let tele' = _
---   checkCallArgs tele' args
--- Cases for TypeTele TypeArg and cases for ValueTele OpaqueArg
-checkCallArgs tele args = do
-  throwError (NotImplemented "checkCallArgs")
+checkCallArgs (ValueTele _ : _) (_ : _) = throwError WrongClosureArg
+checkCallArgs (TypeTele aa k : tele) (TypeArg s : args) = do
+  checkSort s -- checkSort s k
+  let tele' = substTele (singleSubst aa s) tele
+  checkCallArgs tele' args
+checkCallArgs (TypeTele _ _ : _) (_ : _) = throwError WrongClosureArg
+checkCallArgs [] _ = throwError ArgumentCountMismatch
+checkCallArgs (_ : _) [] = throwError ArgumentCountMismatch
 
 -- | Check that a primitive operation has correct argument sorts, and yield its
 -- return sort.
