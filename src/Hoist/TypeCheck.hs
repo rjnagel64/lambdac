@@ -44,9 +44,9 @@ data Context = Context { ctxLocals :: Locals, ctxEnv :: EnvType }
 -- | The local scope contains information about each identifier in the context,
 -- except for the closure environment.
 -- Values record their sort, @x : t@.
--- Type variables record their presence, @a : type@.
+-- Type variables record their kind, @aa : k@.
 -- Info variables record the sort they describe, @i : info t@.
-data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Set TyVar, localInfos :: Map Id Sort }
+data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Map TyVar Kind, localInfos :: Map Id Sort }
 
 -- | Ways in which a Hoist IR program can be invalid.
 data TCError
@@ -76,7 +76,7 @@ runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignatur
 
 
 emptyLocals :: Locals
-emptyLocals = Locals Map.empty Set.empty Map.empty
+emptyLocals = Locals Map.empty Map.empty Map.empty
 
 bindPlace :: Place -> Locals -> Locals
 bindPlace (Place s x) (Locals places tys infos) = Locals (Map.insert x s places) tys infos
@@ -103,9 +103,9 @@ lookupName (EnvName x) = do
 lookupTyVar :: TyVar -> TC ()
 lookupTyVar aa = do
   ctx <- asks (localTypes . ctxLocals)
-  case Set.member aa ctx of
-    True -> pure ()
-    False -> throwError $ TyVarNotInLocals aa
+  case Map.lookup aa ctx of
+    Just Star -> pure ()
+    Nothing -> throwError $ TyVarNotInLocals aa
 
 lookupCodeDecl :: CodeLabel -> TC ClosureDeclType
 lookupCodeDecl c = do
@@ -128,10 +128,10 @@ withPlace p m = do
 withPlaces :: [Place] -> TC a -> TC a
 withPlaces ps = foldr (.) id (map withPlace ps)
 
-withTyVar :: TyVar -> TC a -> TC a
-withTyVar aa m = local (\ (Context locals env) -> Context (extend locals) env) m
+withTyVar :: TyVar -> Kind -> TC a -> TC a
+withTyVar aa k m = local (\ (Context locals env) -> Context (extend locals) env) m
   where
-    extend (Locals places tys infos) = Locals places (Set.insert aa tys) infos
+    extend (Locals places tys infos) = Locals places (Map.insert aa k tys) infos
 
 
 
@@ -197,7 +197,7 @@ checkUniqueLabels ls = do
 checkParams :: [ClosureParam] -> TC Locals
 checkParams [] = asks ctxLocals
 checkParams (PlaceParam p : params) = withPlace p $ checkParams params
-checkParams (TypeParam aa k : params) = withTyVar aa $ checkParams params
+checkParams (TypeParam aa k : params) = withTyVar aa k $ checkParams params
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()
@@ -321,6 +321,7 @@ checkCase x (CaseList a) [(cn, kn), (cc, kc)] = do
 checkCase _ kind ks = throwError (BadCase kind ks)
 
 -- | Check that a sort is well-formed w.r.t. the context
+-- Hmm. This needs to take kinds into account.
 checkSort :: Sort -> TC ()
 checkSort (AllocH aa) = lookupTyVar aa
 checkSort UnitH = pure ()
@@ -339,5 +340,5 @@ checkTele (ClosureTele ss) = go ss
   where
     go [] = pure ()
     go (ValueTele s : ss') = checkSort s *> go ss'
-    go (TypeTele aa k : ss') = withTyVar aa $ go ss'
+    go (TypeTele aa k : ss') = withTyVar aa k $ go ss'
 
