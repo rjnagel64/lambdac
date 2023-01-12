@@ -544,7 +544,7 @@ dataDesc (DataDecl tc k typarams ctors) tyargs =
       -- Hmm. If all ctors are distinct, I don't need to namespace with the tycon here.
       -- (e.g., 'cons' only belongs to 'list', so I could call 'make_cons'
       -- instead of 'make_list_cons')
-      , ctorAllocate = "make_" ++ show tc ++ "_" ++ show c
+      , ctorAllocate = "allocate_" ++ show tc ++ "_" ++ show c
       , ctorDowncast = "CAST_" ++ show tc ++ "_" ++ show c
       , ctorThunkType = ThunkType thunkTy
       , ctorArgCasts = argCasts
@@ -575,7 +575,7 @@ dataDescTable CaseBool =
   , dataCtors = Map.fromList $
     [ (Ctor "false", CtorDesc {
           ctorDiscriminant = 0
-        , ctorAllocate = "allocate_false"
+        , ctorAllocate = "allocate_bool_false"
         , ctorDowncast = "CAST_bool_false"
         , ctorThunkType = ThunkType []
         , ctorArgCasts = []
@@ -583,7 +583,7 @@ dataDescTable CaseBool =
       )
     , (Ctor "true", CtorDesc {
           ctorDiscriminant = 1
-        , ctorAllocate = "allocate_true"
+        , ctorAllocate = "allocate_bool_true"
         , ctorDowncast = "CAST_bool_true"
         , ctorThunkType = ThunkType []
         , ctorArgCasts = []
@@ -598,7 +598,7 @@ dataDescTable (CaseSum t s) =
   , dataCtors = Map.fromList $
     [ (Ctor "inl", CtorDesc {
           ctorDiscriminant = 0
-        , ctorAllocate = "allocate_inl"
+        , ctorAllocate = "allocate_sum_inl"
         , ctorDowncast = "CAST_sum_inl"
         , ctorThunkType = ThunkType [ThunkValueArg t]
         , ctorArgCasts = [("payload", Just t)]
@@ -606,7 +606,7 @@ dataDescTable (CaseSum t s) =
       )
     , (Ctor "inr", CtorDesc {
           ctorDiscriminant = 1
-        , ctorAllocate = "allocate_inr"
+        , ctorAllocate = "allocate_sum_inr"
         , ctorDowncast = "CAST_sum_inr"
         , ctorThunkType = ThunkType [ThunkValueArg s]
         , ctorArgCasts = [("payload", Just s)]

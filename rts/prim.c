@@ -75,7 +75,7 @@ void display_sum(struct alloc_header *alloc, struct string_buf *sb) {
 
 const type_info sum_info = { trace_sum, display_sum };
 
-struct sum *allocate_inl(struct alloc_header *x) {
+struct sum *allocate_sum_inl(struct alloc_header *x) {
     struct sum *v = malloc(sizeof(struct sum));
     v->discriminant = 0;
     v->payload = x;
@@ -84,7 +84,7 @@ struct sum *allocate_inl(struct alloc_header *x) {
     return v;
 }
 
-struct sum *allocate_inr(struct alloc_header *y) {
+struct sum *allocate_sum_inr(struct alloc_header *y) {
     struct sum *v = malloc(sizeof(struct sum));
     v->discriminant = 1;
     v->payload = y;
@@ -107,7 +107,7 @@ void display_bool_value(struct alloc_header *alloc, struct string_buf *sb) {
 
 const type_info bool_value_info = { trace_bool_value, display_bool_value };
 
-struct bool_value *allocate_true(void) {
+struct bool_value *allocate_bool_true(void) {
     struct bool_value *v = malloc(sizeof(struct bool_value));
     v->discriminant = 1;
 
@@ -115,7 +115,7 @@ struct bool_value *allocate_true(void) {
     return v;
 }
 
-struct bool_value *allocate_false(void) {
+struct bool_value *allocate_bool_false(void) {
     struct bool_value *v = malloc(sizeof(struct bool_value));
     v->discriminant = 0;
 
@@ -261,49 +261,49 @@ struct int64_value *prim_negint64(struct int64_value *x) {
 
 struct bool_value *prim_eqint64(struct int64_value *x, struct int64_value *y) {
     if (x->value == y->value) {
-        return allocate_true();
+        return allocate_bool_true();
     } else {
-        return allocate_false();
+        return allocate_bool_false();
     }
 }
 
 struct bool_value *prim_neint64(struct int64_value *x, struct int64_value *y) {
     if (x->value != y->value) {
-        return allocate_true();
+        return allocate_bool_true();
     } else {
-        return allocate_false();
+        return allocate_bool_false();
     }
 }
 
 struct bool_value *prim_ltint64(struct int64_value *x, struct int64_value *y) {
     if (x->value < y->value) {
-        return allocate_true();
+        return allocate_bool_true();
     } else {
-        return allocate_false();
+        return allocate_bool_false();
     }
 }
 
 struct bool_value *prim_leint64(struct int64_value *x, struct int64_value *y) {
     if (x->value <= y->value) {
-        return allocate_true();
+        return allocate_bool_true();
     } else {
-        return allocate_false();
+        return allocate_bool_false();
     }
 }
 
 struct bool_value *prim_gtint64(struct int64_value *x, struct int64_value *y) {
     if (x->value > y->value) {
-        return allocate_true();
+        return allocate_bool_true();
     } else {
-        return allocate_false();
+        return allocate_bool_false();
     }
 }
 
 struct bool_value *prim_geint64(struct int64_value *x, struct int64_value *y) {
     if (x->value >= y->value) {
-        return allocate_true();
+        return allocate_bool_true();
     } else {
-        return allocate_false();
+        return allocate_bool_false();
     }
 }
 

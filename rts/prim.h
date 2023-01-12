@@ -32,8 +32,8 @@ struct sum {
     struct alloc_header *payload;
 };
 
-struct sum *allocate_inl(struct alloc_header *v);
-struct sum *allocate_inr(struct alloc_header *v);
+struct sum *allocate_sum_inl(struct alloc_header *v);
+struct sum *allocate_sum_inr(struct alloc_header *v);
 
 #define CAST_sum(v) ((struct sum *)(v))
 #define CAST_sum_inl(v) (v)
@@ -44,8 +44,8 @@ struct bool_value {
     uint8_t discriminant;
 };
 
-struct bool_value *allocate_true(void);
-struct bool_value *allocate_false(void);
+struct bool_value *allocate_bool_true(void);
+struct bool_value *allocate_bool_false(void);
 
 #define CAST_bool(v) ((struct bool_value *)(v))
 #define CAST_bool_false(v) (v)
