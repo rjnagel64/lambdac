@@ -27,7 +27,9 @@ module Hoist.IR
     , ClosureParam(..)
 
     , DataDecl(..)
+    , TyCon(..)
     , CtorDecl(..)
+    , Ctor(..)
 
     , TermH(..)
     , Projection(..)
@@ -38,7 +40,6 @@ module Hoist.IR
     , EnvAllocValueArg(..)
     , ValueH(..)
     , CtorAppH(..)
-    , Ctor(..)
     , PrimOp(..)
 
 
@@ -131,7 +132,7 @@ data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
 
 
 data DataDecl
-  = DataDecl TyCon Kind [(TyVar, Kind)] [CtorDecl]
+  = DataDecl TyCon [(TyVar, Kind)] [CtorDecl]
 
 data CtorDecl
   -- Can't just use 'ClosureTele' here, because ctor applications actually return a value.

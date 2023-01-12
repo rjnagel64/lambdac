@@ -528,7 +528,7 @@ data CtorDesc
   }
 
 dataDesc :: DataDecl -> [Sort] -> DataDesc
-dataDesc (DataDecl tc k typarams ctors) tyargs =
+dataDesc (DataDecl tc typarams ctors) tyargs =
   DataDesc {
     dataName = show tc
   , dataUpcast = "CAST_" ++ show tc
@@ -560,8 +560,32 @@ dataDesc (DataDecl tc k typarams ctors) tyargs =
           -- 'AllocH bb', where 'bb' is existentially bound. In that case, the
           -- argument should be cast to 'struct alloc_header *', I think.
           Nothing -> error "missing type argument"
-          Just s' -> (ThunkValueArg (AllocH aa), (show fld, Just s'))
+          Just s' -> (ThunkValueArg s', (show fld, Just s'))
         f (fld, s) = (ThunkValueArg s, (show fld, Nothing))
+
+boolDataDecl :: DataDecl
+boolDataDecl =
+  DataDecl (TyCon "bool_value") []
+  [ CtorDecl (Ctor "false") []
+  , CtorDecl (Ctor "true") []
+  ]
+
+sumDataDecl :: DataDecl
+sumDataDecl =
+  let aa = TyVar (Id "a") in
+  let bb = TyVar (Id "b") in
+  DataDecl (TyCon "sum") [(aa, Star), (bb, Star)]
+  [ CtorDecl (Ctor "inl") [(Id "payload", AllocH aa)]
+  , CtorDecl (Ctor "inr") [(Id "payload", AllocH bb)]
+  ]
+
+listDataDecl :: DataDecl
+listDataDecl =
+  let aa = TyVar (Id "a") in
+  DataDecl (TyCon "list") [(aa, Star)]
+  [ CtorDecl (Ctor "nil") []
+  , CtorDecl (Ctor "cons") [(Id "head", AllocH aa), (Id "tail", ListH (AllocH aa))]
+  ]
 
 -- I can't quite use dataDesc to compute this table, because prim.{c,h} uses
 -- different capitalization.
@@ -570,6 +594,8 @@ dataDesc (DataDecl tc k typarams ctors) tyargs =
 dataDescTable :: TyConApp -> DataDesc
 dataDescTable CaseBool =
   DataDesc {
+    -- The tycon should be 'bool', but the struct is named 'bool_value'.
+    -- I'm pretty sure that 'bool' isn't a reserved identifier in C?
     dataName = "bool_value"
   , dataUpcast = "CAST_bool"
   , dataCtors = Map.fromList $
@@ -591,52 +617,8 @@ dataDescTable CaseBool =
       )
     ]
   }
-dataDescTable (CaseSum t s) =
-  DataDesc {
-    dataName = "sum"
-  , dataUpcast = "CAST_sum"
-  , dataCtors = Map.fromList $
-    [ (Ctor "inl", CtorDesc {
-          ctorDiscriminant = 0
-        , ctorAllocate = "allocate_sum_inl"
-        , ctorDowncast = "CAST_sum_inl"
-        , ctorThunkType = ThunkType [ThunkValueArg t]
-        , ctorArgCasts = [("payload", Just t)]
-        }
-      )
-    , (Ctor "inr", CtorDesc {
-          ctorDiscriminant = 1
-        , ctorAllocate = "allocate_sum_inr"
-        , ctorDowncast = "CAST_sum_inr"
-        , ctorThunkType = ThunkType [ThunkValueArg s]
-        , ctorArgCasts = [("payload", Just s)]
-        }
-      )
-    ]
-    }
-dataDescTable (CaseList t) =
-  DataDesc {
-    dataName = "list"
-  , dataUpcast = "CAST_list"
-  , dataCtors = Map.fromList $
-    [ (Ctor "nil", CtorDesc {
-          ctorDiscriminant = 0
-        , ctorAllocate = "allocate_list_nil"
-        , ctorDowncast = "CAST_list_nil"
-        , ctorThunkType = ThunkType []
-        , ctorArgCasts = []
-        }
-      )
-    , (Ctor "cons", CtorDesc {
-          ctorDiscriminant = 1
-        , ctorAllocate = "allocate_list_cons"
-        , ctorDowncast = "CAST_list_cons"
-        , ctorThunkType = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
-        , ctorArgCasts = [("head", Just t), ("tail", Nothing)]
-        }
-      )
-    ]
-  }
+dataDescTable (CaseSum t s) = dataDesc sumDataDecl [t, s]
+dataDescTable (CaseList t) = dataDesc listDataDecl [t]
 
 emitPrimOp :: EnvPtr -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
