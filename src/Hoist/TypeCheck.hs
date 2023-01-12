@@ -57,7 +57,7 @@ data TCError
   | IncorrectInfo
   | BadValue
   | BadProjection Sort Projection
-  | BadCase CaseKind [(Ctor, Name)]
+  | BadCase TyConApp [(Ctor, Name)]
   | BadOpen Name Sort
   | WrongClosureArg
   | ArgumentCountMismatch
@@ -296,7 +296,7 @@ checkValue (PairH _ _) _ = throwError BadValue
 checkValue (StringValH _) StringH = pure ()
 checkValue (StringValH _) _ = throwError BadValue
 
-checkCase :: Name -> CaseKind -> [(Ctor, Name)] -> TC ()
+checkCase :: Name -> TyConApp -> [(Ctor, Name)] -> TC ()
 checkCase x CaseBool [(cf, kf), (ct, kt)] = do
   checkName x BooleanH
   checkName kf (ClosureH (ClosureTele []))

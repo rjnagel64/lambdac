@@ -439,7 +439,7 @@ lookupThunkTy (ThunkEnv _ envThunkTys) (EnvName x) = case Map.lookup x envThunkT
   Just ty -> ty
 
 
-emitCase :: CaseKind -> EnvPtr -> Name -> [(Ctor, Name)] -> [Line]
+emitCase :: TyConApp -> EnvPtr -> Name -> [(Ctor, Name)] -> [Line]
 emitCase kind envp x branches =
   ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch branches ++
@@ -479,7 +479,7 @@ emitValueAlloc envp ty (CtorAppH capp) =
   in
   emitCtorAlloc envp kind capp
 
-emitCtorAlloc :: EnvPtr -> CaseKind -> CtorAppH -> String
+emitCtorAlloc :: EnvPtr -> TyConApp -> CtorAppH -> String
 emitCtorAlloc envp kind capp = ctorAllocate desc ++ "(" ++ commaSep args' ++ ")"
   where
     desc = ctorDescTable kind Map.! ctorName
@@ -504,6 +504,7 @@ data DataDesc
 
 data CtorDesc
   = CtorDesc {
+  -- Hmm. Need a ctorName field to name the struct.
     ctorDiscriminant :: Int
   , ctorAllocate :: String
   , ctorDowncast :: String
@@ -512,6 +513,45 @@ data CtorDesc
   , ctorThunkType :: ThunkType
   , ctorArgCasts :: [(String, Maybe Sort)]
   }
+
+dataDesc :: DataDecl -> [Sort] -> DataDesc
+dataDesc (DataDecl tc k params ctors) args =
+  DataDesc {
+    dataName = show tc
+  , dataUpcast = "AS_" ++ show tc
+  , dataCtors = Map.fromList $ zipWith ctorDesc [0..] ctors
+  }
+  where
+    sub = listSubst (zip (map fst params) args)
+    -- 'i' is the index of the ctor, and therefore the discriminant for this ctor.
+    ctorDesc i (CtorDecl c args) =
+      ( c
+      , CtorDesc {
+        ctorDiscriminant = i
+      -- Hmm. If all ctors are distinct, I don't need to namespace with the tycon here.
+      -- (e.g., 'cons' only belongs to 'list', so I could call 'make_cons'
+      -- instead of 'make_list_cons')
+      , ctorAllocate = "make_" ++ show tc ++ "_" ++ show c
+      , ctorDowncast = "AS_" ++ show tc ++ "_" ++ show c
+      , ctorThunkType = ThunkType thunkTy
+      , ctorArgCasts = argCasts
+      })
+      where
+        (thunkTy, argCasts) = unzip $ zipWith f ([0..] :: [Int]) args
+        -- 'j' is the index of the argument, needed because I do not yet support
+        -- named fields of data ctors.
+        -- (Could be useful, though?)
+        f j (AllocH aa) = case lookupSubst aa sub of
+          -- All parameters of the data type should have corresponding arguments.
+          -- All argument sorts should be well-formed w.r.t. those parameters, so
+          -- the 'Nothing' case should not occur.
+          --
+          -- However, if I add existential ADTs, there may be an argument sort
+          -- 'AllocH bb', where 'bb' is existentially bound. In that case, the
+          -- argument should be cast to 'struct alloc_header *', I think.
+          Nothing -> error "missing type argument"
+          Just s' -> (ThunkValueArg (AllocH aa), ("arg" ++ show j, Just s'))
+        f j s = (ThunkValueArg s, ("arg" ++ show j, Nothing))
 
 -- Note: Only constructor arguments that are polymorphic need to have a cast
 -- applied.
@@ -526,7 +566,7 @@ data CtorDesc
 -- More generally, if a data type's constructor has a field of sort 'AllocH
 -- aa', then that field should be cast to 't', where the case kind specifies
 -- that '[aa := t]'
-ctorDescTable :: CaseKind -> Map Ctor CtorDesc
+ctorDescTable :: TyConApp -> Map Ctor CtorDesc
 ctorDescTable CaseBool = Map.fromList $
   [ (Ctor "false", CtorDesc {
         ctorDiscriminant = 0

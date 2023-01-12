@@ -44,10 +44,6 @@ import Hoist.IR hiding (Subst, singleSubst, substSort)
 asPlace :: C.Sort -> C.Name -> Place
 asPlace s (C.Name x i) = Place (sortOf s) (Id (x ++ show i))
 
--- | Given a 'CC.TyVar', compute the 'Id' that references that tyvar's 'Info'
-infoPlaceName :: C.TyVar -> Id
-infoPlaceName (C.TyVar aa) = Id aa
-
 -- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
 asTyVar :: C.TyVar -> TyVar
 asTyVar (C.TyVar aa) = TyVar (Id aa)
@@ -69,7 +65,7 @@ sortOf (C.Alloc aa) = AllocH (asTyVar aa)
 kindOf :: C.Kind -> Kind
 kindOf C.Star = Star
 
-caseKind :: C.CaseKind -> CaseKind
+caseKind :: C.CaseKind -> TyConApp
 caseKind C.CaseBool = CaseBool
 caseKind (C.CaseSum a b) = CaseSum (sortOf a) (sortOf b)
 caseKind (C.CaseList a) = CaseList (sortOf a)

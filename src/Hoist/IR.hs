@@ -15,6 +15,8 @@ module Hoist.IR
 
     , Subst
     , singleSubst
+    , listSubst
+    , lookupSubst
     , substSort
     , substTele
 
@@ -24,10 +26,13 @@ module Hoist.IR
     , EnvDecl(..)
     , ClosureParam(..)
 
+    , DataDecl(..)
+    , CtorDecl(..)
+
     , TermH(..)
     , Projection(..)
     , ClosureArg(..)
-    , CaseKind(..)
+    , TyConApp(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
     , EnvAllocValueArg(..)
@@ -149,8 +154,6 @@ data Sort
   | ListH Sort
   | ClosureH ClosureTele
 
--- asTyConApp :: Sort -> Maybe TyConApp
-
 -- It's a bit unfortunate, but I do need to have separate telescopes for
 -- parameters and types. The difference is that parameters need names for each
 -- value, but closure types ignore value parameter names, and also cannot infer
@@ -167,6 +170,14 @@ instance Eq Sort where
 data Kind = Star
   deriving (Eq)
 
+asTyConApp :: Sort -> Maybe TyConApp
+asTyConApp BooleanH = Just CaseBool
+asTyConApp (SumH t s) = Just (CaseSum t s)
+asTyConApp (ListH t) = Just (CaseList t)
+asTyConApp _ = Nothing
+
+data TyConApp = CaseBool | CaseSum Sort Sort | CaseList Sort
+
 
 
 
@@ -182,7 +193,7 @@ data TermH
   -- 'call f (x, @int, z, $string_info)'
   | OpenH Name [ClosureArg]
   -- 'case x of { c1 -> k1 | c2 -> k2 | ... }'
-  | CaseH Name CaseKind [(Ctor, Name)]
+  | CaseH Name TyConApp [(Ctor, Name)]
   -- 'letrec (f1 : closure(ss) = #f1 { env1 })+ in e'
   -- Closures may be mutually recursive, so they are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
@@ -190,9 +201,6 @@ data TermH
 data Projection = ProjectFst | ProjectSnd
 
 data ClosureArg = ValueArg Name | TypeArg Sort
-
--- Consider renaming 'CaseKind' to 'TyConApp'.
-data CaseKind = CaseBool | CaseSum Sort Sort | CaseList Sort
 
 data ClosureAlloc
   = ClosureAlloc {
@@ -350,6 +358,9 @@ singleSubst aa s =
   -- to 'FTV(s)'.
   Subst { substScope = freeTyVars s, substMapping = Map.singleton aa s }
 
+listSubst :: [(TyVar, Sort)] -> Subst
+listSubst xs = Subst { substScope = foldMap (freeTyVars . snd) xs, substMapping = Map.fromList xs }
+
 -- | Pass a substitution under a variable binder, returning the updated
 -- substitution, and a new variable binder.
 substBind :: Subst -> TyVar -> (Subst, TyVar)
@@ -367,9 +378,12 @@ substBind (Subst sc sub) aa =
       else
         go (i+1)
 
+lookupSubst :: TyVar -> Subst -> Maybe Sort
+lookupSubst aa (Subst _ sub) = Map.lookup aa sub
+
 -- | Apply a substitution to a sort.
 substSort :: Subst -> Sort -> Sort
-substSort sub (AllocH aa) = case Map.lookup aa (substMapping sub) of
+substSort sub (AllocH aa) = case lookupSubst aa sub of
   Nothing -> AllocH aa
   Just s -> s
 substSort _ IntegerH = IntegerH
