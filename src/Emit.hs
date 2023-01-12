@@ -155,11 +155,11 @@ asSort (AllocH _) x = asAlloc x
 asSort IntegerH x = "CAST_INT64(" ++ x ++ ")"
 asSort (ClosureH _) x = "CAST_CLOSURE(" ++ x ++ ")"
 asSort StringH x = "CAST_STRING(" ++ x ++ ")"
-asSort BooleanH x = "CAST_BOOL(" ++ x ++ ")"
+asSort BooleanH x = "CAST_bool(" ++ x ++ ")"
 asSort (ProductH _ _) x = "CAST_PAIR(" ++ x ++ ")"
-asSort (SumH _ _) x = "CAST_SUM(" ++ x ++ ")"
+asSort (SumH _ _) x = "CAST_sum(" ++ x ++ ")"
 asSort UnitH x = "CAST_UNIT(" ++ x ++ ")"
-asSort (ListH _s) x = "CAST_LIST(" ++ x ++ ")"
+asSort (ListH _s) x = "CAST_list(" ++ x ++ ")"
 
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
@@ -571,12 +571,12 @@ dataDescTable :: TyConApp -> DataDesc
 dataDescTable CaseBool =
   DataDesc {
     dataName = "bool_value"
-  , dataUpcast = "CAST_BOOL"
+  , dataUpcast = "CAST_bool"
   , dataCtors = Map.fromList $
     [ (Ctor "false", CtorDesc {
           ctorDiscriminant = 0
         , ctorAllocate = "allocate_false"
-        , ctorDowncast = "CAST_BOOL_FALSE"
+        , ctorDowncast = "CAST_bool_false"
         , ctorThunkType = ThunkType []
         , ctorArgCasts = []
         }
@@ -584,7 +584,7 @@ dataDescTable CaseBool =
     , (Ctor "true", CtorDesc {
           ctorDiscriminant = 1
         , ctorAllocate = "allocate_true"
-        , ctorDowncast = "CAST_BOOL_TRUE"
+        , ctorDowncast = "CAST_bool_true"
         , ctorThunkType = ThunkType []
         , ctorArgCasts = []
         }
@@ -594,12 +594,12 @@ dataDescTable CaseBool =
 dataDescTable (CaseSum t s) =
   DataDesc {
     dataName = "sum"
-  , dataUpcast = "CAST_SUM"
+  , dataUpcast = "CAST_sum"
   , dataCtors = Map.fromList $
     [ (Ctor "inl", CtorDesc {
           ctorDiscriminant = 0
         , ctorAllocate = "allocate_inl"
-        , ctorDowncast = "CAST_SUM_INL"
+        , ctorDowncast = "CAST_sum_inl"
         , ctorThunkType = ThunkType [ThunkValueArg t]
         , ctorArgCasts = [("payload", Just t)]
         }
@@ -607,7 +607,7 @@ dataDescTable (CaseSum t s) =
     , (Ctor "inr", CtorDesc {
           ctorDiscriminant = 1
         , ctorAllocate = "allocate_inr"
-        , ctorDowncast = "CAST_SUM_INR"
+        , ctorDowncast = "CAST_sum_inr"
         , ctorThunkType = ThunkType [ThunkValueArg s]
         , ctorArgCasts = [("payload", Just s)]
         }
@@ -617,12 +617,12 @@ dataDescTable (CaseSum t s) =
 dataDescTable (CaseList t) =
   DataDesc {
     dataName = "list"
-  , dataUpcast = "CAST_LIST"
+  , dataUpcast = "CAST_list"
   , dataCtors = Map.fromList $
     [ (Ctor "nil", CtorDesc {
           ctorDiscriminant = 0
         , ctorAllocate = "allocate_list_nil"
-        , ctorDowncast = "CAST_LIST_NIL"
+        , ctorDowncast = "CAST_list_nil"
         , ctorThunkType = ThunkType []
         , ctorArgCasts = []
         }
@@ -630,7 +630,7 @@ dataDescTable (CaseList t) =
     , (Ctor "cons", CtorDesc {
           ctorDiscriminant = 1
         , ctorAllocate = "allocate_list_cons"
-        , ctorDowncast = "CAST_LIST_CONS"
+        , ctorDowncast = "CAST_list_cons"
         , ctorThunkType = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
         , ctorArgCasts = [("head", Just t), ("tail", Nothing)]
         }

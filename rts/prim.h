@@ -35,9 +35,9 @@ struct sum {
 struct sum *allocate_inl(struct alloc_header *v);
 struct sum *allocate_inr(struct alloc_header *v);
 
-#define CAST_SUM(v) ((struct sum *)(v))
-#define CAST_SUM_INL(v) (v)
-#define CAST_SUM_INR(v) (v)
+#define CAST_sum(v) ((struct sum *)(v))
+#define CAST_sum_inl(v) (v)
+#define CAST_sum_inr(v) (v)
 
 struct bool_value {
     struct alloc_header header;
@@ -47,9 +47,9 @@ struct bool_value {
 struct bool_value *allocate_true(void);
 struct bool_value *allocate_false(void);
 
-#define CAST_BOOL(v) ((struct bool_value *)(v))
-#define CAST_BOOL_FALSE(v) (v)
-#define CAST_BOOL_TRUE(v) (v)
+#define CAST_bool(v) ((struct bool_value *)(v))
+#define CAST_bool_false(v) (v)
+#define CAST_bool_true(v) (v)
 
 struct pair {
     struct alloc_header header;
@@ -87,9 +87,9 @@ struct list_cons {
 struct list *allocate_list_nil(void);
 struct list *allocate_list_cons(struct alloc_header *x, struct list *xs);
 
-#define CAST_LIST(v) ((struct list *)(v))
-#define CAST_LIST_NIL(v) ((struct list_nil *)(v))
-#define CAST_LIST_CONS(v) ((struct list_cons *)(v))
+#define CAST_list(v) ((struct list *)(v))
+#define CAST_list_nil(v) ((struct list_nil *)(v))
+#define CAST_list_cons(v) ((struct list_cons *)(v))
 
 struct string_value {
     struct alloc_header header;

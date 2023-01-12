@@ -55,12 +55,12 @@ struct closure *allocate_closure(
 }
 
 void trace_sum(struct alloc_header *alloc) {
-    struct sum *v = CAST_SUM(alloc);
+    struct sum *v = CAST_sum(alloc);
     mark_gray(v->payload);
 }
 
 void display_sum(struct alloc_header *alloc, struct string_buf *sb) {
-    struct sum *v = CAST_SUM(alloc);
+    struct sum *v = CAST_sum(alloc);
     switch (v->discriminant) {
     case 0:
         string_buf_push(sb, "inl ");
@@ -97,7 +97,7 @@ void trace_bool_value(struct alloc_header *alloc) {
 }
 
 void display_bool_value(struct alloc_header *alloc, struct string_buf *sb) {
-    struct bool_value *v = CAST_BOOL(alloc);
+    struct bool_value *v = CAST_bool(alloc);
     if (v->discriminant) {
         string_buf_push(sb, "true");
     } else {
@@ -124,18 +124,18 @@ struct bool_value *allocate_false(void) {
 }
 
 void trace_list(struct alloc_header *alloc) {
-    struct list *l = CAST_LIST(alloc);
+    struct list *l = CAST_list(alloc);
     switch (l->discriminant) {
     case 0:
         // nil
         {
-        struct list_nil *n = CAST_LIST_NIL(l);
+        struct list_nil *n = CAST_list_nil(l);
         }
         break;
     case 1:
         // cons
         {
-        struct list_cons *c = CAST_LIST_CONS(l);
+        struct list_cons *c = CAST_list_cons(l);
         mark_gray(c->head);
         mark_gray(AS_ALLOC(c->tail));
         }
@@ -144,14 +144,14 @@ void trace_list(struct alloc_header *alloc) {
 }
 
 void display_list(struct alloc_header *alloc, struct string_buf *sb) {
-    struct list *l = CAST_LIST(alloc);
+    struct list *l = CAST_list(alloc);
     switch (l->discriminant) {
     case 0:
         string_buf_push(sb, "nil");
         break;
     case 1:
         {
-        struct list_cons *c = CAST_LIST_CONS(l);
+        struct list_cons *c = CAST_list_cons(l);
         string_buf_push(sb, "cons ");
         c->head->info->display(c->head, sb);
         string_buf_push(sb, " ");
@@ -168,7 +168,7 @@ struct list *allocate_list_nil(void) {
     n->header.discriminant = 0;
 
     cons_new_alloc(AS_ALLOC(n), &list_info);
-    return CAST_LIST(n);
+    return CAST_list(n);
 }
 
 struct list *allocate_list_cons(struct alloc_header *x, struct list *xs) {
@@ -178,7 +178,7 @@ struct list *allocate_list_cons(struct alloc_header *x, struct list *xs) {
     c->tail = xs;
 
     cons_new_alloc(AS_ALLOC(c), &list_info);
-    return CAST_LIST(c);
+    return CAST_list(c);
 }
 
 void trace_pair(struct alloc_header *alloc) {
