@@ -152,14 +152,14 @@ typeForSort (ListH _) = "struct list *"
 
 asSort :: Sort -> String -> String
 asSort (AllocH _) x = asAlloc x
-asSort IntegerH x = "AS_INT64(" ++ x ++ ")"
-asSort (ClosureH _) x = "AS_CLOSURE(" ++ x ++ ")"
-asSort StringH x = "AS_STRING(" ++ x ++ ")"
-asSort BooleanH x = "AS_BOOL(" ++ x ++ ")"
-asSort (ProductH _ _) x = "AS_PAIR(" ++ x ++ ")"
-asSort (SumH _ _) x = "AS_SUM(" ++ x ++ ")"
-asSort UnitH x = "AS_UNIT(" ++ x ++ ")"
-asSort (ListH _s) x = "AS_LIST(" ++ x ++ ")"
+asSort IntegerH x = "CAST_INT64(" ++ x ++ ")"
+asSort (ClosureH _) x = "CAST_CLOSURE(" ++ x ++ ")"
+asSort StringH x = "CAST_STRING(" ++ x ++ ")"
+asSort BooleanH x = "CAST_BOOL(" ++ x ++ ")"
+asSort (ProductH _ _) x = "CAST_PAIR(" ++ x ++ ")"
+asSort (SumH _ _) x = "CAST_SUM(" ++ x ++ ")"
+asSort UnitH x = "CAST_UNIT(" ++ x ++ ")"
+asSort (ListH _s) x = "CAST_LIST(" ++ x ++ ")"
 
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
@@ -509,7 +509,7 @@ data DataDesc
 -- as a 'struct alloc_header *' and 'zs' is stored as a 'struct list *'. The
 -- continuation expects 'struct int64_value *' and 'struct list *'.
 --
--- Therefore, we must cast 'AS_INT64(ctor->head)' but can leave 'ctor->tail' as
+-- Therefore, we must cast 'CAST_INT64(ctor->head)' but can leave 'ctor->tail' as
 -- is when suspending.
 --
 -- More generally, if a data type's constructor has a field of sort 'AllocH
@@ -531,7 +531,7 @@ dataDesc :: DataDecl -> [Sort] -> DataDesc
 dataDesc (DataDecl tc k typarams ctors) tyargs =
   DataDesc {
     dataName = show tc
-  , dataUpcast = "AS_" ++ show tc
+  , dataUpcast = "CAST_" ++ show tc
   , dataCtors = Map.fromList $ zipWith ctorDesc [0..] ctors
   }
   where
@@ -545,7 +545,7 @@ dataDesc (DataDecl tc k typarams ctors) tyargs =
       -- (e.g., 'cons' only belongs to 'list', so I could call 'make_cons'
       -- instead of 'make_list_cons')
       , ctorAllocate = "make_" ++ show tc ++ "_" ++ show c
-      , ctorDowncast = "AS_" ++ show tc ++ "_" ++ show c
+      , ctorDowncast = "CAST_" ++ show tc ++ "_" ++ show c
       , ctorThunkType = ThunkType thunkTy
       , ctorArgCasts = argCasts
       })
@@ -571,12 +571,12 @@ dataDescTable :: TyConApp -> DataDesc
 dataDescTable CaseBool =
   DataDesc {
     dataName = "bool_value"
-  , dataUpcast = "AS_BOOL"
+  , dataUpcast = "CAST_BOOL"
   , dataCtors = Map.fromList $
     [ (Ctor "false", CtorDesc {
           ctorDiscriminant = 0
         , ctorAllocate = "allocate_false"
-        , ctorDowncast = "AS_BOOL_FALSE"
+        , ctorDowncast = "CAST_BOOL_FALSE"
         , ctorThunkType = ThunkType []
         , ctorArgCasts = []
         }
@@ -584,7 +584,7 @@ dataDescTable CaseBool =
     , (Ctor "true", CtorDesc {
           ctorDiscriminant = 1
         , ctorAllocate = "allocate_true"
-        , ctorDowncast = "AS_BOOL_TRUE"
+        , ctorDowncast = "CAST_BOOL_TRUE"
         , ctorThunkType = ThunkType []
         , ctorArgCasts = []
         }
@@ -594,12 +594,12 @@ dataDescTable CaseBool =
 dataDescTable (CaseSum t s) =
   DataDesc {
     dataName = "sum"
-  , dataUpcast = "AS_SUM"
+  , dataUpcast = "CAST_SUM"
   , dataCtors = Map.fromList $
     [ (Ctor "inl", CtorDesc {
           ctorDiscriminant = 0
         , ctorAllocate = "allocate_inl"
-        , ctorDowncast = "AS_SUM_INL"
+        , ctorDowncast = "CAST_SUM_INL"
         , ctorThunkType = ThunkType [ThunkValueArg t]
         , ctorArgCasts = [("payload", Just t)]
         }
@@ -607,7 +607,7 @@ dataDescTable (CaseSum t s) =
     , (Ctor "inr", CtorDesc {
           ctorDiscriminant = 1
         , ctorAllocate = "allocate_inr"
-        , ctorDowncast = "AS_SUM_INR"
+        , ctorDowncast = "CAST_SUM_INR"
         , ctorThunkType = ThunkType [ThunkValueArg s]
         , ctorArgCasts = [("payload", Just s)]
         }
@@ -617,12 +617,12 @@ dataDescTable (CaseSum t s) =
 dataDescTable (CaseList t) =
   DataDesc {
     dataName = "list"
-  , dataUpcast = "AS_LIST"
+  , dataUpcast = "CAST_LIST"
   , dataCtors = Map.fromList $
     [ (Ctor "nil", CtorDesc {
           ctorDiscriminant = 0
         , ctorAllocate = "allocate_list_nil"
-        , ctorDowncast = "AS_LIST_NIL"
+        , ctorDowncast = "CAST_LIST_NIL"
         , ctorThunkType = ThunkType []
         , ctorArgCasts = []
         }
@@ -630,7 +630,7 @@ dataDescTable (CaseList t) =
     , (Ctor "cons", CtorDesc {
           ctorDiscriminant = 1
         , ctorAllocate = "allocate_list_cons"
-        , ctorDowncast = "AS_LIST_CONS"
+        , ctorDowncast = "CAST_LIST_CONS"
         , ctorThunkType = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
         , ctorArgCasts = [("head", Just t), ("tail", Nothing)]
         }

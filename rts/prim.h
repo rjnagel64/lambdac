@@ -11,7 +11,7 @@ struct int64_value {
 // Corresponds to Int64# constructor? No discriminant, though.
 struct int64_value *allocate_int64(int64_t x);
 
-#define AS_INT64(v) ((struct int64_value *)(v))
+#define CAST_INT64(v) ((struct int64_value *)(v))
 
 struct closure {
     struct alloc_header header;
@@ -24,7 +24,7 @@ void display_env(struct alloc_header *alloc, struct string_buf *sb);
 
 struct closure *allocate_closure(struct alloc_header *env, void (*enter)(void));
 
-#define AS_CLOSURE(v) ((struct closure *)(v))
+#define CAST_CLOSURE(v) ((struct closure *)(v))
 
 struct sum {
     struct alloc_header header;
@@ -35,9 +35,9 @@ struct sum {
 struct sum *allocate_inl(struct alloc_header *v);
 struct sum *allocate_inr(struct alloc_header *v);
 
-#define AS_SUM(v) ((struct sum *)(v))
-#define AS_SUM_INL(v) (v)
-#define AS_SUM_INR(v) (v)
+#define CAST_SUM(v) ((struct sum *)(v))
+#define CAST_SUM_INL(v) (v)
+#define CAST_SUM_INR(v) (v)
 
 struct bool_value {
     struct alloc_header header;
@@ -47,9 +47,9 @@ struct bool_value {
 struct bool_value *allocate_true(void);
 struct bool_value *allocate_false(void);
 
-#define AS_BOOL(v) ((struct bool_value *)(v))
-#define AS_BOOL_FALSE(v) (v)
-#define AS_BOOL_TRUE(v) (v)
+#define CAST_BOOL(v) ((struct bool_value *)(v))
+#define CAST_BOOL_FALSE(v) (v)
+#define CAST_BOOL_TRUE(v) (v)
 
 struct pair {
     struct alloc_header header;
@@ -59,7 +59,7 @@ struct pair {
 
 struct pair *allocate_pair(struct alloc_header *x, struct alloc_header *y);
 
-#define AS_PAIR(v) ((struct pair *)(v))
+#define CAST_PAIR(v) ((struct pair *)(v))
 
 struct unit {
     struct alloc_header header;
@@ -67,7 +67,7 @@ struct unit {
 
 struct unit *allocate_unit(void);
 
-#define AS_UNIT(v) ((struct unit *)(v))
+#define CAST_UNIT(v) ((struct unit *)(v))
 
 struct list {
     struct alloc_header header;
@@ -87,9 +87,9 @@ struct list_cons {
 struct list *allocate_list_nil(void);
 struct list *allocate_list_cons(struct alloc_header *x, struct list *xs);
 
-#define AS_LIST(v) ((struct list *)(v))
-#define AS_LIST_NIL(v) ((struct list_nil *)(v))
-#define AS_LIST_CONS(v) ((struct list_cons *)(v))
+#define CAST_LIST(v) ((struct list *)(v))
+#define CAST_LIST_NIL(v) ((struct list_nil *)(v))
+#define CAST_LIST_CONS(v) ((struct list_cons *)(v))
 
 struct string_value {
     struct alloc_header header;
@@ -108,7 +108,7 @@ struct string_value {
 
 struct string_value *allocate_string(char *contents);
 
-#define AS_STRING(v) ((struct string_value *)(v))
+#define CAST_STRING(v) ((struct string_value *)(v))
 
 // Primitive operators on integers: arithmetic
 struct int64_value *prim_addint64(struct int64_value *x, struct int64_value *y);
