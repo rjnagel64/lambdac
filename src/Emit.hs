@@ -447,7 +447,7 @@ emitCase kind envp x branches =
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    tab = ctorDescTable kind
+    tab = dataCtors (dataDescTable kind)
 
     emitCaseBranch :: (Ctor, Name) -> [String]
     emitCaseBranch (ctor, k) =
@@ -482,7 +482,7 @@ emitValueAlloc envp ty (CtorAppH capp) =
 emitCtorAlloc :: EnvPtr -> TyConApp -> CtorAppH -> String
 emitCtorAlloc envp kind capp = ctorAllocate desc ++ "(" ++ commaSep args' ++ ")"
   where
-    desc = ctorDescTable kind Map.! ctorName
+    desc = dataCtors (dataDescTable kind) Map.! ctorName
     (ctorName, args) = case capp of
       BoolH True -> (Ctor "true", [])
       BoolH False -> (Ctor "false", [])
@@ -502,6 +502,19 @@ data DataDesc
   , dataCtors :: Map Ctor CtorDesc
   }
 
+-- Note: Only constructor arguments that are polymorphic need to have a cast
+-- applied.
+--
+-- In other words, when scrutinizing 'cons @int z zs : list int', 'z' is stored
+-- as a 'struct alloc_header *' and 'zs' is stored as a 'struct list *'. The
+-- continuation expects 'struct int64_value *' and 'struct list *'.
+--
+-- Therefore, we must cast 'AS_INT64(ctor->head)' but can leave 'ctor->tail' as
+-- is when suspending.
+--
+-- More generally, if a data type's constructor has a field of sort 'AllocH
+-- aa', then that field should be cast to 't', where the case kind specifies
+-- that '[aa := t]'
 data CtorDesc
   = CtorDesc {
   -- Hmm. Need a ctorName field to name the struct.
@@ -515,14 +528,14 @@ data CtorDesc
   }
 
 dataDesc :: DataDecl -> [Sort] -> DataDesc
-dataDesc (DataDecl tc k params ctors) args =
+dataDesc (DataDecl tc k typarams ctors) tyargs =
   DataDesc {
     dataName = show tc
   , dataUpcast = "AS_" ++ show tc
   , dataCtors = Map.fromList $ zipWith ctorDesc [0..] ctors
   }
   where
-    sub = listSubst (zip (map fst params) args)
+    sub = listSubst (zip (map fst typarams) tyargs)
     -- 'i' is the index of the ctor, and therefore the discriminant for this ctor.
     ctorDesc i (CtorDecl c args) =
       ( c
@@ -550,75 +563,80 @@ dataDesc (DataDecl tc k params ctors) args =
           Just s' -> (ThunkValueArg (AllocH aa), (show fld, Just s'))
         f (fld, s) = (ThunkValueArg s, (show fld, Nothing))
 
--- Note: Only constructor arguments that are polymorphic need to have a cast
--- applied.
+-- I can't quite use dataDesc to compute this table, because prim.{c,h} uses
+-- different capitalization.
 --
--- In other words, when scrutinizing 'cons @int z zs : list int', 'z' is stored
--- as a 'struct alloc_header *' and 'zs' is stored as a 'struct list *'. The
--- continuation expects 'struct int64_value *' and 'struct list *'.
---
--- Therefore, we must cast 'AS_INT64(ctor->head)' but can leave 'ctor->tail' as
--- is when suspending.
---
--- More generally, if a data type's constructor has a field of sort 'AllocH
--- aa', then that field should be cast to 't', where the case kind specifies
--- that '[aa := t]'
-ctorDescTable :: TyConApp -> Map Ctor CtorDesc
-ctorDescTable CaseBool = Map.fromList $
-  [ (Ctor "false", CtorDesc {
-        ctorDiscriminant = 0
-      , ctorAllocate = "allocate_false"
-      , ctorDowncast = "AS_BOOL_FALSE"
-      , ctorThunkType = ThunkType []
-      , ctorArgCasts = []
-      }
-    )
-  , (Ctor "true", CtorDesc {
-        ctorDiscriminant = 1
-      , ctorAllocate = "allocate_true"
-      , ctorDowncast = "AS_BOOL_TRUE"
-      , ctorThunkType = ThunkType []
-      , ctorArgCasts = []
-      }
-    )
-  ]
-ctorDescTable (CaseSum t s) = Map.fromList $
-  [ (Ctor "inl", CtorDesc {
-        ctorDiscriminant = 0
-      , ctorAllocate = "allocate_inl"
-      , ctorDowncast = "AS_SUM_INL"
-      , ctorThunkType = ThunkType [ThunkValueArg t]
-      , ctorArgCasts = [("payload", Just t)]
-      }
-    )
-  , (Ctor "inr", CtorDesc {
-        ctorDiscriminant = 1
-      , ctorAllocate = "allocate_inr"
-      , ctorDowncast = "AS_SUM_INR"
-      , ctorThunkType = ThunkType [ThunkValueArg s]
-      , ctorArgCasts = [("payload", Just s)]
-      }
-    )
-  ]
-ctorDescTable (CaseList t) = Map.fromList $
-  [ (Ctor "nil", CtorDesc {
-        ctorDiscriminant = 0
-      , ctorAllocate = "allocate_list_nil"
-      , ctorDowncast = "AS_LIST_NIL"
-      , ctorThunkType = ThunkType []
-      , ctorArgCasts = []
-      }
-    )
-  , (Ctor "cons", CtorDesc {
-        ctorDiscriminant = 1
-      , ctorAllocate = "allocate_list_cons"
-      , ctorDowncast = "AS_LIST_CONS"
-      , ctorThunkType = consThunkTy
-      , ctorArgCasts = [("head", Just t), ("tail", Nothing)]
-      }
-    )
-  ]
-  where consThunkTy = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
+-- I should fix that.
+dataDescTable :: TyConApp -> DataDesc
+dataDescTable CaseBool =
+  DataDesc {
+    dataName = "bool_value"
+  , dataUpcast = "AS_BOOL"
+  , dataCtors = Map.fromList $
+    [ (Ctor "false", CtorDesc {
+          ctorDiscriminant = 0
+        , ctorAllocate = "allocate_false"
+        , ctorDowncast = "AS_BOOL_FALSE"
+        , ctorThunkType = ThunkType []
+        , ctorArgCasts = []
+        }
+      )
+    , (Ctor "true", CtorDesc {
+          ctorDiscriminant = 1
+        , ctorAllocate = "allocate_true"
+        , ctorDowncast = "AS_BOOL_TRUE"
+        , ctorThunkType = ThunkType []
+        , ctorArgCasts = []
+        }
+      )
+    ]
+  }
+dataDescTable (CaseSum t s) =
+  DataDesc {
+    dataName = "sum"
+  , dataUpcast = "AS_SUM"
+  , dataCtors = Map.fromList $
+    [ (Ctor "inl", CtorDesc {
+          ctorDiscriminant = 0
+        , ctorAllocate = "allocate_inl"
+        , ctorDowncast = "AS_SUM_INL"
+        , ctorThunkType = ThunkType [ThunkValueArg t]
+        , ctorArgCasts = [("payload", Just t)]
+        }
+      )
+    , (Ctor "inr", CtorDesc {
+          ctorDiscriminant = 1
+        , ctorAllocate = "allocate_inr"
+        , ctorDowncast = "AS_SUM_INR"
+        , ctorThunkType = ThunkType [ThunkValueArg s]
+        , ctorArgCasts = [("payload", Just s)]
+        }
+      )
+    ]
+    }
+dataDescTable (CaseList t) =
+  DataDesc {
+    dataName = "list"
+  , dataUpcast = "AS_LIST"
+  , dataCtors = Map.fromList $
+    [ (Ctor "nil", CtorDesc {
+          ctorDiscriminant = 0
+        , ctorAllocate = "allocate_list_nil"
+        , ctorDowncast = "AS_LIST_NIL"
+        , ctorThunkType = ThunkType []
+        , ctorArgCasts = []
+        }
+      )
+    , (Ctor "cons", CtorDesc {
+          ctorDiscriminant = 1
+        , ctorAllocate = "allocate_list_cons"
+        , ctorDowncast = "AS_LIST_CONS"
+        , ctorThunkType = ThunkType [ThunkValueArg t, ThunkValueArg (ListH t)]
+        , ctorArgCasts = [("head", Just t), ("tail", Nothing)]
+        }
+      )
+    ]
+  }
 
 emitPrimOp :: EnvPtr -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
