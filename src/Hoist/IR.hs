@@ -139,7 +139,11 @@ data CtorDecl
   --
   -- Also, I don't have GADTs, so the return type is redundant (it's just the
   -- tycon applied to the parameters)
-  = CtorDecl Ctor [Sort]
+  --
+  -- Third, I require each ctor argument to have a name (for fields in the ctor's struct),
+  -- which doesn't fit in a 'ClosureTele' (but maybe 'ClosureParam' would work?
+  -- Isomorphic, but semantically distinct, so not really.)
+  = CtorDecl Ctor [(Id, Sort)]
 
 
 -- | A 'Sort' describes the runtime layout of a value. It is static information.

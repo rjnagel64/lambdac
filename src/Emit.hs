@@ -537,11 +537,8 @@ dataDesc (DataDecl tc k params ctors) args =
       , ctorArgCasts = argCasts
       })
       where
-        (thunkTy, argCasts) = unzip $ zipWith f ([0..] :: [Int]) args
-        -- 'j' is the index of the argument, needed because I do not yet support
-        -- named fields of data ctors.
-        -- (Could be useful, though?)
-        f j (AllocH aa) = case lookupSubst aa sub of
+        (thunkTy, argCasts) = unzip (map f args)
+        f (fld, AllocH aa) = case lookupSubst aa sub of
           -- All parameters of the data type should have corresponding arguments.
           -- All argument sorts should be well-formed w.r.t. those parameters, so
           -- the 'Nothing' case should not occur.
@@ -550,8 +547,8 @@ dataDesc (DataDecl tc k params ctors) args =
           -- 'AllocH bb', where 'bb' is existentially bound. In that case, the
           -- argument should be cast to 'struct alloc_header *', I think.
           Nothing -> error "missing type argument"
-          Just s' -> (ThunkValueArg (AllocH aa), ("arg" ++ show j, Just s'))
-        f j s = (ThunkValueArg s, ("arg" ++ show j, Nothing))
+          Just s' -> (ThunkValueArg (AllocH aa), (show fld, Just s'))
+        f (fld, s) = (ThunkValueArg s, (show fld, Nothing))
 
 -- Note: Only constructor arguments that are polymorphic need to have a cast
 -- applied.
