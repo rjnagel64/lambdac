@@ -39,17 +39,17 @@ struct sum *allocate_sum_inr(struct alloc_header *v);
 #define CAST_sum_inl(v) (v)
 #define CAST_sum_inr(v) (v)
 
-struct bool_value {
+struct vbool {
     struct alloc_header header;
     uint8_t discriminant;
 };
 
-struct bool_value *allocate_bool_true(void);
-struct bool_value *allocate_bool_false(void);
+struct vbool *allocate_vbool_true(void);
+struct vbool *allocate_vbool_false(void);
 
-#define CAST_bool(v) ((struct bool_value *)(v))
-#define CAST_bool_false(v) (v)
-#define CAST_bool_true(v) (v)
+#define CAST_vbool(v) ((struct vbool *)(v))
+#define CAST_vbool_false(v) (v)
+#define CAST_vbool_true(v) (v)
 
 struct pair {
     struct alloc_header header;
@@ -117,12 +117,12 @@ struct int64_value *prim_mulint64(struct int64_value *x, struct int64_value *y);
 struct int64_value *prim_negint64(struct int64_value *x);
 
 // Primitive operators on integers: comparison
-struct bool_value *prim_eqint64(struct int64_value *x, struct int64_value *y);
-struct bool_value *prim_neint64(struct int64_value *x, struct int64_value *y);
-struct bool_value *prim_ltint64(struct int64_value *x, struct int64_value *y);
-struct bool_value *prim_leint64(struct int64_value *x, struct int64_value *y);
-struct bool_value *prim_gtint64(struct int64_value *x, struct int64_value *y);
-struct bool_value *prim_geint64(struct int64_value *x, struct int64_value *y);
+struct vbool *prim_eqint64(struct int64_value *x, struct int64_value *y);
+struct vbool *prim_neint64(struct int64_value *x, struct int64_value *y);
+struct vbool *prim_ltint64(struct int64_value *x, struct int64_value *y);
+struct vbool *prim_leint64(struct int64_value *x, struct int64_value *y);
+struct vbool *prim_gtint64(struct int64_value *x, struct int64_value *y);
+struct vbool *prim_geint64(struct int64_value *x, struct int64_value *y);
 
 // Primitive operators on strings
 struct string_value *prim_concatenate(struct string_value *x, struct string_value *y);

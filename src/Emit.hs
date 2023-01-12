@@ -144,7 +144,7 @@ typeForSort (AllocH _) = "struct alloc_header *"
 typeForSort (ClosureH _) = "struct closure *"
 typeForSort IntegerH = "struct int64_value *"
 typeForSort StringH = "struct string_value *"
-typeForSort BooleanH = "struct bool_value *"
+typeForSort BooleanH = "struct vbool *"
 typeForSort (ProductH _ _) = "struct pair *"
 typeForSort (SumH _ _) = "struct sum *"
 typeForSort UnitH = "struct unit *"
@@ -470,14 +470,9 @@ emitValueAlloc envp _ (PairH x y) =
   "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ _ NilH = "allocate_unit()"
 emitValueAlloc envp ty (CtorAppH capp) =
-  let
-    kind = case ty of
-      BooleanH -> CaseBool
-      SumH t s -> CaseSum t s
-      ListH t -> CaseList t
-      _ -> error "not a constructed type"
-  in
-  emitCtorAlloc envp kind capp
+  case asTyConApp ty of
+    Nothing -> error "not a constructed type"
+    Just kind -> emitCtorAlloc envp kind capp
 
 emitCtorAlloc :: EnvPtr -> TyConApp -> CtorAppH -> String
 emitCtorAlloc envp kind capp = ctorAllocate desc ++ "(" ++ commaSep args' ++ ")"
@@ -565,7 +560,9 @@ dataDesc (DataDecl tc typarams ctors) tyargs =
 
 boolDataDecl :: DataDecl
 boolDataDecl =
-  DataDecl (TyCon "bool_value") []
+  -- 'bool' is reserved in C, so I cannot use 'bool' as a type constructor here.
+  -- Hrrm. Annoying.
+  DataDecl (TyCon "vbool") []
   [ CtorDecl (Ctor "false") []
   , CtorDecl (Ctor "true") []
   ]
@@ -587,36 +584,8 @@ listDataDecl =
   , CtorDecl (Ctor "cons") [(Id "head", AllocH aa), (Id "tail", ListH (AllocH aa))]
   ]
 
--- I can't quite use dataDesc to compute this table, because prim.{c,h} uses
--- different capitalization.
---
--- I should fix that.
 dataDescTable :: TyConApp -> DataDesc
-dataDescTable CaseBool =
-  DataDesc {
-    -- The tycon should be 'bool', but the struct is named 'bool_value'.
-    -- I'm pretty sure that 'bool' isn't a reserved identifier in C?
-    dataName = "bool_value"
-  , dataUpcast = "CAST_bool"
-  , dataCtors = Map.fromList $
-    [ (Ctor "false", CtorDesc {
-          ctorDiscriminant = 0
-        , ctorAllocate = "allocate_bool_false"
-        , ctorDowncast = "CAST_bool_false"
-        , ctorThunkType = ThunkType []
-        , ctorArgCasts = []
-        }
-      )
-    , (Ctor "true", CtorDesc {
-          ctorDiscriminant = 1
-        , ctorAllocate = "allocate_bool_true"
-        , ctorDowncast = "CAST_bool_true"
-        , ctorThunkType = ThunkType []
-        , ctorArgCasts = []
-        }
-      )
-    ]
-  }
+dataDescTable CaseBool = dataDesc boolDataDecl []
 dataDescTable (CaseSum t s) = dataDesc sumDataDecl [t, s]
 dataDescTable (CaseList t) = dataDesc listDataDecl [t]
 

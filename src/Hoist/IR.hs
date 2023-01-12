@@ -10,6 +10,8 @@ module Hoist.IR
     , Sort(..)
     , ClosureTele(..)
     , TeleEntry(..)
+    , TyConApp(..)
+    , asTyConApp
 
     , Kind(..)
 
@@ -34,7 +36,6 @@ module Hoist.IR
     , TermH(..)
     , Projection(..)
     , ClosureArg(..)
-    , TyConApp(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
     , EnvAllocValueArg(..)
