@@ -478,7 +478,7 @@ pprintDecls :: [Decl] -> String
 pprintDecls ds = concatMap pprintDecl ds
   where
     pprintDecl (DeclCode cd) = pprintClosureDecl 0 cd
-    pprintDecl (DeclData dd) = error "not implemented: ppr DataDecl"
+    pprintDecl (DeclData dd) = pprintDataDecl 0 dd
 
 pprintClosureDecl :: Int -> CodeDecl -> String
 pprintClosureDecl n (CodeDecl f (name, EnvDecl is fs) params e) =
@@ -488,6 +488,17 @@ pprintClosureDecl n (CodeDecl f (name, EnvDecl is fs) params e) =
     envParam = show name ++ " : {" ++ intercalate ", " (infoFields ++ valueFields) ++ "}"
     infoFields = map (\ (aa, k) -> "@" ++ show aa) is
     valueFields = map pprintPlace fs
+
+pprintDataDecl :: Int -> DataDecl -> String
+pprintDataDecl n (DataDecl tc params ctors) =
+  indent n ("data " ++ show tc ++ intercalate " " (map f params) ++ " where\n") ++
+  unlines (map (pprintCtorDecl (n+2)) ctors)
+  where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
+
+pprintCtorDecl :: Int -> CtorDecl -> String
+pprintCtorDecl n (CtorDecl c args) =
+  indent n (show c ++ "(" ++ intercalate ", " (map f args) ++ ");")
+  where f (x, s) = show x ++ " : " ++ pprintSort s
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p d _envPlace env) =
