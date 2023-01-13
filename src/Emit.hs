@@ -248,11 +248,11 @@ emitThunkDecl t =
   emitThunkSuspend ns t
   where ns = namesForThunk t
 
-foldThunk :: (Int -> Sort -> b -> b) -> b -> ThunkType -> b
-foldThunk consValue nil ty = go 0 (thunkArgs ty)
+foldThunk :: (Int -> Sort -> b) -> ThunkType -> [b]
+foldThunk consValue ty = go 0 (thunkArgs ty)
   where
-    go _ [] = nil
-    go i (ThunkValueArg s : ss) = consValue i s (go (i+1) ss)
+    go _ [] = []
+    go i (ThunkValueArg s : ss) = consValue i s : go (i+1) ss
     go i (ThunkInfoArg : ss) = go i ss
 
 emitThunkArgs :: ThunkNames -> ThunkType -> [Line]
@@ -262,11 +262,11 @@ emitThunkArgs ns ty =
   declareFields ty ++
   ["};"]
   where
-    declareFields = foldThunk consValue []
+    declareFields = foldThunk consValue
       where
-        consValue i s acc =
+        consValue i s =
           let p = Place s (Id ("arg" ++ show i)) in
-          ("    " ++ emitPlace p ++ ";") : acc
+          "    " ++ emitPlace p ++ ";"
 
 emitThunkTrace :: ThunkNames -> ThunkType -> [Line]
 emitThunkTrace ns ty =
@@ -277,8 +277,8 @@ emitThunkTrace ns ty =
   ["}"]
   where
     argsTy = "struct " ++ thunkArgsName ns ++ " *"
-    body = foldThunk consValue [] ty
-      where consValue i s acc = ("    mark_gray(" ++ asAlloc ("args->arg" ++ show i) ++ ");") : acc
+    body = foldThunk consValue ty
+      where consValue i _ = "    mark_gray(" ++ asAlloc ("args->arg" ++ show i) ++ ");"
 
 emitThunkSuspend :: ThunkNames -> ThunkType -> [Line]
 emitThunkSuspend ns ty =
@@ -291,18 +291,17 @@ emitThunkSuspend ns ty =
   ,"}"]
   where
     argsTy = "struct " ++ thunkArgsName ns ++ " *"
-    paramList = "struct closure *closure" : foldThunk consValue [] ty
+    paramList = "struct closure *closure" : foldThunk consValue ty
       where
-        consValue i s@(AllocH _) acc =
+        consValue i s@(AllocH _) =
           let p = Place s (Id ("arg" ++ show i)) in
-          emitPlace p :
-          acc
-        consValue i s acc = let p = Place s (Id ("arg" ++ show i)) in emitPlace p : acc
-    assignFields = foldThunk consValue []
+          emitPlace p
+        consValue i s = let p = Place s (Id ("arg" ++ show i)) in emitPlace p
+    assignFields = foldThunk consValue
       where
-        consValue i _ acc =
+        consValue i _ =
           let arg = "arg" ++ show i in
-          ("    args->" ++ arg ++ " = " ++ arg ++ ";") : acc
+          "    args->" ++ arg ++ " = " ++ arg ++ ";"
 
 emitClosureDecl :: CodeDecl -> [Line]
 emitClosureDecl cd@(CodeDecl d (envName, envd@(EnvDecl _ places)) params e) =
@@ -377,8 +376,8 @@ emitClosureEnter tns cns ty =
   where
     argsTy = "struct " ++ thunkArgsName tns ++ " *"
     envTy = "struct " ++ envTypeName (closureEnvName cns) ++ " *"
-    argList = "env" : foldThunk consValue [] ty
-      where consValue i s acc = ("args->arg" ++ show i) : acc
+    argList = "env" : foldThunk consValue ty
+      where consValue i s = "args->arg" ++ show i
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.
