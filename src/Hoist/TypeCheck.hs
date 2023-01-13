@@ -48,6 +48,7 @@ data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Map TyVar Kind 
 -- | Ways in which a Hoist IR program can be invalid.
 data TCError
   = TypeMismatch Sort Sort
+  | KindMismatch Kind Kind
   | NameNotInLocals Id
   | TyVarNotInLocals TyVar
   | ClosureNotInLocals CodeLabel
@@ -61,6 +62,7 @@ data TCError
   | WrongClosureArg
   | ArgumentCountMismatch
   | DuplicateLabels [String]
+  | BadCtorApp
 
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
@@ -98,11 +100,11 @@ lookupName (EnvName x) = do
     Just s -> pure s
     Nothing -> throwError $ NameNotInLocals x
 
-lookupTyVar :: TyVar -> TC ()
+lookupTyVar :: TyVar -> TC Kind
 lookupTyVar aa = do
   ctx <- asks (localTypes . ctxLocals)
   case Map.lookup aa ctx of
-    Just Star -> pure ()
+    Just k -> pure k
     Nothing -> throwError $ TyVarNotInLocals aa
 
 lookupCodeDecl :: CodeLabel -> TC ClosureDeclType
@@ -116,6 +118,11 @@ equalSorts :: Sort -> Sort -> TC ()
 equalSorts expected actual =
   when (expected /= actual) $
     throwError (TypeMismatch expected actual)
+
+equalKinds :: Kind -> Kind -> TC ()
+equalKinds expected actual =
+  when (expected /= actual) $
+    throwError (KindMismatch expected actual)
 
 withPlace :: Place -> TC a -> TC a
 withPlace p m = do
@@ -294,7 +301,23 @@ checkValue (PairH _ _) _ = throwError BadValue
 -- checkValue (ListConsH _ _) _ = throwError BadValue
 checkValue (StringValH _) StringH = pure ()
 checkValue (StringValH _) _ = throwError BadValue
+checkValue (CtorAppH capp) s = case asTyConApp s of
+  Nothing -> throwError BadCtorApp
+  Just tcapp -> checkCtorApp capp tcapp
 
+checkCtorApp :: CtorAppH -> TyConApp -> TC ()
+checkCtorApp (BoolH _) CaseBool = pure ()
+checkCtorApp _ CaseBool = throwError BadCtorApp 
+checkCtorApp (InlH x) (CaseSum t s) = checkName x t
+checkCtorApp (InrH y) (CaseSum t s) = checkName y s
+checkCtorApp _ (CaseSum _ _) = throwError BadCtorApp
+checkCtorApp ListNilH (CaseList _) = pure ()
+checkCtorApp (ListConsH x xs) (CaseList t) = checkName x t *> checkName xs (ListH t)
+
+-- I think I need something like DataDesc here.
+-- * Check scrutinee has same type as the TyConApp
+-- * Check coverage of branches?
+-- * Lookup ctor, use that to check type of continuation
 checkCase :: Name -> TyConApp -> [(Ctor, Name)] -> TC ()
 checkCase x CaseBool [(cf, kf), (ct, kt)] = do
   checkName x BooleanH
@@ -313,7 +336,7 @@ checkCase _ kind ks = throwError (BadCase kind ks)
 -- | Check that a sort is well-formed w.r.t. the context
 -- Hmm. This needs to take kinds into account.
 checkSort :: Sort -> TC ()
-checkSort (AllocH aa) = lookupTyVar aa
+checkSort (AllocH aa) = checkTyVar aa Star
 checkSort UnitH = pure ()
 checkSort IntegerH = pure ()
 checkSort BooleanH = pure ()
@@ -322,6 +345,11 @@ checkSort (ProductH t s) = checkSort t *> checkSort s
 checkSort (SumH t s) = checkSort t *> checkSort s
 checkSort (ListH t) = checkSort t
 checkSort (ClosureH tele) = checkTele tele
+
+checkTyVar :: TyVar -> Kind -> TC ()
+checkTyVar aa k = do
+  k' <- lookupTyVar aa
+  equalKinds k k'
 
 -- | Check that a telescope is well-formed w.r.t the context.
 -- @Γ |- S@
