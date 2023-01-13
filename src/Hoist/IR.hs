@@ -416,6 +416,32 @@ indent n s = replicate n ' ' ++ s
 pprintProgram :: Program -> String
 pprintProgram (Program ds srcH) = pprintDecls ds ++ ";;\n" ++ pprintTerm 0 srcH
 
+pprintDecls :: [Decl] -> String
+pprintDecls ds = concatMap pprintDecl ds
+  where
+    pprintDecl (DeclCode cd) = pprintClosureDecl 0 cd
+    pprintDecl (DeclData dd) = pprintDataDecl 0 dd
+
+pprintClosureDecl :: Int -> CodeDecl -> String
+pprintClosureDecl n (CodeDecl f (name, EnvDecl is fs) params e) =
+  indent n ("code " ++ show f ++ " (" ++ envParam ++ "; " ++ intercalate ", " (map pprintParam params) ++ ") =\n") ++
+  pprintTerm (n+2) e
+  where
+    envParam = show name ++ " : {" ++ intercalate ", " (typeFields ++ valueFields) ++ "}"
+    typeFields = map (\ (aa, k) -> "@" ++ show aa ++ " : " ++ pprintKind k) is
+    valueFields = map pprintPlace fs
+
+pprintDataDecl :: Int -> DataDecl -> String
+pprintDataDecl n (DataDecl tc params ctors) =
+  indent n ("data " ++ show tc ++ intercalate " " (map f params) ++ " where\n") ++
+  unlines (map (pprintCtorDecl (n+2)) ctors)
+  where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
+
+pprintCtorDecl :: Int -> CtorDecl -> String
+pprintCtorDecl n (CtorDecl c args) =
+  indent n (show c ++ "(" ++ intercalate ", " (map f args) ++ ");")
+  where f (x, s) = show x ++ " : " ++ pprintSort s
+
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x ++ ";\n"
 pprintTerm n (OpenH c args) =
@@ -448,10 +474,10 @@ pprintValue (CtorAppH capp) = pprintCtorApp capp
 
 pprintCtorApp :: CtorAppH -> String
 pprintCtorApp (BoolH b) = if b then "true" else "false"
-pprintCtorApp (InlH x) = "inl " ++ show x
-pprintCtorApp (InrH y) = "inr " ++ show y
-pprintCtorApp ListNilH = "nil"
-pprintCtorApp (ListConsH x xs) = "cons " ++ show x ++ " " ++ show xs
+pprintCtorApp (InlH x) = "inl(" ++ show x ++ ")"
+pprintCtorApp (InrH y) = "inr(" ++ show y ++ ")"
+pprintCtorApp ListNilH = "nil()"
+pprintCtorApp (ListConsH x xs) = "cons(" ++ show x ++ ", " ++ show xs ++ ")"
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
@@ -473,32 +499,6 @@ pprintPlace (Place s x) = show x ++ " : " ++ pprintSort s
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
 pprintParam (TypeParam aa k) = '@' : show aa ++ " : " ++ pprintKind k
-
-pprintDecls :: [Decl] -> String
-pprintDecls ds = concatMap pprintDecl ds
-  where
-    pprintDecl (DeclCode cd) = pprintClosureDecl 0 cd
-    pprintDecl (DeclData dd) = pprintDataDecl 0 dd
-
-pprintClosureDecl :: Int -> CodeDecl -> String
-pprintClosureDecl n (CodeDecl f (name, EnvDecl is fs) params e) =
-  indent n ("code " ++ show f ++ " (" ++ envParam ++ "; " ++ intercalate ", " (map pprintParam params) ++ ") =\n") ++
-  pprintTerm (n+2) e
-  where
-    envParam = show name ++ " : {" ++ intercalate ", " (infoFields ++ valueFields) ++ "}"
-    infoFields = map (\ (aa, k) -> "@" ++ show aa) is
-    valueFields = map pprintPlace fs
-
-pprintDataDecl :: Int -> DataDecl -> String
-pprintDataDecl n (DataDecl tc params ctors) =
-  indent n ("data " ++ show tc ++ intercalate " " (map f params) ++ " where\n") ++
-  unlines (map (pprintCtorDecl (n+2)) ctors)
-  where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
-
-pprintCtorDecl :: Int -> CtorDecl -> String
-pprintCtorDecl n (CtorDecl c args) =
-  indent n (show c ++ "(" ++ intercalate ", " (map f args) ++ ");")
-  where f (x, s) = show x ++ " : " ++ pprintSort s
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p d _envPlace env) =

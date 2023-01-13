@@ -43,7 +43,6 @@ data Context = Context { ctxLocals :: Locals, ctxEnv :: EnvType }
 -- except for the closure environment.
 -- Values record their sort, @x : t@.
 -- Type variables record their kind, @aa : k@.
--- Info variables record the sort they describe, @i : info t@.
 data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Map TyVar Kind }
 
 -- | Ways in which a Hoist IR program can be invalid.
