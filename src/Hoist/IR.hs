@@ -240,6 +240,10 @@ data CtorAppH
   | InrH Name
   | ListNilH
   | ListConsH Name Name
+  -- Need a "generic" ctor app for this.
+  -- Need a "generic" case kind?
+  -- Emit needs to keep track of those extra data decls
+  -- | CtorApp Ctor [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name

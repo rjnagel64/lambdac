@@ -232,7 +232,7 @@ prologue = ["#include \"rts.h\""]
 emitEntryPoint :: TermH -> [Line]
 emitEntryPoint e =
   ["void program_entry(void) {"] ++
-  emitClosureBody thunkEnv envp e ++
+  emitTerm thunkEnv envp e ++
   ["}"]
   where
     -- There is no environment pointer at the top level, because we are not in a closure.
@@ -385,7 +385,7 @@ emitClosureEnter tns cns ty =
 emitClosureCode :: ThunkEnv -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
 emitClosureCode tenv ns envName xs e =
   ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"] ++
-  emitClosureBody tenv envName e ++
+  emitTerm tenv envName e ++
   ["}"]
   where
     paramList = commaSep (envParam : mapMaybe emitParam xs)
@@ -394,28 +394,28 @@ emitClosureCode tenv ns envName xs e =
     emitParam (PlaceParam p) = Just (emitPlace p)
 
 
-emitClosureBody :: ThunkEnv -> EnvPtr -> TermH -> [Line]
-emitClosureBody tenv envp (LetValH x v e) =
+emitTerm :: ThunkEnv -> EnvPtr -> TermH -> [Line]
+emitTerm tenv envp (LetValH x v e) =
   ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc envp (placeSort x) v ++ ";"] ++
-  emitClosureBody tenv envp e
-emitClosureBody tenv envp (LetProjectH x y ProjectFst e) =
+  emitTerm tenv envp e
+emitTerm tenv envp (LetProjectH x y ProjectFst e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->fst") ++ ";"] ++
-  emitClosureBody tenv envp e
-emitClosureBody tenv envp (LetProjectH x y ProjectSnd e) =
+  emitTerm tenv envp e
+emitTerm tenv envp (LetProjectH x y ProjectSnd e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->snd") ++ ";"] ++
-  emitClosureBody tenv envp e
-emitClosureBody tenv envp (LetPrimH x p e) =
+  emitTerm tenv envp e
+emitTerm tenv envp (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp envp p ++ ";"] ++
-  emitClosureBody tenv envp e
-emitClosureBody tenv envp (AllocClosure cs e) =
+  emitTerm tenv envp e
+emitTerm tenv envp (AllocClosure cs e) =
   emitClosureGroup envp cs ++
   let tenv' = extendThunkEnv tenv cs in
-  emitClosureBody tenv' envp e
-emitClosureBody _ envp (HaltH s x) =
+  emitTerm tenv' envp e
+emitTerm _ envp (HaltH s x) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ");"]
-emitClosureBody tenv envp (OpenH c args) =
+emitTerm tenv envp (OpenH c args) =
   [emitSuspend tenv envp c args]
-emitClosureBody _ envp (CaseH x kind ks) =
+emitTerm _ envp (CaseH x kind ks) =
   emitCase kind envp x ks
 
 emitSuspend :: ThunkEnv -> EnvPtr -> Name -> [ClosureArg] -> Line
