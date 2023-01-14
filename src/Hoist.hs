@@ -99,9 +99,10 @@ tellClosure cs = tell (ClosureDecls [cs])
 
 
 hoistProgram :: C.Program -> Program
-hoistProgram (C.Program srcC) =
+hoistProgram (C.Program ds srcC) =
+  let ds' = hoistDataDecls ds in
   let (srcH, cs) = runHoist (hoist srcC) in
-  Program (map DeclCode $ getClosureDecls cs) srcH
+  Program (map DeclData ds' ++ map DeclCode (getClosureDecls cs)) srcH
 
 runHoist :: HoistM a -> (a, ClosureDecls)
 runHoist =
@@ -112,6 +113,21 @@ runHoist =
   where
     emptyEnv = HoistEnv emptyScope emptyScope
     emptyScope = Scope Map.empty
+
+
+hoistDataDecls :: [C.DataDecl] -> [DataDecl]
+hoistDataDecls [] = []
+hoistDataDecls (C.DataDecl (C.TyCon tc) params ctors : ds) = DataDecl (TyCon tc) params' ctors' : hoistDataDecls ds
+  where
+    params' = map (\ (aa, k) -> (asTyVar aa, kindOf k)) params
+    ctors' = map hoistCtorDecl ctors
+
+hoistCtorDecl :: C.CtorDecl -> CtorDecl
+hoistCtorDecl (C.CtorDecl (C.Ctor c) args) = CtorDecl (Ctor c) (zipWith f [0..] args)
+  where
+    f :: Int -> C.Sort -> (Id, Sort)
+    f i s = (Id ("arg" ++ show i), sortOf s)
+
 
 
 -- | After closure conversion, the code for each function and continuation can

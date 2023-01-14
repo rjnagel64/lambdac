@@ -7,8 +7,20 @@
   #-}
 
 module CC.IR
-  ( TermC(..)
-  , Program(..)
+  ( Program(..)
+  , DataDecl(..)
+  , CtorDecl(..)
+
+  , Name(..)
+  , prime
+  , TyVar(..)
+  , TyCon(..)
+  , Ctor(..)
+
+  , TermC(..)
+  , ValueC(..)
+  , ArithC(..)
+  , CmpC(..)
   , Argument(..)
   , CaseKind(..)
   , FunClosureDef(..)
@@ -18,14 +30,9 @@ module CC.IR
   , ContClosureDef(..)
   , contClosureSort
   , EnvDef(..)
-  , Name(..)
-  , prime
-  , ValueC(..)
-  , ArithC(..)
-  , CmpC(..)
   , Sort(..)
   , TeleEntry(..)
-  , TyVar(..)
+
   , Kind(..)
 
   , pprintProgram
@@ -94,6 +101,16 @@ data TyVar = TyVar String
 instance Show TyVar where
   show (TyVar aa) = aa
 
+data TyCon = TyCon String
+
+instance Show TyCon where
+  show (TyCon tc) = tc
+
+data Ctor = Ctor String
+
+instance Show Ctor where
+  show (Ctor c) = c
+
 -- | 'Sort' is really just the CC equivalent of a type.
 -- (The different name exists mostly for historical reasons)
 data Sort
@@ -114,7 +131,13 @@ data TeleEntry
 data Kind
   = Star
 
-data Program = Program TermC
+data Program = Program [DataDecl] TermC
+
+data DataDecl
+  = DataDecl TyCon [(TyVar, Kind)] [CtorDecl]
+
+data CtorDecl
+  = CtorDecl Ctor [Sort]
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -219,7 +242,11 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintProgram :: Program -> String
-pprintProgram (Program e) = pprintTerm 0 e
+pprintProgram (Program ds e) = concatMap (pprintData 0) ds ++ pprintTerm 0 e
+
+pprintData :: Int -> DataDecl -> String
+pprintData n (DataDecl tc params ctors) =
+  indent n $ "data " ++ show tc ++ " (...)\n"
 
 pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
