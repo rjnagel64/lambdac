@@ -44,13 +44,10 @@ type Line = String
 -- the closure env)
 --
 -- (Alternately, I could have 'Map Name ThunkType'. Hmm.)
-data ThunkEnv = ThunkEnv (Map Id ThunkType) (Map Id ThunkType)
+data ThunkEnv = ThunkEnv (Map Name ThunkType)
 
 lookupThunkTy :: ThunkEnv -> Name -> ThunkType
-lookupThunkTy (ThunkEnv localThunkTys _) (LocalName x) = case Map.lookup x localThunkTys of
-  Nothing -> error ("missing thunk type for name " ++ show x)
-  Just ty -> ty
-lookupThunkTy (ThunkEnv _ envThunkTys) (EnvName x) = case Map.lookup x envThunkTys of
+lookupThunkTy (ThunkEnv env) x = case Map.lookup x env of
   Nothing -> error ("missing thunk type for name " ++ show x)
   Just ty -> ty
 
@@ -245,9 +242,8 @@ emitEntryPoint e =
   where
     -- There is no environment pointer at the top level, because we are not in a closure.
     envp = Id "NULL"
-    -- Likewise, there are no fields in the environment.
-    -- Also, we start with no local variables.
-    thunkEnv = ThunkEnv Map.empty Map.empty
+    -- Likewise, there are no fields and no local variables in the environment.
+    thunkEnv = ThunkEnv Map.empty
 
 
 -- Hmm. This should probably be more like a State ClosureSig than a Reader ClosureSig,
@@ -405,12 +401,14 @@ emitClosureDecl denv cd@(CodeDecl d (envName, envd@(EnvDecl _ places)) params e)
 
     -- The thunkEnv maps variables to their thunk type, so that the correct
     -- suspend method can be picked in emitSuspend
-    thunkEnv = ThunkEnv (foldr addParam Map.empty params) (foldr addPlace Map.empty places)
-    addParam (PlaceParam (Place (ClosureH tele) x)) acc = Map.insert x (teleThunkType tele) acc
+    thunkEnv = ThunkEnv (foldr addParam (foldr addPlace Map.empty places) params) 
+    addParam (PlaceParam (Place (ClosureH tele) x)) acc =
+      Map.insert (LocalName x) (teleThunkType tele) acc
     addParam (PlaceParam _) acc = acc
     addParam (TypeParam _ _) acc = acc
 
-    addPlace (Place (ClosureH tele) x) acc = Map.insert x (teleThunkType tele) acc
+    addPlace (Place (ClosureH tele) x) acc =
+      Map.insert (EnvName x) (teleThunkType tele) acc
     addPlace (Place _ _) acc = acc
 
 emitClosureEnv :: ClosureNames -> EnvDecl -> [Line]
@@ -711,12 +709,12 @@ emitClosureGroup envp closures =
   where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ <- closures]
 
 extendThunkEnv :: ThunkEnv -> [ClosureAlloc] -> ThunkEnv
-extendThunkEnv (ThunkEnv localThunkTys envThunkTys) allocs =
-  ThunkEnv (foldr (uncurry Map.insert) localThunkTys tys) envThunkTys
+extendThunkEnv (ThunkEnv env) allocs =
+  ThunkEnv (foldr (uncurry Map.insert) env tys)
   where
     tys = map f allocs
     f (ClosureAlloc p _ _ _) = case placeSort p of
-      ClosureH tele -> (placeName p, teleThunkType tele)
+      ClosureH tele -> (LocalName (placeName p), teleThunkType tele)
       _ -> error "closure alloc stored in non-closure place"
 
 allocEnv :: Set Id -> EnvPtr -> ClosureAlloc -> Line
