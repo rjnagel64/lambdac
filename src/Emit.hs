@@ -317,7 +317,9 @@ emitThunkSuspend ns ty =
 
 
 emitDataDecl :: DataEnv -> DataDecl -> [Line]
-emitDataDecl denv dd@(DataDecl tc params ctors) =
+-- Hmm. Does this need the DataEnv?
+-- I think it might, if a data decl references a previous decl.
+emitDataDecl denv dd@(DataDecl _ params ctors) =
   let desc = dataDesc dd (map (AllocH . fst) params) in
   emitDataStruct dd ++
   concatMap (emitCtorDecl desc) ctors
@@ -510,9 +512,9 @@ emitTerm denv tenv envp (AllocClosure cs e) =
   emitClosureGroup envp cs ++
   let tenv' = extendThunkEnv tenv cs in
   emitTerm denv tenv' envp e
-emitTerm denv _ envp (HaltH _ x) =
+emitTerm _ _ envp (HaltH _ x) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ");"]
-emitTerm denv tenv envp (OpenH c args) =
+emitTerm _ tenv envp (OpenH c args) =
   [emitSuspend tenv envp c args]
 emitTerm denv _ envp (CaseH x kind ks) =
   emitCase denv kind envp x ks
@@ -555,11 +557,11 @@ emitCase denv kind envp x branches =
         ,"        break;"]
 
 emitValueAlloc :: DataEnv -> EnvPtr -> Sort -> ValueH -> String
-emitValueAlloc denv _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
-emitValueAlloc denv _ _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
-emitValueAlloc denv envp _ (PairH x y) =
+emitValueAlloc _ _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
+emitValueAlloc _ _ _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
+emitValueAlloc _ envp _ (PairH x y) =
   "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
-emitValueAlloc denv _ _ NilH = "allocate_unit()"
+emitValueAlloc _ _ _ NilH = "allocate_unit()"
 emitValueAlloc denv envp ty (CtorAppH capp) =
   case asTyConApp ty of
     Nothing -> error "not a constructed type"
@@ -678,9 +680,9 @@ listDataDecl =
   ]
 
 dataDescFor :: DataEnv -> TyConApp -> DataDesc
-dataDescFor denv CaseBool = dataDesc boolDataDecl []
-dataDescFor denv (CaseSum t s) = dataDesc sumDataDecl [t, s]
-dataDescFor denv (CaseList t) = dataDesc listDataDecl [t]
+dataDescFor _ CaseBool = dataDesc boolDataDecl []
+dataDescFor _ (CaseSum t s) = dataDesc sumDataDecl [t, s]
+dataDescFor _ (CaseList t) = dataDesc listDataDecl [t]
 dataDescFor denv (TyConApp tc args) = dataDesc (denv Map.! tc) args
 
 emitPrimOp :: EnvPtr -> PrimOp -> String
