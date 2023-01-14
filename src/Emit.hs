@@ -233,8 +233,11 @@ prologue :: [Line]
 prologue = ["#include \"rts.h\""]
 
 emitDecl :: DataEnv -> Decl -> (DataEnv, [Line])
-emitDecl denv (DeclCode cd) = (denv, emitClosureDecl denv cd)
-emitDecl denv (DeclData dd@(DataDecl tc _ _)) = let denv' = Map.insert tc dd denv in (denv', emitDataDecl denv dd)
+emitDecl denv (DeclCode cd) =
+  (denv, emitClosureDecl denv cd)
+emitDecl denv (DeclData dd@(DataDecl tc _ _)) =
+  let denv' = Map.insert tc dd denv in
+  (denv', emitDataDecl denv dd)
 
 emitEntryPoint :: DataEnv -> TermH -> [Line]
 emitEntryPoint denv e =

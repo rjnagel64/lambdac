@@ -136,8 +136,8 @@ withTm :: (K.TmVar, K.TypeK) -> ((Name, Sort) -> ConvM a) -> ConvM a
 withTm b k = withTms (Identity b) (k . runIdentity)
 
 
-cconvProgram :: K.TermK a -> TermC
-cconvProgram e = runConv (cconv e)
+cconvProgram :: K.TermK a -> Program
+cconvProgram e = runConv (Program <$> cconv e)
   where
     runConv = fst . runWriter . flip runReaderT emptyContext . runConvM
 

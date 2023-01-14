@@ -8,6 +8,7 @@
 
 module CC.IR
   ( TermC(..)
+  , Program(..)
   , Argument(..)
   , CaseKind(..)
   , FunClosureDef(..)
@@ -113,6 +114,8 @@ data TeleEntry
 data Kind
   = Star
 
+data Program = Program TermC
+
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
 data TermC
@@ -215,8 +218,8 @@ data ValueC
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
-pprintProgram :: TermC -> String
-pprintProgram e = pprintTerm 0 e
+pprintProgram :: Program -> String
+pprintProgram (Program e) = pprintTerm 0 e
 
 pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
