@@ -1,11 +1,14 @@
 
 module Emit
     ( emitProgram
+
+    -- , demoProgram -- Only for testing
     ) where
 
 import Data.Function (on)
-import Data.List (intercalate)
+import Data.List (intercalate, intersperse)
 import Data.Maybe (mapMaybe)
+import Data.Traversable (mapAccumL)
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -42,6 +45,15 @@ type Line = String
 --
 -- (Alternately, I could have 'Map Name ThunkType'. Hmm.)
 data ThunkEnv = ThunkEnv (Map Id ThunkType) (Map Id ThunkType)
+
+lookupThunkTy :: ThunkEnv -> Name -> ThunkType
+lookupThunkTy (ThunkEnv localThunkTys _) (LocalName x) = case Map.lookup x localThunkTys of
+  Nothing -> error ("missing thunk type for name " ++ show x)
+  Just ty -> ty
+lookupThunkTy (ThunkEnv _ envThunkTys) (EnvName x) = case Map.lookup x envThunkTys of
+  Nothing -> error ("missing thunk type for name " ++ show x)
+  Just ty -> ty
+
 
 data ClosureNames
   = ClosureNames {
@@ -84,10 +96,10 @@ namesForEnv (CodeLabel f) =
 -- a binding structure. (Or does it?)
 data ThunkType = ThunkType { thunkArgs :: [ThunkArg] }
 
-
 data ThunkArg
   = ThunkValueArg Sort
   | ThunkInfoArg
+
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
 
@@ -102,22 +114,22 @@ thunkTypeCode :: ThunkType -> String
 thunkTypeCode (ThunkType ts) = map argcode ts
   where
     argcode ThunkInfoArg = 'I'
-    argcode (ThunkValueArg s) = tycode' s
-    tycode' :: Sort -> Char
-    tycode' IntegerH = 'V'
-    tycode' BooleanH = 'B'
-    tycode' StringH = 'T'
-    tycode' UnitH = 'U'
+    argcode (ThunkValueArg s) = tycode s
+    tycode :: Sort -> Char
+    tycode IntegerH = 'V'
+    tycode BooleanH = 'B'
+    tycode StringH = 'T'
+    tycode UnitH = 'U'
     -- In C, polymorphic types are represented uniformly.
     -- For example, 'list int64' and 'list (aa * bool)' are both represented
     -- using a 'struct list_val *' value. Therefore, when encoding a thunk type
     -- (that is, summarizing a closure's calling convention), we only need to
     -- mention the outermost constructor.
-    tycode' (ClosureH _) = 'C'
-    tycode' (AllocH _) = 'A'
-    tycode' (ListH _) = 'L'
-    tycode' (ProductH _ _) = 'Q'
-    tycode' (SumH _ _) = 'S'
+    tycode (ClosureH _) = 'C'
+    tycode (AllocH _) = 'A'
+    tycode (ListH _) = 'L'
+    tycode (ProductH _ _) = 'Q'
+    tycode (SumH _ _) = 'S'
 
 data ThunkNames
   = ThunkNames {
@@ -206,28 +218,24 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
     entryThunkTypes (TypeTele aa k) = Set.empty
 
 
+type DataEnv = Map TyCon DataDesc
 
 emitProgram :: Program -> [Line]
 emitProgram (Program ds e) =
   prologue ++
   concatMap emitThunkDecl ts ++
-  declLines ++
+  concat (snd (mapAccumL emitDecl dataEnv ds)) ++
   emitEntryPoint e
   where
-    declLines = emitDecls ds
     ts = Set.toList $ collectThunkTypes [cd | DeclCode cd <- ds]
-
--- Hmm. This should probably be more like a State ClosureSig than a Reader ClosureSig,
--- but I've been lax about the ordering of top-level closures, I think.
-emitDecls :: [Decl] -> [Line]
-emitDecls [] = []
-emitDecls (DeclCode cd : ds) =
-  let (ls) = emitDecls ds in
-  emitClosureDecl cd ++ ls
-emitDecls (DeclData dd : ds) = error "Not implemented: emit DataDecl"
+    dataEnv = Map.empty
 
 prologue :: [Line]
 prologue = ["#include \"rts.h\""]
+
+emitDecl :: DataEnv -> Decl -> (DataEnv, [Line])
+emitDecl denv (DeclCode cd) = (denv, emitClosureDecl denv cd)
+emitDecl denv (DeclData dd) = let denv' = denv in (denv', emitDataDecl denv dd)
 
 emitEntryPoint :: TermH -> [Line]
 emitEntryPoint e =
@@ -241,6 +249,9 @@ emitEntryPoint e =
     -- Also, we start with no local variables.
     thunkEnv = ThunkEnv Map.empty Map.empty
 
+
+-- Hmm. This should probably be more like a State ClosureSig than a Reader ClosureSig,
+-- but I've been lax about the ordering of top-level closures, I think.
 emitThunkDecl :: ThunkType -> [Line]
 emitThunkDecl t =
   emitThunkArgs ns t ++
@@ -303,8 +314,87 @@ emitThunkSuspend ns ty =
           let arg = "arg" ++ show i in
           "    args->" ++ arg ++ " = " ++ arg ++ ";"
 
-emitClosureDecl :: CodeDecl -> [Line]
-emitClosureDecl cd@(CodeDecl d (envName, envd@(EnvDecl _ places)) params e) =
+
+emitDataDecl :: DataEnv -> DataDecl -> [Line]
+emitDataDecl denv dd@(DataDecl tc params ctors) =
+  let desc = dataDesc dd (map (AllocH . fst) params) in
+  emitDataStruct dd ++
+  concatMap (emitCtorDecl desc) ctors
+
+emitDataStruct :: DataDecl -> [Line]
+emitDataStruct (DataDecl tc _ _) =
+  ["struct " ++ show tc ++ " {"
+  ,"    struct alloc_header header;"
+  ,"    uint32_t discriminant;"
+  ,"};"
+  ,"#define CAST_" ++ show tc ++ "(v) ((struct " ++ show tc ++ " *)(v))"]
+
+emitCtorDecl :: DataDesc -> CtorDecl -> [Line]
+emitCtorDecl desc cd =
+  emitCtorStruct desc cd ++
+  emitCtorInfo desc cd ++
+  emitCtorAllocate desc cd
+
+emitCtorStruct :: DataDesc -> CtorDecl -> [Line]
+emitCtorStruct desc (CtorDecl c args) =
+  let tc = dataName desc in
+  let ctorId = tc ++ "_" ++ show c in
+  ["struct " ++ ctorId ++ " {"
+  ,"    struct " ++ tc ++ " header;"] ++
+  map makeField args ++
+  ["};"
+  ,"#define CAST_" ++ ctorId ++ "(v) ((struct " ++ ctorId ++ " *)(v))"]
+  where makeField (x, s) = "    " ++ emitPlace (Place s x) ++ ";"
+
+emitCtorInfo :: DataDesc -> CtorDecl -> [Line]
+emitCtorInfo desc (CtorDecl c args) =
+  -- Hmm. May need DataNames and CtorNames
+  let tc = dataName desc in
+  let ctorId = tc ++ "_" ++ show c in
+  let ctorCast = "CAST_" ++ ctorId in
+  ["void trace_" ++ ctorId ++ "(struct alloc_header *alloc) {"
+  ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ "(alloc);"] ++
+  map traceField args ++
+  ["}"
+  ,"void display_" ++ ctorId ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
+  ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ "(alloc);"
+  ,"    string_buf_push(sb, \"" ++ show c ++ "\");"
+  ,"    string_buf_push(sb, \"(\");"] ++
+  intersperse "string_buf_push(sb, \", \");" (map displayField args) ++
+  ["    string_buf_push(sb, \")\");"
+  ,"}"
+  ,"const type_info " ++ ctorId ++ "_info = { trace_" ++ ctorId ++ ", display_" ++ ctorId ++ " };"]
+  where
+    traceField (x, s) = "    mark_gray(ctor->" ++ show x ++ ");"
+    displayField (x, s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(ctor->" ++ show x ++ ", sb);"
+
+emitCtorAllocate :: DataDesc -> CtorDecl -> [Line]
+emitCtorAllocate desc cd@(CtorDecl c args) =
+  let tc = dataName desc in
+  let ctorId = tc ++ "_" ++ show c in
+  ["struct " ++ tc ++ " *allocate_" ++ ctorId ++ "(" ++ commaSep params ++ ") {"
+  ,"    struct " ++ ctorId ++ " *ctor = malloc(sizeof(struct " ++ ctorId ++ "));"
+  ,"    ctor->header.discriminant = " ++ show (ctorDiscriminant (dataCtors desc Map.! c)) ++ ";"] ++
+  map assignField args ++
+  ["    cons_new_alloc(" ++ asAlloc "ctor" ++ ", &" ++ ctorId ++ "_info);"
+  ,"    return " ++ dataUpcast desc ++ "(ctor);"
+  ,"}"]
+  where
+    params = [emitPlace (Place s x) | (x, s) <- args]
+    assignField (x, s) = "    ctor->" ++ show x ++ " = " ++ show x ++ ";"
+
+-- demoProgram :: Program
+-- demoProgram = Program [DeclData dd] e
+--   where
+--     dd = DataDecl tc [(aa, Star)] [CtorDecl (Ctor "nothing") [], CtorDecl (Ctor "just") [(Id "val", AllocH aa)]]
+--     e = LetValH (Place UnitH x) NilH (HaltH UnitH (LocalName x))
+--     x = Id "x"
+--     aa = TyVar (Id "aa")
+--     tc = TyCon "maybe"
+
+
+emitClosureDecl :: DataEnv -> CodeDecl -> [Line]
+emitClosureDecl denv cd@(CodeDecl d (envName, envd@(EnvDecl _ places)) params e) =
   emitClosureEnv cns envd ++
   emitClosureCode thunkEnv cns envName params e ++
   emitClosureEnter tns cns ty
@@ -362,7 +452,7 @@ emitEnvInfo ns (EnvDecl is fs) =
   where
     envName = Id "env"
     envTy = "struct " ++ envTypeName ns ++ " *"
-    traceField (Place s x) =
+    traceField (Place _ x) =
       let field = asAlloc (emitName envName (EnvName x)) in
       "    mark_gray(" ++ field ++ ");"
 
@@ -377,7 +467,7 @@ emitClosureEnter tns cns ty =
     argsTy = "struct " ++ thunkArgsName tns ++ " *"
     envTy = "struct " ++ envTypeName (closureEnvName cns) ++ " *"
     argList = "env" : foldThunk consValue ty
-      where consValue i s = "args->arg" ++ show i
+      where consValue i _ = "args->arg" ++ show i
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.
@@ -389,7 +479,7 @@ emitClosureCode tenv ns envName xs e =
   where
     paramList = commaSep (envParam : mapMaybe emitParam xs)
     envParam = "struct " ++ envTypeName (closureEnvName ns) ++ " *" ++ show envName
-    emitParam (TypeParam aa k) = Nothing
+    emitParam (TypeParam _ _) = Nothing
     emitParam (PlaceParam p) = Just (emitPlace p)
 
 
@@ -410,7 +500,7 @@ emitTerm tenv envp (AllocClosure cs e) =
   emitClosureGroup envp cs ++
   let tenv' = extendThunkEnv tenv cs in
   emitTerm tenv' envp e
-emitTerm _ envp (HaltH s x) =
+emitTerm _ envp (HaltH _ x) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ");"]
 emitTerm tenv envp (OpenH c args) =
   [emitSuspend tenv envp c args]
@@ -428,14 +518,6 @@ emitSuspend tenv envp cl xs =
     makeArg (ThunkInfoArg, TypeArg i) = Nothing
     makeArg (ThunkValueArg _, ValueArg y) = Just (emitName envp y)
     makeArg _ = error "calling convention mismatch: type/value param paired with value/type arg"
-
-lookupThunkTy :: ThunkEnv -> Name -> ThunkType
-lookupThunkTy (ThunkEnv localThunkTys _) (LocalName x) = case Map.lookup x localThunkTys of
-  Nothing -> error ("missing thunk type for name " ++ show x)
-  Just ty -> ty
-lookupThunkTy (ThunkEnv _ envThunkTys) (EnvName x) = case Map.lookup x envThunkTys of
-  Nothing -> error ("missing thunk type for name " ++ show x)
-  Just ty -> ty
 
 
 emitCase :: TyConApp -> EnvPtr -> Name -> [(Ctor, Name)] -> [Line]
