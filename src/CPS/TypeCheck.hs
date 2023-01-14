@@ -132,8 +132,8 @@ instantiate aas ts ss = do
     zipExact _ _ = throwError ArityMismatch
 
 
-checkProgram :: TermK () -> Either TypeError ()
-checkProgram e = runM (check e)
+checkProgram :: Program () -> Either TypeError ()
+checkProgram (Program e) = runM (check e)
 
 
 check :: TermK a -> M ()

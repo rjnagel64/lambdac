@@ -87,7 +87,7 @@ main = do
         putStrLn "CPS: typecheck OK"
   when (driverDumpCPS args) $ do
     putStrLn $ "--- CPS Transform ---"
-    putStrLn $ K.pprintTerm 0 srcK
+    putStrLn $ K.pprintProgram srcK
 
   let srcC = C.cconvProgram srcK
   when (driverDumpCC args) $ do

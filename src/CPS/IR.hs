@@ -1,18 +1,21 @@
 
 module CPS.IR
-    ( TermK(..)
+    ( Program(..)
+    , TermK(..)
+    , ArithK(..)
+    , CmpK(..)
+    , ValueK(..)
+
     , TmVar(..)
     , CoVar(..)
     , TyVar(..)
+
     , FunDef(..)
     , funDefName
     , funDefType
     , ContDef(..)
     , contDefName
     , contDefType
-    , ArithK(..)
-    , CmpK(..)
-    , ValueK(..)
 
     , TypeK(..)
     , eqTypeK
@@ -26,7 +29,7 @@ module CPS.IR
     , substTypeK
     , substCoTypeK
 
-    , pprintTerm
+    , pprintProgram
     , pprintType
     , pprintCoType
     , pprintKind
@@ -58,6 +61,8 @@ instance Show CoVar where
   show (CoVar k i) = k ++ show i
 instance Show TyVar where
   show (TyVar a i) = a ++ show i
+
+data Program a = Program (TermK a)
 
 -- | Terms in continuation-passing style.
 --
@@ -344,6 +349,9 @@ bindSubst = mapAccumL bindOne
 
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
+
+pprintProgram :: Program a -> String
+pprintProgram (Program e) = pprintTerm 0 e
 
 pprintTerm :: Int -> TermK a -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"

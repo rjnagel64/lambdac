@@ -1,7 +1,7 @@
 
 module CPS
     ( cpsMain
-    , pprintTerm
+    , pprintProgram
     ) where
 
 import qualified Data.Map as Map
@@ -516,8 +516,8 @@ cpsTail (S.TmSnd e) k =
 --
 -- Unfortunately, even though 'e' is in tail position, I cannot use 'cpsTail'
 -- This is because 'HaltK' is not a 'CoVar'.
-cpsMain :: S.Term -> TermK ()
-cpsMain e = fst . flip runReader emptyEnv . runCPS $
+cpsMain :: S.Term -> Program ()
+cpsMain e = Program . fst . flip runReader emptyEnv . runCPS $
   cps e (\z t -> pure (HaltK z, t))
 
 
