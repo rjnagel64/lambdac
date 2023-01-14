@@ -2,7 +2,7 @@
 module Emit
     ( emitProgram
 
-    -- , demoProgram -- Only for testing
+    , demoProgram -- Only for testing
     ) where
 
 import Data.Function (on)
@@ -153,11 +153,13 @@ typeForSort (AllocH _) = "struct alloc_header *"
 typeForSort (ClosureH _) = "struct closure *"
 typeForSort IntegerH = "struct int64_value *"
 typeForSort StringH = "struct string_value *"
-typeForSort BooleanH = "struct vbool *"
 typeForSort (ProductH _ _) = "struct pair *"
-typeForSort (SumH _ _) = "struct sum *"
 typeForSort UnitH = "struct unit *"
+typeForSort BooleanH = "struct vbool *"
+typeForSort (SumH _ _) = "struct sum *"
 typeForSort (ListH _) = "struct list *"
+typeForSort (TyConH tc) = "struct " ++ show tc ++ " *"
+typeForSort (TyAppH t _) = typeForSort t
 
 asSort :: Sort -> String -> String
 asSort (AllocH _) x = asAlloc x
@@ -215,29 +217,29 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
     entryThunkTypes (TypeTele aa k) = Set.empty
 
 
-type DataEnv = Map TyCon DataDesc
+type DataEnv = Map TyCon DataDecl
 
 emitProgram :: Program -> [Line]
 emitProgram (Program ds e) =
   prologue ++
   concatMap emitThunkDecl ts ++
-  concat (snd (mapAccumL emitDecl dataEnv ds)) ++
-  emitEntryPoint e
+  concat decls ++
+  emitEntryPoint denv e
   where
     ts = Set.toList $ collectThunkTypes [cd | DeclCode cd <- ds]
-    dataEnv = Map.empty
+    (denv, decls) = mapAccumL emitDecl Map.empty ds
 
 prologue :: [Line]
 prologue = ["#include \"rts.h\""]
 
 emitDecl :: DataEnv -> Decl -> (DataEnv, [Line])
 emitDecl denv (DeclCode cd) = (denv, emitClosureDecl denv cd)
-emitDecl denv (DeclData dd) = let denv' = denv in (denv', emitDataDecl denv dd)
+emitDecl denv (DeclData dd@(DataDecl tc _ _)) = let denv' = Map.insert tc dd denv in (denv', emitDataDecl denv dd)
 
-emitEntryPoint :: TermH -> [Line]
-emitEntryPoint e =
+emitEntryPoint :: DataEnv -> TermH -> [Line]
+emitEntryPoint denv e =
   ["void program_entry(void) {"] ++
-  emitTerm thunkEnv envp e ++
+  emitTerm denv thunkEnv envp e ++
   ["}"]
   where
     -- There is no environment pointer at the top level, because we are not in a closure.
@@ -379,20 +381,27 @@ emitCtorAllocate desc cd@(CtorDecl c args) =
     params = [emitPlace (Place s x) | (x, s) <- args]
     assignField (x, s) = "    ctor->" ++ show x ++ " = " ++ show x ++ ";"
 
--- demoProgram :: Program
--- demoProgram = Program [DeclData dd] e
---   where
---     dd = DataDecl tc [(aa, Star)] [CtorDecl (Ctor "nothing") [], CtorDecl (Ctor "just") [(Id "val", AllocH aa)]]
---     e = LetValH (Place UnitH x) NilH (HaltH UnitH (LocalName x))
---     x = Id "x"
---     aa = TyVar (Id "aa")
---     tc = TyCon "maybe"
+demoProgram :: Program
+demoProgram = Program [DeclData dd] e
+  where
+    dd = DataDecl tc [(aa, Star)] [CtorDecl cn [], CtorDecl cj [(Id "val", AllocH aa)]]
+    e =
+      LetValH (Place UnitH x) NilH
+      (LetValH (Place mn y) (CtorAppH (CtorApp cj [LocalName x]))
+      (HaltH mn (LocalName y)))
+    x = Id "x"
+    y = Id "y"
+    aa = TyVar (Id "aa")
+    tc = TyCon "maybe"
+    cn = Ctor "nothing"
+    cj = Ctor "just"
+    mn = TyAppH (TyConH tc) UnitH
 
 
 emitClosureDecl :: DataEnv -> CodeDecl -> [Line]
 emitClosureDecl denv cd@(CodeDecl d (envName, envd@(EnvDecl _ places)) params e) =
   emitClosureEnv cns envd ++
-  emitClosureCode thunkEnv cns envName params e ++
+  emitClosureCode denv thunkEnv cns envName params e ++
   emitClosureEnter tns cns ty
   where
     cns = namesForClosure d
@@ -469,10 +478,10 @@ emitClosureEnter tns cns ty =
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.
-emitClosureCode :: ThunkEnv -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
-emitClosureCode tenv ns envName xs e =
+emitClosureCode :: DataEnv -> ThunkEnv -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
+emitClosureCode denv tenv ns envName xs e =
   ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"] ++
-  emitTerm tenv envName e ++
+  emitTerm denv tenv envName e ++
   ["}"]
   where
     paramList = commaSep (envParam : mapMaybe emitParam xs)
@@ -481,29 +490,29 @@ emitClosureCode tenv ns envName xs e =
     emitParam (PlaceParam p) = Just (emitPlace p)
 
 
-emitTerm :: ThunkEnv -> EnvPtr -> TermH -> [Line]
-emitTerm tenv envp (LetValH x v e) =
-  ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc envp (placeSort x) v ++ ";"] ++
-  emitTerm tenv envp e
-emitTerm tenv envp (LetProjectH x y ProjectFst e) =
+emitTerm :: DataEnv -> ThunkEnv -> EnvPtr -> TermH -> [Line]
+emitTerm denv tenv envp (LetValH x v e) =
+  ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc denv envp (placeSort x) v ++ ";"] ++
+  emitTerm denv tenv envp e
+emitTerm denv tenv envp (LetProjectH x y ProjectFst e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->fst") ++ ";"] ++
-  emitTerm tenv envp e
-emitTerm tenv envp (LetProjectH x y ProjectSnd e) =
+  emitTerm denv tenv envp e
+emitTerm denv tenv envp (LetProjectH x y ProjectSnd e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->snd") ++ ";"] ++
-  emitTerm tenv envp e
-emitTerm tenv envp (LetPrimH x p e) =
+  emitTerm denv tenv envp e
+emitTerm denv tenv envp (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp envp p ++ ";"] ++
-  emitTerm tenv envp e
-emitTerm tenv envp (AllocClosure cs e) =
+  emitTerm denv tenv envp e
+emitTerm denv tenv envp (AllocClosure cs e) =
   emitClosureGroup envp cs ++
   let tenv' = extendThunkEnv tenv cs in
-  emitTerm tenv' envp e
-emitTerm _ envp (HaltH _ x) =
+  emitTerm denv tenv' envp e
+emitTerm denv _ envp (HaltH _ x) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ");"]
-emitTerm tenv envp (OpenH c args) =
+emitTerm denv tenv envp (OpenH c args) =
   [emitSuspend tenv envp c args]
-emitTerm _ envp (CaseH x kind ks) =
-  emitCase kind envp x ks
+emitTerm denv _ envp (CaseH x kind ks) =
+  emitCase denv kind envp x ks
 
 emitSuspend :: ThunkEnv -> EnvPtr -> Name -> [ClosureArg] -> Line
 emitSuspend tenv envp cl xs =
@@ -518,45 +527,46 @@ emitSuspend tenv envp cl xs =
     makeArg _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
 
-emitCase :: TyConApp -> EnvPtr -> Name -> [(Ctor, Name)] -> [Line]
-emitCase kind envp x branches =
+emitCase :: DataEnv -> TyConApp -> EnvPtr -> Name -> [(Ctor, Name)] -> [Line]
+emitCase denv kind envp x branches =
   ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch branches ++
   ["    default:"
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    tab = dataCtors (dataDescTable kind)
+    desc = dataDescFor denv kind
 
     emitCaseBranch :: (Ctor, Name) -> [String]
     emitCaseBranch (ctor, k) =
       let
-        desc = tab Map.! ctor
-        method = thunkSuspendName (namesForThunk (ctorThunkType desc))
-        ctorVal = ctorDowncast desc ++ "(" ++ emitName envp x ++ ")"
-        args = emitName envp k : map mkArg (ctorArgCasts desc)
+        ctordesc = dataCtors desc Map.! ctor
+        method = thunkSuspendName (namesForThunk (ctorThunkType ctordesc))
+        ctorVal = ctorDowncast ctordesc ++ "(" ++ emitName envp x ++ ")"
+        args = emitName envp k : map mkArg (ctorArgCasts ctordesc)
         mkArg (argName, Nothing) = ctorVal ++ "->" ++ argName
         mkArg (argName, Just argSort) = asSort argSort (ctorVal ++ "->" ++ argName)
       in
-        ["    case " ++ show (ctorDiscriminant desc) ++ ":"
+        ["    case " ++ show (ctorDiscriminant ctordesc) ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
 
-emitValueAlloc :: EnvPtr -> Sort -> ValueH -> String
-emitValueAlloc _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
-emitValueAlloc _ _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
-emitValueAlloc envp _ (PairH x y) =
+emitValueAlloc :: DataEnv -> EnvPtr -> Sort -> ValueH -> String
+emitValueAlloc denv _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
+emitValueAlloc denv _ _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
+emitValueAlloc denv envp _ (PairH x y) =
   "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
-emitValueAlloc _ _ NilH = "allocate_unit()"
-emitValueAlloc envp ty (CtorAppH capp) =
+emitValueAlloc denv _ _ NilH = "allocate_unit()"
+emitValueAlloc denv envp ty (CtorAppH capp) =
   case asTyConApp ty of
     Nothing -> error "not a constructed type"
-    Just kind -> emitCtorAlloc envp kind capp
+    Just kind -> emitCtorAlloc denv envp kind capp
 
-emitCtorAlloc :: EnvPtr -> TyConApp -> CtorAppH -> String
-emitCtorAlloc envp kind capp = ctorAllocate desc ++ "(" ++ commaSep args' ++ ")"
+emitCtorAlloc :: DataEnv -> EnvPtr -> TyConApp -> CtorAppH -> String
+emitCtorAlloc denv envp kind capp = ctorAllocate ctordesc ++ "(" ++ commaSep args' ++ ")"
   where
-    desc = dataCtors (dataDescTable kind) Map.! ctorName
+    desc = dataDescFor denv kind
+    ctordesc = dataCtors desc Map.! ctorName
     (ctorName, args) = case capp of
       BoolH True -> (Ctor "true", [])
       BoolH False -> (Ctor "false", [])
@@ -564,7 +574,8 @@ emitCtorAlloc envp kind capp = ctorAllocate desc ++ "(" ++ commaSep args' ++ ")"
       InrH x -> (Ctor "inr", [x])
       ListNilH -> (Ctor "nil", [])
       ListConsH x xs -> (Ctor "cons", [x, xs])
-    args' = zipWith makeArg args (ctorArgCasts desc)
+      CtorApp c as -> (c, as)
+    args' = zipWith makeArg args (ctorArgCasts ctordesc)
     makeArg x (_, Nothing) = emitName envp x
     makeArg x (_, Just _) = asAlloc (emitName envp x)
 
@@ -663,10 +674,11 @@ listDataDecl =
   , CtorDecl (Ctor "cons") [(Id "head", AllocH aa), (Id "tail", ListH (AllocH aa))]
   ]
 
-dataDescTable :: TyConApp -> DataDesc
-dataDescTable CaseBool = dataDesc boolDataDecl []
-dataDescTable (CaseSum t s) = dataDesc sumDataDecl [t, s]
-dataDescTable (CaseList t) = dataDesc listDataDecl [t]
+dataDescFor :: DataEnv -> TyConApp -> DataDesc
+dataDescFor denv CaseBool = dataDesc boolDataDecl []
+dataDescFor denv (CaseSum t s) = dataDesc sumDataDecl [t, s]
+dataDescFor denv (CaseList t) = dataDesc listDataDecl [t]
+dataDescFor denv (TyConApp tc args) = dataDesc (denv Map.! tc) args
 
 emitPrimOp :: EnvPtr -> PrimOp -> String
 emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]

@@ -95,6 +95,7 @@ instance Show CodeLabel where
 
 
 newtype TyCon = TyCon String
+  deriving (Eq, Ord)
 
 instance Show TyCon where
   show (TyCon tc) = tc
@@ -159,6 +160,8 @@ data Sort
   | SumH Sort Sort
   | ListH Sort
   | ClosureH ClosureTele
+  | TyConH TyCon
+  | TyAppH Sort Sort
 
 -- It's a bit unfortunate, but I do need to have separate telescopes for
 -- parameters and types. The difference is that parameters need names for each
@@ -180,9 +183,17 @@ asTyConApp :: Sort -> Maybe TyConApp
 asTyConApp BooleanH = Just CaseBool
 asTyConApp (SumH t s) = Just (CaseSum t s)
 asTyConApp (ListH t) = Just (CaseList t)
+asTyConApp (TyConH tc) = Just (TyConApp tc [])
+asTyConApp (TyAppH t s) = go t [s]
+  where
+    go (TyAppH t' s') acc = go t' (s' : acc)
+    go (TyConH tc) acc = Just (TyConApp tc acc)
+    -- Hmm. is 'f Int Bool Char' a TyConApp? I don't think so. You can't
+    -- construct ctors or case on it.
+    go _ _ = Nothing
 asTyConApp _ = Nothing
 
-data TyConApp = CaseBool | CaseSum Sort Sort | CaseList Sort
+data TyConApp = CaseBool | CaseSum Sort Sort | CaseList Sort | TyConApp TyCon [Sort]
 
 
 
@@ -243,7 +254,7 @@ data CtorAppH
   -- Need a "generic" ctor app for this.
   -- Need a "generic" case kind?
   -- Emit needs to keep track of those extra data decls
-  -- | CtorApp Ctor [Name]
+  | CtorApp Ctor [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name
