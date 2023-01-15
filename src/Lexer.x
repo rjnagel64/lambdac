@@ -79,6 +79,7 @@ tokens :-
   "cons" { tok TokCons }
   "list" { tok TokList }
   "uncons" { tok TokUncons }
+  "data" { tok TokData }
 
   -- Note: Permitting unary + on numeric literals actually causes some problems.
   -- n+1 lexes as 'n' '+1', which is a type error, with a very poor message.
@@ -169,6 +170,7 @@ data Token
   | TokCons Loc
   | TokList Loc
   | TokUncons Loc
+  | TokData Loc
   deriving (Show)
 
 instance Located Token where
@@ -222,6 +224,7 @@ instance Located Token where
   loc (TokCons l) = l
   loc (TokList l) = l
   loc (TokUncons l) = l
+  loc (TokData l) = l
 
 -- | Lex a string.
 lex :: String -> [Token]

@@ -15,6 +15,12 @@ module Source
   , substType
   , ftv
 
+  , TyCon(..)
+  , Ctor(..)
+  , Program(..)
+  , DataDecl(..)
+  , CtorDecl(..)
+
   , pprintType
   ) where
 
@@ -52,6 +58,25 @@ data TyVar
 
 instance Show TyVar where
   show (TyVar x) = x
+
+
+data TyCon = TyCon String
+
+instance Show TyCon where
+  show (TyCon tc) = tc
+
+data Ctor = Ctor String
+
+instance Show Ctor where
+  show (Ctor c) = c
+
+
+data Program = Program [DataDecl] Term
+
+
+data DataDecl = DataDecl TyCon [(TyVar, Kind)] [CtorDecl]
+
+data CtorDecl = CtorDecl Ctor [Type]
 
 
 data Term

@@ -11,6 +11,7 @@ import Source
 }
 
 %name parseTerm Term
+%name parseProgram Program
 
 %tokentype { Token }
 %monad { Either ParseError }
@@ -64,6 +65,7 @@ import Source
   'cons' { TokCons _ }
   'list' { TokList _ }
   'uncons' { TokUncons _ }
+  'data' { TokData _ }
 
   ID { TokID _ _ }
   INT { TokINT _ _ }
@@ -83,6 +85,29 @@ import Source
 %right UMINUS
 
 %%
+
+Program :: { Program }
+	: DataDecls Term { Program (rundl $1) $2 }
+
+DataDecls :: { DList DataDecl }
+	  : DataDecl { dlsingle $1 }
+	  | DataDecls DataDecl { snoc $2 $1 }
+
+DataDecl :: { DataDecl }
+	 : 'data' ID '=' '{' CtorDecls '}' { DataDecl (tcon $2) [] (rundl $5) }
+
+CtorDecls :: { DList CtorDecl }
+	  : CtorDecl { dlsingle $1 }
+	  | CtorDecls CtorDecl { snoc $2 $1 }
+
+CtorDecl :: { CtorDecl }
+	 : ID '(' ')' { CtorDecl (ctor $1) [] }
+	 | ID '(' CtorArgs ')' { CtorDecl (ctor $1) (rundl $3) }
+
+CtorArgs :: { DList Type }
+	 : Type { dlsingle $1 }
+	 | CtorArgs ',' Type { snoc $3 $1 }
+
 
 Term :: { Term }
      : AppTerm { $1 }
@@ -187,6 +212,12 @@ var (TokID _ s) = TmVar s
 
 tvar :: Token -> TyVar
 tvar (TokID _ s) = TyVar s
+
+tcon :: Token -> TyCon
+tcon (TokID _ s) = TyCon s
+
+ctor :: Token -> Ctor
+ctor (TokID _ s) = Ctor s
 
 int :: Token -> Int
 int (TokINT _ s) = read s
