@@ -133,7 +133,7 @@ instantiate aas ts ss = do
 
 
 checkProgram :: Program () -> Either TypeError ()
-checkProgram (Program e) = runM (check e)
+checkProgram (Program ds e) = runM (check e)
 
 
 check :: TermK a -> M ()

@@ -137,9 +137,24 @@ withTm b k = withTms (Identity b) (k . runIdentity)
 
 
 cconvProgram :: K.Program a -> Program
-cconvProgram (K.Program e) = runConv (Program [] <$> cconv e)
+cconvProgram (K.Program ds e) = runConv $ do
+  ds' <- traverse cconvDataDecl ds
+  e' <- cconv e
+  pure (Program ds' e')
   where
     runConv = fst . runWriter . flip runReaderT emptyContext . runConvM
+
+cconvDataDecl :: K.DataDecl -> ConvM DataDecl
+cconvDataDecl (K.DataDecl (K.TyCon tc) params ctors) = DataDecl (TyCon tc) <$> params' <*> ctors'
+  where
+    params' = traverse (\ (aa, k) -> (,) <$> pure (tyVar aa) <*> cconvKind k) params
+    ctors' = traverse cconvCtorDecl ctors
+
+    tyVar :: K.TyVar -> TyVar
+    tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
+
+cconvCtorDecl :: K.CtorDecl -> ConvM CtorDecl
+cconvCtorDecl (K.CtorDecl (K.Ctor c) args) = CtorDecl (Ctor c) <$> traverse cconvType args
 
 cconvType :: K.TypeK -> ConvM Sort
 cconvType (K.TyVarOccK aa) = Alloc <$> cconvTyVar aa

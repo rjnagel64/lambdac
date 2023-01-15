@@ -1,6 +1,9 @@
 
 module CPS.IR
     ( Program(..)
+    , DataDecl(..)
+    , CtorDecl(..)
+
     , TermK(..)
     , ArithK(..)
     , CmpK(..)
@@ -9,6 +12,8 @@ module CPS.IR
     , TmVar(..)
     , CoVar(..)
     , TyVar(..)
+    , TyCon(..)
+    , Ctor(..)
 
     , FunDef(..)
     , funDefName
@@ -62,7 +67,20 @@ instance Show CoVar where
 instance Show TyVar where
   show (TyVar a i) = a ++ show i
 
-data Program a = Program (TermK a)
+data TyCon = TyCon String
+data Ctor = Ctor String
+
+instance Show TyCon where
+  show (TyCon tc) = tc
+instance Show Ctor where
+  show (Ctor c) = c
+
+
+data Program a = Program [DataDecl] (TermK a)
+
+data DataDecl = DataDecl TyCon [(TyVar, KindK)] [CtorDecl]
+
+data CtorDecl = CtorDecl Ctor [TypeK]
 
 -- | Terms in continuation-passing style.
 --
@@ -351,7 +369,7 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintProgram :: Program a -> String
-pprintProgram (Program e) = pprintTerm 0 e
+pprintProgram (Program ds e) = pprintTerm 0 e
 
 pprintTerm :: Int -> TermK a -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
