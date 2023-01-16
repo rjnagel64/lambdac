@@ -1,0 +1,4 @@
+
+data foo = { mkfoo (unit) }
+data bar = { mkbar (int -> bool) }
+()

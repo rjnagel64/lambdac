@@ -48,6 +48,7 @@ tokens :-
   "+" { tok TokPlus }
   "-" { tok TokMinus }
   "^" { tok TokCaret }
+  "%" { tok TokPercent }
 
   "(" { tok TokLParen }
   ")" { tok TokRParen }
@@ -130,6 +131,7 @@ data Token
   | TokPlus Loc
   | TokMinus Loc
   | TokCaret Loc
+  | TokPercent Loc
 
   | TokLParen Loc
   | TokRParen Loc
@@ -196,6 +198,7 @@ instance Located Token where
   loc (TokPlus l) = l
   loc (TokMinus l) = l
   loc (TokCaret l) = l
+  loc (TokPercent l) = l
   loc (TokID l _) = l
   loc (TokINT l _) = l
   loc (TokSTRING l _) = l

@@ -86,6 +86,9 @@ standard_test("recpoly", "7")
 standard_test("strings", "\"foobarfoobar\"")
 standard_test("either", "true")
 standard_test("rec", "17")
+standard_test("datadecl", "()")
+standard_test("datactor", "()")
+standard_test("datacase", "true")
 
 def run_tests(test_filter):
     runner = TestRunner()

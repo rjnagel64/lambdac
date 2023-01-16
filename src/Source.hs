@@ -132,6 +132,7 @@ data Term
   | TmString String
   -- s1 ^ s2
   | TmConcat Term Term
+  | TmCtorOcc Ctor
 
 data TmArith
   = TmArithAdd

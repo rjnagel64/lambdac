@@ -1,0 +1,5 @@
+
+data foo = { mkfoo(int) }
+-- Because of lexical ambiguity between ctor and variable, ctor must be prefixed with %
+let x : foo = %mkfoo 17 in
+()

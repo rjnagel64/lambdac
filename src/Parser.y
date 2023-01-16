@@ -32,6 +32,7 @@ import Source
   '+' { TokPlus _ }
   '-' { TokMinus _ }
   '^' { TokCaret _ }
+  '%' { TokPercent _ }
   ';' { TokSemi _ }
   ':' { TokColon _ }
   '.' { TokDot _ }
@@ -152,6 +153,7 @@ ATerm :: { Term }
      | '(' ')' { TmNil }
      | '(' Term ',' Term ')' { TmPair $2 $4 }
      | ID { TmVarOcc (var $1) }
+     | '%' ID { TmCtorOcc (ctor $1) }
      | INT { TmInt (int $1) }
      | STRING { TmString (string $1) }
      | 'true' { TmBool True }
