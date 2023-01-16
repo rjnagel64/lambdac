@@ -153,7 +153,7 @@ ATerm :: { Term }
      | '(' ')' { TmNil }
      | '(' Term ',' Term ')' { TmPair $2 $4 }
      | ID { TmVarOcc (var $1) }
-     | '%' ID { TmCtorOcc (ctor $1) }
+     | '%' ID { TmCtorOcc (ctor $2) }
      | INT { TmInt (int $1) }
      | STRING { TmString (string $1) }
      | 'true' { TmBool True }
@@ -197,6 +197,7 @@ AType :: { Type }
       | 'bool' { TyBool }
       | 'string' { TyString }
       | ID { TyVarOcc (tvar $1) }
+      | '%' ID { TyConOcc (tcon $2) }
 
 {
 data ParseError = EOF | ErrorAt String

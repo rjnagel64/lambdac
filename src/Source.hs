@@ -22,6 +22,7 @@ module Source
   , CtorDecl(..)
 
   , pprintType
+  , pprintKind
   ) where
 
 import qualified Data.Map as Map
@@ -61,11 +62,13 @@ instance Show TyVar where
 
 
 data TyCon = TyCon String
+  deriving (Eq, Ord)
 
 instance Show TyCon where
   show (TyCon tc) = tc
 
 data Ctor = Ctor String
+  deriving (Eq, Ord)
 
 instance Show Ctor where
   show (Ctor c) = c
@@ -166,6 +169,8 @@ data Type
   | TyAll TyVar Kind Type
   | TyList Type
   | TyString
+  | TyConOcc TyCon
+  | TyApp Type Type
 
 instance Eq Type where
   (==) = eqType emptyAE
@@ -200,6 +205,8 @@ bindAE x y (AE l fw bw) = AE (l+1) (Map.insert x l fw) (Map.insert y l bw)
 eqType :: AE -> Type -> Type -> Bool
 eqType ae (TyVarOcc x) (TyVarOcc y) = lookupAE ae x y
 eqType _ (TyVarOcc _) _ = False
+eqType ae (TyConOcc c1) (TyConOcc c2) = c1 == c2
+eqType _ (TyVarOcc _) _ = False
 eqType _ TyUnit TyUnit = True
 eqType _ TyUnit _ = False
 eqType _ TyBool TyBool = True
@@ -215,6 +222,9 @@ eqType _ (TySum _ _) _ = False
 eqType ae (TyArr arg1 ret1) (TyArr arg2 ret2) =
   eqType ae arg1 arg2 && eqType ae ret1 ret2
 eqType _ (TyArr _ _) _ = False
+eqType ae (TyApp arg1 ret1) (TyApp arg2 ret2) =
+  eqType ae arg1 arg2 && eqType ae ret1 ret2
+eqType _ (TyApp _ _) _ = False
 eqType ae (TyAll x k1 t) (TyAll y k2 s) = k1 == k2 && eqType (bindAE x y ae) t s
 eqType _ (TyAll _ _ _) _ = False
 eqType ae (TyList a) (TyList b) = eqType ae a b
@@ -285,7 +295,10 @@ pprintType p (TyArr t1 t2) = parensIf (p > 4) $ pprintType 5 t1 ++ " -> " ++ ppr
 pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ pprintType 6 t2
 -- infix 5 +
 pprintType p (TySum t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " + " ++ pprintType 6 t2
+-- infixl 10 __
+pprintType p (TyApp t1 t2) = parensIf (p > 10) $ pprintType 10 t1 ++ " " ++ pprintType 11 t2
 pprintType _ (TyVarOcc x) = show x
+pprintType _ (TyConOcc c) = show c
 pprintType p (TyAll x ki t) =
   parensIf (p > 0) $ "forall (" ++ show x ++ " : " ++ pprintKind ki ++ "). " ++ pprintType 0 t
 pprintType p (TyList t) = parensIf (p > 7) $ "list " ++ pprintType 8 t

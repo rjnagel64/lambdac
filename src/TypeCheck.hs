@@ -11,14 +11,19 @@ import Data.Foldable (traverse_, for_)
 
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.State
 
 
 data TCError
   = NotInScope TmVar
+  | CtorNotInScope Ctor
   | TyNotInScope TyVar
+  | TyConNotInScope TyCon
   | TypeMismatch Type Type -- expected, actual
+  | KindMismatch Kind Kind -- expected, actual
   | CannotProject Type
   | CannotApply Type
+  | CannotTyApp Type
   | CannotInstantiate Type
   | InvalidLetRec TmVar
 
@@ -28,39 +33,69 @@ instance Show TCError where
     ,"expected: " ++ pprintType 0 expected
     ,"actual:   " ++ pprintType 0 actual
     ]
+  show (KindMismatch expected actual) = unlines
+    ["type mismatch:"
+    ,"expected: " ++ pprintKind expected
+    ,"actual:   " ++ pprintKind actual
+    ]
   show (NotInScope x) = "variable not in scope: " ++ show x
+  show (CtorNotInScope c) = "constructor not in scope: " ++ show c
   show (TyNotInScope aa) = "type variable not in scope: " ++ show aa
+  show (TyConNotInScope tc) = "type constructor not in scope: " ++ show tc
   show (CannotApply t) = "value of type " ++ pprintType 0 t ++ " cannot have a value applied to it"
   show (CannotInstantiate t) = "value of type " ++ pprintType 0 t ++ " cannot have a type applied to it"
   show (CannotProject t) = "cannot project field from value of type " ++ pprintType 0 t
   show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
 
-newtype TC a = TC { runTC :: ReaderT (Map TmVar Type, Map TyVar Kind) (Except TCError) a }
+newtype TC a = TC { runTC :: ReaderT TCEnv (Except TCError) a }
 
 deriving newtype instance Functor TC
 deriving newtype instance Applicative TC
 deriving newtype instance Monad TC
-deriving newtype instance MonadReader (Map TmVar Type, Map TyVar Kind) TC
+deriving newtype instance MonadReader TCEnv TC
 deriving newtype instance MonadError TCError TC
+
+data TCEnv
+  = TCEnv {
+    tcTmVars :: Map TmVar Type
+  , tcTyVars :: Map TyVar Kind
+  , tcCtors :: Map Ctor Type
+  , tcTyCons :: Map TyCon Kind
+  }
 
 withVars :: [(TmVar, Type)] -> TC a -> TC a
 withVars xs m = do
-  traverse_ (wfType . snd) xs
+  traverse_ (\ (_, t) -> checkType t KiStar) xs
   local f m
   where
-    f (tms, tys) = (foldr (uncurry Map.insert) tms xs, tys)
+    f (TCEnv tms tys cs tcs) = TCEnv (foldr (uncurry Map.insert) tms xs) tys cs tcs
 
 withTyVars :: [(TyVar, Kind)] -> TC a -> TC a
 withTyVars aas = local f
   where
-    f (tms, tys) = (tms, foldr (uncurry Map.insert) tys aas)
+    f (TCEnv tms tys cs tcs) = TCEnv tms (foldr (uncurry Map.insert) tys aas) cs tcs
+
+withCtors :: [(Ctor, Type)] -> TC a -> TC a
+withCtors ctors = local f
+  where
+    f (TCEnv tms tys cs tcs) = TCEnv tms tys (foldr (uncurry Map.insert) cs ctors) tcs
+
+withTyCons :: [(TyCon, Kind)] -> TC a -> TC a
+withTyCons tctors = local f
+  where
+    f (TCEnv tms tys cs tcs) = TCEnv tms tys cs (foldr (uncurry Map.insert) tcs tctors)
 
 infer :: Term -> TC Type
 infer (TmVarOcc x) = do
-  (env, _) <- ask
+  env <- asks tcTmVars
   case Map.lookup x env of
     Just t -> pure t
     Nothing -> throwError (NotInScope x)
+infer (TmCtorOcc c) = do
+  env <- asks tcCtors
+  case Map.lookup c env of
+    Just t -> pure t
+    Nothing -> throwError (CtorNotInScope c)
 infer (TmLet x t e1 e2) = do
   check e1 t
   withVars [(x, t)] $ infer e2
@@ -97,8 +132,8 @@ infer (TmTLam aa ki e) = do
   pure (TyAll aa ki t)
 infer (TmTApp e t) = do
   infer e >>= \case
-    TyAll aa KiStar t' -> do
-      wfType t
+    TyAll aa ki t' -> do
+      checkType t ki
       pure (substType (singleSubst aa t) t')
     t' -> throwError (CannotInstantiate t')
 
@@ -170,26 +205,59 @@ checkFun (TmFun _f x t s e) = do
 checkFun (TmTFun _f aa ki t e) = do
   withTyVars [(aa, ki)] $ check e t
 
--- | 'wfType' asserts that its argument is a well-formed type of kind @*@.
--- I will probably need a new function when I add type-level application.
-wfType :: Type -> TC ()
-wfType (TyAll aa ki t) = withTyVars [(aa, ki)] $ wfType t
-wfType (TyVarOcc aa) = do
-  ctx <- asks snd
-  case Map.lookup aa ctx of
+-- | 'inferType' computes the kind of its argument.
+inferType :: Type -> TC Kind
+inferType (TyAll aa ki t) = withTyVars [(aa, ki)] $ inferType t
+inferType (TyVarOcc aa) = do
+  env <- asks tcTyVars
+  case Map.lookup aa env of
     Nothing -> throwError (TyNotInScope aa)
-    Just KiStar -> pure ()
-wfType TyUnit = pure ()
-wfType TyInt = pure ()
-wfType TyString = pure ()
-wfType TyBool = pure ()
-wfType (TyList t) = wfType t
-wfType (TySum t s) = wfType t *> wfType s
-wfType (TyProd t s) = wfType t *> wfType s
-wfType (TyArr t s) = wfType t *> wfType s
+    Just ki -> pure ki
+inferType TyUnit = pure KiStar
+inferType TyInt = pure KiStar
+inferType TyString = pure KiStar
+inferType TyBool = pure KiStar
+inferType (TyList t) = inferType t
+inferType (TySum t s) = inferType t *> inferType s
+inferType (TyProd t s) = inferType t *> inferType s
+inferType (TyArr t s) = inferType t *> inferType s
+inferType (TyApp t s) = do
+  inferType t >>= \case
+    KiStar -> throwError (CannotTyApp t)
+inferType (TyConOcc tc) = do
+  env <- asks tcTyCons
+  case Map.lookup tc env of
+    Nothing -> throwError (TyConNotInScope tc)
+    Just ki -> pure ki
+
+checkType :: Type -> Kind -> TC ()
+checkType t k = do
+  k' <- inferType t
+  when (k' /= k) $ throwError (KindMismatch k k')
+
+checkDataDecls :: [DataDecl] -> TC ([(TyCon, Kind)], [(Ctor, Type)])
+checkDataDecls ds = flip execStateT ([], []) $ do
+  traverse_ f ds
+  where
+    f (DataDecl tc params ctors) = do
+      let ki = KiStar -- TODO: Use type parameters here. (Need KiArr)
+      modify (\ (tcs, cs) -> ((tc, ki) : tcs, cs))
+      ctorbinds <- lift $ withTyCons [(tc, ki)] $ do
+        withTyVars params $ traverse (checkCtorDecl tc params) ctors
+      modify (\ (tcs, cs) -> (tcs, ctorbinds ++ cs))
+
+
+checkCtorDecl :: TyCon -> [(TyVar, Kind)] -> CtorDecl -> TC (Ctor, Type)
+checkCtorDecl tc params (CtorDecl c args) = do
+  traverse_ (\arg -> checkType arg KiStar) args
+  let ctorRet = foldl TyApp (TyConOcc tc) (map (TyVarOcc . fst) params)
+  let ctorTy = foldr (uncurry TyAll) (foldr TyArr ctorRet args) params
+  pure (c, ctorTy)
 
 checkProgram :: Program -> Either TCError ()
-checkProgram (Program ds e) = runExcept . flip runReaderT (Map.empty, Map.empty) $ runTC $ do
-  _ <- infer e
+checkProgram (Program ds e) = runExcept . flip runReaderT emptyEnv $ runTC $ do
+  (tyconbinds, ctorbinds) <- checkDataDecls ds
+  _ <- withTyCons tyconbinds $ withCtors ctorbinds $ infer e
   pure ()
+  where emptyEnv = TCEnv Map.empty Map.empty Map.empty Map.empty
 

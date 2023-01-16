@@ -108,25 +108,27 @@ teleThunkType (ClosureTele ss) = ThunkType (map f ss)
     f (TypeTele aa k) = ThunkInfoArg -- Hmm. type args aren't really info args, though.
 
 thunkTypeCode :: ThunkType -> String
-thunkTypeCode (ThunkType ts) = map argcode ts
+thunkTypeCode (ThunkType ts) = concatMap argcode ts
   where
-    argcode ThunkInfoArg = 'I'
+    argcode ThunkInfoArg = "I"
     argcode (ThunkValueArg s) = tycode s
-    tycode :: Sort -> Char
-    tycode IntegerH = 'V'
-    tycode BooleanH = 'B'
-    tycode StringH = 'T'
-    tycode UnitH = 'U'
+    tycode :: Sort -> String
+    tycode IntegerH = "V"
+    tycode BooleanH = "B"
+    tycode StringH = "T"
+    tycode UnitH = "U"
     -- In C, polymorphic types are represented uniformly.
     -- For example, 'list int64' and 'list (aa * bool)' are both represented
     -- using a 'struct list_val *' value. Therefore, when encoding a thunk type
     -- (that is, summarizing a closure's calling convention), we only need to
     -- mention the outermost constructor.
-    tycode (ClosureH _) = 'C'
-    tycode (AllocH _) = 'A'
-    tycode (ListH _) = 'L'
-    tycode (ProductH _ _) = 'Q'
-    tycode (SumH _ _) = 'S'
+    tycode (ClosureH _) = "C"
+    tycode (AllocH _) = "A"
+    tycode (ListH _) = "L"
+    tycode (ProductH _ _) = "Q"
+    tycode (SumH _ _) = "S"
+    tycode (TyConH tc) = let n = show tc in show (length n) ++ n
+    tycode (TyAppH t _) = tycode t
 
 data ThunkNames
   = ThunkNames {
@@ -206,6 +208,8 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
     thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
     thunkTypesOf (SumH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
     thunkTypesOf (ListH t) = thunkTypesOf t
+    thunkTypesOf (TyConH _) = Set.empty
+    thunkTypesOf (TyAppH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
 
     teleThunkTypes :: ClosureTele -> Set ThunkType
     -- We are looking for thunk types, so scoping doesn't matter and foldMap is
