@@ -1,6 +1,6 @@
 
 module CPS
-    ( cpsMain
+    ( cpsProgram
     , pprintProgram
     ) where
 
@@ -513,15 +513,6 @@ cpsTail (S.TmSnd e) k =
       let res = LetSndK x tb' z (JumpK k [x])
       pure (res, tb)
 
--- | CPS-convert a source program. Returns an equivalent CPS program.
---
--- Unfortunately, even though 'e' is in tail position, I cannot use 'cpsTail'
--- This is because 'HaltK' is not a 'CoVar'.
-cpsMain :: S.Term -> Program ()
-cpsMain e = Program [] . fst . flip runReader emptyEnv . runCPS $
-  cps e (\z t -> pure (HaltK z, t))
-
-
 -- Note: Constructor wrapper functions
 --
 -- Constructor applications are uncurried in every IR except source. Therefore,
@@ -567,6 +558,8 @@ cpsDataDecls ds = flip runStateT [] $ traverse g ds
 cpsProgram :: S.Program -> Program ()
 cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
   (ds', ctorWrappers) <- cpsDataDecls ds
+  -- Unfortunately, I cannot use cpsTail here because 'HaltK' is not a covar.
+  -- If I manage the hybrid/fused cps transform, I should revisit this.
   (e', t) <- cps e (\z t -> pure (HaltK z, t))
   let e'' = LetFunAbsK (map snd ctorWrappers) e'
   pure (Program ds' e'')

@@ -88,6 +88,7 @@ import Source
 
 Program :: { Program }
 	: DataDecls Term { Program (rundl $1) $2 }
+	| Term { Program [] $1 }
 
 DataDecls :: { DList DataDecl }
 	  : DataDecl { dlsingle $1 }

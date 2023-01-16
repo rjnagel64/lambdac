@@ -27,13 +27,13 @@ import qualified Emit as E
 -- than I previously comprehended. It may be worthwhile to do that sort of
 -- analysis on Source instead.
 
-parseString :: String -> IO S.Term
-parseString s = case P.parseTerm (L.lex s) of
+parseString :: String -> IO S.Program
+parseString s = case P.parseProgram (L.lex s) of
   Left P.EOF -> putStrLn "unexpected EOF" >> exitFailure
   Left (P.ErrorAt msg) -> putStrLn ("parse error:" ++ msg) >> exitFailure
   Right x -> pure x
 
-parseFile :: FilePath -> IO S.Term
+parseFile :: FilePath -> IO S.Program
 parseFile f = readFile f >>= parseString
 
 data DriverArgs
@@ -76,7 +76,7 @@ main = do
       exitFailure
     Right () -> pure ()
 
-  let srcK = K.cpsMain srcS
+  let srcK = K.cpsProgram srcS
   when (driverCheckCPS args) $ do
     case KT.checkProgram srcK of
       Left err -> do

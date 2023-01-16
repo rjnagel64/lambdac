@@ -188,6 +188,8 @@ wfType (TySum t s) = wfType t *> wfType s
 wfType (TyProd t s) = wfType t *> wfType s
 wfType (TyArr t s) = wfType t *> wfType s
 
-checkProgram :: Term -> Either TCError ()
-checkProgram e = runExcept . flip runReaderT (Map.empty, Map.empty) $ runTC $ infer e *> pure ()
+checkProgram :: Program -> Either TCError ()
+checkProgram (Program ds e) = runExcept . flip runReaderT (Map.empty, Map.empty) $ runTC $ do
+  _ <- infer e
+  pure ()
 
