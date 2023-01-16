@@ -524,6 +524,31 @@ cpsTail (S.TmSnd e) k =
 -- so many redundant redexes, but whatever. (e.g., enhanced CPS translation
 -- that applies multiple arguments together, permit anonymous functions in CPS
 -- for on-site eta-expansion instead of top-level wrappers, etc.)
+--
+-- Here is an example of the wrapper for a constructor
+-- 'mkfoo : int -> bool -> a -> foo a b'
+-- of
+-- 'data foo (a ; *) (b : *)':
+--
+-- type is CPS[forall (a : *). forall (b : *). int -> bool -> a -> foo a b]
+-- fun mkfoo (@a : *, k0 : CPS[forall (b : *). int -> bool -> a -> foo a b]) =
+--   let fun w0 (@b : *, k1 : CPS[int -> bool -> a -> foo a b]) =
+--     let fun w1 (arg0 : int, k2 : CPS[bool -> a -> foo a b]) =
+--       let fun w2 (arg1 : bool, k3 : CPS[a -> foo a b]) =
+--         let fun w3 (arg2 : a, k4 : (foo a b) -> !) =
+-- 	  let c : foo a b = mkfoo(arg0, arg1, arg2) in
+-- 	  k4 c
+-- 	in
+-- 	k3 w3
+--       in
+--       k2 w2
+--     in
+--     k1 w1
+--   in
+--   k0 w0
+--
+-- Nullary constructors (no value args, no type params) are merely let-expressions:
+-- let mkbar : bar = mkbar() in ...
 
 -- TODO: CPSEnv needs to map Ctor to wrapper
 
