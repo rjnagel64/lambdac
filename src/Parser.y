@@ -106,7 +106,7 @@ CtorDecl :: { CtorDecl }
 
 CtorArgs :: { DList Type }
 	 : Type { dlsingle $1 }
-	 | CtorArgs ',' Type { snoc $3 $1 }
+	 -- | CtorArgs ',' Type { snoc $3 $1 }
 
 
 Term :: { Term }
