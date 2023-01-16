@@ -10,6 +10,7 @@ import Data.Maybe (fromMaybe)
 import Data.Traversable (mapAccumL, for)
 
 import Control.Monad.Reader
+import Control.Monad.State
 
 import qualified Source as S
 
@@ -519,6 +520,56 @@ cpsTail (S.TmSnd e) k =
 cpsMain :: S.Term -> Program ()
 cpsMain e = Program [] . fst . flip runReader emptyEnv . runCPS $
   cps e (\z t -> pure (HaltK z, t))
+
+
+-- Note: Constructor wrapper functions
+--
+-- Constructor applications are uncurried in every IR except source. Therefore,
+-- as part of CPS, we have to adapt the curried Source IR to the uncurried CPS
+-- IR. We currently do this by generating a curried "wrapper function" that
+-- ultimately constructs the ctor value.
+--
+-- One could easily imagine a smarter translation that does not generate nearly
+-- so many redundant redexes, but whatever. (e.g., enhanced CPS translation
+-- that applies multiple arguments together, permit anonymous functions in CPS
+-- for on-site eta-expansion instead of top-level wrappers, etc.)
+
+-- TODO: CPSEnv needs to map Ctor to wrapper
+
+cpsDataDecl :: S.DataDecl -> CPS (DataDecl, [(Ctor, FunDef ())])
+cpsDataDecl (S.DataDecl (S.TyCon tc) params ctors) = do
+  let tycon = TyCon tc
+  let retTy = foldl (\ty (S.TyVar aa, _) -> TyAppK ty (TyVarOccK (TyVar aa 0))) (TyConOccK tycon) params
+  params' <- traverse (\ (S.TyVar aa, ki) -> (,) <$> pure (TyVar aa 0) <*> cpsKind ki) params
+  (ctors', wrappers) <- unzip <$> traverse (cpsCtorDecl retTy) ctors
+  pure (DataDecl tycon params' ctors', wrappers)
+
+-- Hmm. Need to obtain the return type of the ctor.
+cpsCtorDecl :: TypeK -> S.CtorDecl -> CPS (CtorDecl, (Ctor, FunDef ()))
+-- Special case: one value argument, no type parameters.
+cpsCtorDecl ty (S.CtorDecl (S.Ctor c) [arg]) = do
+  let c' = Ctor c
+  let val = CtorAppK c' [TmVar "x" 0]
+  let body = LetValK (TmVar "v" 0) ty val (JumpK (CoVar "k" 0) [TmVar "v" 0])
+  arg' <- cpsType arg
+  let wrapper = FunDef () (TmVar c 0) [(TmVar "x" 0, arg')] [(CoVar "k" 0, ContK [ty])] body
+  pure (CtorDecl c' [arg'], (c', wrapper))
+cpsCtorDecl _ (S.CtorDecl _ _) = error "not implemented: multi-arg ctors"
+
+cpsDataDecls :: [S.DataDecl] -> CPS ([DataDecl], [(Ctor, FunDef ())])
+cpsDataDecls ds = flip runStateT [] $ traverse g ds
+  where
+    g dd = do
+      (dd', wbinds) <- lift $ cpsDataDecl dd
+      modify (wbinds ++)
+      pure dd'
+
+cpsProgram :: S.Program -> Program ()
+cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
+  (ds', ctorWrappers) <- cpsDataDecls ds
+  (e', t) <- cps e (\z t -> pure (HaltK z, t))
+  let e'' = LetFunAbsK (map snd ctorWrappers) e'
+  pure (Program ds' e'')
 
 
 -- | CPS-transform a case alternative @(x:t)+ -> e@.

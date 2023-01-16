@@ -177,6 +177,7 @@ data ValueK
   | EmptyK
   | ConsK TmVar TmVar
   | StringValK String
+  | CtorAppK Ctor [TmVar]
 
 data ArithK
   = AddK TmVar TmVar
@@ -213,6 +214,8 @@ data TypeK
   | AllK [(TyVar, KindK)] [CoTypeK]
   -- aa
   | TyVarOccK TyVar
+  | TyConOccK TyCon
+  | TyAppK TypeK TypeK
 
 -- | A co-type is the type of a continuation.
 -- @(τ+) -> !@

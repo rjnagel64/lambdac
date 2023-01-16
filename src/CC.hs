@@ -172,6 +172,8 @@ cconvType (K.ProdK t1 t2) = Pair <$> cconvType t1 <*> cconvType t2
 cconvType (K.ListK t) = List <$> cconvType t
 cconvType (K.FunK ts ss) = f <$> traverse cconvType ts <*> traverse cconvCoType ss
   where f ts' ss' = Closure (map ValueTele ts' ++ map ValueTele ss')
+cconvType (K.TyConOccK (K.TyCon tc)) = pure (TyConOcc (TyCon tc))
+cconvType (K.TyAppK t1 t2) = TyApp <$> cconvType t1 <*> cconvType t2
 
 cconvCoType :: K.CoTypeK -> ConvM Sort
 cconvCoType (K.ContK ss) = do
@@ -280,6 +282,7 @@ cconvValue (K.InrK y) = InrC <$> cconvTmVar y
 cconvValue K.EmptyK = pure EmptyC
 cconvValue (K.ConsK x y) = ConsC <$> cconvTmVar x <*> cconvTmVar y
 cconvValue (K.StringValK s) = pure (StringC s)
+cconvValue (K.CtorAppK (K.Ctor c) args) = CtorAppC (Ctor c) <$> traverse cconvTmVar args
 
 cconvArith :: K.ArithK -> ConvM ArithC
 cconvArith (K.AddK x y) = AddC <$> cconvTmVar x <*> cconvTmVar y

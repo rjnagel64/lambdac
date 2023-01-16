@@ -123,6 +123,8 @@ data Sort
   | Unit
   | Boolean
   | List Sort
+  | TyConOcc TyCon
+  | TyApp Sort Sort
 
 data TeleEntry
   = ValueTele Sort
@@ -236,6 +238,7 @@ data ValueC
   | EmptyC
   | ConsC Name Name
   | StringC String
+  | CtorAppC Ctor [Name]
 
 
 indent :: Int -> String -> String

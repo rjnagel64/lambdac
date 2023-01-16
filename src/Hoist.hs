@@ -61,6 +61,8 @@ sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
     f (C.ValueTele s) = ValueTele (sortOf s)
     f (C.TypeTele aa k) = TypeTele (asTyVar aa) (kindOf k)
 sortOf (C.Alloc aa) = AllocH (asTyVar aa)
+sortOf (C.TyConOcc (C.TyCon tc)) = TyConH (TyCon tc)
+sortOf (C.TyApp t s) = TyAppH (sortOf t) (sortOf s)
 
 kindOf :: C.Kind -> Kind
 kindOf C.Star = Star
@@ -273,6 +275,7 @@ hoistValue C.EmptyC = pure (CtorAppH ListNilH)
 hoistValue (C.ConsC x xs) =
   ((CtorAppH .) . ListConsH) <$> hoistVarOcc x <*> hoistVarOcc xs
 hoistValue (C.StringC s) = pure (StringValH s)
+hoistValue (C.CtorAppC (C.Ctor c) args) = (CtorAppH . CtorApp (Ctor c)) <$> traverse hoistVarOcc args
 
 hoistArith :: C.ArithC -> HoistM PrimOp
 hoistArith (C.AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
