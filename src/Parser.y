@@ -103,11 +103,11 @@ CtorDecls :: { DList CtorDecl }
 	  | CtorDecls CtorDecl { snoc $2 $1 }
 
 CtorDecl :: { CtorDecl }
-	 : ID '(' ')' { CtorDecl (ctor $1) [] }
-	 | ID '(' CtorArgs ')' { CtorDecl (ctor $1) (rundl $3) }
+	 : ID '(' CtorArgs ')' { CtorDecl (ctor $1) (rundl $3) }
 
 CtorArgs :: { DList Type }
 	 : Type { dlsingle $1 }
+	 -- | {- empty -} { dlempty }
 	 -- | CtorArgs ',' Type { snoc $3 $1 }
 
 
@@ -123,6 +123,7 @@ Term :: { Term }
      | 'case' 'uncons' Term 'return' Type 'of' '{' 'nil' '->' Term ';' 'cons' VarBind VarBind '->' Term '}'
        { TmCaseList $3 $5 $10 ($13, $14, $16) }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
+     | 'case' Term 'return' Type 'of' '{' Alts '}' { TmCase $2 $4 (rundl $7) }
 
      | Term '+' Term { TmArith $1 TmArithAdd $3 }
      | Term '-' Term { TmArith $1 TmArithSub $3 }
@@ -142,6 +143,25 @@ Term :: { Term }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
+
+Alts :: { DList (Ctor, [(TmVar, Type)], Term) }
+     : {- empty -} { dlempty }
+     | Alt { dlsingle $1 }
+     | Alts ';' Alt { snoc $3 $1 }
+
+Alt :: { (Ctor, [(TmVar, Type)], Term) }
+    -- Shift-reduce conflict
+    -- ID '(' | ... '->' ... should always shift, but for some reason the LR
+    -- automaton considered the possibility of reducing a list of zero varbinds
+    -- and then trying to parse '(' as the RHS.
+    --
+    -- Therefore, the rule is manually split to avoid such nonsense.
+    : ID '->' Term { (ctor $1, [], $3) }
+    | ID VarBinds '->' Term { (ctor $1, rundl $2, $4) }
+
+VarBinds :: { DList (TmVar, Type) }
+	 : VarBind { dlsingle $1 }
+	 | VarBinds VarBind { snoc $2 $1 }
 
 AppTerm :: { Term }
         : ATerm { $1 }

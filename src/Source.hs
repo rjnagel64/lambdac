@@ -9,9 +9,13 @@ module Source
   , TyVar(..)
   , Kind(..)
 
+  , TyConApp(..)
+  , asTyConApp
+
   , eqType
   , Subst
   , singleSubst
+  , makeSubst
   , substType
   , ftv
 
@@ -136,6 +140,7 @@ data Term
   -- s1 ^ s2
   | TmConcat Term Term
   | TmCtorOcc Ctor
+  | TmCase Term Type [(Ctor, [(TmVar, Type)], Term)]
 
 data TmArith
   = TmArithAdd
@@ -175,13 +180,27 @@ data Type
 instance Eq Type where
   (==) = eqType emptyAE
 
+data TyConApp
+  = CaseBool
+  | CaseSum Type Type
+  | CaseList Type
+  | TyConApp TyCon [Type]
+
+asTyConApp :: Type -> Maybe TyConApp
+asTyConApp TyBool = Just CaseBool
+asTyConApp (TySum t s) = Just (CaseSum t s)
+asTyConApp (TyList t) = Just (CaseList t)
+asTyConApp (TyConOcc tc) = Just (TyConApp tc [])
+asTyConApp (TyApp t s) = go t [s]
+  where
+    go (TyApp t' s') args = go t' (s' : args)
+    go (TyConOcc tc) args = Just (TyConApp tc args)
+    go _ _ = Nothing
+asTyConApp _ = Nothing
+
 data Kind
   = KiStar
   deriving (Eq)
-
--- TODO: As I implement ADTs, I think I need to introduce kinds and kind signatures.
--- Yep. Need kind signatures, HKTs, HK polymorphism, etc. ... and I need it at
--- every layer. Big refactoring time, I guess.
 
 
 data AE = AE Int (Map TyVar Int) (Map TyVar Int)
@@ -236,6 +255,9 @@ data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Type }
 -- | Construct a singleton substitution, @[aa := t]@.
 singleSubst :: TyVar -> Type -> Subst
 singleSubst aa t = Subst { substScope = ftv t, substMapping = Map.singleton aa t }
+
+makeSubst :: [(TyVar, Type)] -> Subst
+makeSubst binds = Subst { substScope = foldMap (ftv . snd) binds, substMapping = Map.fromList binds }
 
 substBind :: Subst -> TyVar -> (Subst, TyVar)
 substBind (Subst sc sub) aa =

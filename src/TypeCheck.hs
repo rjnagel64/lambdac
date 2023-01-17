@@ -15,17 +15,26 @@ import Control.Monad.State
 
 
 data TCError
+  -- Things not in scope
   = NotInScope TmVar
   | CtorNotInScope Ctor
   | TyNotInScope TyVar
   | TyConNotInScope TyCon
+
+  -- Mismatch between expected and actual
   | TypeMismatch Type Type -- expected, actual
   | KindMismatch Kind Kind -- expected, actual
+
+  -- Cannot eliminate subject in this manner
   | CannotProject Type
   | CannotApply Type
   | CannotTyApp Type
   | CannotInstantiate Type
+  | CannotScrutinize Type
+
+  -- Misc.
   | InvalidLetRec TmVar
+  | MissingCaseAlt Ctor
 
 instance Show TCError where
   show (TypeMismatch expected actual) = unlines
@@ -60,7 +69,7 @@ data TCEnv
     tcTmVars :: Map TmVar Type
   , tcTyVars :: Map TyVar Kind
   , tcCtors :: Map Ctor Type
-  , tcTyCons :: Map TyCon Kind
+  , tcTyCons :: Map TyCon DataDecl
   }
 
 withVars :: [(TmVar, Type)] -> TC a -> TC a
@@ -80,10 +89,17 @@ withCtors ctors = local f
   where
     f (TCEnv tms tys cs tcs) = TCEnv tms tys (foldr (uncurry Map.insert) cs ctors) tcs
 
-withTyCons :: [(TyCon, Kind)] -> TC a -> TC a
+withTyCons :: [(TyCon, DataDecl)] -> TC a -> TC a
 withTyCons tctors = local f
   where
     f (TCEnv tms tys cs tcs) = TCEnv tms tys cs (foldr (uncurry Map.insert) tcs tctors)
+
+equalTypes :: Type -> Type -> TC ()
+equalTypes t t' = when (t /= t') $ throwError (TypeMismatch t t')
+
+equalKinds :: Kind -> Kind -> TC ()
+equalKinds k k' = when (k' /= k) $ throwError (KindMismatch k k')
+
 
 infer :: Term -> TC Type
 infer (TmVarOcc x) = do
@@ -192,12 +208,58 @@ infer (TmConcat e1 e2) = do
   check e1 TyString
   check e2 TyString
   pure TyString
+infer (TmCase e s alts) = do
+  tcapp <- infer e >>= \t -> case asTyConApp t of
+    Just tapp -> pure tapp
+    Nothing -> throwError (CannotScrutinize t)
+  branchTys <- tyConBranchTypes tcapp
+
+  -- Hmm. This will find missing alts, but will not find duplicate alts or alts
+  -- from a different data type.
+  --
+  -- Check that separately, I guess.
+  for_ branchTys $ \ (c, argTys) -> do
+    -- Check that alt with matching ctor exists
+    (binds, rhs) <- findAlt c alts
+    -- Check that bindings on that alt have correct annotations
+    checkBinds binds argTys
+    -- Check that RHS has return type 's'.
+    withVars binds $ check rhs s
+
+  pure s
+
+tyConBranchTypes :: TyConApp -> TC [(Ctor, [Type])]
+tyConBranchTypes tcapp = case tcapp of
+  CaseBool -> pure [(Ctor "false", []), (Ctor "true", [])]
+  CaseSum t s -> pure [(Ctor "inl", [t]), (Ctor "inr", [s])]
+  CaseList t -> pure [(Ctor "nil", []), (Ctor "cons", [t, TyList t])]
+  -- Lookup tc. Make subst [params := args]. Use subst on each ctordecl to get branches.
+  TyConApp tc args -> do
+    env <- asks tcTyCons
+    DataDecl _ params ctors <- case Map.lookup tc env of
+      Nothing -> throwError (TyConNotInScope tc)
+      Just entry -> pure entry
+
+    let sub = makeSubst (zipWith (\ (aa, _) t -> (aa, t)) params args)
+    pure $ map (ctorBranchTy sub) ctors
+  where
+    ctorBranchTy :: Subst -> CtorDecl -> (Ctor, [Type])
+    ctorBranchTy sub (CtorDecl c ctorArgs) = (c, map (substType sub) ctorArgs)
+
+findAlt :: Ctor -> [(Ctor, [(TmVar, Type)], Term)] -> TC ([(TmVar, Type)], Term)
+findAlt c [] = throwError (MissingCaseAlt c)
+findAlt c ((c', binds, rhs) : alts) =
+  if c == c' then
+    pure (binds, rhs)
+  else
+    findAlt c alts
+
+checkBinds :: [(TmVar, Type)] -> [Type] -> TC ()
+checkBinds [] [] = pure ()
+checkBinds ((x, t) : binds) (t' : tys) = equalTypes t t' *> checkBinds binds tys
 
 check :: Term -> Type -> TC ()
-check e t = do
-  t' <- infer e
-  when (t /= t') $ throwError (TypeMismatch t t')
-  pure ()
+check e t = infer e >>= equalTypes t
 
 checkFun :: TmFun -> TC ()
 checkFun (TmFun _f x t s e) = do
@@ -228,21 +290,22 @@ inferType (TyConOcc tc) = do
   env <- asks tcTyCons
   case Map.lookup tc env of
     Nothing -> throwError (TyConNotInScope tc)
-    Just ki -> pure ki
+    Just dd -> pure (dataDeclKind dd)
 
 checkType :: Type -> Kind -> TC ()
-checkType t k = do
-  k' <- inferType t
-  when (k' /= k) $ throwError (KindMismatch k k')
+checkType t k = inferType t >>= equalKinds k
 
-checkDataDecls :: [DataDecl] -> TC ([(TyCon, Kind)], [(Ctor, Type)])
+dataDeclKind :: DataDecl -> Kind
+dataDeclKind (DataDecl _ params _) = KiStar -- TODO: Use type parameters here. (Need KiArr)
+  -- foldr (\ (_, k) ki -> KiArr k ki) KiStar params
+
+checkDataDecls :: [DataDecl] -> TC ([(TyCon, DataDecl)], [(Ctor, Type)])
 checkDataDecls ds = flip execStateT ([], []) $ do
   traverse_ f ds
   where
-    f (DataDecl tc params ctors) = do
-      let ki = KiStar -- TODO: Use type parameters here. (Need KiArr)
-      modify (\ (tcs, cs) -> ((tc, ki) : tcs, cs))
-      ctorbinds <- lift $ withTyCons [(tc, ki)] $ do
+    f dd@(DataDecl tc params ctors) = do
+      modify (\ (tcs, cs) -> ((tc, dd) : tcs, cs))
+      ctorbinds <- lift $ withTyCons [(tc, dd)] $ do
         withTyVars params $ traverse (checkCtorDecl tc params) ctors
       modify (\ (tcs, cs) -> (tcs, ctorbinds ++ cs))
 
