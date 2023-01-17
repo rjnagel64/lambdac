@@ -75,6 +75,8 @@ cpsType (S.TySum a b) = SumK <$> cpsType a <*> cpsType b
 cpsType (S.TyProd a b) = ProdK <$> cpsType a <*> cpsType b
 cpsType (S.TyArr a b) = (\a' b' -> FunK [a'] [b']) <$> cpsType a <*> cpsCoType b
 cpsType (S.TyList a) = ListK <$> cpsType a
+cpsType (S.TyConOcc (S.TyCon tc)) = pure (TyConOccK (TyCon tc))
+cpsType (S.TyApp a b) = TyAppK <$> cpsType a <*> cpsType b
 
 cpsCoType :: S.Type -> CPS CoTypeK
 cpsCoType s = (\s' -> ContK [s']) <$> cpsType s
