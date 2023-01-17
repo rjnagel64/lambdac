@@ -279,10 +279,10 @@ inferType TyUnit = pure KiStar
 inferType TyInt = pure KiStar
 inferType TyString = pure KiStar
 inferType TyBool = pure KiStar
-inferType (TyList t) = inferType t
-inferType (TySum t s) = inferType t *> inferType s
-inferType (TyProd t s) = inferType t *> inferType s
-inferType (TyArr t s) = inferType t *> inferType s
+inferType (TyList t) = checkType t KiStar *> pure KiStar
+inferType (TySum t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
+inferType (TyProd t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
+inferType (TyArr t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 inferType (TyApp t s) = do
   inferType t >>= \case
     KiStar -> throwError (CannotTyApp t)
