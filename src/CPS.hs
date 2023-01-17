@@ -106,6 +106,11 @@ cps (S.TmVarOcc x) k = do
   case Map.lookup x env of
     Nothing -> error "scope error"
     Just (x', t) -> k x' t
+cps (S.TmCtorOcc c) k = do
+  env <- asks cpsEnvCtors
+  case Map.lookup c env of
+    Nothing -> error "scope error"
+    Just (c', t) -> k c' t
 cps S.TmNil k =
   freshTm "x" $ \x -> do
     (e', t') <- k x S.TyUnit
@@ -346,6 +351,11 @@ cpsTail (S.TmVarOcc x) k = do
   case Map.lookup x env of
     Nothing -> error "scope error"
     Just (x', t') -> pure (JumpK k [x'], t')
+cpsTail (S.TmCtorOcc c) k = do
+  env <- asks cpsEnvCtors
+  case Map.lookup c env of
+    Nothing -> error "scope error"
+    Just (c', t') -> pure (JumpK k [c'], t')
 cpsTail (S.TmLam x argTy e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
@@ -560,6 +570,15 @@ cpsDataDecl (S.DataDecl (S.TyCon tc) params ctors) = do
   (ctors', wrappers) <- unzip <$> traverse (cpsCtorDecl retTy) ctors
   pure (DataDecl tycon params' ctors', wrappers)
 
+ctorWrapperBinds :: S.DataDecl -> [(S.Ctor, (TmVar, S.Type))]
+ctorWrapperBinds (S.DataDecl tc params ctors) = map ctorDeclType ctors
+  where
+    ctorDeclType :: S.CtorDecl -> (S.Ctor, (TmVar, S.Type))
+    ctorDeclType (S.CtorDecl (S.Ctor c) args) = (S.Ctor c, (TmVar c 0, ty))
+      where
+        ret = foldl S.TyApp (S.TyConOcc tc) (map (S.TyVarOcc . fst) params)
+        ty = foldr S.TyArr ret args
+
 -- Hmm. Need to obtain the return type of the ctor.
 cpsCtorDecl :: TypeK -> S.CtorDecl -> CPS (CtorDecl, (Ctor, FunDef ()))
 -- Special case: one value argument, no type parameters.
@@ -583,9 +602,13 @@ cpsDataDecls ds = flip runStateT [] $ traverse g ds
 cpsProgram :: S.Program -> Program ()
 cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
   (ds', ctorWrappers) <- cpsDataDecls ds
+
+  let ctorbinds = concatMap ctorWrapperBinds ds
+  let extend (CPSEnv sc tms tys cs) = CPSEnv sc tms tys (insertMany ctorbinds cs)
+
   -- Unfortunately, I cannot use cpsTail here because 'HaltK' is not a covar.
   -- If I manage the hybrid/fused cps transform, I should revisit this.
-  (e', t) <- cps e (\z t -> pure (HaltK z, t))
+  (e', t) <- local extend $ cps e (\z t -> pure (HaltK z, t))
   let e'' = LetFunAbsK (map snd ctorWrappers) e'
   pure (Program ds' e'')
 
@@ -611,7 +634,7 @@ cpsCase z t j bs = do
       let k' = CoVar "k" i in
       (Map.insert "k" (i+1) sc, (k', b))
     (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' ctx tys
+  let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' ctx tys cs
   -- CPS each branch
   (ks, konts) <- fmap unzip $ local extend $ for bs' $ \ (k, (xs, e)) -> do
     (kont, _s') <- cpsBranch k xs e j
@@ -634,17 +657,18 @@ data CPSEnv
     cpsEnvScope :: Map String Int
   , cpsEnvCtx :: Map S.TmVar (TmVar, S.Type)
   , cpsEnvTyCtx :: Map S.TyVar (TyVar, S.Kind)
+  , cpsEnvCtors :: Map S.Ctor (TmVar, S.Type)
   }
 
 emptyEnv :: CPSEnv
-emptyEnv = CPSEnv Map.empty Map.empty Map.empty
+emptyEnv = CPSEnv Map.empty Map.empty Map.empty Map.empty
 
 freshTm :: String -> (TmVar -> CPS a) -> CPS a
 freshTm x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = TmVar x i
-  let extend (CPSEnv sc ctx tys) = CPSEnv (Map.insert x (i+1) sc) ctx tys
+  let extend (CPSEnv sc ctx tys cs) = CPSEnv (Map.insert x (i+1) sc) ctx tys cs
   local extend (k x')
 
 freshCo :: String -> (CoVar -> CPS a) -> CPS a
@@ -652,7 +676,7 @@ freshCo x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = CoVar x i
-  let extend (CPSEnv sc ctx tys) = CPSEnv (Map.insert x (i+1) sc) ctx tys
+  let extend (CPSEnv sc ctx tys cs) = CPSEnv (Map.insert x (i+1) sc) ctx tys cs
   local extend (k x')
 
 insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
@@ -668,7 +692,7 @@ freshenVarBinds bs k = do
       let x' = TmVar x i in
       (Map.insert x (i+1) sc, (S.TmVar x, (x', t)))
     (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (insertMany bs' ctx) tys
+  let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' (insertMany bs' ctx) tys cs
   bs'' <- traverse (\ (_, (x', t)) -> (,) x' <$> cpsType t) bs'
   local extend (k bs'')
 
@@ -682,7 +706,7 @@ freshenTyVarBinds bs k = do
       let aa' = TyVar aa i in
       (Map.insert aa (i+1) sc, (S.TyVar aa, (aa', ki)))
     (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' ctx (insertMany bs' tys)
+  let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' ctx (insertMany bs' tys) cs
   bs'' <- traverse (\ (_, (aa', k)) -> (,) aa' <$> cpsKind k) bs'
   local extend (k bs'')
 
@@ -701,7 +725,7 @@ freshenFunBinds fs m = do
       let f' = TmVar f i in
       (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyAll aa ki retTy)))
     (sc', binds) = mapAccumL pick scope fs
-  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (insertMany binds ctx) tys
+  let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' (insertMany binds ctx) tys cs
   local extend m
 
 freshenRecBinds :: [(S.TmVar, S.Type, S.Term)] -> ([S.TmFun] -> CPS a) -> CPS a
@@ -714,7 +738,7 @@ freshenRecBinds fs k = do
       let f' = TmVar f i in
       (Map.insert f (i+1) sc, (S.TmVar f, (f', ty)))
     (sc', binds) = mapAccumL pick scope fs
-  let extend (CPSEnv _sc ctx tys) = CPSEnv sc' (insertMany binds ctx) tys
+  let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' (insertMany binds ctx) tys cs
   fs' <- for fs $ \ (f, ty, rhs) -> do
     case (ty, rhs) of
       (S.TyArr _t s, S.TmLam x t' body) -> do
