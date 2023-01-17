@@ -217,25 +217,25 @@ simplifyContDef env (ContDef ann k xs e) =
   (ContDef ann k xs e', census')
 
 -- | Perform beta-reduction for a case expression
-simplifyCase :: SimplEnv -> TmVar -> TypeK -> [CoVar] -> (TermK a, Census)
+simplifyCase :: SimplEnv -> TmVar -> TypeK -> [(Ctor, CoVar)] -> (TermK a, Census)
 simplifyCase env x (SumK ta tb) [k1, k2] =
   case lookupValue x env of
-    (_, Just (InlK y)) -> (JumpK k1 [y], recordOne y)
-    (_, Just (InrK z)) -> (JumpK k2 [z], recordOne z)
+    (_, Just (InlK y)) -> (JumpK (snd k1) [y], recordOne y)
+    (_, Just (InrK z)) -> (JumpK (snd k2) [z], recordOne z)
     (_, Just _) -> error "simplifyCase: env contained invalid value for sum type"
     (x', Nothing) -> (CaseK x' (SumK ta tb) [k1, k2], recordOne x')
 simplifyCase _ _ (SumK _ _) _ = error "simplifyCase: incorrect number of branches for sum type"
 simplifyCase env x BoolK [k1, k2] =
   case lookupValue x env of
-    (_, Just (BoolValK True)) -> (JumpK k1 [], mempty)
-    (_, Just (BoolValK False)) -> (JumpK k2 [], mempty)
+    (_, Just (BoolValK True)) -> (JumpK (snd k1) [], mempty)
+    (_, Just (BoolValK False)) -> (JumpK (snd k2) [], mempty)
     (_, Just _) -> error "simplifyCase: env contained invalid value for bool type"
     (x', Nothing) -> (CaseK x' BoolK [k1, k2], recordOne x')
 simplifyCase _ _ BoolK _ = error "simplifyCase: incorrect number of branches for bool type"
 simplifyCase env x (ListK t) [k1, k2] =
   case lookupValue x env of
-    (_, Just EmptyK) -> (JumpK k1 [], mempty)
-    (_, Just (ConsK y ys)) -> (JumpK k2 [y, ys], recordList [y, ys])
+    (_, Just EmptyK) -> (JumpK (snd k1) [], mempty)
+    (_, Just (ConsK y ys)) -> (JumpK (snd k2) [y, ys], recordList [y, ys])
     (_, Just _) -> error "simplifyCase: env contained invalid value for list type"
     (x', Nothing) -> (CaseK x' (ListK t) [k1, k2], recordOne x')
 simplifyCase _ _ (ListK _) _ = error "simplifyCase: incorrect number of branches for list type"

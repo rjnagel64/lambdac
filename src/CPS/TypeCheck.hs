@@ -156,11 +156,11 @@ check (InstK f ts ks) = do
   ss' <- instantiate aas ts ss
   checkCoArgs ks ss'
 check (CaseK x s ks) = case (s, ks) of
-  (BoolK, [k1, k2]) ->
+  (BoolK, [(c1, k1), (c2, k2)]) ->
     checkCoVar k1 (ContK []) *> checkCoVar k2 (ContK [])
-  (SumK t1 t2, [k1, k2]) ->
+  (SumK t1 t2, [(c1, k1), (c2, k2)]) ->
     checkCoVar k1 (ContK [t1]) *> checkCoVar k2 (ContK [t2])
-  (ListK t, [k1, k2]) ->
+  (ListK t, [(c1, k1), (c2, k2)]) ->
     checkCoVar k1 (ContK []) *> checkCoVar k2 (ContK [t, ListK t])
   (_, _) -> throwError (BadCaseAnalysis x s)
 check (LetContK ks e) = do

@@ -200,12 +200,7 @@ cconv (K.InstK f ts ks) =
 cconv (K.CaseK x t ks) = do
   x' <- cconvTmVar x
   kind <- caseKind t
-  let
-    ctors = case kind of
-      CaseBool -> [Ctor "false", Ctor "true"]
-      CaseSum _ _ -> [Ctor "inl", Ctor "inr"]
-      CaseList _ -> [Ctor "nil", Ctor "cons"]
-  ks' <- zip ctors <$> traverse cconvCoVar ks
+  ks' <- traverse (\ (K.Ctor c, k) -> (,) (Ctor c) <$> cconvCoVar k) ks
   pure (CaseC x' kind ks')
 cconv (K.LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e

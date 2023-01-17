@@ -248,7 +248,7 @@ cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
         s' <- cpsType s
         (e', _t') <- k x s
         let kont = ContDef () j [(x, s')] e'
-        res <- cpsCase z t j [([(xl, tl)], el), ([(xr, tr)], er)]
+        res <- cpsCase z t j [(Ctor "inl", [(xl, tl)], el), (Ctor "inr", [(xr, tr)], er)]
         pure (LetContK [kont] res, s)
 cps (S.TmIf e s et ef) k =
   cps e $ \z t -> do
@@ -261,7 +261,7 @@ cps (S.TmIf e s et ef) k =
         -- This is because case branches are laid out in order of discriminant.
         -- false = 0, true = 1, so the branches should be laid
         -- out as false, true as opposed to the source order true, false.
-        res <- cpsCase z t j [([], ef), ([], et)]
+        res <- cpsCase z t j [(Ctor "false", [], ef), (Ctor "true", [], et)]
         pure (LetContK [kont] res, s)
 cps (S.TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
   cps e $ \z t -> do
@@ -270,7 +270,7 @@ cps (S.TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
         s' <- cpsType s
         (e', _t') <- k x s
         let kont = ContDef () j [(x, s')] e'
-        res <- cpsCase z t j [([], en), ([(y, thd), (ys, ttl)], ec)]
+        res <- cpsCase z t j [(Ctor "nil", [], en), (Ctor "cons", [(y, thd), (ys, ttl)], ec)]
         pure (LetContK [kont] res, s)
 cps (S.TmApp e1 e2) k =
   cps e1 $ \v1 t1 -> do
@@ -474,7 +474,7 @@ cpsTail (S.TmInr a b e) k =
       pure (res, ty)
 cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
-    res <- cpsCase z t k [([(xl, tl)], el), ([(xr, tr)], er)]
+    res <- cpsCase z t k [(Ctor "inl", [(xl, tl)], el), (Ctor "inr", [(xr, tr)], er)]
     pure (res, s)
 cpsTail (S.TmIf e s et ef) k =
   cps e $ \z t -> do
@@ -483,11 +483,11 @@ cpsTail (S.TmIf e s et ef) k =
     -- false = 0, true = 1, so the branches should be laid
     -- out as false, true as oppose to the source order true,
     -- false.
-    res <- cpsCase z t k [([], ef), ([], et)]
+    res <- cpsCase z t k [(Ctor "false", [], ef), (Ctor "true", [], et)]
     pure (res, s)
 cpsTail (S.TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
   cps e $ \z t -> do
-    res <- cpsCase z t k [([], en), ([(y, thd), (ys, ttl)], ec)]
+    res <- cpsCase z t k [(Ctor "nil", [], en), (Ctor "cons", [(y, thd), (ys, ttl)], ec)]
     pure (res, s)
 cpsTail (S.TmApp e1 e2) k =
   cps e1 $ \f t1 ->
@@ -626,7 +626,7 @@ cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
 
 -- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
 -- and a list of branches with bound variables.
-cpsCase :: TmVar -> S.Type -> CoVar -> [([(S.TmVar, S.Type)], S.Term)] -> CPS (TermK ())
+cpsCase :: TmVar -> S.Type -> CoVar -> [(Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK ())
 cpsCase z t j bs = do
   -- Pick names for each branch continuation
   scope <- asks cpsEnvScope
@@ -638,9 +638,9 @@ cpsCase z t j bs = do
     (sc', bs') = mapAccumL pick scope bs
   let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' ctx tys cs
   -- CPS each branch
-  (ks, konts) <- fmap unzip $ local extend $ for bs' $ \ (k, (xs, e)) -> do
+  (ks, konts) <- fmap unzip $ local extend $ for bs' $ \ (k, (c, xs, e)) -> do
     (kont, _s') <- cpsBranch k xs e j
-    pure (k, kont)
+    pure ((c, k), kont)
   -- Assemble the result term
   t' <- cpsType t
   let res = foldr (LetContK . (:[])) (CaseK z t' ks) konts

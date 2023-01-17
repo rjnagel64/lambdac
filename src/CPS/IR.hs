@@ -125,8 +125,8 @@ data TermK a
   | CallK TmVar [TmVar] [CoVar]
   -- f @t k
   | InstK TmVar [TypeK] [CoVar]
-  -- case x : s of k1 | k2 | ..., branch
-  | CaseK TmVar TypeK [CoVar]
+  -- case x : s of c1 -> k1 | c2 -> k2 | ..., branch
+  | CaseK TmVar TypeK [(Ctor, CoVar)]
   -- halt x
   | HaltK TmVar
 
