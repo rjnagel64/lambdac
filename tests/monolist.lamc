@@ -1,0 +1,7 @@
+
+data intlist = { mknil(unit); mkcons(int * %intlist) }
+
+letrec sum : %intlist -> int =
+  \ (xs : %intlist) -> case xs return int of { mknil (z : unit) -> 0; mkcons (p : int * %intlist) -> fst p + sum (snd p) };
+in
+sum (%mkcons (17, (%mkcons (8, (%mknil ())))))

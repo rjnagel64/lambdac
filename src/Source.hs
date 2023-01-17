@@ -291,6 +291,8 @@ substType sub (TyList t) = TyList (substType sub t)
 substType sub (TyProd t1 t2) = TyProd (substType sub t1) (substType sub t2)
 substType sub (TySum t1 t2) = TySum (substType sub t1) (substType sub t2)
 substType sub (TyArr t1 t2) = TyArr (substType sub t1) (substType sub t2)
+substType sub (TyApp t1 t2) = TyApp (substType sub t1) (substType sub t2)
+substType _ (TyConOcc tc) = TyConOcc tc
 
 -- | Compute the free type variables of a type
 ftv :: Type -> Set TyVar

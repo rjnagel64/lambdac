@@ -100,7 +100,7 @@ DataDecl :: { DataDecl }
 
 CtorDecls :: { DList CtorDecl }
 	  : CtorDecl { dlsingle $1 }
-	  | CtorDecls CtorDecl { snoc $2 $1 }
+	  | CtorDecls ';' CtorDecl { snoc $3 $1 }
 
 CtorDecl :: { CtorDecl }
 	 : ID '(' CtorArgs ')' { CtorDecl (ctor $1) (rundl $3) }

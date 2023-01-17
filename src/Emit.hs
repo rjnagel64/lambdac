@@ -173,6 +173,8 @@ asSort (ProductH _ _) x = "CAST_PAIR(" ++ x ++ ")"
 asSort (SumH _ _) x = "CAST_sum(" ++ x ++ ")"
 asSort UnitH x = "CAST_UNIT(" ++ x ++ ")"
 asSort (ListH _s) x = "CAST_list(" ++ x ++ ")"
+asSort (TyAppH t _) x = asSort t x
+asSort (TyConH tc) x = "CAST_" ++ show tc ++ "(" ++ x ++ ")"
 
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"

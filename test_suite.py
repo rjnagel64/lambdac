@@ -89,6 +89,7 @@ standard_test("rec", "17")
 standard_test("datadecl", "()")
 standard_test("datactor", "()")
 standard_test("datacase", "true")
+standard_test("monolist", "25")
 
 def run_tests(test_filter):
     runner = TestRunner()
