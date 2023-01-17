@@ -149,7 +149,7 @@ infer (TmInl a b e) = do
 infer (TmInr a b e) = do
   check e b
   pure (TySum a b)
-infer (TmCase e c (xl, tl, el) (xr, tr, er)) = do
+infer (TmCaseSum e c (xl, tl, el) (xr, tr, er)) = do
   check e (TySum tl tr)
   withVars [(xl, tl)] $ check el c
   withVars [(xr, tr)] $ check er c

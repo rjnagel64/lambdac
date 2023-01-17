@@ -86,7 +86,7 @@ data Term
   -- x
   = TmVarOcc TmVar
   -- case e return s of inl (x : t1) -> e1; inr (y : t2) -> e2
-  | TmCase Term Type (TmVar, Type, Term) (TmVar, Type, Term)
+  | TmCaseSum Term Type (TmVar, Type, Term) (TmVar, Type, Term)
   -- inl @a @b e
   | TmInl Type Type Term
   -- inr @a @b e

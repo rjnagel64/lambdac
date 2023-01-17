@@ -241,7 +241,7 @@ cps (S.TmLetRec fs e) k = do
     pure (fs'', e', t')
   let res = LetFunAbsK fs'' e'
   pure (res, t')
-cps (S.TmCase e s (xl, tl, el) (xr, tr, er)) k =
+cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
     freshCo "j" $ \j ->
       freshTm "x" $ \x -> do
@@ -472,7 +472,7 @@ cpsTail (S.TmInr a b e) k =
       ty' <- cpsType ty
       let res = LetValK x ty' (InrK z) (JumpK k [x])
       pure (res, ty)
-cpsTail (S.TmCase e s (xl, tl, el) (xr, tr, er)) k =
+cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
   cps e $ \z t -> do
     res <- cpsCase z t k [([(xl, tl)], el), ([(xr, tr)], er)]
     pure (res, s)

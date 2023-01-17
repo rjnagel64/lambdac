@@ -119,7 +119,7 @@ Term :: { Term }
      | 'let' FunBinds 'in' Term { TmRecFun (rundl $2) $4 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (rundl $2) $4 }
      | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
-       { TmCase $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
+       { TmCaseSum $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
      | 'case' 'uncons' Term 'return' Type 'of' '{' 'nil' '->' Term ';' 'cons' VarBind VarBind '->' Term '}'
        { TmCaseList $3 $5 $10 ($13, $14, $16) }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
