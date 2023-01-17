@@ -197,7 +197,16 @@ cconv (K.CallK f xs ks) =
   CallC <$> cconvTmVar f <*> traverse (fmap ValueArg . cconvTmVar) xs <*> traverse cconvCoVar ks
 cconv (K.InstK f ts ks) =
   CallC <$> cconvTmVar f <*> traverse (fmap TypeArg . cconvType) ts <*> traverse cconvCoVar ks 
-cconv (K.CaseK x t ks) = CaseC <$> cconvTmVar x <*> caseKind t <*> traverse cconvCoVar ks
+cconv (K.CaseK x t ks) = do
+  x' <- cconvTmVar x
+  kind <- caseKind t
+  let
+    ctors = case kind of
+      CaseBool -> [Ctor "false", Ctor "true"]
+      CaseSum _ _ -> [Ctor "inl", Ctor "inr"]
+      CaseList _ -> [Ctor "nil", Ctor "cons"]
+  ks' <- zip ctors <$> traverse cconvCoVar ks
+  pure (CaseC x' kind ks')
 cconv (K.LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e
