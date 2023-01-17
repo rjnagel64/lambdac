@@ -71,6 +71,7 @@ caseKind :: C.CaseKind -> TyConApp
 caseKind C.CaseBool = CaseBool
 caseKind (C.CaseSum a b) = CaseSum (sortOf a) (sortOf b)
 caseKind (C.CaseList a) = CaseList (sortOf a)
+caseKind (C.TyConApp (C.TyCon tc) args) = TyConApp (TyCon tc) (map sortOf args)
 
 
 

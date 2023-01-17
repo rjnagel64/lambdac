@@ -164,6 +164,7 @@ data CaseKind
   = CaseBool
   | CaseSum Sort Sort
   | CaseList Sort
+  | TyConApp TyCon [Sort]
 
 data ArithC
   = AddC Name Name
