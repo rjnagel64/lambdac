@@ -1,0 +1,157 @@
+
+
+
+I think I should really re-examine the info tables approach. Polymorphism via
+erasure seems increasingly attractive, and hopefully sidesteps the weird issues
+about HKT type_infos.
+
+The basic idea is that the object header of each allocation contains a pointer
+to a (statically-allocated) "info table", that contains among other things, a
+function that can be used to trace that allocation.
+(IIRC, in GHC, the info table for a closure/thunk also contains the entry code,
+for invoking the closure or updating the thunk.)
+
+
+struct info_table {
+  void (*trace)(???);
+  // Extra fields/case classes that store (e.g.) pointers to info tables for HKT arguments?
+  // (e.g., the info table for `list int` contains a pointer to the info table for `int`?)
+};
+
+struct alloc_header {
+  struct alloc_header *next;
+  int mark;
+  struct info_table *info;
+};
+
+struct list_val {
+  struct alloc_header header;
+  int discriminant;
+};
+
+struct ctor_nil {
+  struct list_val header;
+};
+
+struct ctor_cons {
+  struct list_val header;
+  struct alloc_header *hd;
+  struct list_val *tl;
+};
+
+
+void trace_list(struct alloc_header *alloc) {
+  struct list_val *lv = AS_LIST(alloc);
+  if (lv->header.discriminant == 0) {
+    // nil
+    struct ctor_nil *val = AS_LIST_NIL(v);
+  } else {
+    // cons
+    struct ctor_cons *val = AS_LIST_CONS(lv);
+    mark_gray(val->hd); // Don't need info argument, because it's in the object header.
+    mark_gray(val->tl); // Same here.
+  }
+}
+struct info_table list_info_table = { .trace = trace_list };
+
+// Nil : forall a. List a
+struct list_val *make_nil(void) {
+  struct ctor_nil *res = malloc(sizeof(struct ctor_nil));
+  res->header.header.info = &list_info_table;
+  return AS_LIST(res);
+}
+
+// Cons : forall a. a -> List a -> List a
+struct list_val *make_cons(struct alloc_header *hd, struct list_val *tl) {
+  struct ctor_cons *res = malloc(sizeof(struct ctor_cons);
+  // hmm. not sure. do I actually need this? Can get info for hd directly from
+  // hd when I need to trace. Should be fine.
+  // res.header.info = make_list_info(hd->info);
+  res->header.header.info = &list_info_table;
+  res->hd = hd;
+  res->tl = tl;
+  return AS_LIST(res);
+}
+
+
+struct fix_val {
+  struct alloc_header header;
+  int discriminant;
+};
+
+struct ctor_in {
+  struct fix_val header;
+  struct alloc_header *fx;
+};
+
+void trace_fix(struct alloc_header *alloc) {
+  struct fix_val *fv = AS_FIX(alloc);
+  assert(fv->discriminant == 0);
+  struct ctor_in *val = AS_FIX_IN(fv);
+  mark_gray(val->fx);
+}
+
+// In : forall (f : * -> *). f (Fix f) -> Fix f
+struct fix_val *make_in(struct alloc_header *fx) {
+  struct ctor_in *res = malloc(sizeof(struct ctor_in));
+  res->header.header.info = &fix_info_table;
+  res->fx = fx;
+  return AS_FIX(res);
+}
+
+// code #polyid(@a, x : a, k : closure(a)) = k x
+void polyid_code(struct alloc_header *x, struct closure *k) {
+  // Or something like that.
+  suspend_A(k, x);
+}
+
+// code #hkt(@(f : * -> *), fx : f (Fix f), k : closure(Fix f)) = let c : Fix f = In(@f, fx) in k c
+void hkt_code(struct alloc_header *fx, struct closure *k) {
+  struct fix_val *c = make_in(fx);
+  suspend_fix(k, c);
+}
+
+// main = hkt(@(ListF int), NilF @_ @_, halt)
+void program_entry(void) {
+  struct _ fx;
+  srtuct closure *hkt = _;
+  struct closure *haltk = _;
+  suspend_fasdf(hkt, fx, haltk);
+}
+
+
+Another thing that needs to be reconsidered by the info-table representation is
+polymorphic functions and arguments. Before they were manifestly present in the
+output code, because they concretely passed and received type_info values. With
+info-tables, though, polymorphism is (usually) erased, so those functions and
+arguments just don't exist after a certain point.
+
+I don't think I can completely erase the polymorphism, because that would
+require a different CPS translation. (that one "efficient" CPS for ML-style
+polymorphism where type abs/app is "trivial") ("erased" type abs/app typically
+also permits evaluation under a type variable binder / WHNFs can be wrapped in
+type abs)
+
+If I can't completely erase the polymorphism, I can still at least replace TLam
+and TApp with dummy arguments, like so:
+
+(Λaa.λ (x:aa). x) @int 17
+==>
+(λ [] λ (x:aa). x) @[] 17
+
+'@[]' is erased type argument, 'λ []' is erased type-lambda
+
+
+
+
+Yet another benefit of info-tables-in-header is that info can be assigned on a
+per-value basis instead of a per-type basis. In particular, since values cannot
+change their constructor, 'allocate_cons(x, xs)' could use a 'cons_info_table'
+instead of a 'list_info_table' and thereby eliminate branching on the
+constructor tag.
+
+Likewise, I believe this opens up the possibility of non-uniform closures
+(e.g., store closure fields unboxed in closure value, maybe multiple
+environment parameters), because such a closure can receive an info table that
+matches its layout rather than needing to use the same 'closure_info' for every
+closure.

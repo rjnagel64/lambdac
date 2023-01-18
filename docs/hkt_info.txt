@@ -1,0 +1,318 @@
+
+
+DRAFT -- Type info for HKTs
+
+This is decidedly incomplete, and mostly sketching ideas.
+
+
+Currently, I assume that info for an HKT can trace any application of that HKT.
+
+for example, I have a `list_info` type, that can trace `xs : list int`, `ys :
+list bool`, and `zs : list a`, for any type/tyvar.
+
+In order to support this, my constructors need to carry info arguments:
+
+```
+nil : forall a. info a -> list a
+cons : forall a. info a -> a -> list a -> list a
+inl : forall a b. info a -> a -> either a b
+inr : forall a b. info b -> b -> either a b
+```
+
+In particular, every `cons` in a list needs to duplicate its info argument.
+
+The benefit is that every `type_info` has the same shape, with no subtyping or anything.
+(... and, every type_info is non-recursive.)
+
+
+An alternate design would be to make `info` a tree structure
+
+```
+struct info_header {
+    // trace now needs to pass in a 'self' argument,
+    // So that the trace method can access fields from the case class
+    void trace(struct info_header *self, struct obj_header *val);
+}
+struct list_info { // Case class of info_header
+    info_header header;
+    struct info_header *element_info;
+}
+
+void trace_list(struct info_header *_self, struct val_header *_val) {
+  struct list_info *self = _self;
+  struct list *val = _val;
+  switch val->tag {
+  case LIST_NIL:
+    // No fields to mark
+    break;
+  case LIST_CONS:
+    // Trace head with field of 'self', not field of 'val'
+    mark_gray(AS_LIST_CONS(val)->head, self->element_info);
+    mark_gray(AS_LIST_CONS(val)->tail, self);
+    break;
+  }
+}
+
+// make_list_info : info a -> info (list a)
+// Hmm. Is this the same or not the same as having 'info list'?
+// Is 'info list' even something meaningful to want?
+//
+// All values have kind '*' ('*' is the kind of inhabited types.)
+// Therefore, we will only try to trace values of kind '*'
+// What if we have something with kind '(* => *) => *', e.g. HKD.
+// Can we trace that right now? Can we trace it with this new scheme?
+struct info_header *make_list_info(struct info_header *a_info) {
+  struct list_info *self = malloc(sizeof(struct list_info);
+  self->header.trace = trace_list;
+  self->element_info = a_info;
+  return (struct info_header *)self;
+}
+```
+
+Of course, data types with existential type arguments will necessarily need to
+maintain type info for those arguments
+
+e.g., 'data Fold i o = forall m. Fold (i -> m) (MonoidOps m) (m -> o)'
+
+will need to have a field for 'm_info'
+
+
+huge complication: managing memory for type info
+  oh no
+  *oh*
+  *no*
+  I don't want to have to GC my GC info
+  Arenas? Nope, need collect, just ends up as semi-space GC
+  an info value owns its fields? maybe. Extra alloc/free, though, probably.
+  RC?
+
+
+also: deduplicating type info? prim types have unique info, but there may be
+multiple places where 'info (pair int bool)' is constructed
+hash-consing?
+
+
+...
+"flattened" type_info trees?
+
+foo : info (list (pair bool int))
+
+flat_info foo;
+foo.num_traces = 4;
+foo.traces = {trace_int, trace_bool, trace_pair, trace_list};
+foo.num_nodes = 4;
+foo.nodes[0] = { trace #0, 0 children at 0 }
+foo.nodes[1] = { trace #1, 0 children at 0 }
+foo.nodes[2] = { trace #2, 2 children at 0 }
+foo.nodes[3] = { trace #3, 1 children at 2 }
+foo.num_children = 3;
+foo.children[0] = node #0;
+foo.children[1] = node #1;
+foo.children[2] = node #2;
+foo.root_node = node #3;
+
+struct flat_info {
+  int num_traces;
+  int num_nodes;
+  int num_children;
+  trace_fn *traces;
+  info_node *nodes;
+  node_id *children;
+  node_id root_node;
+}
+
+struct info_node {
+  trace_id trace_method;
+  int num_children;
+  int children_start_offset;
+}
+
+type trace_id = int; // index into '.traces'
+type node_id = int; // index into '.nodes'
+
+can build new nodes out of smaller nodes easily. (Append node arrays, offset the children array?)
+Is it necessary to split when recursing? Hmm. Maybe not.
+
+Hmm. Flattened/Contiguous tree representations are quite interesting, but I
+currently doubt the complexity to be worth the hypothetical benefits.
+
+It's also reminiscent of an arena allocator.
+
+(((
+
+Actually, this idea does make sense
+
+type info is a singleton, so deduplicating/hash-consing is a good idea.
+
+using integer info_handles is also a good idea. Small/lightweight; uniform.
+
+And now, a bunch of pseudo-rust with existentials and quantification over integers
+(b/c more expressive types and sane function pointer syntax but still low-enough level)
+
+
+type info_handle = int
+type trace_handle = int
+
+fn register_trace<const n : int>(trace : fn(info_args : &[info_handle; n], val : &val_header)) -> trace_handle<n>;
+fn construct_info<const n : int>(trace : trace_handle<n>, args: &[info_handle; n]) -> info_handle;
+
+fn mark_gray(val : &val_header, info : info_handle);
+
+
+
+fn trace_pair(children : &[info_handle; 2], val : &val_header) {
+    let [a_info, b_info] = children;
+    // Safety: Follows from correctness of compilation.
+    // The compiler preserves well-typedness, so this function will only ever
+    // be called when a pair_value was upcast to a val_header.
+    let pair_val : &pair_value = unsafe { val as &pair_value };
+    mark_gray(pair_val.fst, a_info);
+    mark_gray(pair_val.snd, b_info);
+}
+let pair_trace : trace_handle<2> = register_trace(trace_pair);
+
+let pair_int_bool_info : info_handle = construct_info<const 2>(pair_trace, &[int_info, bool_info]);
+
+fn trace_list(self_info : info_handle, children : &[info_handle; 1], val : &val_header) {
+    let [a_info] = children;
+    let list_val : &list_value = unsafe { val as &list_value };
+    match list_val with {
+        list_value::Nil => (),
+	list_value::Cons(x, xs) => {
+	    mark_gray(x, a_info);
+	    mark_gray(xs, self_info);
+	}
+    }
+}
+let list_trace : trace_handle<1> = register_trace(trace_list);
+let list_int_info = construct_info<const 1>(list_trace, &[int_info]);
+
+
+struct info_node {
+    // Number of children
+    arity: int;
+    // Offset of children in 'children'
+    start: int;
+    // What method to trace with
+    trace: trace_handle<self.arity>;
+}
+
+type tracing_fn<n> = fn(info_handle; &[info_handle; n], &val_header);
+struct trace_node {
+    arity: int;
+    func: tracing_fn<self.arity>;
+}
+
+fn lookup_trace<const n>(handle: trace_handle<n>) -> &tracing_fn<n> {
+    bounds_check!(handle, traces);
+    let node = &traces[handle.0];
+    debug_assert!(n == node.arity, "Arity mismatch when retrieving trace method");
+    node.func
+}
+
+fn lookup_info(handle: info_handle) -> &info_node {
+    bounds_check!(handle, nodes);
+    &nodes[handle.0]
+}
+
+
+fn mark_gray(val : &val_header, info : info_handle) {
+    // type Gray = exists T. (&T, info_handle<T>)
+    gray_list.push(Gray { val, info });
+}
+fn trace_all() {
+    gray_list = mark_roots();
+    loop {
+        match gray_list.pop() {
+	    None => break,
+	    Some(Gray { val, info }) => {
+		let node : info_node = &nodes[info_handle];
+	        let trace_fn : tracing_fn<node.arity> = lookup_trace(node.trace);
+		let children : &[info_handle; node.arity] = &children[node.start..node.start+n]
+	    	trace_fn(info, children, val);
+	    }
+	}
+    }
+}
+
+
+
+Need some kind of hash table for deduplication. Definitely one for info nodes,
+maybe/maybe not one for trace functions. (1 trace function per type
+constructor, could theoretically allocate at program startup.)
+(Note: closure environments technically count as type constructors, but there
+are finitely many closure declarations in a program, so this is still fine.)
+
+Would it be possible to have a refcount for 'info_handle's? increment when
+returned from 'construct_info', decrement when sweeping an object with that info
+(Hmm. harder) This would let me GC entries from the hash table... but I
+wouldn't be able to remove anything from the arrays without shifting/patching
+everything. Ugh.
+
+)))
+
+
+
+This idea centers around being able to construct `info (list a)` from `info a`.
+What if we did the opposite: If we have `info (list Q)`, we should be able to
+extract `info Q` from it.
+
+Hmm. Not sure how either construction/extraction works when you have HKD. You
+need/get info for a type constructor, which is not the same thing as info for a
+concrete type.
+
+`HKD : (* => *) => *`, `make_HKD_info : info f -> info (HKD f)` vs
+`extract_HKD_info1 : info (HKD f) -> info f`. 
+
+For `f : * => *`, `info f ::= forall a. info a -> info (f a)`? Not great.
+This has that weird pseudo-forall, implementation would be passing around HOFs in C.
+
+
+Important thing to remember: source language has curried type level. You aren't
+dealing with 'info pair(A, B)' but rather 'info ((pair A) B)', which may or may
+not be more complicated.
+
+
+
+I think the main problem with the info_handle method is that it lets me
+represent things like
+'x : info a, y : info b |- pair_info x y : info (pair a b)',
+but what I actually need is more like
+'|- pair_info : info a -> (info b -> info (pair a b))', which basically needs
+closures to implement the currying.
+
+This isn't quite as bad as it sounds, I hope. In particular, I might be able to
+advantage of the fact that a type_info closure can only capture type_info, so
+the "environment" is just a type_info pointer+len. However, I would still need to
+worry about the difference between ground type info (for types of kind *), and
+higher type info (for types of kind k1 -> k2)
+
+And of course, come up with some formalism for the structure/semantics of
+type_info closures.
+
+
+
+
+Observation: resolution of info for a type is quite reminiscent of type class resolution.
+
+code #foo(@(f : * -> *), f_info : info f, z : int) =
+  let fl : f (list int) = ... in
+  halt @(f (list int)) $(f_info) fl
+
+
+in particular, info is coherent: for any type 't', 'info t' is unique. built-in
+types give global "instances", while info parameters introduce "local"
+instances. Type constructors give polymorphic instances. Ordinarily, these
+polymorphic instances would require 'info t' constraints in the head, but
+because of the way info values work, this isn't necessary.
+
+Consequently, info resolution for types terminates quickly.
+
+instance info int = int64_info
+-- 'list_info @t' isn't real syntax, probably.
+-- It tries to express that the HKT info 'list_info' has been instantiated to get 'info (list t)'
+-- I guess I could define a more complicated syntax of info terms, to make this
+-- sort of instantiation explicit and easier to formalize.
+-- At runtime, such a thing would still erased to just 'type_info list_info;'
+instance forall t. info (list t) = list_info @t
+

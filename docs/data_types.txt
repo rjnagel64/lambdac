@@ -1,0 +1,217 @@
+
+
+DRAFT -- Data Types and Declarations
+
+I'm getting to the point where I really want to have data type declarations.
+
+
+data Bintree a b where
+  Leaf :: b -> Bintree a b
+  Branch :: Bintree a b -> a -> Bintree a b
+
+;;
+
+let rec full : int -> int -> Bintree int int =
+  \ (n : int) (x : int) ->
+    if n == 0 then
+      Leaf @int @int x
+    else
+      Branch @int @int (full (n - 1) (2 * x)) x (full (n - 1) (2 * x + 1))
+in
+full 3 1
+
+* * * * *
+
+CPS: constructors have type arguments?
+CPS: constructors are uncurried?
+CPS: higher-order functions as ctor arguments are CPSed
+CPS: HKD and quantification over HKTs are permissible
+
+* * * * *
+
+data ListF a b where
+  NilF : ListF a b
+  ConsF : a -> b -> ListF a b
+
+;;
+
+ConsF @int @unit (3 + 4)
+
+===>
+
+-- Data declarations are lightly transformed.
+-- Kind signature is explicit
+data ListF : * -> * -> * where
+  -- Each constructor takes telescope of arguments, returns value type
+  NilF : (@a, @b) -> ListF a b
+  ConsF : (@a, @b, a, b) -> ListF a b
+
+;;
+
+-- Each constructor gets an auxiliary function that curries its arguments.
+-- Optimizer should vigorously try to eliminate this
+let abs make_ConsF (@a, k0 : CPS[forall b. a -> b -> ListF a b]) =
+  let abs f0 (@b, k1 : CPS[a -> b -> ListF a b]) =
+    let fun f1 (x : a, k2 : CPS[b -> ListF a b]) =
+      let fun f2 (y : b, k3 : (ListF a b) -> !) =
+        -- Constructor allocation applies telescope of arguments.
+        let c : ListF a b = ConsF(@a, @b, x, y) in
+        k3 c
+      in
+      k2 f2
+    in
+    k1 f1
+  in
+  k0 f0
+in
+
+let cont k0 (f0 : CPS[forall a b. a -> b -> ListF a b]) =
+  let cont k1 (f1 : CPS[forall b. int -> b -> ListF int b]) =
+    let k2 (f2 : CPS[int -> unit -> ListF int unit]) =
+      let cont k3 (f3 : CPS[unit -> ListF int unit]) =
+        halt f3
+      in
+      let t1 : int = 3 in
+      let t2 : int = 4 in
+      let t0 : int = t1 + t2 in
+      f2 t0 k3
+    in
+    f1 @unit k2
+  in
+  f0 @int k1
+in
+-- CPS[C] k === k(make_C)
+k0 make_ConsF
+
+After CPS, things proceed pretty much as they currently do, additionally
+passing through/desugaring the data declarations.
+
+===>
+
+Emit, though, needs quite a bit of work
+
+* 'struct'/'enum' for data type, ctor type "case classes", discriminant tags, casts, etc.
+* methods to allocate each constructor given an appropriate argument telescope
+* type info for the data type
+* Generic case analysis
+
+* Subsume built-in ADTs with generic ADTs, if possible
+  * boolean
+  * A + B
+  * list
+* Subsume products as ADTs?
+  * Or do I want records to subsume these?
+  * A * B, unit
+
+
+Another big topic to consider is record types. This includes both concrete
+records and polymorphic records. There was that one Daan Leijen paper (scoped
+labels?) that was helpful for understanding some possible implementations.
+
+
+
+Note: Redundant info in Hoist data types:
+
+In 'Hoist', a polymorphic type `(@a, S) -> !` is translated to an erased type
+quantifier and a relevant info argument, `closure(@a, info a, S)`. However,
+sometimes that 'info a' is unnecessary. Consider the sum type `s + t`, with
+constructors `inl : (@a, @b, a) -> a + b` and `inr : (@a, @b, b) -> a + b`.
+
+In the first, we only need info for `a`. In the second, we only need info for
+`b`. Some variant of worker-wrapper could probably remove that unused argument.
+
+Maybe later.
+
+
+Note: Types of primitve operations and constructor allocations
+
+In the current implementation, primitives don't really have standalone types;
+they are mostly part of the syntax. Likewise, the types of constructors have
+similar properties.
+
+If we were to write out the types some primitives and constructors, it would
+look like this:
+
+  prim_addint64 : (int, int) -> int
+  Just : (@a, info a, a) -> Maybe a
+
+Note that these types aren't in continuation-passing style, because they do not
+pass their result to a continuation. Part of this is practical (so that
+primitive ops and value allocations can be considered Straight-Line Code and
+emit fewer closures), but it's still a bit inelegant and limits primops to
+returning only a single value. If I decide to implement (e.g.) divmod, I would
+need to box up the results.
+
+Here are the signatures for my current set of primitive operations:
+
+  allocate_int64 : (int64#) -> int64_value
+  allocate_true : () -> bool_value
+  allocate_false : () -> bool_value
+  -- Type arguments @t are erased, info arguments v : info s are relevant
+  allocate_pair : (@a, info a, @b, info b, a, b) -> pair a b
+  allocate_unit : () -> unit_value
+  -- Unused info arguments can be dropped? Maybe.
+  -- Could just still pass in both infos, but only use one.
+  allocate_inl : (@a, info a, @b, a) -> sum a b
+  allocate_inr : (@a, @b, info b, b) -> sum a b
+  allocate_list_nil : forall a => () -> list a
+  allocate_list_cons : (@a, a, info a, list a) -> list a
+  allocate_string : (cstring#) -> string_value
+
+  prim_addint64 : (int64_value, int64_value) -> int64_value
+  prim_subint64 : (int64_value, int64_value) -> int64_value
+  prim_mulint64 : (int64_value, int64_value) -> int64_value
+  prim_negint64 : (int64_value) -> int64_value
+
+  prim_eqint64 : (int64_value, int64_value) -> bool_value
+  prim_neint64 : (int64_value, int64_value) -> bool_value
+  prim_ltint64 : (int64_value, int64_value) -> bool_value
+  prim_leint64 : (int64_value, int64_value) -> bool_value
+  prim_gtint64 : (int64_value, int64_value) -> bool_value
+  prim_geint64 : (int64_value, int64_value) -> bool_value
+
+  prim_concatenate : (string_value, string_value) -> string_value
+  prim_strlen : (string_value) -> int64_value
+
+
+
+Note: Datatype Encodings (Scott, Boehm-Berarducci, etc.)
+
+It turns out that they aren't very useful. Either they encode catamorphisms
+instead of case analysis, or the case analysis still requires some form of
+type-level recursion.
+
+At the end of the day, I have to implement some type-system extension to get
+data types, so I might as well go all the way.
+
+
+
+Note: Hoist & type arguments/parameters
+
+data maybe @(a : *) : * where
+  none : () -> maybe a
+  some : (a) -> maybe a
+
+data listf @(a : *) @(b : *) : * where
+  nilf : () -> listf a b
+  consf : (a, b) -> listf a b
+
+data fix @(f : * -> *) : * where
+  in : (f (fix f)) -> fix f
+
+data list @(a : *) : * where
+  nil : () -> list a
+  cons : (a, list a) -> list a
+
+data SomeShow : * where
+  hide : (@a, (a, (string) -> !) -> !, a) -> SomeShow
+
+In the Hoist IR, I think that ctor applications should only include existential
+type parameters and value parameters, not the universal type parameters.
+
+This mirrors how case analysis works: bind existential type variables, bind
+values, but don't bind universal type variables.
+
+For example, this would mean that we have 'x:int |- some(x) : maybe int' and
+'showInt : (int, (string) -> !) -> !, x : int |- hide(@int, showInt, x) : SomeShow'
+
