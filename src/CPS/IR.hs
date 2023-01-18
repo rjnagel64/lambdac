@@ -68,7 +68,7 @@ instance Show TyVar where
   show (TyVar a i) = a ++ show i
 
 data TyCon = TyCon String
-  deriving (Eq)
+  deriving (Eq, Ord)
 data Ctor = Ctor String
 
 instance Show TyCon where

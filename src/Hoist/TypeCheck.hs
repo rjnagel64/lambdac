@@ -23,9 +23,8 @@ deriving newtype instance MonadError TCError TC
 deriving newtype instance MonadReader Context TC
 deriving newtype instance MonadState Signature TC
 
--- | The signature stores information about top-level declarations. Currently,
--- this only includes code declarations.
-data Signature = Signature { sigClosures :: Map CodeLabel ClosureDeclType }
+-- | The signature stores information about top-level declarations.
+data Signature = Signature { sigClosures :: Map CodeLabel ClosureDeclType, sigTyCons :: Map TyCon Kind }
 
 -- | Represents the type of a closure, a code pointer with environment
 -- @code(t; S)@.
@@ -51,6 +50,7 @@ data TCError
   | KindMismatch Kind Kind
   | NameNotInLocals Id
   | TyVarNotInLocals TyVar
+  | TyConNotInScope TyCon
   | ClosureNotInLocals CodeLabel
   | InfoNotInLocals Id
   | NotImplemented String
@@ -63,6 +63,7 @@ data TCError
   | ArgumentCountMismatch
   | DuplicateLabels [String]
   | BadCtorApp
+  | BadTyApp
 
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
@@ -82,10 +83,10 @@ bindPlace :: Place -> Locals -> Locals
 bindPlace (Place s x) (Locals places tys) = Locals (Map.insert x s places) tys
 
 emptySignature :: Signature
-emptySignature = Signature { sigClosures = Map.empty }
+emptySignature = Signature { sigClosures = Map.empty, sigTyCons = Map.empty }
 
 declareClosure :: CodeLabel -> ClosureDeclType -> Signature -> Signature
-declareClosure cl ty (Signature clos) = Signature (Map.insert cl ty clos)
+declareClosure cl ty (Signature clos tcs) = Signature (Map.insert cl ty clos) tcs
 
 
 lookupName :: Name -> TC Sort
@@ -107,6 +108,13 @@ lookupTyVar aa = do
     Just k -> pure k
     Nothing -> throwError $ TyVarNotInLocals aa
 
+lookupTyCon :: TyCon -> TC Kind
+lookupTyCon tc = do
+  ctx <- gets sigTyCons
+  case Map.lookup tc ctx of
+    Just k -> pure k
+    Nothing -> throwError $ TyConNotInScope tc
+
 lookupCodeDecl :: CodeLabel -> TC ClosureDeclType
 lookupCodeDecl c = do
   sig <- gets sigClosures
@@ -126,7 +134,7 @@ equalKinds expected actual =
 
 withPlace :: Place -> TC a -> TC a
 withPlace p m = do
-  checkSort (placeSort p)
+  checkSort (placeSort p) Star
   local extend m
   where extend (Context locals env) = Context (bindPlace p locals) env
 
@@ -165,9 +173,9 @@ checkClosure decl@(CodeDecl cl (envp, envd) params body) = do
   envTy <- checkEnvDecl envd
   -- Check that the parameter list is well-formed, and extract the initial
   -- contents of the local scope for the typing context.
-  localScope <- local (\_ -> Context emptyLocals envTy) $ checkParams params
+  localScope <- local (\ (Context _ _) -> Context emptyLocals envTy) $ checkParams params
   -- Use the parameter list and environment to type-check the closure body.
-  local (\_ -> Context localScope envTy) $ checkTerm body
+  local (\ (Context _ _) -> Context localScope envTy) $ checkTerm body
   -- Extend the signature with the new closure declaration.
   let tele = codeDeclTele decl
   let declTy = ClosureDeclType envTy tele
@@ -182,7 +190,7 @@ checkEnvDecl (EnvDecl tys places) = do
   -- Hmm. I think I need to bring 'tys' into scope to check the sorts here,
   -- since 'tys' are like a sequence of existential quantifiers.
   fields <- for places $ \ (Place s x) -> do
-    checkSort s
+    checkSort s Star
     pure (x, s)
   pure (EnvType tys fields)
 
@@ -207,7 +215,7 @@ checkParams (TypeParam aa k : params) = withTyVar aa k $ checkParams params
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()
 checkTerm (LetValH p v e) = do
-  checkSort (placeSort p)
+  checkSort (placeSort p) Star
   checkValue v (placeSort p)
   withPlace p $ checkTerm e
 checkTerm (LetPrimH p prim e) = do
@@ -252,7 +260,7 @@ checkCallArgs (ValueTele s : tele) (ValueArg x : args) = do
   checkCallArgs tele args
 checkCallArgs (ValueTele _ : _) (_ : _) = throwError WrongClosureArg
 checkCallArgs (TypeTele aa k : tele) (TypeArg s : args) = do
-  checkSort s -- checkSort s k
+  checkSort s k
   let tele' = substTele (singleSubst aa s) tele
   checkCallArgs tele' args
 checkCallArgs (TypeTele _ _ : _) (_ : _) = throwError WrongClosureArg
@@ -334,22 +342,24 @@ checkCase x (CaseList a) [(cn, kn), (cc, kc)] = do
 checkCase _ kind ks = throwError (BadCase kind ks)
 
 -- | Check that a sort is well-formed w.r.t. the context
--- Hmm. This needs to take kinds into account.
-checkSort :: Sort -> TC ()
-checkSort (AllocH aa) = checkTyVar aa Star
-checkSort UnitH = pure ()
-checkSort IntegerH = pure ()
-checkSort BooleanH = pure ()
-checkSort StringH = pure ()
-checkSort (ProductH t s) = checkSort t *> checkSort s
-checkSort (SumH t s) = checkSort t *> checkSort s
-checkSort (ListH t) = checkSort t
-checkSort (ClosureH tele) = checkTele tele
+inferSort :: Sort -> TC Kind
+inferSort (AllocH aa) = lookupTyVar aa
+inferSort UnitH = pure Star
+inferSort IntegerH = pure Star
+inferSort BooleanH = pure Star
+inferSort StringH = pure Star
+inferSort (ProductH t s) = checkSort t Star *> checkSort s Star *> pure Star
+inferSort (SumH t s) = checkSort t Star *> checkSort s Star *> pure Star
+inferSort (ListH t) = checkSort t Star *> pure Star
+inferSort (ClosureH tele) = checkTele tele *> pure Star
+inferSort (TyConH tc) = lookupTyCon tc
+inferSort (TyAppH t s) = do
+  inferSort t >>= \case
+    KArr k1 k2 -> checkSort s k1 *> pure k2
+    Star -> throwError BadTyApp
 
-checkTyVar :: TyVar -> Kind -> TC ()
-checkTyVar aa k = do
-  k' <- lookupTyVar aa
-  equalKinds k k'
+checkSort :: Sort -> Kind -> TC ()
+checkSort s k = inferSort s >>= equalKinds k
 
 -- | Check that a telescope is well-formed w.r.t the context.
 -- @Γ |- S@
@@ -357,6 +367,6 @@ checkTele :: ClosureTele -> TC ()
 checkTele (ClosureTele ss) = go ss
   where
     go [] = pure ()
-    go (ValueTele s : ss') = checkSort s *> go ss'
+    go (ValueTele s : ss') = checkSort s Star *> go ss'
     go (TypeTele aa k : ss') = withTyVar aa k $ go ss'
 

@@ -176,7 +176,7 @@ data TeleEntry
 instance Eq Sort where
   (==) = equalSort emptyAE
 
-data Kind = Star
+data Kind = Star | KArr Kind Kind
   deriving (Eq)
 
 asTyConApp :: Sort -> Maybe TyConApp
@@ -545,3 +545,5 @@ pprintTele (ClosureTele ss) = intercalate ", " (map f ss)
 
 pprintKind :: Kind -> String
 pprintKind Star = "*"
+pprintKind (KArr Star k2) = "* -> " ++ pprintKind k2
+pprintKind (KArr k1 k2) = "(" ++ pprintKind k1 ++ ") -> " ++ pprintKind k2

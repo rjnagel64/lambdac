@@ -19,6 +19,7 @@ data TypeError
   = TmNotInScope TmVar
   | CoNotInScope CoVar
   | TyNotInScope TyVar
+  | TyConNotInScope TyCon
   | TypeMismatch TypeK TypeK
   | CoTypeMismatch CoTypeK CoTypeK
   | KindMismatch KindK KindK
@@ -33,6 +34,7 @@ instance Show TypeError where
   show (TmNotInScope x) = "term variable " ++ show x ++ " not in scope"
   show (CoNotInScope k) = "continuation variable " ++ show k ++ " not in scope"
   show (TyNotInScope aa) = "type variable " ++ show aa ++ " not in scope"
+  show (TyConNotInScope tc) = "type constructor " ++ show tc ++ " not in scope"
   show (TypeMismatch expected actual) = unlines
     [ "type mismatch:"
     , "expected type: " ++ pprintType expected
@@ -75,25 +77,31 @@ data Context
     tmContext :: Map TmVar TypeK
   , coContext :: Map CoVar CoTypeK
   , tyContext :: Map TyVar KindK
+  , tcContext :: Map TyCon KindK
   }
 
 emptyContext :: Context
-emptyContext = Context Map.empty Map.empty Map.empty
+emptyContext = Context Map.empty Map.empty Map.empty Map.empty
 
 withTmVars :: [(TmVar, TypeK)] -> M a -> M a
 withTmVars [] m = m
-withTmVars ((x, t):xs) m = checkType t StarK *> local extend (withTmVars xs m)
-  where extend (Context tms cos tys) = Context (Map.insert x t tms) cos tys
+withTmVars ((x, t) : binds) m = checkType t StarK *> local extend (withTmVars binds m)
+  where extend (Context tms cos tys tcs) = Context (Map.insert x t tms) cos tys tcs
 
 withCoVars :: [(CoVar, CoTypeK)] -> M a -> M a
 withCoVars [] m = m
-withCoVars ((k, s):ks) m = checkCoType s StarK *> local extend (withCoVars ks m)
-  where extend (Context tms cos tys) = Context tms (Map.insert k s cos) tys
+withCoVars ((k, s) : binds) m = checkCoType s StarK *> local extend (withCoVars binds m)
+  where extend (Context tms cos tys tcs) = Context tms (Map.insert k s cos) tys tcs
 
 withTyVars :: [(TyVar, KindK)] -> M a -> M a
 withTyVars [] m = m
-withTyVars ((aa, kk) : aas) m = checkKind kk *> local extend (withTyVars aas m)
-  where extend (Context tms cos tys) = Context tms cos (Map.insert aa kk tys)
+withTyVars ((aa, kk) : binds) m = checkKind kk *> local extend (withTyVars binds m)
+  where extend (Context tms cos tys tcs) = Context tms cos (Map.insert aa kk tys) tcs
+
+withTyCons :: [(TyCon, KindK)] -> M a -> M a
+withTyCons [] m = m
+withTyCons ((tc, kk) : binds) m = checkKind kk *> local extend (withTyCons binds m)
+  where extend (Context tms cos tys tcs) = Context tms cos tys (Map.insert tc kk tcs)
 
 lookupTmVar :: TmVar -> M TypeK
 lookupTmVar x = asks tmContext >>= maybe err pure . Map.lookup x
@@ -106,6 +114,10 @@ lookupCoVar x = asks coContext >>= maybe err pure . Map.lookup x
 lookupTyVar :: TyVar -> M KindK
 lookupTyVar x = asks tyContext >>= maybe err pure . Map.lookup x
   where err = throwError (TyNotInScope x)
+
+lookupTyCon :: TyCon -> M KindK
+lookupTyCon x = asks tcContext >>= maybe err pure . Map.lookup x
+  where err = throwError (TyConNotInScope x)
 
 equalTypes :: TypeK -> TypeK -> M ()
 equalTypes expected actual =
@@ -133,7 +145,19 @@ instantiate aas ts ss = do
 
 
 checkProgram :: Program () -> Either TypeError ()
-checkProgram (Program ds e) = runM (check e)
+checkProgram (Program ds e) = runM $ do
+  -- Check data decls
+  -- withDataDecls ds $ check e
+  check e
+
+-- withDataDecls [] m = m
+-- withDataDecls (DataDecl tc params ctors : ds) m = do
+--   ctBinds <- withTyVars params $ traverse checkCtorDecl ctors
+--   let extend (Context tms cos tys tcs) = Context tms cos tys _
+--   local extend m
+--
+-- checkCtorDecl :: CtorDecl -> M (Ctor, TypeK)
+-- checkCtorDecl (CtorDecl c args) = _
 
 
 check :: TermK a -> M ()
@@ -263,22 +287,30 @@ checkType :: TypeK -> KindK -> M ()
 checkType (TyVarOccK aa) kk = do
   kk' <- lookupTyVar aa
   equalKinds kk kk'
-checkType (AllK aas ss) StarK = withTyVars aas (traverse_ (\s -> checkCoType s StarK) ss)
-checkType (FunK ts ss) StarK =
+checkType (TyConOccK tc) kk = do
+  kk' <- lookupTyCon tc
+  equalKinds kk kk'
+checkType (AllK aas ss) kk =
+  equalKinds StarK kk *>
+  withTyVars aas (traverse_ (\s -> checkCoType s StarK) ss)
+checkType (FunK ts ss) kk =
+  equalKinds StarK kk *>
   traverse_ (\t -> checkType t StarK) ts *>
   traverse_ (\s -> checkCoType s StarK) ss
-checkType (ProdK t s) StarK = checkType t StarK *> checkType s StarK
-checkType (SumK t s) StarK = checkType t StarK *> checkType s StarK
+checkType (ProdK t s) kk = equalKinds StarK kk *> checkType t StarK *> checkType s StarK
+checkType (SumK t s) kk = equalKinds StarK kk *> checkType t StarK *> checkType s StarK
 checkType (ListK t) StarK = checkType t StarK
-checkType UnitK StarK = pure ()
-checkType IntK StarK = pure ()
-checkType BoolK StarK = pure ()
-checkType StringK StarK = pure ()
+checkType UnitK kk = equalKinds StarK kk
+checkType IntK kk = equalKinds StarK kk
+checkType BoolK kk = equalKinds StarK kk
+checkType StringK kk = equalKinds StarK kk
 
 -- | Check that a co-type has the given kind.
 checkCoType :: CoTypeK -> KindK -> M ()
 checkCoType (ContK ts) StarK = traverse_ (\t -> checkType t StarK) ts
 
 -- | Check that a kind is well-formed.
+-- This is basically redundant, because kinds are trivial values, but it's
+-- consistent with other things, I guess.
 checkKind :: KindK -> M ()
 checkKind StarK = pure ()

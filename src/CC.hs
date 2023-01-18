@@ -276,8 +276,10 @@ makeClosureEnv flds = do
     ftv _ Unit = Set.empty
     ftv _ Boolean = Set.empty
     ftv _ String = Set.empty
+    ftv _ (TyConOcc _) = Set.empty
     ftv ctx (Sum t1 t2) = ftv ctx t1 <> ftv ctx t2
     ftv ctx (Pair t1 t2) = ftv ctx t1 <> ftv ctx t2
+    ftv ctx (TyApp t1 t2) = ftv ctx t1 <> ftv ctx t2
     ftv ctx (List t) = ftv ctx t
 
 
