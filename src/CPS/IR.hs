@@ -224,6 +224,7 @@ newtype CoTypeK = ContK [TypeK]
 
 data KindK
   = StarK
+  | KArrK KindK KindK
   deriving (Eq)
 
 
@@ -503,3 +504,5 @@ pprintCoType (ContK ss) = "(" ++ intercalate ", " (map pprintType ss) ++ ") -> 0
 
 pprintKind :: KindK -> String
 pprintKind StarK = "*"
+pprintKind (KArrK StarK k2) = "* -> " ++ pprintKind k2
+pprintKind (KArrK k1 k2) = "(" ++ pprintKind k1 ++ ") -> " ++ pprintKind k2

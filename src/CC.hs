@@ -180,6 +180,7 @@ cconvCoType (K.ContK ss) = do
 
 cconvKind :: K.KindK -> ConvM Kind
 cconvKind K.StarK = pure Star
+cconvKind (K.KArrK k1 k2) = KArr <$> cconvKind k1 <*> cconvKind k2
 
 asTyConApp :: Sort -> Maybe CaseKind
 asTyConApp Boolean = Just CaseBool
