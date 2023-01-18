@@ -66,6 +66,7 @@ sortOf (C.TyApp t s) = TyAppH (sortOf t) (sortOf s)
 
 kindOf :: C.Kind -> Kind
 kindOf C.Star = Star
+kindOf (C.KArr k1 k2) = KArr (kindOf k1) (kindOf k2)
 
 caseKind :: C.CaseKind -> TyConApp
 caseKind C.CaseBool = CaseBool

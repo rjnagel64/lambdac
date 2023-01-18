@@ -4,6 +4,7 @@ module CPS.TypeCheck (checkProgram, TypeError(..)) where
 
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.State
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -61,47 +62,52 @@ instance Show TypeError where
     "variable " ++ show f ++ " is applied to type arguments but its type is not a forall: "
     ++ pprintType t
 
-newtype M a = M { getM :: ReaderT Context (Except TypeError) a }
+-- Hmm. Add StateT Signature where type Signature = Map TyCon DataDecl
+-- (update when checking data. Use 'gets' when reference tycon)
+newtype M a = M { getM :: StateT Signature (ReaderT Context (Except TypeError)) a }
 
 deriving newtype instance Functor M
 deriving newtype instance Applicative M
 deriving newtype instance Monad M
 deriving newtype instance MonadReader Context M
+deriving newtype instance MonadState Signature M
 deriving newtype instance MonadError TypeError M
 
 runM :: M a -> Either TypeError a
-runM = runExcept . flip runReaderT emptyContext . getM
+runM = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getM
 
 data Context
   = Context {
     tmContext :: Map TmVar TypeK
   , coContext :: Map CoVar CoTypeK
   , tyContext :: Map TyVar KindK
-  , tcContext :: Map TyCon KindK
+  }
+
+data Signature
+  = Signature {
+    sigTyCons :: Map TyCon DataDecl
   }
 
 emptyContext :: Context
-emptyContext = Context Map.empty Map.empty Map.empty Map.empty
+emptyContext = Context Map.empty Map.empty Map.empty
+
+emptySignature :: Signature
+emptySignature = Signature Map.empty
 
 withTmVars :: [(TmVar, TypeK)] -> M a -> M a
 withTmVars [] m = m
 withTmVars ((x, t) : binds) m = checkType t StarK *> local extend (withTmVars binds m)
-  where extend (Context tms cos tys tcs) = Context (Map.insert x t tms) cos tys tcs
+  where extend (Context tms cos tys) = Context (Map.insert x t tms) cos tys
 
 withCoVars :: [(CoVar, CoTypeK)] -> M a -> M a
 withCoVars [] m = m
 withCoVars ((k, s) : binds) m = checkCoType s StarK *> local extend (withCoVars binds m)
-  where extend (Context tms cos tys tcs) = Context tms (Map.insert k s cos) tys tcs
+  where extend (Context tms cos tys) = Context tms (Map.insert k s cos) tys
 
 withTyVars :: [(TyVar, KindK)] -> M a -> M a
 withTyVars [] m = m
 withTyVars ((aa, kk) : binds) m = checkKind kk *> local extend (withTyVars binds m)
-  where extend (Context tms cos tys tcs) = Context tms cos (Map.insert aa kk tys) tcs
-
-withTyCons :: [(TyCon, KindK)] -> M a -> M a
-withTyCons [] m = m
-withTyCons ((tc, kk) : binds) m = checkKind kk *> local extend (withTyCons binds m)
-  where extend (Context tms cos tys tcs) = Context tms cos tys (Map.insert tc kk tcs)
+  where extend (Context tms cos tys) = Context tms cos (Map.insert aa kk tys)
 
 lookupTmVar :: TmVar -> M TypeK
 lookupTmVar x = asks tmContext >>= maybe err pure . Map.lookup x
@@ -116,8 +122,11 @@ lookupTyVar x = asks tyContext >>= maybe err pure . Map.lookup x
   where err = throwError (TyNotInScope x)
 
 lookupTyCon :: TyCon -> M KindK
-lookupTyCon x = asks tcContext >>= maybe err pure . Map.lookup x
+lookupTyCon x = gets sigTyCons >>= maybe err (pure . dataDeclKind) . Map.lookup x
   where err = throwError (TyConNotInScope x)
+
+dataDeclKind :: DataDecl -> KindK
+dataDeclKind (DataDecl _ params _) = StarK
 
 equalTypes :: TypeK -> TypeK -> M ()
 equalTypes expected actual =
@@ -146,18 +155,18 @@ instantiate aas ts ss = do
 
 checkProgram :: Program () -> Either TypeError ()
 checkProgram (Program ds e) = runM $ do
-  -- Check data decls
-  -- withDataDecls ds $ check e
-  check e
+  withDataDecls ds $ check e
 
--- withDataDecls [] m = m
--- withDataDecls (DataDecl tc params ctors : ds) m = do
---   ctBinds <- withTyVars params $ traverse checkCtorDecl ctors
---   let extend (Context tms cos tys tcs) = Context tms cos tys _
---   local extend m
---
--- checkCtorDecl :: CtorDecl -> M (Ctor, TypeK)
--- checkCtorDecl (CtorDecl c args) = _
+withDataDecls :: [DataDecl] -> M a -> M a
+withDataDecls [] m = m
+withDataDecls (dd@(DataDecl tc params ctors) : ds) m = do
+  withTyVars params $ traverse_ checkCtorDecl ctors
+  modify (\ (Signature tcs) -> Signature (Map.insert tc dd tcs))
+  m
+
+-- Hmm. Do I need to record ctor -> type bindings? (or ctor -> tycon? or anything?)
+checkCtorDecl :: CtorDecl -> M ()
+checkCtorDecl (CtorDecl c args) = traverse_ (\t -> checkType t StarK) args
 
 
 check :: TermK a -> M ()
@@ -259,6 +268,7 @@ checkValue (BoolValK _) BoolK = pure ()
 checkValue (StringValK _) StringK = pure ()
 checkValue EmptyK (ListK _) = pure ()
 checkValue (ConsK x xs) (ListK t) = checkTmVar x t *> checkTmVar xs (ListK t)
+-- checkValue (CtorApp c xs) t = _
 checkValue v t = throwError (BadValue v t)
 
 checkTmVar :: TmVar -> TypeK -> M ()

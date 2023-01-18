@@ -132,6 +132,7 @@ data TeleEntry
 
 data Kind
   = Star
+  | KArr Kind Kind
 
 data Program = Program [DataDecl] TermC
 
@@ -305,6 +306,8 @@ pprintTele (TypeTele aa k) = '@' : show aa ++ " : " ++ pprintKind k
 
 pprintKind :: Kind -> String
 pprintKind Star = "*"
+pprintKind (KArr Star k2) = "* -> " ++ pprintKind k2
+pprintKind (KArr k1 k2) = "(" ++ pprintKind k1 ++ ") -> " ++ pprintKind k2
 
 pprintPlace :: (Name, Sort) -> String
 pprintPlace (x, s) = show x ++ " : " ++ pprintSort s
