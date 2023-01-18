@@ -104,11 +104,11 @@ CtorDecls :: { DList CtorDecl }
 
 CtorDecl :: { CtorDecl }
 	 : ID '(' CtorArgs ')' { CtorDecl (ctor $1) (rundl $3) }
+	 | ID '(' ')' { CtorDecl (ctor $1) [] }
 
 CtorArgs :: { DList Type }
 	 : Type { dlsingle $1 }
-	 -- | {- empty -} { dlempty }
-	 -- | CtorArgs ',' Type { snoc $3 $1 }
+	 | CtorArgs ',' Type { snoc $3 $1 }
 
 
 Term :: { Term }

@@ -10,7 +10,6 @@ import Data.Maybe (fromMaybe)
 import Data.Traversable (mapAccumL, for)
 
 import Control.Monad.Reader
-import Control.Monad.State
 
 import qualified Source as S
 
@@ -65,7 +64,7 @@ cpsType (S.TyVarOcc aa) = do
   env <- asks cpsEnvTyCtx
   case Map.lookup aa env of
     Nothing -> error "scope error"
-    Just (aa', kk) -> pure (TyVarOccK aa')
+    Just (aa', _) -> pure (TyVarOccK aa')
 cpsType (S.TyAll aa k t) = freshenTyVarBinds [(aa, k)] $ \bs -> (\t' -> AllK bs [t']) <$> cpsCoType t
 cpsType S.TyUnit = pure UnitK
 cpsType S.TyInt = pure IntK
@@ -287,7 +286,7 @@ cps (S.TmApp e1 e2) k =
 cps (S.TmTApp e t) k =
   cps e $ \v1 t1 -> do
     (aa, t1') <- case t1 of
-      S.TyAll aa ki t1' -> pure (aa, t1')
+      S.TyAll aa _ki t1' -> pure (aa, t1')
       _ -> error "type error"
     freshCo "k" $ \kv ->
       freshTm "f" $ \fv -> do
@@ -509,7 +508,7 @@ cpsTail (S.TmApp e1 e2) k =
 cpsTail (S.TmTApp e t) k =
   cps e $ \v1 t1 -> do
     (aa, t1') <- case t1 of
-      S.TyAll aa ki t1' -> pure (aa, t1')
+      S.TyAll aa _ki t1' -> pure (aa, t1')
       _ -> error "type error"
     let instTy = S.substType (S.singleSubst aa t) t1'
     t' <- cpsType t
@@ -575,15 +574,48 @@ cpsTail (S.TmCase e s alts) k =
 -- Nullary constructors (no value args, no type params) are merely let-expressions:
 -- let mkbar : bar = mkbar() in ...
 
--- TODO: CPSEnv needs to map Ctor to wrapper
+makeCtorWrapper :: TyCon -> [(TyVar, KindK)] -> Ctor -> [TypeK] -> TermK () -> CPS (TermK ())
+makeCtorWrapper tc params c ctorargs e = do
+  (w, _) <- go (let Ctor tmp = c in TmVar tmp 0) (map Left params ++ map Right ctorargs) [] e
+  pure w
+  where
+    go :: TmVar -> [Either (TyVar, KindK) TypeK] -> [TmVar] -> TermK () -> CPS (TermK (), TypeK)
+    go name [] arglist body = do
+      let val = CtorAppK c arglist
+      let wrapperTy = TyConOccK tc -- Apply data params to this.
+      let wrapper = LetValK name wrapperTy val body
+      pure (wrapper, wrapperTy)
+    go name (Left (aa, k) : args) arglist body =
+      freshTm "w" $ \newName ->
+        freshCo "k" $ \newCont -> do
+          (inner, innerTy) <- go newName args arglist (JumpK newCont [newName])
+          let fun = AbsDef () name [(aa, k)] [(newCont, ContK [innerTy])] inner
+          let wrapper = LetFunAbsK [fun] body
+          pure (wrapper, AllK [(aa, k)] [ContK [innerTy]])
+    go name (Right argTy : args) arglist body =
+      freshTm "w" $ \newName ->
+        freshTm "arg" $ \newArg ->
+          freshCo "k" $ \newCont -> do
+            (inner, innerTy) <- go newName args (arglist ++ [newArg]) (JumpK newCont [newName])
+            let fun = FunDef () name [(newArg, argTy)] [(newCont, ContK [innerTy])] inner
+            let wrapper = LetFunAbsK [fun] body
+            pure (wrapper, FunK [argTy] [ContK [innerTy]])
 
-cpsDataDecl :: S.DataDecl -> CPS (DataDecl, [(Ctor, FunDef ())])
+makeDataWrapper :: DataDecl -> TermK () -> CPS (TermK ())
+makeDataWrapper (DataDecl tc params ctors) e = go ctors e
+  where
+    go [] e' = pure e'
+    go (CtorDecl c args : cs) e' = makeCtorWrapper tc params c args =<< go cs e'
+
+addCtorWrappers :: [DataDecl] -> TermK () -> CPS (TermK ())
+addCtorWrappers [] e = pure e
+addCtorWrappers (dd : ds) e = makeDataWrapper dd =<< addCtorWrappers ds e
+
+cpsDataDecl :: S.DataDecl -> CPS DataDecl
 cpsDataDecl (S.DataDecl (S.TyCon tc) params ctors) = do
-  let tycon = TyCon tc
-  let retTy = foldl (\ty (S.TyVar aa, _) -> TyAppK ty (TyVarOccK (TyVar aa 0))) (TyConOccK tycon) params
   params' <- traverse (\ (S.TyVar aa, ki) -> (,) <$> pure (TyVar aa 0) <*> cpsKind ki) params
-  (ctors', wrappers) <- unzip <$> traverse (cpsCtorDecl retTy) ctors
-  pure (DataDecl tycon params' ctors', wrappers)
+  ctors' <- traverse cpsCtorDecl ctors
+  pure (DataDecl (TyCon tc) params' ctors')
 
 ctorWrapperBinds :: S.DataDecl -> [(S.Ctor, (TmVar, S.Type))]
 ctorWrapperBinds (S.DataDecl tc params ctors) = map ctorDeclType ctors
@@ -594,29 +626,15 @@ ctorWrapperBinds (S.DataDecl tc params ctors) = map ctorDeclType ctors
         ret = foldl S.TyApp (S.TyConOcc tc) (map (S.TyVarOcc . fst) params)
         ty = foldr S.TyArr ret args
 
--- Hmm. Need to obtain the return type of the ctor.
-cpsCtorDecl :: TypeK -> S.CtorDecl -> CPS (CtorDecl, (Ctor, FunDef ()))
--- Special case: one value argument, no type parameters.
-cpsCtorDecl ty (S.CtorDecl (S.Ctor c) [arg]) = do
-  let c' = Ctor c
-  let val = CtorAppK c' [TmVar "x" 0]
-  let body = LetValK (TmVar "v" 0) ty val (JumpK (CoVar "k" 0) [TmVar "v" 0])
-  arg' <- cpsType arg
-  let wrapper = FunDef () (TmVar c 0) [(TmVar "x" 0, arg')] [(CoVar "k" 0, ContK [ty])] body
-  pure (CtorDecl c' [arg'], (c', wrapper))
-cpsCtorDecl _ (S.CtorDecl _ _) = error "not implemented: multi-arg ctors"
+cpsCtorDecl :: S.CtorDecl -> CPS CtorDecl
+cpsCtorDecl (S.CtorDecl (S.Ctor c) args) = CtorDecl (Ctor c) <$> traverse cpsType args
 
-cpsDataDecls :: [S.DataDecl] -> CPS ([DataDecl], [(Ctor, FunDef ())])
-cpsDataDecls ds = flip runStateT [] $ traverse g ds
-  where
-    g dd = do
-      (dd', wbinds) <- lift $ cpsDataDecl dd
-      modify (wbinds ++)
-      pure dd'
+cpsDataDecls :: [S.DataDecl] -> CPS [DataDecl]
+cpsDataDecls ds = traverse cpsDataDecl ds
 
 cpsProgram :: S.Program -> Program ()
 cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
-  (ds', ctorWrappers) <- cpsDataDecls ds
+  ds' <- cpsDataDecls ds
 
   let ctorbinds = concatMap ctorWrapperBinds ds
   let extend (CPSEnv sc tms tys cs) = CPSEnv sc tms tys (insertMany ctorbinds cs)
@@ -624,7 +642,8 @@ cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
   -- Unfortunately, I cannot use cpsTail here because 'HaltK' is not a covar.
   -- If I manage the hybrid/fused cps transform, I should revisit this.
   (e', t) <- local extend $ cps e (\z t -> pure (HaltK z, t))
-  let e'' = LetFunAbsK (map snd ctorWrappers) e'
+  -- let e'' = LetFunAbsK (map snd ctorWrappers) e'
+  e'' <- addCtorWrappers ds' e'
   pure (Program ds' e'')
 
 
@@ -758,7 +777,7 @@ freshenRecBinds fs k = do
     case (ty, rhs) of
       (S.TyArr _t s, S.TmLam x t' body) -> do
         pure (S.TmFun f x t' s body)
-      (S.TyAll aa k1 t, S.TmTLam bb k2 body) -> do
+      (S.TyAll aa _k1 t, S.TmTLam bb k2 body) -> do
         let sub = S.singleSubst aa (S.TyVarOcc bb)
         pure (S.TmTFun f bb k2 (S.substType sub t) body)
       (_, _) -> error "letrec error"
