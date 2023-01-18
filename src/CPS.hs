@@ -639,7 +639,7 @@ cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
 
   -- Unfortunately, I cannot use cpsTail here because 'HaltK' is not a covar.
   -- If I manage the hybrid/fused cps transform, I should revisit this.
-  (e', t) <- local extend $ cps e (\z t -> pure (HaltK z, t))
+  (e', _t) <- local extend $ cps e (\z t -> pure (HaltK z, t))
   -- let e'' = LetFunAbsK (map snd ctorWrappers) e'
   e'' <- addCtorWrappers ds' e'
   pure (Program ds' e'')
@@ -739,7 +739,7 @@ freshenTyVarBinds bs k = do
       (Map.insert aa (i+1) sc, (S.TyVar aa, (aa', ki)))
     (sc', bs') = mapAccumL pick scope bs
   let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' ctx (insertMany bs' tys) cs
-  bs'' <- traverse (\ (_, (aa', k)) -> (,) aa' <$> cpsKind k) bs'
+  bs'' <- traverse (\ (_, (aa', ki)) -> (,) aa' <$> cpsKind ki) bs'
   local extend (k bs'')
 
 -- | Rename a sequence of function bindings and bring them in to scope.

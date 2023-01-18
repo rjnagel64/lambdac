@@ -246,16 +246,16 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintProgram :: Program -> String
-pprintProgram (Program ds e) = concatMap (pprintData 0) ds ++ pprintTerm 0 e
+pprintProgram (Program ds e) = concatMap (pprintDataDecl 0) ds ++ pprintTerm 0 e
 
-pprintData :: Int -> DataDecl -> String
-pprintData n (DataDecl tc params ctors) =
+pprintDataDecl :: Int -> DataDecl -> String
+pprintDataDecl n (DataDecl tc params ctors) =
   indent n $ "data " ++ show tc ++ intercalate " " (map f params) ++ " where\n" ++
-  unlines (map (pprintCtor (n+2)) ctors)
+  unlines (map (pprintCtorDecl (n+2)) ctors)
   where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
 
-pprintCtor :: Int -> CtorDecl -> String
-pprintCtor n (CtorDecl c args) =
+pprintCtorDecl :: Int -> CtorDecl -> String
+pprintCtorDecl n (CtorDecl c args) =
   indent n $ show c ++ "(" ++ intercalate ", " (map pprintSort args) ++ ")"
 
 pprintTerm :: Int -> TermC -> String

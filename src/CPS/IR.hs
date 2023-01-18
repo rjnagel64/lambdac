@@ -68,6 +68,7 @@ instance Show TyVar where
   show (TyVar a i) = a ++ show i
 
 data TyCon = TyCon String
+  deriving (Eq)
 data Ctor = Ctor String
 
 instance Show TyCon where
@@ -239,6 +240,8 @@ eqCoTypeK t s = eqCoTypeK' (Alpha 0 Map.empty Map.empty) t s
 eqTypeK' :: Alpha -> TypeK -> TypeK -> Bool
 eqTypeK' sc (TyVarOccK aa) (TyVarOccK bb) = varAlpha aa bb sc
 eqTypeK' _ (TyVarOccK _) _ = False
+eqTypeK' _ (TyConOccK tc1) (TyConOccK tc2) = tc1 == tc2
+eqTypeK' _ (TyConOccK _) _ = False
 eqTypeK' sc (AllK aas ts) (AllK bbs ss) =
   bindAlpha sc aas bbs $ \sc' -> allEqual (eqCoTypeK' sc') ts ss
 eqTypeK' _ (AllK _ _) _ = False
@@ -254,6 +257,8 @@ eqTypeK' sc (ProdK t1 s1) (ProdK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
 eqTypeK' _ (ProdK _ _) _ = False
 eqTypeK' sc (SumK t1 s1) (SumK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
 eqTypeK' _ (SumK _ _) _ = False
+eqTypeK' sc (TyAppK t1 s1) (TyAppK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
+eqTypeK' _ (TyAppK _ _) _ = False
 eqTypeK' sc (ListK t1) (ListK t2) = eqTypeK' sc t1 t2
 eqTypeK' _ (ListK _) _ = False
 eqTypeK' sc (FunK ts1 ss1) (FunK ts2 ss2) =
@@ -301,11 +306,13 @@ typeFV (AllK aas ss) = Set.unions (map coTypeFV ss) Set.\\ Set.fromList (map fst
 typeFV (FunK ts ss) = Set.unions (map typeFV ts) <> Set.unions (map coTypeFV ss)
 typeFV (ProdK t s) = typeFV t <> typeFV s
 typeFV (SumK t s) = typeFV t <> typeFV s
+typeFV (TyAppK t s) = typeFV t <> typeFV s
 typeFV (ListK t) = typeFV t
 typeFV UnitK = Set.empty
 typeFV IntK = Set.empty
 typeFV BoolK = Set.empty
 typeFV StringK = Set.empty
+typeFV (TyConOccK _) = Set.empty
 
 -- | Compute the free type variables of a co-type.
 coTypeFV :: CoTypeK -> Set TyVar
@@ -323,11 +330,13 @@ substTypeK sub (AllK aas ss) =
 substTypeK sub (FunK ts ss) = FunK (map (substTypeK sub) ts) (map (substCoTypeK sub) ss)
 substTypeK sub (ProdK t s) = ProdK (substTypeK sub t) (substTypeK sub s)
 substTypeK sub (SumK t s) = SumK (substTypeK sub t) (substTypeK sub s)
+substTypeK sub (TyAppK t s) = TyAppK (substTypeK sub t) (substTypeK sub s)
 substTypeK sub (ListK t) = ListK (substTypeK sub t)
 substTypeK _ UnitK = UnitK
 substTypeK _ IntK = IntK
 substTypeK _ BoolK = BoolK
 substTypeK _ StringK = StringK
+substTypeK _ (TyConOccK tc) = TyConOccK tc
 
 -- | Apply a substitution to a co-type.
 substCoTypeK :: Subst -> CoTypeK -> CoTypeK
@@ -372,7 +381,17 @@ indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
 pprintProgram :: Program a -> String
-pprintProgram (Program ds e) = pprintTerm 0 e
+pprintProgram (Program ds e) = concatMap (pprintDataDecl 0) ds ++ pprintTerm 0 e
+
+pprintDataDecl :: Int -> DataDecl -> String
+pprintDataDecl n (DataDecl tc params ctors) =
+  indent n $ "data " ++ show tc ++ intercalate " " (map f params) ++ " where\n" ++
+  unlines (map (pprintCtorDecl (n+2)) ctors)
+  where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
+
+pprintCtorDecl :: Int -> CtorDecl -> String
+pprintCtorDecl n (CtorDecl c args) =
+  indent n $ show c ++ "(" ++ intercalate ", " (map pprintType args) ++ ")"
 
 pprintTerm :: Int -> TermK a -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
@@ -411,6 +430,7 @@ pprintValue (InrK y) = "inr " ++ show y
 pprintValue EmptyK = "nil"
 pprintValue (ConsK x y) = "cons " ++ show x ++ " " ++ show y
 pprintValue (StringValK s) = show s
+pprintValue (CtorAppK c args) = show c ++ "(" ++ intercalate ", " (map show args) ++ ")"
 
 pprintArith :: ArithK -> String
 pprintArith (AddK x y) = show x ++ " + " ++ show y
@@ -467,6 +487,8 @@ pprintType (TyVarOccK aa) = show aa
 pprintType (AllK aas ss) =
   "forall (" ++ intercalate ", " (map f aas) ++ "). (" ++ intercalate ", " (map pprintCoType ss) ++ ") -> 0"
   where f (aa, kk) = show aa ++ " :: " ++ pprintKind kk
+pprintType (TyConOccK tc) = show tc
+pprintType (TyAppK t1 t2) = pprintType t1 ++ " " ++ pprintType t2
 
 pprintAType :: TypeK -> String
 pprintAType (TyVarOccK aa) = show aa
