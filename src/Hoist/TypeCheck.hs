@@ -159,15 +159,15 @@ checkProgram :: Program -> TC ()
 checkProgram (Program ds e) = traverse_ checkDecl ds *> checkEntryPoint e
 
 checkDecl :: Decl -> TC ()
-checkDecl (DeclCode cd) = checkClosure cd
+checkDecl (DeclCode cd) = checkCodeDecl cd
 checkDecl (DeclData dd) = throwError (NotImplemented "check DataDecl")
 
 checkEntryPoint :: TermH -> TC ()
 checkEntryPoint e = checkTerm e
 
 -- | Type-check a top-level code declaration and add it to the signature.
-checkClosure :: CodeDecl -> TC ()
-checkClosure decl@(CodeDecl cl (envp, envd) params body) = do
+checkCodeDecl :: CodeDecl -> TC ()
+checkCodeDecl decl@(CodeDecl cl (envp, envd) params body) = do
   -- Check the environment and parameters to populate the environment scope for
   -- the typing context
   envTy <- checkEnvDecl envd
