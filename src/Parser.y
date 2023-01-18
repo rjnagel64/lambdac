@@ -97,6 +97,11 @@ DataDecls :: { DList DataDecl }
 
 DataDecl :: { DataDecl }
 	 : 'data' ID '=' '{' CtorDecls '}' { DataDecl (tcon $2) [] (rundl $5) }
+	 | 'data' ID TyBinds '=' '{' CtorDecls '}' { DataDecl (tcon $2) (rundl $3) (rundl $6) }
+
+TyBinds :: { DList (TyVar, Kind) }
+	: TyBind { dlsingle $1 }
+	| TyBinds TyBind { snoc $2 $1 }
 
 CtorDecls :: { DList CtorDecl }
 	  : CtorDecl { dlsingle $1 }
@@ -218,6 +223,12 @@ AType :: { Type }
       | 'string' { TyString }
       | ID { TyVarOcc (tvar $1) }
       | '%' ID { TyConOcc (tcon $2) }
+
+Kind :: { Kind }
+     : '*' { KiStar }
+
+TyBind :: { (TyVar, Kind) }
+       : '(' ID ':' Kind ')' { (tvar $2, $4) }
 
 {
 data ParseError = EOF | ErrorAt String

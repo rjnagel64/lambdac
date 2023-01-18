@@ -145,13 +145,10 @@ cconvProgram (K.Program ds e) = runConv $ do
     runConv = fst . runWriter . flip runReaderT emptyContext . runConvM
 
 cconvDataDecl :: K.DataDecl -> ConvM DataDecl
-cconvDataDecl (K.DataDecl (K.TyCon tc) params ctors) = DataDecl (TyCon tc) <$> params' <*> ctors'
-  where
-    params' = traverse (\ (aa, k) -> (,) <$> pure (tyVar aa) <*> cconvKind k) params
-    ctors' = traverse cconvCtorDecl ctors
-
-    tyVar :: K.TyVar -> TyVar
-    tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
+cconvDataDecl (K.DataDecl (K.TyCon tc) params ctors) =
+  withTys params $ \params' -> do
+    ctors' <- traverse cconvCtorDecl ctors
+    pure (DataDecl (TyCon tc) params' ctors')
 
 cconvCtorDecl :: K.CtorDecl -> ConvM CtorDecl
 cconvCtorDecl (K.CtorDecl (K.Ctor c) args) = CtorDecl (Ctor c) <$> traverse cconvType args

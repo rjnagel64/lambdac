@@ -63,7 +63,7 @@ cpsType :: S.Type -> CPS TypeK
 cpsType (S.TyVarOcc aa) = do
   env <- asks cpsEnvTyCtx
   case Map.lookup aa env of
-    Nothing -> error "scope error"
+    Nothing -> error "scope error" 
     Just (aa', _) -> pure (TyVarOccK aa')
 cpsType (S.TyAll aa k t) = freshenTyVarBinds [(aa, k)] $ \bs -> (\t' -> AllK bs [t']) <$> cpsCoType t
 cpsType S.TyUnit = pure UnitK
@@ -582,7 +582,7 @@ makeCtorWrapper tc params c ctorargs e = do
     go :: TmVar -> [Either (TyVar, KindK) TypeK] -> [TmVar] -> TermK () -> CPS (TermK (), TypeK)
     go name [] arglist body = do
       let val = CtorAppK c arglist
-      let wrapperTy = TyConOccK tc -- Apply data params to this.
+      let wrapperTy = foldl (\ t (aa, _) -> TyAppK t (TyVarOccK aa)) (TyConOccK tc) params
       let wrapper = LetValK name wrapperTy val body
       pure (wrapper, wrapperTy)
     go name (Left (aa, k) : args) arglist body =
@@ -613,9 +613,13 @@ addCtorWrappers (dd : ds) e = makeDataWrapper dd =<< addCtorWrappers ds e
 
 cpsDataDecl :: S.DataDecl -> CPS DataDecl
 cpsDataDecl (S.DataDecl (S.TyCon tc) params ctors) = do
-  params' <- traverse (\ (S.TyVar aa, ki) -> (,) <$> pure (TyVar aa 0) <*> cpsKind ki) params
-  ctors' <- traverse cpsCtorDecl ctors
-  pure (DataDecl (TyCon tc) params' ctors')
+  freshenTyVarBinds params $ \bs -> do
+    let params' = bs
+    ctors' <- traverse cpsCtorDecl ctors
+    pure (DataDecl (TyCon tc) params' ctors')
+
+cpsCtorDecl :: S.CtorDecl -> CPS CtorDecl
+cpsCtorDecl (S.CtorDecl (S.Ctor c) args) = CtorDecl (Ctor c) <$> traverse cpsType args
 
 ctorWrapperBinds :: S.DataDecl -> [(S.Ctor, (TmVar, S.Type))]
 ctorWrapperBinds (S.DataDecl tc params ctors) = map ctorDeclType ctors
@@ -624,17 +628,11 @@ ctorWrapperBinds (S.DataDecl tc params ctors) = map ctorDeclType ctors
     ctorDeclType (S.CtorDecl (S.Ctor c) args) = (S.Ctor c, (TmVar c 0, ty))
       where
         ret = foldl S.TyApp (S.TyConOcc tc) (map (S.TyVarOcc . fst) params)
-        ty = foldr S.TyArr ret args
-
-cpsCtorDecl :: S.CtorDecl -> CPS CtorDecl
-cpsCtorDecl (S.CtorDecl (S.Ctor c) args) = CtorDecl (Ctor c) <$> traverse cpsType args
-
-cpsDataDecls :: [S.DataDecl] -> CPS [DataDecl]
-cpsDataDecls ds = traverse cpsDataDecl ds
+        ty = foldr (uncurry S.TyAll) (foldr S.TyArr ret args) params
 
 cpsProgram :: S.Program -> Program ()
 cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
-  ds' <- cpsDataDecls ds
+  ds' <- traverse cpsDataDecl ds
 
   let ctorbinds = concatMap ctorWrapperBinds ds
   let extend (CPSEnv sc tms tys cs) = CPSEnv sc tms tys (insertMany ctorbinds cs)

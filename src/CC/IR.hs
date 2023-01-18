@@ -250,7 +250,13 @@ pprintProgram (Program ds e) = concatMap (pprintData 0) ds ++ pprintTerm 0 e
 
 pprintData :: Int -> DataDecl -> String
 pprintData n (DataDecl tc params ctors) =
-  indent n $ "data " ++ show tc ++ " (...)\n"
+  indent n $ "data " ++ show tc ++ intercalate " " (map f params) ++ " where\n" ++
+  unlines (map (pprintCtor (n+2)) ctors)
+  where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
+
+pprintCtor :: Int -> CtorDecl -> String
+pprintCtor n (CtorDecl c args) =
+  indent n $ show c ++ "(" ++ intercalate ", " (map pprintSort args) ++ ")"
 
 pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
@@ -290,6 +296,8 @@ pprintSort (List s) = "list " ++ pprintSort s
 pprintSort (Sum s t) = "sum " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort (Pair s t) = "pair " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort Unit = "unit"
+pprintSort (TyConOcc tc) = show tc
+pprintSort (TyApp s t) = pprintSort s ++ " " ++ pprintSort t
 
 pprintTele :: TeleEntry -> String
 pprintTele (ValueTele s) = pprintSort s
@@ -311,6 +319,7 @@ pprintValue (InrC y) = "inr " ++ show y
 pprintValue EmptyC = "nil"
 pprintValue (ConsC x xs) = "cons " ++ show x ++ " " ++ show xs
 pprintValue (StringC s) = show s
+pprintValue (CtorAppC c xs) = show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
 
 pprintArith :: ArithC -> String
 pprintArith (AddC x y) = show x ++ " + " ++ show y

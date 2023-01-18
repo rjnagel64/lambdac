@@ -91,6 +91,7 @@ standard_test("datactor", "()")
 standard_test("datacase", "true")
 standard_test("monolist", "25")
 standard_test("datapair", "true")
+standard_test("polydata", "consF(17, true)")
 
 def run_tests(test_filter):
     runner = TestRunner()

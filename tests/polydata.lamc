@@ -1,0 +1,6 @@
+
+data listF (a : *) (b : *) = {
+  nilF();
+  consF(a, b)
+}
+%consF @int @bool 17 true

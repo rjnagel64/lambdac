@@ -655,7 +655,7 @@ dataDesc (DataDecl tc typarams ctors) tyargs =
           -- However, if I add existential ADTs, there may be an argument sort
           -- 'AllocH bb', where 'bb' is existentially bound. In that case, the
           -- argument should be cast to 'struct alloc_header *', I think.
-          Nothing -> error "missing type argument"
+          Nothing -> error "missing argument in tyconapp"
           Just s' -> (ThunkValueArg s', (show fld, Just s'))
         f (fld, s) = (ThunkValueArg s, (show fld, Nothing))
 
