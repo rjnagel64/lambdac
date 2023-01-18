@@ -224,8 +224,8 @@ bindAE x y (AE l fw bw) = AE (l+1) (Map.insert x l fw) (Map.insert y l bw)
 eqType :: AE -> Type -> Type -> Bool
 eqType ae (TyVarOcc x) (TyVarOcc y) = lookupAE ae x y
 eqType _ (TyVarOcc _) _ = False
-eqType ae (TyConOcc c1) (TyConOcc c2) = c1 == c2
-eqType _ (TyVarOcc _) _ = False
+eqType _ (TyConOcc c1) (TyConOcc c2) = c1 == c2
+eqType _ (TyConOcc _) _ = False
 eqType _ TyUnit TyUnit = True
 eqType _ TyUnit _ = False
 eqType _ TyBool TyBool = True
@@ -306,6 +306,8 @@ ftv TyBool = Set.empty
 ftv TyInt = Set.empty
 ftv TyString = Set.empty
 ftv (TyList t) = ftv t
+ftv (TyConOcc _) = Set.empty
+ftv (TyApp t1 t2) = ftv t1 <> ftv t2
 
 -- something something showsPrec
 pprintType :: Int -> Type -> String
