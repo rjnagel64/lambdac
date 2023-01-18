@@ -30,6 +30,7 @@ data TypeError
   | BadProjection TypeK
   | CannotCall TmVar TypeK
   | CannotInst TmVar TypeK
+  | CannotTyApp TypeK
 
 instance Show TypeError where
   show (TmNotInScope x) = "term variable " ++ show x ++ " not in scope"
@@ -61,6 +62,8 @@ instance Show TypeError where
   show (CannotInst f t) = 
     "variable " ++ show f ++ " is applied to type arguments but its type is not a forall: "
     ++ pprintType t
+  show (CannotTyApp t) =
+    "cannot apply argument to type " ++ pprintType t ++ " because it does not have an arrow kind"
 
 -- Hmm. Add StateT Signature where type Signature = Map TyCon DataDecl
 -- (update when checking data. Use 'gets' when reference tycon)
@@ -126,7 +129,7 @@ lookupTyCon x = gets sigTyCons >>= maybe err (pure . dataDeclKind) . Map.lookup 
   where err = throwError (TyConNotInScope x)
 
 dataDeclKind :: DataDecl -> KindK
-dataDeclKind (DataDecl _ params _) = StarK
+dataDeclKind (DataDecl _ params _) = foldr (\ (_, k1) k2 -> KArrK k1 k2) StarK params
 
 equalTypes :: TypeK -> TypeK -> M ()
 equalTypes expected actual =
@@ -162,7 +165,7 @@ withDataDecls [] m = m
 withDataDecls (dd@(DataDecl tc params ctors) : ds) m = do
   withTyVars params $ traverse_ checkCtorDecl ctors
   modify (\ (Signature tcs) -> Signature (Map.insert tc dd tcs))
-  m
+  withDataDecls ds m
 
 -- Hmm. Do I need to record ctor -> type bindings? (or ctor -> tycon? or anything?)
 checkCtorDecl :: CtorDecl -> M ()
@@ -293,34 +296,41 @@ checkCoArgs _ _ = throwError ArityMismatch
 
 
 -- | Check that a type has the given kind.
-checkType :: TypeK -> KindK -> M ()
-checkType (TyVarOccK aa) kk = do
-  kk' <- lookupTyVar aa
-  equalKinds kk kk'
-checkType (TyConOccK tc) kk = do
-  kk' <- lookupTyCon tc
-  equalKinds kk kk'
-checkType (AllK aas ss) kk =
-  equalKinds StarK kk *>
-  withTyVars aas (traverse_ (\s -> checkCoType s StarK) ss)
-checkType (FunK ts ss) kk =
-  equalKinds StarK kk *>
+inferType :: TypeK -> M KindK
+inferType (TyVarOccK aa) = lookupTyVar aa
+inferType (TyConOccK tc) = lookupTyCon tc
+inferType (AllK aas ss) =
+  withTyVars aas (traverse_ (\s -> checkCoType s StarK) ss) *>
+  pure StarK
+inferType (FunK ts ss) =
   traverse_ (\t -> checkType t StarK) ts *>
-  traverse_ (\s -> checkCoType s StarK) ss
-checkType (ProdK t s) kk = equalKinds StarK kk *> checkType t StarK *> checkType s StarK
-checkType (SumK t s) kk = equalKinds StarK kk *> checkType t StarK *> checkType s StarK
-checkType (ListK t) StarK = checkType t StarK
-checkType UnitK kk = equalKinds StarK kk
-checkType IntK kk = equalKinds StarK kk
-checkType BoolK kk = equalKinds StarK kk
-checkType StringK kk = equalKinds StarK kk
+  traverse_ (\s -> checkCoType s StarK) ss *>
+  pure StarK
+inferType (ProdK t s) = checkType t StarK *> checkType s StarK *> pure StarK
+inferType (SumK t s) = checkType t StarK *> checkType s StarK *> pure StarK
+inferType (ListK t) = checkType t StarK *> pure StarK
+inferType UnitK = pure StarK
+inferType IntK = pure StarK
+inferType BoolK = pure StarK
+inferType StringK = pure StarK
+inferType (TyAppK t s) =
+  inferType t >>= \case
+    KArrK k1 k2 -> checkType s k1 *> pure k2
+    StarK -> throwError (CannotTyApp t)
 
 -- | Check that a co-type has the given kind.
+inferCoType :: CoTypeK -> M KindK
+inferCoType (ContK ts) = traverse_ (\t -> checkType t StarK) ts *> pure StarK
+
+checkType :: TypeK -> KindK -> M ()
+checkType t k = inferType t >>= equalKinds k
+
 checkCoType :: CoTypeK -> KindK -> M ()
-checkCoType (ContK ts) StarK = traverse_ (\t -> checkType t StarK) ts
+checkCoType t k = inferCoType t >>= equalKinds k
 
 -- | Check that a kind is well-formed.
 -- This is basically redundant, because kinds are trivial values, but it's
 -- consistent with other things, I guess.
 checkKind :: KindK -> M ()
 checkKind StarK = pure ()
+checkKind (KArrK k1 k2) = checkKind k1 *> checkKind k2
