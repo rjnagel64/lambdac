@@ -24,7 +24,11 @@ deriving newtype instance MonadReader Context TC
 deriving newtype instance MonadState Signature TC
 
 -- | The signature stores information about top-level declarations.
-data Signature = Signature { sigClosures :: Map CodeLabel ClosureDeclType, sigTyCons :: Map TyCon Kind }
+data Signature
+  = Signature {
+    sigClosures :: Map CodeLabel ClosureDeclType
+  , sigTyCons :: Map TyCon Kind
+  }
 
 -- | Represents the type of a closure, a code pointer with environment
 -- @code(t; S)@.
@@ -79,9 +83,6 @@ runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignatur
 emptyLocals :: Locals
 emptyLocals = Locals Map.empty Map.empty
 
-bindPlace :: Place -> Locals -> Locals
-bindPlace (Place s x) (Locals places tys) = Locals (Map.insert x s places) tys
-
 emptySignature :: Signature
 emptySignature = Signature { sigClosures = Map.empty, sigTyCons = Map.empty }
 
@@ -133,10 +134,10 @@ equalKinds expected actual =
     throwError (KindMismatch expected actual)
 
 withPlace :: Place -> TC a -> TC a
-withPlace p m = do
-  checkSort (placeSort p) Star
+withPlace (Place s x) m = do
+  checkSort s Star
   local extend m
-  where extend (Context locals env) = Context (bindPlace p locals) env
+  where extend (Context (Locals places tys) env) = Context (Locals (Map.insert x s places) tys) env
 
 withPlaces :: [Place] -> TC a -> TC a
 withPlaces ps = foldr (.) id (map withPlace ps)
