@@ -1,0 +1,299 @@
+
+I/O subsystem:
+
+just hard-code do-notation for IO monad (no desugaring to bind/return)
+add some primitives for get and put
+
+
+TODO: think about how the CPS translation looks. It shouldn't be too bad,
+especially because we avoid desugaring, so there's an implicit straight-line
+continuation from the do-notation.
+
+
+
+t ::= ... | IO t
+e ::= ... | do {c} | getLine | putLine
+c ::= pure e | x <- e; c
+
+
+### Typing rules for IO:
+
+Judgments:
+Γ |- t : k
+Γ |- e : t
+Γ |- c : IO t
+
+
+Γ |- t : *
+-------------
+Γ |- IO t : *
+
+
+Γ |- c : IO t
+------------------
+Γ |- do {c} : IO t
+
+------------------------
+Γ |- getLine : IO string
+
+--------------------------------
+Γ |- putLine : string -> IO unit
+
+
+Γ |- e : t
+------------------
+Γ |- pure e : IO t
+
+Γ |- e : IO t
+Γ, x : t |- c : IO s
+---------------------
+Γ |- x <- e; c : IO s
+
+
+### CPS rules for IO
+
+
+CPS_Ty[IO t] = CPS_Ty[State# -> (State#, t)] = (State#) => ((State#, CPS_Ty[t]) -> !)
+
+CPS[do {c}] k = _
+CPS[putLine] k = _
+CPS[getLine] k = _
+
+
+CPS_IO[pure e;] k = CPS[e] (λ (x : t) -> k (fun (s : State#) (k' : (State#, t) -> !) => k'(s, x)))
+CPS_IO[x <- e; c] k = CPS[e] (λx -> CPS_IO[c] k)
+
+
+Hmm. what if CPS_IO has two parameters?
+  CPS_IO[c] s k
+means "translate command 'c' using state token 's' and continuation 'k'"
+
+CPS_IO[pure e] s k =
+  CPS[e] (λ (x : t) -> apply k [s, x])
+CPS_IO[x <- e; c] s k =
+  CPS[e] (λ (m : IO t) -> call m s (cont (s' : State#, x : t) => CPS_IO[c] s' k))
+
+CPS[do {c}] k = k (fun (s : State#) (k' : (State#, t) -> !) => CPS_IO[c] s k')
+
+CPS[putLine] k = k (fun (s : State#) (k' : (State#, unit) -> !) => iocall "putLine" s k') 
+CPS[getLine] k = k (fun (s : State#) (k' : (State#, string) -> !) => iocall "getLine" s k')
+
+
+-- Example:
+prog : IO unit
+prog = do
+  x <- getLine
+  u <- putLine x
+  pure u
+
+CPS[prog] k = k (? : CPS_Ty[IO unit])
+CPS[prog] k =
+let fun f (s : State#) (k' : (State#, unit) -> !) =
+  CPS_IO[x <- getLine; u <- putLine x; pure u] s k'
+in
+k f
+
+let fun f (s : State#) (k' : (State#, unit) -> !) =
+  CPS[getLine] (λ (m : IO string) -> call m s (cont (s' : State#, x : string) => CPS_IO[u <- putLine x; pure u] s' k'))
+in
+k f
+
+let fun f (s : State#) (k' : (State#, unit) -> !) =
+  let fun m (s1 : State#) (k1' : (State#, string) -> !) =
+    iocall "getLine" s1 k1'
+  in
+  -- Hmmm. Unpleasant administrative redex here.
+  -- Cause: switching between command and expression, I think.
+  -- suggestion: change grammar to 'x <- c1; c2', and make 'getLine'/'putLine' commands?
+  -- (putLine is a command with an argument, though. Hmm.)
+  call m s (cont (s' : State#, x : string) => CPS_IO[u <- putLine x; pure u] s' k')
+in
+k f
+
+
+
+
+Random idea: separate 'IO t' (side effect to produce value) from 'Eff' (side effect only)
+Avoid passing around 'unit' values to continuations of effect values
+  (e.g. putLine :: string -> IO ()  becomes putLine :: string -> Eff)
+  CPS_Ty[EFF] = (State#) => ((State#) -> !)
+More complicated, though?
+Could be interesting, but almost effect-system-ish, which is a *bit* too
+complicated for a MVP implementation of I/O subsystem
+
+
+Revised formulation: bind command, not expr: {{{
+
+Syntax extensions:
+
+t ::= ... | IO t
+e ::= ... | do {c}
+c ::= pure e | x <- c1; c2 | getLine e | putLine e
+-- Hmm. Need to embed 'e :: IO t' into a command
+-- Hmm. THis syntax permits 'x <- y <- foo; pure y; putLine x, which is very
+-- likely to be ambiguous.
+
+
+Typing rules:
+
+Γ |- t : *
+-------------
+Γ |- IO t : *
+
+Γ |-IO c : t
+------------------
+Γ |- do {c} : IO t
+
+Γ |- e : t
+-----------------
+Γ |-IO pure e : t
+
+Γ |-IO c1 : t
+Γ, x : t |-IO c2 : s
+----------------------
+Γ |-IO x <- c1; c2 : s
+
+Γ |- e : unit
+-------------------------
+Γ |-IO getLine e : string
+
+Γ |- e : string
+-----------------------
+Γ |-IO putLine e : unit
+
+
+
+Translation rules:
+
+CPS_Ty[IO t] = (State#) => ((State#, CPS_Ty[t]) -> !)
+
+CPS[do {c}] k = k (fun (s : State#) (k0 : (State#, t) -> !) = CPS_IO[c] s k0)
+
+-- Note: CPS_IO's continuation takes two arguments
+-- If hybrid or meta-cont is used here, pay attention to that.
+CPS_IO[pure e] s k = CPS[e] (λ (x : t) -> k (s, x))
+CPS_IO[x <- c1; c2] s k = CPS_IO[c1] s (λ (s1 : State#) (x : a) -> CPS_IO[c2] s1 k)
+CPS_IO[getLine e] s k = CPS[e] (λ (x : unit) -> iocall "getLine" s x (reify k))
+CPS_IO[putLine e] s k = CPS[e] (λ (x : string) -> iocall "putLine" s x (reify k))
+
+
+Example: echo: {{{
+
+prog : IO unit
+prog = do
+  x <- getLine
+  u <- putLine x
+  pure u
+
+CPS_IO[prog] s k
+= CPS_IO[x <- getLine (); u <- putLine x; pure u] s k
+= CPS_IO[getLine ()] s (λ (s1 : State#) (x : string) -> CPS_IO[u <- putLine x; pure u] s1 k)
+= CPS[()] (λ (t0 : unit) -> iocall "getLine" s v (cont (s1 : State#, x : string) -> CPS_IO[u <- putLine x; pure u] s1 k))
+=
+let t0 : unit = () in
+let cont c0 (s1 : State#, x : string) =
+  CPS_IO[u <- putLine x; pure u] s1 k
+in
+iocall "getLine" s t0 c0
+=
+let t0 : unit = () in
+let cont c0 (s1 : State#, x : string) =
+  CPS_IO[putLine x] s1 (λ (s2 : State#) (u : unit) -> CPS_IO[pure u] s2 k)
+in
+iocall "getLine" s t0 c0
+=
+let t0 : unit = () in
+let cont c0 (s1 : State#, x : string) =
+  let cont c1 (s2 : State#, u : unit) =
+    CPS_IO[pure u] s2 k
+  in
+  iocall "putLine" s1 x c1
+in
+iocall "getLine" s t0 c0
+=
+-- This is honestly decent, as far as translation goes.
+-- There's some bloat, but much less than I feared.
+-- No administrative redexes, just primitive calls and passing state tokens.
+let t0 : unit = () in
+let cont c0 (s1 : State#, x : string) =
+  let cont c1 (s2 : State#, u : unit) =
+    k(s2, u)
+  in
+  iocall "putLine" s1 x c1
+in
+iocall "getLine" s t0 c0
+
+}}}
+
+
+Remark: because 'getLine' and 'putLine' are syntactically commands, they need
+to be wrapped if you want to use them as expressions. For example:
+
+get_line : IO string
+get_line = do { s <- getLine (); pure s }
+
+put_line : string -> IO ()
+put_line = \ (s : string) -> do { u <- putLine s; pure u }
+
+This is not dissimilar to constructor wrappers, but is required at the level of
+'Source' rather than in CPS.IR.
+
+
+}}}
+
+Alternate formulation: "operations" {{{
+
+e ::= ... | do {c}
+c ::= pure e | x <- e; c | x <- perform op e; c
+op ::= putLine | getLine
+
+Γ |- e : t
+Γ |- c : IO t
+-- Because of sums and products, I *technically* only need one input & one output.
+-- However, for efficiency and convenience, it would be better to have multiple
+-- inputs, multiple continuations, and multiple return values per continuation.
+-- (via relevant isomorphisms of sums and products)
+Γ |- op : Op i o
+
+... Seems very effect-system-like.
+
+
+Γ |- c : IO t
+------------------
+Γ |- do {c} : IO t
+
+Γ |- e : t
+------------------
+Γ |- pure e : IO t
+
+Γ |- e : IO t
+Γ, x : t |- c : IO s
+---------------------
+Γ |- x <- e; c : IO s
+
+Γ |- op : Op i o
+Γ |- e : i
+Γ, x : o |- c : IO t
+--------------------------------
+Γ |- x <- perform op e; c : IO t
+
+-----------------------------
+Γ |- getLine : Op unit string
+
+-----------------------------
+Γ |- putLine : Op string unit
+
+}}}
+
+
+Random idea: In CPS and later IRs, I currently have 'iocall "function_name" args
+conts' as a way of performing effectful operations. This involves reifying the
+continuation and making a tailcall/tailreturn, inhibiting the "straight-line
+code" property.
+
+I could instead have a 'let (s_new; x1...xn) <- "function_name" (s_old; args)' 
+
+This only permits one continuation (but iocall could also exist cf. let versus
+case one branch), but does not require building and invoking a continuation
+closure, along with further opportunities for straight-line code (since
+do-blocks often contain long sequences of commands)

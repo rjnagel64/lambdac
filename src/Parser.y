@@ -221,6 +221,11 @@ AType :: { Type }
       | 'int' { TyInt }
       | 'bool' { TyBool }
       | 'string' { TyString }
+      -- As in terms, I need to distinguish (type) variable occurrences from
+      -- (type) constructors.
+      -- For now, I prefix (type) constructors with a sigil.
+      -- Alternately, I could include a name resolution pass, or make type
+      -- variables 'a 'b 'c as in ML.
       | ID { TyVarOcc (tvar $1) }
       | '%' ID { TyConOcc (tcon $2) }
 
