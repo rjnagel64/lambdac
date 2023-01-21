@@ -93,7 +93,7 @@ newtype CodeLabel = CodeLabel String
   deriving (Eq, Ord)
 
 instance Show CodeLabel where
-  show (CodeLabel d) = d
+  show (CodeLabel d) = '#' : d
 
 
 newtype TyCon = TyCon String
@@ -413,12 +413,14 @@ substSort :: Subst -> Sort -> Sort
 substSort sub (AllocH aa) = case lookupSubst aa sub of
   Nothing -> AllocH aa
   Just s -> s
+substSort _ (TyConH tc) = TyConH tc
 substSort _ IntegerH = IntegerH
 substSort _ BooleanH = BooleanH
 substSort _ UnitH = UnitH
 substSort _ StringH = StringH
 substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
 substSort sub (SumH s t) = SumH (substSort sub s) (substSort sub t)
+substSort sub (TyAppH s t) = TyAppH (substSort sub s) (substSort sub t)
 substSort sub (ListH t) = ListH (substSort sub t)
 substSort sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele sub tele))
 
@@ -499,6 +501,7 @@ pprintCtorApp (InlH x) = "inl(" ++ show x ++ ")"
 pprintCtorApp (InrH y) = "inr(" ++ show y ++ ")"
 pprintCtorApp ListNilH = "nil()"
 pprintCtorApp (ListConsH x xs) = "cons(" ++ show x ++ ", " ++ show xs ++ ")"
+pprintCtorApp (CtorApp c xs) = show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
@@ -527,7 +530,7 @@ pprintClosureAlloc n (ClosureAlloc p d _envPlace env) =
 
 pprintEnvAlloc :: EnvAlloc -> String
 pprintEnvAlloc (EnvAlloc tyfields fields) =
-  "{" ++ intercalate ", " (map pprintAllocArg fields) ++ "}"
+  "{" ++ intercalate ", " (map pprintSort tyfields ++ map pprintAllocArg fields) ++ "}"
 
 pprintAllocArg :: EnvAllocValueArg -> String
 pprintAllocArg (EnvValueArg field x) = show field ++ " = " ++ show x
@@ -540,8 +543,10 @@ pprintSort StringH = "string"
 pprintSort (ListH t) = "list " ++ pprintSort t
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (SumH t s) = "sum " ++ pprintSort t ++ " " ++ pprintSort s
+pprintSort (TyAppH t s) = pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
 pprintSort (AllocH aa) = show aa
+pprintSort (TyConH tc) = show tc
 
 pprintTele :: ClosureTele -> String
 pprintTele (ClosureTele ss) = intercalate ", " (map f ss)

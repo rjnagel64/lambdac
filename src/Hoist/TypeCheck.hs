@@ -198,8 +198,8 @@ dataDeclKind (DataDecl _ params _) = foldr (\ (_, k1) k2 -> KArr k1 k2) Star par
 
 checkDataDecl :: DataDecl -> TC ()
 checkDataDecl dd@(DataDecl tc params ctors) = do
-  withTyVars params $ traverse_ checkCtorDecl ctors
   modify (\ (Signature clos tcs) -> Signature clos (Map.insert tc dd tcs))
+  withTyVars params $ traverse_ checkCtorDecl ctors
 
 checkCtorDecl :: CtorDecl -> TC ()
 checkCtorDecl (CtorDecl _c args) = do
