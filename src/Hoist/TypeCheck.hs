@@ -322,6 +322,7 @@ checkCtorApp ListNilH (CaseList _) = pure ()
 checkCtorApp (ListConsH x xs) (CaseList t) = checkCtorArgs [x, xs] [t, ListH t]
 checkCtorApp _ (CaseList _) = throwError BadCtorApp
 checkCtorApp (CtorApp c args) (TyConApp tc tys) = do
+  -- TODO: Do this like in CPS.TypeCheck.checkCtorApp
   DataDecl _ params ctors <- lookupTyCon tc
   argTys <- case lookup c [(c', as) | CtorDecl c' as <- ctors] of
     Nothing -> throwError BadCtorApp

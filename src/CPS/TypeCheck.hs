@@ -166,8 +166,8 @@ checkProgram (Program ds e) = runM $ do
 withDataDecls :: [DataDecl] -> M a -> M a
 withDataDecls [] m = m
 withDataDecls (dd@(DataDecl tc params ctors) : ds) m = do
-  withTyVars params $ traverse_ checkCtorDecl ctors
   modify (\ (Signature tcs) -> Signature (Map.insert tc dd tcs))
+  withTyVars params $ traverse_ checkCtorDecl ctors
   withDataDecls ds m
 
 -- Hmm. Do I need to record ctor -> type bindings? (or ctor -> tycon? or anything?)
