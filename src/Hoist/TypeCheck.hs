@@ -1,5 +1,5 @@
 
-module Hoist.TypeCheck (checkProgram, runTC, TCError(..)) where
+module Hoist.TypeCheck (checkProgram, runTC) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -27,7 +27,7 @@ deriving newtype instance MonadState Signature TC
 data Signature
   = Signature {
     sigClosures :: Map CodeLabel ClosureDeclType
-  , sigTyCons :: Map TyCon Kind
+  , sigTyCons :: Map TyCon DataDecl
   }
 
 -- | Represents the type of a closure, a code pointer with environment
@@ -52,21 +52,21 @@ data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Map TyVar Kind 
 data TCError
   = TypeMismatch Sort Sort
   | KindMismatch Kind Kind
+  | ArgumentCountMismatch
+  | WrongClosureArg
+
   | NameNotInLocals Id
   | TyVarNotInLocals TyVar
   | TyConNotInScope TyCon
   | ClosureNotInLocals CodeLabel
-  | InfoNotInLocals Id
+
   | NotImplemented String
-  | IncorrectInfo
+  | DuplicateLabels [String]
   | BadValue
+  | BadCtorApp
   | BadProjection Sort Projection
   | BadCase TyConApp [(Ctor, Name)]
   | BadOpen Name Sort
-  | WrongClosureArg
-  | ArgumentCountMismatch
-  | DuplicateLabels [String]
-  | BadCtorApp
   | BadTyApp
 
 runTC :: TC a -> Either TCError a
@@ -81,13 +81,10 @@ runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignatur
 
 
 emptyLocals :: Locals
-emptyLocals = Locals Map.empty Map.empty
+emptyLocals = Locals { localPlaces = Map.empty, localTypes = Map.empty }
 
 emptySignature :: Signature
 emptySignature = Signature { sigClosures = Map.empty, sigTyCons = Map.empty }
-
-declareClosure :: CodeLabel -> ClosureDeclType -> Signature -> Signature
-declareClosure cl ty (Signature clos tcs) = Signature (Map.insert cl ty clos) tcs
 
 
 lookupName :: Name -> TC Sort
@@ -109,11 +106,11 @@ lookupTyVar aa = do
     Just k -> pure k
     Nothing -> throwError $ TyVarNotInLocals aa
 
-lookupTyCon :: TyCon -> TC Kind
+lookupTyCon :: TyCon -> TC DataDecl
 lookupTyCon tc = do
   ctx <- gets sigTyCons
   case Map.lookup tc ctx of
-    Just k -> pure k
+    Just dd -> pure dd
     Nothing -> throwError $ TyConNotInScope tc
 
 lookupCodeDecl :: CodeLabel -> TC ClosureDeclType
@@ -163,7 +160,7 @@ checkProgram :: Program -> TC ()
 checkProgram (Program ds e) = traverse_ checkDecl ds *> checkEntryPoint e
 
 checkDecl :: Decl -> TC ()
-checkDecl (DeclData dd) = throwError (NotImplemented "check DataDecl")
+checkDecl (DeclData dd) = checkDataDecl dd
 checkDecl (DeclCode cd) = checkCodeDecl cd
 
 checkEntryPoint :: TermH -> TC ()
@@ -175,12 +172,12 @@ dataDeclKind (DataDecl _ params _) = foldr (\ (_, k1) k2 -> KArr k1 k2) Star par
 checkDataDecl :: DataDecl -> TC ()
 checkDataDecl dd@(DataDecl tc params ctors) = do
   withTyVars params $ traverse_ checkCtorDecl ctors
-  modify (\ (Signature clos tcs) -> Signature clos (Map.insert tc (dataDeclKind dd) tcs))
+  modify (\ (Signature clos tcs) -> Signature clos (Map.insert tc dd tcs))
 
 checkCtorDecl :: CtorDecl -> TC ()
 checkCtorDecl (CtorDecl _c args) = do
   checkUniqueLabels (map fst args)
-  traverse_ (\ (x, s) -> checkSort s Star) args
+  traverse_ (\ (_x, s) -> checkSort s Star) args
 
 -- | Type-check a top-level code declaration and add it to the signature.
 checkCodeDecl :: CodeDecl -> TC ()
@@ -196,7 +193,7 @@ checkCodeDecl decl@(CodeDecl cl (envp, envd) params body) = do
   -- Extend the signature with the new closure declaration.
   let tele = codeDeclTele decl
   let declTy = ClosureDeclType envTy tele
-  modify (declareClosure cl declTy)
+  modify (\ (Signature clos tcs) -> Signature (Map.insert cl declTy clos) tcs)
 
 checkEnvDecl :: EnvDecl -> TC EnvType
 -- Check that all (info/field) labels are disjoint, and that each field type is
@@ -314,19 +311,27 @@ checkValue (CtorAppH capp) s = case asTyConApp s of
   Just tcapp -> checkCtorApp capp tcapp
 
 checkCtorApp :: CtorAppH -> TyConApp -> TC ()
-checkCtorApp (BoolH _) CaseBool = pure ()
+checkCtorApp (BoolH _) CaseBool = checkCtorArgs [] []
 checkCtorApp _ CaseBool = throwError BadCtorApp 
-checkCtorApp (InlH x) (CaseSum t s) = checkName x t
-checkCtorApp (InrH y) (CaseSum t s) = checkName y s
+checkCtorApp (InlH x) (CaseSum t _s) = checkCtorArgs [x] [t]
+checkCtorApp (InrH y) (CaseSum _t s) = checkCtorArgs [y] [s]
 checkCtorApp _ (CaseSum _ _) = throwError BadCtorApp
 checkCtorApp ListNilH (CaseList _) = pure ()
-checkCtorApp (ListConsH x xs) (CaseList t) = checkName x t *> checkName xs (ListH t)
--- checkCtorApp (CtorApp c args) (TyConApp tc tys) = do
---   -- dd <- lookupTyCon tc
---   -- check c in ctors(dd)
---   -- check args match ctor type
---   _
--- checkCtorApp _ (TyConApp _ _) = throwError BadCtorApp
+checkCtorApp (ListConsH x xs) (CaseList t) = checkCtorArgs [x, xs] [t, ListH t]
+checkCtorApp _ (CaseList _) = throwError BadCtorApp
+checkCtorApp (CtorApp c args) (TyConApp tc tys) = do
+  DataDecl _ params ctors <- lookupTyCon tc
+  argTys <- case lookup c [(c', as) | CtorDecl c' as <- ctors] of
+    Nothing -> throwError BadCtorApp
+    Just as -> pure as
+  let sub = listSubst (zip (map fst params) tys)
+  checkCtorArgs args (map (substSort sub . snd) argTys)
+checkCtorApp _ (TyConApp _ _) = throwError BadCtorApp
+
+checkCtorArgs :: [Name] -> [Sort] -> TC ()
+checkCtorArgs [] [] = pure ()
+checkCtorArgs (x : xs) (t : ts) = checkName x t *> checkCtorArgs xs ts
+checkCtorArgs _ _ = throwError ArgumentCountMismatch
 
 -- I think I need something like DataDesc here.
 -- * Check scrutinee has same type as the TyConApp
@@ -350,6 +355,11 @@ checkCase _ kind ks = throwError (BadCase kind ks)
 -- | Check that a sort is well-formed w.r.t. the context
 inferSort :: Sort -> TC Kind
 inferSort (AllocH aa) = lookupTyVar aa
+inferSort (TyConH tc) = dataDeclKind <$> lookupTyCon tc
+inferSort (TyAppH t s) = do
+  inferSort t >>= \case
+    KArr k1 k2 -> checkSort s k1 *> pure k2
+    Star -> throwError BadTyApp
 inferSort UnitH = pure Star
 inferSort IntegerH = pure Star
 inferSort BooleanH = pure Star
@@ -358,11 +368,6 @@ inferSort (ProductH t s) = checkSort t Star *> checkSort s Star *> pure Star
 inferSort (SumH t s) = checkSort t Star *> checkSort s Star *> pure Star
 inferSort (ListH t) = checkSort t Star *> pure Star
 inferSort (ClosureH tele) = checkTele tele *> pure Star
-inferSort (TyConH tc) = lookupTyCon tc
-inferSort (TyAppH t s) = do
-  inferSort t >>= \case
-    KArr k1 k2 -> checkSort s k1 *> pure k2
-    Star -> throwError BadTyApp
 
 checkSort :: Sort -> Kind -> TC ()
 checkSort s k = inferSort s >>= equalKinds k
