@@ -47,6 +47,8 @@ module Hoist.IR
     , Program(..)
     , Decl(..)
     , pprintProgram
+    , pprintSort
+    , pprintKind
     ) where
 
 import qualified Data.Map as Map
@@ -298,6 +300,7 @@ freeTyVars s = runFV (ftv s) Set.empty Set.empty
 
 ftv :: Sort -> FV
 ftv (AllocH aa) = unitFV aa
+ftv (TyConH _) = mempty
 ftv UnitH = mempty
 ftv IntegerH = mempty
 ftv BooleanH = mempty
@@ -305,6 +308,7 @@ ftv StringH = mempty
 ftv (ListH t) = ftv t
 ftv (ProductH t s) = ftv t <> ftv s
 ftv (SumH t s) = ftv t <> ftv s
+ftv (TyAppH t s) = ftv t <> ftv s
 ftv (ClosureH tele) = ftvTele tele
 
 ftvTele :: ClosureTele -> FV
@@ -336,6 +340,8 @@ bindAE aa bb (AE l lhs rhs) = AE (l+1) (Map.insert aa l lhs) (Map.insert bb l rh
 equalSort :: AE -> Sort -> Sort -> Bool
 equalSort ae (AllocH aa) (AllocH bb) = lookupAE ae aa bb
 equalSort _ (AllocH _) _ = False
+equalSort _e (TyConH tc1) (TyConH tc2) = tc1 == tc2
+equalSort _ (TyConH _) _ = False
 equalSort _ IntegerH IntegerH = True
 equalSort _ IntegerH _ = False
 equalSort _ BooleanH BooleanH = True
@@ -348,6 +354,8 @@ equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort
 equalSort _ (ProductH _ _) _ = False
 equalSort ae (SumH s1 s2) (SumH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
 equalSort _ (SumH _ _) _ = False
+equalSort ae (TyAppH s1 s2) (TyAppH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
+equalSort _ (TyAppH _ _) _ = False
 equalSort ae (ListH s) (ListH t) = equalSort ae s t
 equalSort _ (ListH _) _ = False
 equalSort ae (ClosureH ss) (ClosureH ts) = equalTele ae ss ts

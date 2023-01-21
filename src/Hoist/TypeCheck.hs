@@ -6,6 +6,7 @@ import Data.Map (Map)
 
 import Data.Foldable (traverse_, for_)
 import Data.Traversable (for)
+import Data.List (intercalate)
 
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -72,6 +73,34 @@ data TCError
 
 instance Show TCError where
   show (NotImplemented msg) = "not implemented: " ++ msg
+  show (TypeMismatch expected actual) = unlines
+    [ "type mismatch:"
+    , "expected type: " ++ pprintSort expected
+    , "actual type:   " ++ pprintSort actual
+    ]
+  show (KindMismatch expected actual) = unlines
+    [ "kind mismatch:"
+    , "expected kind: " ++ pprintKind expected
+    , "actual kind:   " ++ pprintKind actual
+    ]
+  show ArgumentCountMismatch = "incorrect number of arguments to something"
+  show (LabelMismatch expected actual) = unlines
+    [ "incorrect field label:"
+    , "expected label: " ++ show expected
+    , "actual label:   " ++ show actual
+    ]
+  show WrongClosureArg = "incorrect sort of argument provided to closure (value vs. type)"
+  show (NameNotInLocals x) = "variable " ++ show x ++ " not in scope"
+  show (TyVarNotInLocals aa) = "type variable " ++ show aa ++ " not in scope"
+  show (TyConNotInScope tc) = "type constructor " ++ show tc ++ " not in scope"
+  show (ClosureNotInLocals c) = "code label " ++ show c ++ " not in scope"
+  show (DuplicateLabels ls) = "duplicate labels: [" ++ intercalate ", " ls ++ "]"
+  show BadValue = "invalid value"
+  show BadCtorApp = "invalid constructor application"
+  show (BadProjection _ _) = "cannot project that field"
+  show (BadCase _ _) = "invalid case analysis"
+  show (BadOpen _ _) = "invalid closure invocation"
+  show BadTyApp = "bad type-level application"
 
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
