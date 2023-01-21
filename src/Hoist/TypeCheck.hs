@@ -1,5 +1,5 @@
 
-module Hoist.TypeCheck (checkProgram, runTC) where
+module Hoist.TypeCheck (checkProgram, TCError(..)) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -69,6 +69,9 @@ data TCError
   | BadOpen Name Sort
   | BadTyApp
 
+instance Show TCError where
+  show (NotImplemented msg) = "not implemented: " ++ msg
+
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
   where
@@ -78,7 +81,6 @@ runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignatur
     --
     -- Therefore, use @∃.{}@, which is isomorphic to ().
     emptyEnv = EnvType { envTyVars = [], envFields = [] }
-
 
 emptyLocals :: Locals
 emptyLocals = Locals { localPlaces = Map.empty, localTypes = Map.empty }
@@ -149,15 +151,10 @@ withTyVars aas = foldr (.) id (map (uncurry withTyVar) aas)
 
 
 
-
-checkName :: Name -> Sort -> TC ()
-checkName x s = do
-  s' <- lookupName x
-  equalSorts s s'
-
-
-checkProgram :: Program -> TC ()
-checkProgram (Program ds e) = traverse_ checkDecl ds *> checkEntryPoint e
+checkProgram :: Program -> Either TCError ()
+checkProgram (Program ds e) = runTC $ do
+  traverse_ checkDecl ds 
+  checkEntryPoint e
 
 checkDecl :: Decl -> TC ()
 checkDecl (DeclData dd) = checkDataDecl dd
@@ -258,6 +255,11 @@ checkTerm (AllocClosure cs e) = do
       checkEnvAlloc env envTy
       equalSorts (placeSort p) (ClosureH tele)
     checkTerm e
+
+checkName :: Name -> Sort -> TC ()
+checkName x s = do
+  s' <- lookupName x
+  equalSorts s s'
 
 checkEnvAlloc :: EnvAlloc -> EnvType -> TC ()
 checkEnvAlloc env envTy = throwError (NotImplemented "checkEnvAlloc")

@@ -16,6 +16,7 @@ import qualified CPS as K
 import qualified CPS.TypeCheck as KT
 import qualified CC as C
 import qualified Hoist as H
+import qualified Hoist.TypeCheck as HT
 import qualified Emit as E
 
 -- Note: Returning multiple values from a function is passing multiple values
@@ -46,6 +47,7 @@ data DriverArgs
   , driverDumpEmit :: Bool
   , driverNoExe :: Bool
   , driverCheckCPS :: Bool
+  , driverCheckHoist :: Bool
   , driverASAN :: Bool
   }
 
@@ -59,6 +61,7 @@ driver = DriverArgs
   <*> switch (long "dump-emit" <> help "whether to dump Emit C output")
   <*> switch (long "no-exe" <> help "do not invoke clang on the generated C output")
   <*> switch (long "check-cps" <> help "whether to run the typechecker on CPS IR")
+  <*> switch (long "check-hoist" <> help "whether to run the typechecker on Hoist IR")
   <*> switch (long "with-asan" <> help "compile binaries with AddressSanitizer (developer tool)")
 
 opts :: ParserInfo DriverArgs
@@ -95,6 +98,14 @@ main = do
     putStrLn $ C.pprintProgram srcC
 
   let srcH = H.hoistProgram srcC
+  when (driverCheckHoist args) $ do
+    case HT.checkProgram srcH of
+      Left err -> do
+        putStrLn "Hoist: typecheck error:"
+        putStrLn $ show err
+        exitFailure
+      Right () -> do
+        putStrLn "Hoist: typecheck OK"
   when (driverDumpHoist args) $ do
     putStrLn $ "--- Hoisting ---"
     putStrLn $ H.pprintProgram srcH

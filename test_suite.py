@@ -34,6 +34,7 @@ class StandardTest:
         exe_path = f"./tests/bin/{self.name}"
         compile_command = [compiler_path, path, "-o", exe_path]
         # compile_command = [compiler_path, path, "-o", exe_path, "--check-cps"]
+        # compile_command = [compiler_path, path, "-o", exe_path, "--check-hoist"]
         proc = subprocess.run(compile_command, capture_output=True, encoding="utf8")
         if proc.returncode != 0:
             runner.report_failure(self.name, proc.stdout, proc.stderr)
