@@ -302,9 +302,9 @@ checkEnvAlloc (EnvAlloc tyargs valArgs) (EnvType typarams fields) = do
   checkFieldTys valArgs fieldTys
 
 -- TODO: Generalize checkFieldTys to checkRecordValue
-checkFieldTys :: [EnvAllocValueArg] -> [(Id, Sort)] -> TC ()
+checkFieldTys :: [(Id, Name)] -> [(Id, Sort)] -> TC ()
 checkFieldTys [] [] = pure ()
-checkFieldTys (EnvValueArg f' x : fields) ((f, s) : fieldTys) = do
+checkFieldTys ((f', x) : fields) ((f, s) : fieldTys) = do
   when (f /= f') $
     throwError (LabelMismatch f f')
   checkName x s

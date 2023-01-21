@@ -741,14 +741,14 @@ extendThunkEnv (ThunkEnv env) allocs =
       _ -> error "closure alloc stored in non-closure place"
 
 allocEnv :: Set Id -> EnvPtr -> ClosureAlloc -> Line
-allocEnv recNames envp (ClosureAlloc _p d envPlace (EnvAlloc tyfields fields)) =
+allocEnv recNames envp (ClosureAlloc _p d envPlace (EnvAlloc _ fields)) =
   "    struct " ++ envTypeName ns' ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
   where
     ns' = closureEnvName (namesForClosure d)
 
     call = envAllocName ns' ++ "(" ++ commaSep args ++ ")"
     args = map emitAllocArg fields
-    emitAllocArg (EnvValueArg f x) = if Set.member f recNames then "NULL" else emitName envp x
+    emitAllocArg (f, x) = if Set.member f recNames then "NULL" else emitName envp x
 
 allocClosure :: ClosureAlloc -> Line
 allocClosure (ClosureAlloc p d envPlace _env) =
@@ -759,16 +759,16 @@ allocClosure (ClosureAlloc p d envPlace _env) =
     enterArg = closureEnterName ns
 
 patchEnv :: Set Id -> ClosureAlloc -> [Line]
-patchEnv recNames (ClosureAlloc _ _ envPlace (EnvAlloc tyfields fields)) = concatMap patchField fields
+patchEnv recNames (ClosureAlloc _ _ envPlace (EnvAlloc _ fields)) = concatMap patchField fields
   where
-    patchField (EnvValueArg f (LocalName x)) =
+    patchField (f, LocalName x) =
       if Set.member f recNames then
         ["    " ++ show envPlace ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
       else
         []
     -- Patching recursive closures should only ever involve local names.
     -- Additionally, we do not have access to an environment pointer in this function.
-    patchField (EnvValueArg _ (EnvName _)) = []
+    patchField (_, EnvName _) = []
 
 emitPlace :: Place -> String
 emitPlace (Place s x) = typeForSort s ++ show x

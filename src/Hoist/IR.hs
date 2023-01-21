@@ -38,7 +38,6 @@ module Hoist.IR
     , ClosureArg(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
-    , EnvAllocValueArg(..)
     , ValueH(..)
     , CtorAppH(..)
     , PrimOp(..)
@@ -236,10 +235,8 @@ data ClosureAlloc
 data EnvAlloc
   = EnvAlloc {
     envAllocTypeArgs :: [Sort]
-  , envAllocValueArgs :: [EnvAllocValueArg]
+  , envAllocValueArgs :: [(Id, Name)]
   }
-
-data EnvAllocValueArg = EnvValueArg Id Name
 
 data ValueH
   = IntH Int64
@@ -532,8 +529,8 @@ pprintEnvAlloc :: EnvAlloc -> String
 pprintEnvAlloc (EnvAlloc tyfields fields) =
   "{" ++ intercalate ", " (map pprintSort tyfields ++ map pprintAllocArg fields) ++ "}"
 
-pprintAllocArg :: EnvAllocValueArg -> String
-pprintAllocArg (EnvValueArg field x) = show field ++ " = " ++ show x
+pprintAllocArg :: (Id, Name) -> String
+pprintAllocArg (field, x) = show field ++ " = " ++ show x
 
 pprintSort :: Sort -> String
 pprintSort IntegerH = "int"

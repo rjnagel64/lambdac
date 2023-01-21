@@ -156,6 +156,14 @@ RULES
 -- type variables, which are existentially quantified (i.e., the type of an
 -- environment is '∃(aa : k)+. { (l : t)+ }')
 -- This is equivalent to the pseudo-forall (map from exists =~= univ), but simpler.
+--
+-- TODO: Nope, the psuedo-forall (real name: polymorphic code) is necessary after all.
+-- We can't existentially quantify the environment, because the real parameter
+-- list may refer to those tyvars.
+--
+-- Closure conversion is really about partially applying values to a code
+-- pointer to construct a closure. Type arguments work much the same.
+-- ex: let f : closure(...) = (/\ aa+. \ (env : {...}). \args... -> body) @t+ {...}
 
 Like other IRs in the LambdaC compiler, Hoist IR is CPS/ANF-based and
 explicitly typed. Its distinctive feature is that closure definitions have been

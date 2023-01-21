@@ -257,7 +257,7 @@ hoistEnvDef (C.EnvDef tyfields fields) = do
   -- we need to have 'even0' and 'odd0' in the local scope.
   let tyFields = map (\ (aa, k) -> AllocH (asTyVar aa)) tyfields
   allocFields <- for fields $ \ (x, s) ->
-    EnvValueArg (placeName (asPlace s x)) <$> hoistVarOcc x
+    (,) (placeName (asPlace s x)) <$> hoistVarOcc x
   let enva = EnvAlloc tyFields allocFields
   pure (envd, envsc, enva)
 

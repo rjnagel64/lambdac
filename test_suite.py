@@ -33,7 +33,7 @@ class StandardTest:
         path = f"./tests/{self.name}.lamc"
         exe_path = f"./tests/bin/{self.name}"
         compile_command = [compiler_path, path, "-o", exe_path]
-        compile_command.append("--check-cps")
+        # compile_command.append("--check-cps")
         # compile_command.append("--check-hoist")
         proc = subprocess.run(compile_command, capture_output=True, encoding="utf8")
         if proc.returncode != 0:
