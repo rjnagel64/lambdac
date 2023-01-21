@@ -123,7 +123,8 @@ lookupTyVar aa = do
   ctx <- asks ctxTypes
   case Map.lookup aa ctx of
     Just k -> pure k
-    Nothing -> throwError $ TyVarNotInScope aa
+    Nothing -> do
+      throwError $ TyVarNotInScope aa
 
 lookupTyCon :: TyCon -> TC DataDecl
 lookupTyCon tc = do
@@ -208,15 +209,13 @@ withParams [] m = m
 withParams (PlaceParam p : params) m = withPlace p $ withParams params m
 withParams (TypeParam aa k : params) m = withTyVar aa k $ withParams params m
 
-checkEnvDecl :: EnvDecl -> TC ([(TyVar, Kind)], [(Id, Sort)])
--- Check that all (info/field) labels are disjoint, and that each field type is
+-- Check that all field labels are disjoint, and that each field type is
 -- well-formed.
+checkEnvDecl :: EnvDecl -> TC ([(TyVar, Kind)], [(Id, Sort)])
 checkEnvDecl (EnvDecl tys places) = do
   checkUniqueLabels [placeName p | p <- places]
 
-  -- Hmm. I think I need to bring 'tys' into scope to check the sorts here,
-  -- since 'tys' are like a sequence of existential quantifiers.
-  fields <- for places $ \ (Place s x) -> do
+  fields <- withTyVars tys $ for places $ \ (Place s x) -> do
     checkSort s Star
     pure (x, s)
   pure (tys, fields)

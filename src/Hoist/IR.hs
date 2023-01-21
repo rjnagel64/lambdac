@@ -445,13 +445,14 @@ pprintDecls ds = concatMap pprintDecl ds
     pprintDecl (DeclData dd) = pprintDataDecl 0 dd
 
 pprintClosureDecl :: Int -> CodeDecl -> String
-pprintClosureDecl n (CodeDecl f (name, EnvDecl is fs) params e) =
-  indent n ("code " ++ show f ++ " (" ++ envParam ++ "; " ++ intercalate ", " (map pprintParam params) ++ ") =\n") ++
+pprintClosureDecl n (CodeDecl f (name, EnvDecl aas fs) params e) =
+  indent n ("code " ++ show f ++ "[" ++ tyParams ++ "](" ++ envParam ++ "; " ++ valueParams ++ ") =\n") ++
   pprintTerm (n+2) e
   where
-    envParam = show name ++ " : {" ++ intercalate ", " (typeFields ++ valueFields) ++ "}"
-    typeFields = map (\ (aa, k) -> "@" ++ show aa ++ " : " ++ pprintKind k) is
-    valueFields = map pprintPlace fs
+    tyParams = intercalate ", " typeFields
+    typeFields = map (\ (aa, k) -> "@" ++ show aa ++ " : " ++ pprintKind k) aas
+    envParam = show name ++ " : {" ++ intercalate ", " (map pprintPlace fs) ++ "}"
+    valueParams = intercalate ", " (map pprintParam params)
 
 pprintDataDecl :: Int -> DataDecl -> String
 pprintDataDecl n (DataDecl tc params ctors) =
