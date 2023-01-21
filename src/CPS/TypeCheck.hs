@@ -71,18 +71,16 @@ instance Show TypeError where
   show (InvalidCtor c tc) =
     show c ++ " is not a constructor of type " ++ show tc
 
--- Hmm. Add StateT Signature where type Signature = Map TyCon DataDecl
--- (update when checking data. Use 'gets' when reference tycon)
-newtype M a = M { getM :: StateT Signature (ReaderT Context (Except TypeError)) a }
+newtype TC a = TC { getM :: StateT Signature (ReaderT Context (Except TypeError)) a }
 
-deriving newtype instance Functor M
-deriving newtype instance Applicative M
-deriving newtype instance Monad M
-deriving newtype instance MonadReader Context M
-deriving newtype instance MonadState Signature M
-deriving newtype instance MonadError TypeError M
+deriving newtype instance Functor TC
+deriving newtype instance Applicative TC
+deriving newtype instance Monad TC
+deriving newtype instance MonadReader Context TC
+deriving newtype instance MonadState Signature TC
+deriving newtype instance MonadError TypeError TC
 
-runM :: M a -> Either TypeError a
+runM :: TC a -> Either TypeError a
 runM = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getM
 
 data Context
@@ -103,55 +101,55 @@ emptyContext = Context Map.empty Map.empty Map.empty
 emptySignature :: Signature
 emptySignature = Signature Map.empty
 
-withTmVars :: [(TmVar, TypeK)] -> M a -> M a
+withTmVars :: [(TmVar, TypeK)] -> TC a -> TC a
 withTmVars [] m = m
 withTmVars ((x, t) : binds) m = checkType t StarK *> local extend (withTmVars binds m)
   where extend (Context tms cos tys) = Context (Map.insert x t tms) cos tys
 
-withCoVars :: [(CoVar, CoTypeK)] -> M a -> M a
+withCoVars :: [(CoVar, CoTypeK)] -> TC a -> TC a
 withCoVars [] m = m
 withCoVars ((k, s) : binds) m = checkCoType s StarK *> local extend (withCoVars binds m)
   where extend (Context tms cos tys) = Context tms (Map.insert k s cos) tys
 
-withTyVars :: [(TyVar, KindK)] -> M a -> M a
+withTyVars :: [(TyVar, KindK)] -> TC a -> TC a
 withTyVars [] m = m
 withTyVars ((aa, kk) : binds) m = checkKind kk *> local extend (withTyVars binds m)
   where extend (Context tms cos tys) = Context tms cos (Map.insert aa kk tys)
 
-lookupTmVar :: TmVar -> M TypeK
+lookupTmVar :: TmVar -> TC TypeK
 lookupTmVar x = asks tmContext >>= maybe err pure . Map.lookup x
   where err = throwError (TmNotInScope x)
 
-lookupCoVar :: CoVar -> M CoTypeK
+lookupCoVar :: CoVar -> TC CoTypeK
 lookupCoVar x = asks coContext >>= maybe err pure . Map.lookup x
   where err = throwError (CoNotInScope x)
 
-lookupTyVar :: TyVar -> M KindK
+lookupTyVar :: TyVar -> TC KindK
 lookupTyVar x = asks tyContext >>= maybe err pure . Map.lookup x
   where err = throwError (TyNotInScope x)
 
-lookupTyCon :: TyCon -> M DataDecl
+lookupTyCon :: TyCon -> TC DataDecl
 lookupTyCon x = gets sigTyCons >>= maybe err pure . Map.lookup x
   where err = throwError (TyConNotInScope x)
 
 dataDeclKind :: DataDecl -> KindK
 dataDeclKind (DataDecl _ params _) = foldr (\ (_, k1) k2 -> KArrK k1 k2) StarK params
 
-equalTypes :: TypeK -> TypeK -> M ()
+equalTypes :: TypeK -> TypeK -> TC ()
 equalTypes expected actual =
   unless (eqTypeK expected actual) $ throwError (TypeMismatch expected actual)
 
-equalCoTypes :: CoTypeK -> CoTypeK -> M ()
+equalCoTypes :: CoTypeK -> CoTypeK -> TC ()
 equalCoTypes expected actual =
   unless (eqCoTypeK expected actual) $ throwError (CoTypeMismatch expected actual)
 
-equalKinds :: KindK -> KindK -> M ()
+equalKinds :: KindK -> KindK -> TC ()
 equalKinds expected actual =
   unless (expected == actual) $ throwError (KindMismatch expected actual)
 
 -- Hmm. Constructing the substitution duplicates logic in parameterSubst.
 -- Generalize, deduplicate.
-instantiate :: [(TyVar, KindK)] -> [TypeK] -> [CoTypeK] -> M [CoTypeK]
+instantiate :: [(TyVar, KindK)] -> [TypeK] -> [CoTypeK] -> TC [CoTypeK]
 instantiate aas ts ss = do
   sub <- makeSubst <$> zipExact aas ts
   pure (map (substCoTypeK sub) ss)
@@ -168,7 +166,7 @@ checkProgram :: Program () -> Either TypeError ()
 checkProgram (Program ds e) = runM $ do
   withDataDecls ds $ check e
 
-withDataDecls :: [DataDecl] -> M a -> M a
+withDataDecls :: [DataDecl] -> TC a -> TC a
 withDataDecls [] m = m
 withDataDecls (dd@(DataDecl tc params ctors) : ds) m = do
   modify (\ (Signature tcs) -> Signature (Map.insert tc dd tcs))
@@ -176,11 +174,11 @@ withDataDecls (dd@(DataDecl tc params ctors) : ds) m = do
   withDataDecls ds m
 
 -- Hmm. Do I need to record ctor -> type bindings? (or ctor -> tycon? or anything?)
-checkCtorDecl :: CtorDecl -> M ()
+checkCtorDecl :: CtorDecl -> TC ()
 checkCtorDecl (CtorDecl c args) = traverse_ (\t -> checkType t StarK) args
 
 
-check :: TermK a -> M ()
+check :: TermK a -> TC ()
 check (HaltK x) = do
   _ <- lookupTmVar x
   pure ()
@@ -239,7 +237,7 @@ check (LetConcatK x y z e) = do
   checkTmVar z StringK
   withTmVars [(x, StringK)] $ check e
 
-checkCase :: TmVar -> TypeK -> [(Ctor, CoVar)] -> M ()
+checkCase :: TmVar -> TypeK -> [(Ctor, CoVar)] -> TC ()
 checkCase x BoolK ks =
   checkTmVar x BoolK *>
   checkBranches ks (Map.fromList [(Ctor "false", []), (Ctor "true", [])])
@@ -257,7 +255,7 @@ checkCase x s ks =
       branchTys <- instantiateTyConApp tcapp
       checkBranches ks branchTys
 
-checkBranches :: [(Ctor, CoVar)] -> Map Ctor [TypeK] -> M ()
+checkBranches :: [(Ctor, CoVar)] -> Map Ctor [TypeK] -> TC ()
 checkBranches branches branchTys = do
   let provided = Set.fromList (map fst branches)
   let required = Map.keysSet branchTys
@@ -268,13 +266,13 @@ checkBranches branches branchTys = do
     let branchTy = branchTys Map.! c
     checkCoVar k (ContK branchTy)
 
-checkArith :: ArithK -> M ()
+checkArith :: ArithK -> TC ()
 checkArith (AddK x y) = checkIntBinOp x y
 checkArith (SubK x y) = checkIntBinOp x y
 checkArith (MulK x y) = checkIntBinOp x y
 checkArith (NegK x) = checkTmVar x IntK
 
-checkCompare :: CmpK -> M ()
+checkCompare :: CmpK -> TC ()
 checkCompare (CmpEqK x y) = checkIntBinOp x y
 checkCompare (CmpNeK x y) = checkIntBinOp x y
 checkCompare (CmpLtK x y) = checkIntBinOp x y
@@ -282,12 +280,12 @@ checkCompare (CmpLeK x y) = checkIntBinOp x y
 checkCompare (CmpGtK x y) = checkIntBinOp x y
 checkCompare (CmpGeK x y) = checkIntBinOp x y
 
-checkIntBinOp :: TmVar -> TmVar -> M ()
+checkIntBinOp :: TmVar -> TmVar -> TC ()
 checkIntBinOp x y = do
   checkTmVar x IntK
   checkTmVar y IntK
 
-checkValue :: ValueK -> TypeK -> M ()
+checkValue :: ValueK -> TypeK -> TC ()
 checkValue NilK UnitK = pure ()
 checkValue (PairK x y) (ProdK t s) = do
   checkTmVar x t
@@ -306,55 +304,55 @@ checkValue v@(CtorAppK c xs) t = case asTyConApp t of
   Just tcapp -> checkCtorApp c xs tcapp
 checkValue v t = throwError (BadValue v t)
 
-checkCtorApp :: Ctor -> [TmVar] -> TyConApp -> M ()
+checkCtorApp :: Ctor -> [TmVar] -> TyConApp -> TC ()
 checkCtorApp c args tcapp@(TyConApp tc _) = do
   ctors <- instantiateTyConApp tcapp
   case Map.lookup c ctors of
     Nothing -> throwError (InvalidCtor c tc)
     Just argTys -> checkCtorArgs args argTys
 
-instantiateTyConApp :: TyConApp -> M (Map Ctor [TypeK])
+instantiateTyConApp :: TyConApp -> TC (Map Ctor [TypeK])
 instantiateTyConApp (TyConApp tc tys) = do
   DataDecl _ params ctors <- lookupTyCon tc
   sub <- parameterSubst params tys
   let cs = Map.fromList [(c, map (substTypeK sub) argTys) | CtorDecl c argTys <- ctors]
   pure cs
 
-parameterSubst :: [(TyVar, KindK)] -> [TypeK] -> M Subst
+parameterSubst :: [(TyVar, KindK)] -> [TypeK] -> TC Subst
 parameterSubst params args = makeSubst <$> go params args
   where
     go [] [] = pure []
     go ((aa, k) : aas) (t : ts) = checkType t k *> fmap ((aa, t) :) (go aas ts)
     go _ _ = throwError ArityMismatch
 
-checkCtorArgs :: [TmVar] -> [TypeK] -> M ()
+checkCtorArgs :: [TmVar] -> [TypeK] -> TC ()
 checkCtorArgs [] [] = pure ()
 checkCtorArgs (x : xs) (t : ts) = checkTmVar x t *> checkCtorArgs xs ts
 checkCtorArgs _ _ = throwError ArityMismatch
 
-checkTmVar :: TmVar -> TypeK -> M ()
+checkTmVar :: TmVar -> TypeK -> TC ()
 checkTmVar x t = do
   t' <- lookupTmVar x
   equalTypes t t'
 
-checkCoVar :: CoVar -> CoTypeK -> M ()
+checkCoVar :: CoVar -> CoTypeK -> TC ()
 checkCoVar x t = do
   t' <- lookupCoVar x
   equalCoTypes t t'
 
-checkTmArgs :: [TmVar] -> [TypeK] -> M ()
+checkTmArgs :: [TmVar] -> [TypeK] -> TC ()
 checkTmArgs [] [] = pure ()
 checkTmArgs (x:xs) (s:ss) = checkTmVar x s *> checkTmArgs xs ss
 checkTmArgs _ _ = throwError ArityMismatch
 
-checkCoArgs :: [CoVar] -> [CoTypeK] -> M ()
+checkCoArgs :: [CoVar] -> [CoTypeK] -> TC ()
 checkCoArgs [] [] = pure ()
 checkCoArgs (k:ks) (s:ss) = checkCoVar k s *> checkCoArgs ks ss
 checkCoArgs _ _ = throwError ArityMismatch
 
 
 -- | Check that a type has the given kind.
-inferType :: TypeK -> M KindK
+inferType :: TypeK -> TC KindK
 inferType (TyVarOccK aa) = lookupTyVar aa
 inferType (TyConOccK tc) = dataDeclKind <$> lookupTyCon tc
 inferType (AllK aas ss) =
@@ -377,18 +375,18 @@ inferType (TyAppK t s) =
     StarK -> throwError (CannotTyApp t)
 
 -- | Check that a co-type has the given kind.
-inferCoType :: CoTypeK -> M KindK
+inferCoType :: CoTypeK -> TC KindK
 inferCoType (ContK ts) = traverse_ (\t -> checkType t StarK) ts *> pure StarK
 
-checkType :: TypeK -> KindK -> M ()
+checkType :: TypeK -> KindK -> TC ()
 checkType t k = inferType t >>= equalKinds k
 
-checkCoType :: CoTypeK -> KindK -> M ()
+checkCoType :: CoTypeK -> KindK -> TC ()
 checkCoType t k = inferCoType t >>= equalKinds k
 
 -- | Check that a kind is well-formed.
 -- This is basically redundant, because kinds are trivial values, but it's
 -- consistent with other things, I guess.
-checkKind :: KindK -> M ()
+checkKind :: KindK -> TC ()
 checkKind StarK = pure ()
 checkKind (KArrK k1 k2) = checkKind k1 *> checkKind k2

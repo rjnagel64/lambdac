@@ -102,9 +102,7 @@ runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
   where
     emptyContext = Context { ctxPlaces = Map.empty, ctxTypes = Map.empty, ctxEnvFields = [] }
-
-emptySignature :: Signature
-emptySignature = Signature { sigClosures = Map.empty, sigTyCons = Map.empty }
+    emptySignature = Signature { sigClosures = Map.empty, sigTyCons = Map.empty }
 
 
 lookupName :: Name -> TC Sort
