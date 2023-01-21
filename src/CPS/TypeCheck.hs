@@ -8,6 +8,7 @@ import Control.Monad.State
 
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
 
 import Data.Foldable (for_, traverse_)
 
@@ -25,6 +26,7 @@ data TypeError
   | CoTypeMismatch CoTypeK CoTypeK
   | KindMismatch KindK KindK
   | BadCaseAnalysis TmVar TypeK
+  | BadCaseLabels
   | ArityMismatch
   | BadValue ValueK TypeK
   | InvalidCtor Ctor TyCon
@@ -54,6 +56,7 @@ instance Show TypeError where
     , "actual kind:   " ++ pprintKind actual
     ]
   show (BadCaseAnalysis x s) = "cannot analyze cases for " ++ show x ++ " of type " ++ pprintType s
+  show BadCaseLabels = "too many/too few/wrong constructors in case branches"
   show ArityMismatch = "incorrect arity"
   show (BadValue v t) = "value " ++ pprintValue v ++ " does not have expected type " ++ pprintType t
   show (BadProjection t) = "cannot project a field from value of type " ++ pprintType t
@@ -194,14 +197,7 @@ check (InstK f ts ks) = do
     t -> throwError (CannotInst f t)
   ss' <- instantiate aas ts ss
   checkCoArgs ks ss'
-check (CaseK x s ks) = case (s, ks) of
-  (BoolK, [(c1, k1), (c2, k2)]) ->
-    checkCoVar k1 (ContK []) *> checkCoVar k2 (ContK [])
-  (SumK t1 t2, [(c1, k1), (c2, k2)]) ->
-    checkCoVar k1 (ContK [t1]) *> checkCoVar k2 (ContK [t2])
-  (ListK t, [(c1, k1), (c2, k2)]) ->
-    checkCoVar k1 (ContK []) *> checkCoVar k2 (ContK [t, ListK t])
-  (_, _) -> throwError (BadCaseAnalysis x s)
+check (CaseK x s ks) = checkCase x s ks
 check (LetContK ks e) = do
   let defs = map (\k -> (contDefName k, contDefType k)) ks
   withCoVars defs $ do
@@ -240,6 +236,35 @@ check (LetConcatK x y z e) = do
   checkTmVar y StringK
   checkTmVar z StringK
   withTmVars [(x, StringK)] $ check e
+
+checkCase :: TmVar -> TypeK -> [(Ctor, CoVar)] -> M ()
+checkCase x BoolK ks =
+  checkTmVar x BoolK *>
+  checkBranches ks (Map.fromList [(Ctor "false", []), (Ctor "true", [])])
+checkCase x (SumK t1 t2) ks =
+  checkTmVar x (SumK t1 t2) *>
+  checkBranches ks (Map.fromList [(Ctor "inl", [t1]), (Ctor "inr", [t2])])
+checkCase x (ListK t) ks =
+  checkTmVar x (ListK t) *>
+  checkBranches ks (Map.fromList [(Ctor "nil", []), (Ctor "cons", [t, ListK t])])
+checkCase x s ks =
+  case asTyConApp s of
+    Nothing -> throwError (BadCaseAnalysis x s)
+    Just tcapp -> do
+      checkTmVar x s
+      branchTys <- instantiateTyConApp tcapp
+      checkBranches ks branchTys
+
+checkBranches :: [(Ctor, CoVar)] -> Map Ctor [TypeK] -> M ()
+checkBranches branches branchTys = do
+  let provided = Set.fromList (map fst branches)
+  let required = Map.keysSet branchTys
+  -- Not quite correct. Does not detect duplicate provided ctors
+  when (provided /= required) $
+    throwError BadCaseLabels
+  for_ branches $ \ (c, k) -> do
+    let branchTy = branchTys Map.! c
+    checkCoVar k (ContK branchTy)
 
 checkArith :: ArithK -> M ()
 checkArith (AddK x y) = checkIntBinOp x y
