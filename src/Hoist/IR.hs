@@ -419,13 +419,15 @@ substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
 substSort sub (SumH s t) = SumH (substSort sub s) (substSort sub t)
 substSort sub (TyAppH s t) = TyAppH (substSort sub s) (substSort sub t)
 substSort sub (ListH t) = ListH (substSort sub t)
-substSort sub (ClosureH (ClosureTele tele)) = ClosureH (ClosureTele (substTele sub tele))
+substSort sub (ClosureH tele) = ClosureH (substTele sub tele)
 
-substTele :: Subst -> [TeleEntry] -> [TeleEntry]
-substTele _ [] = []
-substTele sub (ValueTele s : tele) = ValueTele (substSort sub s) : substTele sub tele
-substTele sub (TypeTele aa k1 : tele) = case substBind sub aa of
-  (sub', aa') -> TypeTele aa' k1 : substTele sub' tele
+substTele :: Subst -> ClosureTele -> ClosureTele
+substTele subst (ClosureTele tele) = ClosureTele (go subst tele)
+  where
+    go _ [] = []
+    go sub (ValueTele s : tele') = ValueTele (substSort sub s) : go sub tele'
+    go sub (TypeTele aa k : tele') = case substBind sub aa of
+      (sub', aa') -> TypeTele aa' k : go sub' tele'
 
 
 -- Pretty-printing

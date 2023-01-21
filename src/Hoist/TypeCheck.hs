@@ -32,22 +32,17 @@ data Signature
   }
 
 -- | Represents the type of a closure, a code pointer with environment
--- @code(t; S)@.
-data ClosureDeclType = ClosureDeclType EnvType ClosureTele
-
--- | Represents the type of a closure environment, @∃(aa : k)+. { (l : s)+ }@.
-data EnvType = EnvType { envTyVars :: [(TyVar, Kind)], envFields :: [(Id, Sort)] }
+-- @code(@aa+, { (l : s)+ }; S)@.
+data ClosureDeclType = ClosureDeclType [(TyVar, Kind)] [(Id, Sort)] ClosureTele
 
 -- | The typing context contains the type of each item in scope, plus the type
 -- of the environment parameter.
--- (The environment is still somewhat special, so it cannot simply be included in Locals)
-data Context = Context { ctxLocals :: Locals, ctxEnv :: EnvType }
-
--- | The local scope contains information about each identifier in the context,
--- except for the closure environment.
--- Values record their sort, @x : t@.
--- Type variables record their kind, @aa : k@.
-data Locals = Locals { localPlaces :: Map Id Sort, localTypes :: Map TyVar Kind }
+data Context
+  = Context {
+    ctxPlaces :: Map Id Sort
+  , ctxTypes :: Map TyVar Kind
+  , ctxEnvFields :: [(Id, Sort)]
+  }
 
 -- | Ways in which a Hoist IR program can be invalid.
 data TCError
@@ -57,10 +52,10 @@ data TCError
   | WrongClosureArg
   | LabelMismatch Id Id
 
-  | NameNotInLocals Id
-  | TyVarNotInLocals TyVar
+  | NameNotInScope Id
+  | TyVarNotInScope TyVar
   | TyConNotInScope TyCon
-  | ClosureNotInLocals CodeLabel
+  | CodeNotInScope CodeLabel
 
   | NotImplemented String
   | DuplicateLabels [String]
@@ -90,10 +85,10 @@ instance Show TCError where
     , "actual label:   " ++ show actual
     ]
   show WrongClosureArg = "incorrect sort of argument provided to closure (value vs. type)"
-  show (NameNotInLocals x) = "variable " ++ show x ++ " not in scope"
-  show (TyVarNotInLocals aa) = "type variable " ++ show aa ++ " not in scope"
+  show (NameNotInScope x) = "variable " ++ show x ++ " not in scope"
+  show (TyVarNotInScope aa) = "type variable " ++ show aa ++ " not in scope"
   show (TyConNotInScope tc) = "type constructor " ++ show tc ++ " not in scope"
-  show (ClosureNotInLocals c) = "code label " ++ show c ++ " not in scope"
+  show (CodeNotInScope c) = "code label " ++ show c ++ " not in scope"
   show (DuplicateLabels ls) = "duplicate labels: [" ++ intercalate ", " ls ++ "]"
   show BadValue = "invalid value"
   show BadCtorApp = "invalid constructor application"
@@ -105,15 +100,7 @@ instance Show TCError where
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
   where
-    emptyContext = Context { ctxLocals = emptyLocals, ctxEnv = emptyEnv }
-    -- Dummy value, as the program entry point is not in a closure decl, so it
-    -- does not have an environment parameter.
-    --
-    -- Therefore, use @∃.{}@, which is isomorphic to ().
-    emptyEnv = EnvType { envTyVars = [], envFields = [] }
-
-emptyLocals :: Locals
-emptyLocals = Locals { localPlaces = Map.empty, localTypes = Map.empty }
+    emptyContext = Context { ctxPlaces = Map.empty, ctxTypes = Map.empty, ctxEnvFields = [] }
 
 emptySignature :: Signature
 emptySignature = Signature { sigClosures = Map.empty, sigTyCons = Map.empty }
@@ -121,22 +108,22 @@ emptySignature = Signature { sigClosures = Map.empty, sigTyCons = Map.empty }
 
 lookupName :: Name -> TC Sort
 lookupName (LocalName x) = do
-  ctx <- asks (localPlaces . ctxLocals)
+  ctx <- asks ctxPlaces
   case Map.lookup x ctx of
     Just s -> pure s
-    Nothing -> throwError $ NameNotInLocals x
+    Nothing -> throwError $ NameNotInScope x
 lookupName (EnvName x) = do
-  ctx <- asks (envFields . ctxEnv)
+  ctx <- asks ctxEnvFields
   case lookup x ctx of
     Just s -> pure s
-    Nothing -> throwError $ NameNotInLocals x
+    Nothing -> throwError $ NameNotInScope x
 
 lookupTyVar :: TyVar -> TC Kind
 lookupTyVar aa = do
-  ctx <- asks (localTypes . ctxLocals)
+  ctx <- asks ctxTypes
   case Map.lookup aa ctx of
     Just k -> pure k
-    Nothing -> throwError $ TyVarNotInLocals aa
+    Nothing -> throwError $ TyVarNotInScope aa
 
 lookupTyCon :: TyCon -> TC DataDecl
 lookupTyCon tc = do
@@ -150,7 +137,7 @@ lookupCodeDecl c = do
   sig <- gets sigClosures
   case Map.lookup c sig of
     Just t -> pure t
-    Nothing -> throwError $ ClosureNotInLocals c
+    Nothing -> throwError $ CodeNotInScope c
 
 equalSorts :: Sort -> Sort -> TC ()
 equalSorts expected actual =
@@ -166,15 +153,13 @@ withPlace :: Place -> TC a -> TC a
 withPlace (Place s x) m = do
   checkSort s Star
   local extend m
-  where extend (Context (Locals places tys) env) = Context (Locals (Map.insert x s places) tys) env
+  where extend (Context places tys env) = Context (Map.insert x s places) tys env
 
 withPlaces :: [Place] -> TC a -> TC a
 withPlaces ps = foldr (.) id (map withPlace ps)
 
 withTyVar :: TyVar -> Kind -> TC a -> TC a
-withTyVar aa k m = local (\ (Context locals env) -> Context (extend locals) env) m
-  where
-    extend (Locals places tys) = Locals places (Map.insert aa k tys)
+withTyVar aa k m = local (\ (Context places tys env) -> Context places (Map.insert aa k tys) env) m
 
 withTyVars :: [(TyVar, Kind)] -> TC a -> TC a
 withTyVars aas = foldr (.) id (map (uncurry withTyVar) aas)
@@ -211,18 +196,19 @@ checkCodeDecl :: CodeDecl -> TC ()
 checkCodeDecl decl@(CodeDecl cl (envp, envd) params body) = do
   -- Check the environment and parameters to populate the environment scope for
   -- the typing context
-  envTy <- checkEnvDecl envd
-  -- Check that the parameter list is well-formed, and extract the initial
-  -- contents of the local scope for the typing context.
-  localScope <- local (\ (Context _ _) -> Context emptyLocals envTy) $ checkParams params
-  -- Use the parameter list and environment to type-check the closure body.
-  local (\ (Context _ _) -> Context localScope envTy) $ checkTerm body
-  -- Extend the signature with the new closure declaration.
+  (typarams, recordparam) <- checkEnvDecl envd
+  local (\ (Context _ _ _) -> Context Map.empty (Map.fromList typarams) recordparam) $ do
+    withParams params $ checkTerm body
   let tele = codeDeclTele decl
-  let declTy = ClosureDeclType envTy tele
+  let declTy = ClosureDeclType typarams recordparam tele
   modify (\ (Signature clos tcs) -> Signature (Map.insert cl declTy clos) tcs)
 
-checkEnvDecl :: EnvDecl -> TC EnvType
+withParams :: [ClosureParam] -> TC a -> TC a
+withParams [] m = m
+withParams (PlaceParam p : params) m = withPlace p $ withParams params m
+withParams (TypeParam aa k : params) m = withTyVar aa k $ withParams params m
+
+checkEnvDecl :: EnvDecl -> TC ([(TyVar, Kind)], [(Id, Sort)])
 -- Check that all (info/field) labels are disjoint, and that each field type is
 -- well-formed.
 checkEnvDecl (EnvDecl tys places) = do
@@ -233,7 +219,7 @@ checkEnvDecl (EnvDecl tys places) = do
   fields <- for places $ \ (Place s x) -> do
     checkSort s Star
     pure (x, s)
-  pure (EnvType tys fields)
+  pure (tys, fields)
 
 -- | Use a Map to count muliplicity of each label.
 -- Report labels that appear more than once.
@@ -242,13 +228,6 @@ checkUniqueLabels ls = do
   let multiplicity = Map.fromListWith (+) [(l, 1 :: Int) | l <- ls]
   let duplicates = Map.keys $ Map.filter (> 1) multiplicity
   unless (null duplicates) $ throwError (DuplicateLabels (map show duplicates))
-
--- | Closure parameters form a telescope, because info bindings bring type
--- variables into scope for subsequent bindings.
-checkParams :: [ClosureParam] -> TC Locals
-checkParams [] = asks ctxLocals
-checkParams (PlaceParam p : params) = withPlace p $ checkParams params
-checkParams (TypeParam aa k : params) = withTyVar aa k $ checkParams params
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()
@@ -281,9 +260,9 @@ checkTerm (AllocClosure cs e) = do
   let binds = map closurePlace cs
   withPlaces binds $ do
     for_ cs $ \ (ClosureAlloc p c envPlace env) -> do
-      ClosureDeclType envTy tele <- lookupCodeDecl c
-      checkEnvAlloc env envTy
-      equalSorts (placeSort p) (ClosureH tele)
+      ClosureDeclType typarams recordparam tele <- lookupCodeDecl c
+      tele' <- checkEnvAlloc (ClosureDeclType typarams recordparam tele) env
+      equalSorts (placeSort p) (ClosureH tele')
     checkTerm e
 
 checkName :: Name -> Sort -> TC ()
@@ -291,8 +270,11 @@ checkName x s = do
   s' <- lookupName x
   equalSorts s s'
 
-checkEnvAlloc :: EnvAlloc -> EnvType -> TC ()
-checkEnvAlloc (EnvAlloc tyargs valArgs) (EnvType typarams fields) = do
+-- This should be
+-- ClosureDeclType -> EnvAlloc -> TC ClosureTele, where the returned telescope
+-- has been substituted with the envalloc's type arguments.
+checkEnvAlloc :: ClosureDeclType -> EnvAlloc -> TC ClosureTele
+checkEnvAlloc (ClosureDeclType typarams fields tele) (EnvAlloc tyargs valArgs) = do
   -- Subst envTyVars envTy for tyargs
   -- Use that to check { valArgs } against envTyFields
   -- Record equality: are fields required to be in same order?
@@ -300,6 +282,8 @@ checkEnvAlloc (EnvAlloc tyargs valArgs) (EnvType typarams fields) = do
   sub <- makeSubst typarams tyargs
   let fieldTys = map (\ (x, s) -> (x, substSort sub s)) fields
   checkFieldTys valArgs fieldTys
+
+  pure (substTele sub tele)
 
 -- TODO: Generalize checkFieldTys to checkRecordValue
 checkFieldTys :: [(Id, Name)] -> [(Id, Sort)] -> TC ()
@@ -328,7 +312,7 @@ checkCallArgs (ValueTele s : tele) (ValueArg x : args) = do
 checkCallArgs (ValueTele _ : _) (_ : _) = throwError WrongClosureArg
 checkCallArgs (TypeTele aa k : tele) (TypeArg s : args) = do
   checkSort s k
-  let tele' = substTele (singleSubst aa s) tele
+  let ClosureTele tele' = substTele (singleSubst aa s) (ClosureTele tele)
   checkCallArgs tele' args
 checkCallArgs (TypeTele _ _ : _) (_ : _) = throwError WrongClosureArg
 checkCallArgs [] _ = throwError ArgumentCountMismatch
