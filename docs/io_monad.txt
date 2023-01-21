@@ -129,9 +129,14 @@ Syntax extensions:
 t ::= ... | IO t
 e ::= ... | do {c}
 c ::= pure e | x <- c1; c2 | getLine e | putLine e
--- Hmm. Need to embed 'e :: IO t' into a command
--- Hmm. THis syntax permits 'x <- y <- foo; pure y; putLine x, which is very
--- likely to be ambiguous.
+-- Hmm. Need to embed 'e :: IO t' into a command somehow
+-- Hmm. This syntax permits 'x <- y <- foo; pure y; putLine x, which is very
+-- ambiguous
+
+Commands are a different syntactic category from expressions. CPS translation
+of a command is modified: there is a state token passed in, and the
+continuation accepts two values (the new state token and the actual result)
+
 
 
 Typing rules:

@@ -125,6 +125,7 @@ data Term
   | TmNegate Term
   -- e1 `cmp` e2
   | TmCmp Term TmCmp Term
+  -- TODO: Now that I have polymorphic data types, I should remove primitive lists
   -- nil @a
   | TmEmpty Type
   -- cons @a x xs

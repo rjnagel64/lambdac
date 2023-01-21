@@ -147,6 +147,9 @@ withTyVar aa k m = local (\ (Context locals env) -> Context (extend locals) env)
   where
     extend (Locals places tys) = Locals places (Map.insert aa k tys)
 
+withTyVars :: [(TyVar, Kind)] -> TC a -> TC a
+withTyVars aas = foldr (.) id (map (uncurry withTyVar) aas)
+
 
 
 
@@ -160,11 +163,24 @@ checkProgram :: Program -> TC ()
 checkProgram (Program ds e) = traverse_ checkDecl ds *> checkEntryPoint e
 
 checkDecl :: Decl -> TC ()
-checkDecl (DeclCode cd) = checkCodeDecl cd
 checkDecl (DeclData dd) = throwError (NotImplemented "check DataDecl")
+checkDecl (DeclCode cd) = checkCodeDecl cd
 
 checkEntryPoint :: TermH -> TC ()
 checkEntryPoint e = checkTerm e
+
+dataDeclKind :: DataDecl -> Kind
+dataDeclKind (DataDecl _ params _) = foldr (\ (_, k1) k2 -> KArr k1 k2) Star params
+
+checkDataDecl :: DataDecl -> TC ()
+checkDataDecl dd@(DataDecl tc params ctors) = do
+  withTyVars params $ traverse_ checkCtorDecl ctors
+  modify (\ (Signature clos tcs) -> Signature clos (Map.insert tc (dataDeclKind dd) tcs))
+
+checkCtorDecl :: CtorDecl -> TC ()
+checkCtorDecl (CtorDecl _c args) = do
+  checkUniqueLabels (map fst args)
+  traverse_ (\ (x, s) -> checkSort s Star) args
 
 -- | Type-check a top-level code declaration and add it to the signature.
 checkCodeDecl :: CodeDecl -> TC ()
@@ -201,10 +217,7 @@ checkUniqueLabels :: (Ord a, Show a) => [a] -> TC ()
 checkUniqueLabels ls = do
   let multiplicity = Map.fromListWith (+) [(l, 1 :: Int) | l <- ls]
   let duplicates = Map.keys $ Map.filter (> 1) multiplicity
-  if null duplicates then
-    pure ()
-  else
-    throwError (DuplicateLabels (map show duplicates))
+  unless (null duplicates) $ throwError (DuplicateLabels (map show duplicates))
 
 -- | Closure parameters form a telescope, because info bindings bring type
 -- variables into scope for subsequent bindings.
@@ -288,26 +301,12 @@ checkPrimOp (PrimStrlen x) = checkName x StringH *> pure IntegerH
 checkValue :: ValueH -> Sort -> TC ()
 checkValue (IntH _) IntegerH = pure ()
 checkValue (IntH _) _ = throwError BadValue
--- checkValue (BoolH _) BooleanH = pure ()
--- checkValue (BoolH _) _ = throwError BadValue
 checkValue NilH UnitH = pure ()
 checkValue NilH _ = throwError BadValue
--- checkValue (InlH x) (SumH t s) = do
---   checkName x t
--- checkValue (InlH _) _ = throwError BadValue
--- checkValue (InrH y) (SumH t s) = do
---   checkName y s
--- checkValue (InrH _) _ = throwError BadValue
 checkValue (PairH x y) (ProductH s t) = do
   checkName x s
   checkName y t
 checkValue (PairH _ _) _ = throwError BadValue
--- checkValue ListNilH (ListH _) = pure ()
--- checkValue ListNilH _ = throwError BadValue
--- checkValue (ListConsH x xs) (ListH t) = do
---   checkName x t
---   checkName xs (ListH t) 
--- checkValue (ListConsH _ _) _ = throwError BadValue
 checkValue (StringValH _) StringH = pure ()
 checkValue (StringValH _) _ = throwError BadValue
 checkValue (CtorAppH capp) s = case asTyConApp s of
@@ -322,6 +321,12 @@ checkCtorApp (InrH y) (CaseSum t s) = checkName y s
 checkCtorApp _ (CaseSum _ _) = throwError BadCtorApp
 checkCtorApp ListNilH (CaseList _) = pure ()
 checkCtorApp (ListConsH x xs) (CaseList t) = checkName x t *> checkName xs (ListH t)
+-- checkCtorApp (CtorApp c args) (TyConApp tc tys) = do
+--   -- dd <- lookupTyCon tc
+--   -- check c in ctors(dd)
+--   -- check args match ctor type
+--   _
+-- checkCtorApp _ (TyConApp _ _) = throwError BadCtorApp
 
 -- I think I need something like DataDesc here.
 -- * Check scrutinee has same type as the TyConApp
