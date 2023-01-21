@@ -227,13 +227,14 @@ data ClosureAlloc
   , closureEnv :: EnvAlloc
   }
 
+-- Because a closure environment is basically an abstract record
+-- '∃aa+.{ (l : s)+ }',
+-- constructing a closure environment involves providing a sequence of type and
+-- values for each field.
 data EnvAlloc
   = EnvAlloc {
-    -- Hmm. While I definitely do not want a bunch of info args, I may still
-    -- want to have a list of type/tyvar arguments here (for type-checking
-    -- purposes, since EnvAlloc represents constructing a value of type 'exists
-    -- aa+. (singleton aa)+ × t+', though the type portions get erased.)
-    envAllocValueArgs :: [EnvAllocValueArg]
+    envAllocTypeArgs :: [Sort]
+  , envAllocValueArgs :: [EnvAllocValueArg]
   }
 
 data EnvAllocValueArg = EnvValueArg Id Name
@@ -251,9 +252,6 @@ data CtorAppH
   | InrH Name
   | ListNilH
   | ListConsH Name Name
-  -- Need a "generic" ctor app for this.
-  -- Need a "generic" case kind?
-  -- Emit needs to keep track of those extra data decls
   | CtorApp Ctor [Name]
 
 data PrimOp
@@ -520,7 +518,7 @@ pprintClosureAlloc n (ClosureAlloc p d _envPlace env) =
   indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ pprintEnvAlloc env ++ "\n"
 
 pprintEnvAlloc :: EnvAlloc -> String
-pprintEnvAlloc (EnvAlloc fields) =
+pprintEnvAlloc (EnvAlloc tyfields fields) =
   "{" ++ intercalate ", " (map pprintAllocArg fields) ++ "}"
 
 pprintAllocArg :: EnvAllocValueArg -> String

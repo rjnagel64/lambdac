@@ -149,6 +149,8 @@ equalKinds :: KindK -> KindK -> M ()
 equalKinds expected actual =
   unless (expected == actual) $ throwError (KindMismatch expected actual)
 
+-- Hmm. Constructing the substitution duplicates logic in parameterSubst.
+-- Generalize, deduplicate.
 instantiate :: [(TyVar, KindK)] -> [TypeK] -> [CoTypeK] -> M [CoTypeK]
 instantiate aas ts ss = do
   sub <- makeSubst <$> zipExact aas ts

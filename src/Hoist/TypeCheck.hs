@@ -54,6 +54,7 @@ data TCError
   | KindMismatch Kind Kind
   | ArgumentCountMismatch
   | WrongClosureArg
+  | LabelMismatch Id Id
 
   | NameNotInLocals Id
   | TyVarNotInLocals TyVar
@@ -262,7 +263,31 @@ checkName x s = do
   equalSorts s s'
 
 checkEnvAlloc :: EnvAlloc -> EnvType -> TC ()
-checkEnvAlloc env envTy = throwError (NotImplemented "checkEnvAlloc")
+checkEnvAlloc (EnvAlloc tyargs valArgs) (EnvType typarams fields) = do
+  -- Subst envTyVars envTy for tyargs
+  -- Use that to check { valArgs } against envTyFields
+  -- Record equality: are fields required to be in same order?
+  -- Probably??? Records are just labelled tuples, right???
+  sub <- makeSubst typarams tyargs
+  let fieldTys = map (\ (x, s) -> (x, substSort sub s)) fields
+  checkFieldTys valArgs fieldTys
+
+-- TODO: Generalize checkFieldTys to checkRecordValue
+checkFieldTys :: [EnvAllocValueArg] -> [(Id, Sort)] -> TC ()
+checkFieldTys [] [] = pure ()
+checkFieldTys (EnvValueArg f' x : fields) ((f, s) : fieldTys) = do
+  when (f /= f') $
+    throwError (LabelMismatch f f')
+  checkName x s
+  checkFieldTys fields fieldTys
+checkFieldTys _ _ = throwError ArgumentCountMismatch
+
+makeSubst :: [(TyVar, Kind)] -> [Sort] -> TC Subst
+makeSubst params args = listSubst <$> go params args
+  where
+    go [] [] = pure []
+    go ((aa, k) : aas) (t : ts) = checkSort t k *> fmap ((aa, t) :) (go aas ts)
+    go _ _ = throwError ArgumentCountMismatch
 
 -- | Check that an argument list matches a parameter telescope,
 -- @Σ; Γ |- E : S@.
