@@ -3,6 +3,7 @@ module Hoist.TypeCheck (checkProgram, TCError(..)) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
 
 import Data.Foldable (traverse_, for_)
 import Data.Traversable (for)
@@ -57,17 +58,16 @@ data TCError
   | TyConNotInScope TyCon
   | CodeNotInScope CodeLabel
 
-  | NotImplemented String
   | DuplicateLabels [String]
   | BadValue
   | BadCtorApp
   | BadProjection Sort Projection
   | BadCase TyConApp [(Ctor, Name)]
+  | BadCaseLabels
   | BadOpen Name Sort
   | BadTyApp
 
 instance Show TCError where
-  show (NotImplemented msg) = "not implemented: " ++ msg
   show (TypeMismatch expected actual) = unlines
     [ "type mismatch:"
     , "expected type: " ++ pprintSort expected
@@ -94,6 +94,7 @@ instance Show TCError where
   show BadCtorApp = "invalid constructor application"
   show (BadProjection _ _) = "cannot project that field"
   show (BadCase _ _) = "invalid case analysis"
+  show BadCaseLabels = "case labels incorrect"
   show (BadOpen _ _) = "invalid closure invocation"
   show BadTyApp = "bad type-level application"
 
@@ -378,19 +379,33 @@ checkCtorArgs _ _ = throwError ArgumentCountMismatch
 -- * Check coverage of branches?
 -- * Lookup ctor, use that to check type of continuation
 checkCase :: Name -> TyConApp -> [(Ctor, Name)] -> TC ()
-checkCase x CaseBool [(cf, kf), (ct, kt)] = do
-  checkName x BooleanH
-  checkName kf (ClosureH (ClosureTele []))
-  checkName kt (ClosureH (ClosureTele []))
-checkCase x (CaseSum a b) [(cl, kl), (cr, kr)] = do
-  checkName x (SumH a b)
-  checkName kl (ClosureH (ClosureTele [ValueTele a]))
-  checkName kr (ClosureH (ClosureTele [ValueTele b]))
-checkCase x (CaseList a) [(cn, kn), (cc, kc)] = do
-  checkName x (ListH a)
-  checkName kn (ClosureH (ClosureTele []))
-  checkName kc (ClosureH (ClosureTele [ValueTele a, ValueTele (ListH a)]))
-checkCase _ kind ks = throwError (BadCase kind ks)
+checkCase x tcapp branches = do
+  checkName x (fromTyConApp tcapp)
+  branchTys <- instantiateTyConApp tcapp
+  checkBranches branches branchTys
+
+checkBranches :: [(Ctor, Name)] -> Map Ctor [TeleEntry] -> TC ()
+checkBranches branches branchTys = do
+  let provided = Set.fromList (map fst branches)
+  let required = Map.keysSet branchTys
+  when (provided /= required) $
+    throwError BadCaseLabels
+  for_ branches $ \ (c, k) -> do
+    let branchTy = branchTys Map.! c
+    checkName k (ClosureH (ClosureTele branchTy))
+
+instantiateTyConApp :: TyConApp -> TC (Map Ctor [TeleEntry])
+instantiateTyConApp CaseBool =
+  pure $ Map.fromList [(Ctor "false", []), (Ctor "true", [])]
+instantiateTyConApp (CaseSum t s) =
+  pure $ Map.fromList [(Ctor "inl", [ValueTele t]), (Ctor "inr", [ValueTele s])]
+instantiateTyConApp (CaseList t) =
+  pure $ Map.fromList [(Ctor "nil", []), (Ctor "cons", [ValueTele t, ValueTele (ListH t)])]
+instantiateTyConApp (TyConApp tc tys) = do
+  DataDecl _ params ctors <- lookupTyCon tc
+  sub <- makeSubst params tys
+  let cs = Map.fromList [(c, map (ValueTele . substSort sub . snd) argTys) | CtorDecl c argTys <- ctors]
+  pure cs
 
 -- | Check that a sort is well-formed w.r.t. the context
 inferSort :: Sort -> TC Kind

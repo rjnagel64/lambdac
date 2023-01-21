@@ -12,6 +12,7 @@ module Hoist.IR
     , TeleEntry(..)
     , TyConApp(..)
     , asTyConApp
+    , fromTyConApp
 
     , Kind(..)
 
@@ -193,6 +194,12 @@ asTyConApp (TyAppH t s) = go t [s]
     -- construct ctors or case on it.
     go _ _ = Nothing
 asTyConApp _ = Nothing
+
+fromTyConApp :: TyConApp -> Sort
+fromTyConApp CaseBool = BooleanH
+fromTyConApp (CaseSum t s) = SumH t s
+fromTyConApp (CaseList t) = ListH t
+fromTyConApp (TyConApp tc args) = foldl TyAppH (TyConH tc) args
 
 data TyConApp = CaseBool | CaseSum Sort Sort | CaseList Sort | TyConApp TyCon [Sort]
 
