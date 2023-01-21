@@ -26,6 +26,8 @@ module CPS.IR
     , eqTypeK
     , CoTypeK(..)
     , eqCoTypeK
+    , TyConApp(..)
+    , asTyConApp
 
     , KindK(..)
 
@@ -70,6 +72,7 @@ instance Show TyVar where
 data TyCon = TyCon String
   deriving (Eq, Ord)
 data Ctor = Ctor String
+  deriving (Eq, Ord)
 
 instance Show TyCon where
   show (TyCon tc) = tc
@@ -226,6 +229,17 @@ data KindK
   = StarK
   | KArrK KindK KindK
   deriving (Eq)
+
+data TyConApp = TyConApp TyCon [TypeK]
+
+asTyConApp :: TypeK -> Maybe TyConApp
+asTyConApp (TyConOccK tc) = Just (TyConApp tc [])
+asTyConApp (TyAppK t s) = go t [s]
+  where
+    go (TyConOccK tc) acc = Just (TyConApp tc acc)
+    go (TyAppK t' s') acc = go t' (s' : acc)
+    go _ _ = Nothing
+asTyConApp _ = Nothing
 
 
 -- Alpha-Equality of types

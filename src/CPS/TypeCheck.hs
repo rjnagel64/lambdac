@@ -27,6 +27,7 @@ data TypeError
   | BadCaseAnalysis TmVar TypeK
   | ArityMismatch
   | BadValue ValueK TypeK
+  | InvalidCtor Ctor TyCon
   | BadProjection TypeK
   | CannotCall TmVar TypeK
   | CannotInst TmVar TypeK
@@ -64,6 +65,8 @@ instance Show TypeError where
     ++ pprintType t
   show (CannotTyApp t) =
     "cannot apply argument to type " ++ pprintType t ++ " because it does not have an arrow kind"
+  show (InvalidCtor c tc) =
+    show c ++ " is not a constructor of type " ++ show tc
 
 -- Hmm. Add StateT Signature where type Signature = Map TyCon DataDecl
 -- (update when checking data. Use 'gets' when reference tycon)
@@ -124,8 +127,8 @@ lookupTyVar :: TyVar -> M KindK
 lookupTyVar x = asks tyContext >>= maybe err pure . Map.lookup x
   where err = throwError (TyNotInScope x)
 
-lookupTyCon :: TyCon -> M KindK
-lookupTyCon x = gets sigTyCons >>= maybe err (pure . dataDeclKind) . Map.lookup x
+lookupTyCon :: TyCon -> M DataDecl
+lookupTyCon x = gets sigTyCons >>= maybe err pure . Map.lookup x
   where err = throwError (TyConNotInScope x)
 
 dataDeclKind :: DataDecl -> KindK
@@ -271,8 +274,36 @@ checkValue (BoolValK _) BoolK = pure ()
 checkValue (StringValK _) StringK = pure ()
 checkValue EmptyK (ListK _) = pure ()
 checkValue (ConsK x xs) (ListK t) = checkTmVar x t *> checkTmVar xs (ListK t)
--- checkValue (CtorApp c xs) t = _
+checkValue v@(CtorAppK c xs) t = case asTyConApp t of
+  Nothing -> throwError (BadValue v t)
+  Just tcapp -> checkCtorApp c xs tcapp
 checkValue v t = throwError (BadValue v t)
+
+checkCtorApp :: Ctor -> [TmVar] -> TyConApp -> M ()
+checkCtorApp c args tcapp@(TyConApp tc _) = do
+  ctors <- instantiateTyConApp tcapp
+  case Map.lookup c ctors of
+    Nothing -> throwError (InvalidCtor c tc)
+    Just argTys -> checkCtorArgs args argTys
+
+instantiateTyConApp :: TyConApp -> M (Map Ctor [TypeK])
+instantiateTyConApp (TyConApp tc tys) = do
+  DataDecl _ params ctors <- lookupTyCon tc
+  sub <- parameterSubst params tys
+  let cs = Map.fromList [(c, map (substTypeK sub) argTys) | CtorDecl c argTys <- ctors]
+  pure cs
+
+parameterSubst :: [(TyVar, KindK)] -> [TypeK] -> M Subst
+parameterSubst params args = makeSubst <$> go params args
+  where
+    go [] [] = pure []
+    go ((aa, k) : aas) (t : ts) = checkType t k *> fmap ((aa, t) :) (go aas ts)
+    go _ _ = throwError ArityMismatch
+
+checkCtorArgs :: [TmVar] -> [TypeK] -> M ()
+checkCtorArgs [] [] = pure ()
+checkCtorArgs (x : xs) (t : ts) = checkTmVar x t *> checkCtorArgs xs ts
+checkCtorArgs _ _ = throwError ArityMismatch
 
 checkTmVar :: TmVar -> TypeK -> M ()
 checkTmVar x t = do
@@ -298,7 +329,7 @@ checkCoArgs _ _ = throwError ArityMismatch
 -- | Check that a type has the given kind.
 inferType :: TypeK -> M KindK
 inferType (TyVarOccK aa) = lookupTyVar aa
-inferType (TyConOccK tc) = lookupTyCon tc
+inferType (TyConOccK tc) = dataDeclKind <$> lookupTyCon tc
 inferType (AllK aas ss) =
   withTyVars aas (traverse_ (\s -> checkCoType s StarK) ss) *>
   pure StarK
