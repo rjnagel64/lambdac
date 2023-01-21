@@ -71,7 +71,7 @@ instance Show TypeError where
   show (InvalidCtor c tc) =
     show c ++ " is not a constructor of type " ++ show tc
 
-newtype TC a = TC { getM :: StateT Signature (ReaderT Context (Except TypeError)) a }
+newtype TC a = TC { getTC :: StateT Signature (ReaderT Context (Except TypeError)) a }
 
 deriving newtype instance Functor TC
 deriving newtype instance Applicative TC
@@ -80,8 +80,8 @@ deriving newtype instance MonadReader Context TC
 deriving newtype instance MonadState Signature TC
 deriving newtype instance MonadError TypeError TC
 
-runM :: TC a -> Either TypeError a
-runM = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getM
+runTC :: TC a -> Either TypeError a
+runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
 
 data Context
   = Context {
@@ -163,7 +163,7 @@ instantiate aas ts ss = do
 
 
 checkProgram :: Program () -> Either TypeError ()
-checkProgram (Program ds e) = runM $ do
+checkProgram (Program ds e) = runTC $ do
   withDataDecls ds $ check e
 
 withDataDecls :: [DataDecl] -> TC a -> TC a

@@ -15,6 +15,7 @@ import qualified TypeCheck as T
 import qualified CPS as K
 import qualified CPS.TypeCheck as KT
 import qualified CC as C
+import qualified CC.TypeCheck as CT
 import qualified Hoist as H
 import qualified Hoist.TypeCheck as HT
 import qualified Emit as E
@@ -47,6 +48,7 @@ data DriverArgs
   , driverDumpEmit :: Bool
   , driverNoExe :: Bool
   , driverCheckCPS :: Bool
+  , driverCheckCC :: Bool
   , driverCheckHoist :: Bool
   , driverASAN :: Bool
   }
@@ -61,6 +63,7 @@ driver = DriverArgs
   <*> switch (long "dump-emit" <> help "whether to dump Emit C output")
   <*> switch (long "no-exe" <> help "do not invoke clang on the generated C output")
   <*> switch (long "check-cps" <> help "whether to run the typechecker on CPS IR")
+  <*> switch (long "check-cc" <> help "whether to run the typechecker on CC IR")
   <*> switch (long "check-hoist" <> help "whether to run the typechecker on Hoist IR")
   <*> switch (long "with-asan" <> help "compile binaries with AddressSanitizer (developer tool)")
 
@@ -80,6 +83,9 @@ main = do
     Right () -> pure ()
 
   let srcK = K.cpsProgram srcS
+  when (driverDumpCPS args) $ do
+    putStrLn $ "--- CPS Transform ---"
+    putStrLn $ K.pprintProgram srcK
   when (driverCheckCPS args) $ do
     case KT.checkProgram srcK of
       Left err -> do
@@ -88,16 +94,24 @@ main = do
         exitFailure
       Right () -> do
         putStrLn "CPS: typecheck OK"
-  when (driverDumpCPS args) $ do
-    putStrLn $ "--- CPS Transform ---"
-    putStrLn $ K.pprintProgram srcK
 
   let srcC = C.cconvProgram srcK
   when (driverDumpCC args) $ do
     putStrLn $ "--- Closure Conversion ---"
     putStrLn $ C.pprintProgram srcC
+  when (driverCheckCC args) $ do
+    case CT.checkProgram srcC of
+      Left err -> do
+        putStrLn "CC: typecheck error:"
+        putStrLn $ show err
+        exitFailure
+      Right () -> do
+        putStrLn "CC: typecheck OK"
 
   let srcH = H.hoistProgram srcC
+  when (driverDumpHoist args) $ do
+    putStrLn $ "--- Hoisting ---"
+    putStrLn $ H.pprintProgram srcH
   when (driverCheckHoist args) $ do
     case HT.checkProgram srcH of
       Left err -> do
@@ -106,9 +120,6 @@ main = do
         exitFailure
       Right () -> do
         putStrLn "Hoist: typecheck OK"
-  when (driverDumpHoist args) $ do
-    putStrLn $ "--- Hoisting ---"
-    putStrLn $ H.pprintProgram srcH
 
   let obj = unlines $ E.emitProgram srcH
   when (driverDumpEmit args) $ do

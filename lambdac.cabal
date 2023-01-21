@@ -43,6 +43,7 @@ library
       CPS.Simpl
       CPS.TypeCheck
       CC.IR
+      CC.TypeCheck
       CC
       Hoist
       Hoist.IR
