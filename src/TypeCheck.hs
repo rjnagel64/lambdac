@@ -174,35 +174,18 @@ infer (TmTApp e t) = do
       pure (substType (singleSubst aa t) t')
     t' -> throwError (CannotInstantiate t')
 
-infer (TmIf c a t f) = do
-  check c TyBool
-  check t a
-  check f a
-  pure a
-
 infer (TmInl a b e) = do
   check e a
   pure (TySum a b)
 infer (TmInr a b e) = do
   check e b
   pure (TySum a b)
-infer (TmCaseSum e c (xl, tl, el) (xr, tr, er)) = do
-  check e (TySum tl tr)
-  withVars [(xl, tl)] $ check el c
-  withVars [(xr, tr)] $ check er c
-  pure c
 
 infer (TmEmpty t) = pure (TyList t)
 infer (TmCons t e1 e2) = do
   check e1 t
   check e2 (TyList t)
   pure (TyList t)
-infer (TmCaseList e s enil ((xhead, thead), (xtail, ttail), econs)) = do
-  -- Hmm. Need to check that branch variables have correct types.
-  check e (TyList thead)
-  check enil s
-  withVars [(xhead, thead), (xtail, ttail)] $ check econs s
-  pure s
 
 infer TmNil = pure TyUnit
 infer (TmPair e1 e2) = TyProd <$> infer e1 <*> infer e2
@@ -230,7 +213,20 @@ infer (TmConcat e1 e2) = do
   check e1 TyString
   check e2 TyString
   pure TyString
-infer (TmCase e s alts) = do
+
+infer (TmIf ec s et ef) = do
+  let alts = [(Ctor "false", [], ef), (Ctor "true", [], et)]
+  inferCase ec s alts
+infer (TmCaseSum e s (xl, tl, el) (xr, tr, er)) = do
+  let alts = [(Ctor "inl", [(xl, tl)], el), (Ctor "inr", [(xr, tr)], er)]
+  inferCase e s alts
+infer (TmCaseList e s enil ((xhead, thead), (xtail, ttail), econs)) = do
+  let alts = [(Ctor "nil", [], enil), (Ctor "cons", [(xhead, thead), (xtail, ttail)], econs)]
+  inferCase e s alts
+infer (TmCase e s alts) = inferCase e s alts
+
+inferCase :: Term -> Type -> [(Ctor, [(TmVar, Type)], Term)] -> TC Type
+inferCase e s alts = do
   tcapp <- infer e >>= \t -> case asTyConApp t of
     Just tapp -> pure tapp
     Nothing -> throwError (CannotScrutinize t)
@@ -287,8 +283,13 @@ checkFun (TmTFun _f aa ki t e) = do
 
 -- | 'inferType' computes the kind of its argument.
 inferType :: Type -> TC Kind
-inferType (TyAll aa ki t) = withTyVars [(aa, ki)] $ inferType t
 inferType (TyVarOcc aa) = lookupTyVar aa
+inferType (TyConOcc tc) = dataDeclKind <$> lookupTyCon tc
+inferType (TyAll aa ki t) = withTyVars [(aa, ki)] $ inferType t
+inferType (TyApp t s) = do
+  inferType t >>= \case
+    KiStar -> throwError (CannotTyApp t)
+    KiArr k1 k2 -> checkType s k1 *> pure k2
 inferType TyUnit = pure KiStar
 inferType TyInt = pure KiStar
 inferType TyString = pure KiStar
@@ -297,11 +298,6 @@ inferType (TyList t) = checkType t KiStar *> pure KiStar
 inferType (TySum t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 inferType (TyProd t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 inferType (TyArr t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
-inferType (TyApp t s) = do
-  inferType t >>= \case
-    KiStar -> throwError (CannotTyApp t)
-    KiArr k1 k2 -> checkType s k1 *> pure k2
-inferType (TyConOcc tc) = dataDeclKind <$> lookupTyCon tc
 
 checkType :: Type -> Kind -> TC ()
 checkType t k = inferType t >>= equalKinds k
