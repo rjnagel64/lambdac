@@ -82,6 +82,7 @@ cpsCoType s = (\s' -> ContK [s']) <$> cpsType s
 
 cpsKind :: S.Kind -> CPS KindK
 cpsKind S.KiStar = pure StarK
+cpsKind (S.KiArr k1 k2) = KArrK <$> cpsKind k1 <*> cpsKind k2
 
 -- Note: Failure modes of CPS
 -- Before CPS, the source program is type-checked. This also checks that all

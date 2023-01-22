@@ -11,6 +11,7 @@ module Source
 
   , TyConApp(..)
   , asTyConApp
+  , fromTyConApp
 
   , eqType
   , Subst
@@ -199,8 +200,15 @@ asTyConApp (TyApp t s) = go t [s]
     go _ _ = Nothing
 asTyConApp _ = Nothing
 
+fromTyConApp :: TyConApp -> Type
+fromTyConApp CaseBool = TyBool
+fromTyConApp (CaseSum t s) = TySum t s
+fromTyConApp (CaseList t) = TyList t
+fromTyConApp (TyConApp tc tys) = foldl TyApp (TyConOcc tc) tys
+
 data Kind
   = KiStar
+  | KiArr Kind Kind
   deriving (Eq)
 
 
@@ -334,6 +342,8 @@ pprintType p (TyList t) = parensIf (p > 7) $ "list " ++ pprintType 8 t
 -- ambiguous with product.
 pprintKind :: Kind -> String
 pprintKind KiStar = "*"
+pprintKind (KiArr KiStar k2) = "* -> " ++ pprintKind k2
+pprintKind (KiArr k1 k2) = "(" ++ pprintKind k1 ++ ") -> " ++ pprintKind k2
 
 parensIf :: Bool -> String -> String
 parensIf True x = "(" ++ x ++ ")"

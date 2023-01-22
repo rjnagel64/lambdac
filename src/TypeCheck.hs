@@ -56,20 +56,31 @@ instance Show TCError where
   show (CannotProject t) = "cannot project field from value of type " ++ pprintType 0 t
   show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
 
-newtype TC a = TC { runTC :: ReaderT TCEnv (Except TCError) a }
+newtype TC a = TC { getTC :: StateT Signature (ReaderT TCEnv (Except TCError)) a }
+
+runTC :: TC a -> Either TCError a
+runTC = runExcept . flip runReaderT emptyEnv . flip evalStateT emptySig . getTC
+  where
+    emptyEnv = TCEnv Map.empty Map.empty
+    emptySig = Signature Map.empty Map.empty
 
 deriving newtype instance Functor TC
 deriving newtype instance Applicative TC
 deriving newtype instance Monad TC
 deriving newtype instance MonadReader TCEnv TC
+deriving newtype instance MonadState Signature TC
 deriving newtype instance MonadError TCError TC
 
 data TCEnv
   = TCEnv {
     tcTmVars :: Map TmVar Type
   , tcTyVars :: Map TyVar Kind
-  , tcCtors :: Map Ctor Type
-  , tcTyCons :: Map TyCon DataDecl
+  }
+
+data Signature
+  = Signature {
+    sigTyCons :: Map TyCon DataDecl
+  , sigCtors :: Map Ctor Type
   }
 
 withVars :: [(TmVar, Type)] -> TC a -> TC a
@@ -77,22 +88,40 @@ withVars xs m = do
   traverse_ (\ (_, t) -> checkType t KiStar) xs
   local f m
   where
-    f (TCEnv tms tys cs tcs) = TCEnv (foldr (uncurry Map.insert) tms xs) tys cs tcs
+    f (TCEnv tms tys) = TCEnv (foldr (uncurry Map.insert) tms xs) tys
+
+lookupVar :: TmVar -> TC Type
+lookupVar x = do
+  env <- asks tcTmVars
+  case Map.lookup x env of
+    Just t -> pure t
+    Nothing -> throwError (NotInScope x)
 
 withTyVars :: [(TyVar, Kind)] -> TC a -> TC a
 withTyVars aas = local f
   where
-    f (TCEnv tms tys cs tcs) = TCEnv tms (foldr (uncurry Map.insert) tys aas) cs tcs
+    f (TCEnv tms tys) = TCEnv tms (foldr (uncurry Map.insert) tys aas)
 
-withCtors :: [(Ctor, Type)] -> TC a -> TC a
-withCtors ctors = local f
-  where
-    f (TCEnv tms tys cs tcs) = TCEnv tms tys (foldr (uncurry Map.insert) cs ctors) tcs
+lookupTyVar :: TyVar -> TC Kind
+lookupTyVar aa = do
+  env <- asks tcTyVars
+  case Map.lookup aa env of
+    Nothing -> throwError (TyNotInScope aa)
+    Just ki -> pure ki
 
-withTyCons :: [(TyCon, DataDecl)] -> TC a -> TC a
-withTyCons tctors = local f
-  where
-    f (TCEnv tms tys cs tcs) = TCEnv tms tys cs (foldr (uncurry Map.insert) tcs tctors)
+lookupCtor :: Ctor -> TC Type
+lookupCtor c = do
+  env <- gets sigCtors
+  case Map.lookup c env of
+    Just t -> pure t
+    Nothing -> throwError (CtorNotInScope c)
+
+lookupTyCon :: TyCon -> TC DataDecl
+lookupTyCon tc = do
+  env <- gets sigTyCons
+  case Map.lookup tc env of
+    Nothing -> throwError (TyConNotInScope tc)
+    Just dd -> pure dd
 
 equalTypes :: Type -> Type -> TC ()
 equalTypes t t' = when (t /= t') $ throwError (TypeMismatch t t')
@@ -102,16 +131,8 @@ equalKinds k k' = when (k' /= k) $ throwError (KindMismatch k k')
 
 
 infer :: Term -> TC Type
-infer (TmVarOcc x) = do
-  env <- asks tcTmVars
-  case Map.lookup x env of
-    Just t -> pure t
-    Nothing -> throwError (NotInScope x)
-infer (TmCtorOcc c) = do
-  env <- asks tcCtors
-  case Map.lookup c env of
-    Just t -> pure t
-    Nothing -> throwError (CtorNotInScope c)
+infer (TmVarOcc x) = lookupVar x
+infer (TmCtorOcc c) = lookupCtor c
 infer (TmLet x t e1 e2) = do
   check e1 t
   withVars [(x, t)] $ infer e2
@@ -177,6 +198,7 @@ infer (TmCons t e1 e2) = do
   check e2 (TyList t)
   pure (TyList t)
 infer (TmCaseList e s enil ((xhead, thead), (xtail, ttail), econs)) = do
+  -- Hmm. Need to check that branch variables have correct types.
   check e (TyList thead)
   check enil s
   withVars [(xhead, thead), (xtail, ttail)] $ check econs s
@@ -235,11 +257,7 @@ tyConBranchTypes tcapp = case tcapp of
   CaseList t -> pure [(Ctor "nil", []), (Ctor "cons", [t, TyList t])]
   -- Lookup tc. Make subst [params := args]. Use subst on each ctordecl to get branches.
   TyConApp tc args -> do
-    env <- asks tcTyCons
-    DataDecl _ params ctors <- case Map.lookup tc env of
-      Nothing -> throwError (TyConNotInScope tc)
-      Just entry -> pure entry
-
+    DataDecl _ params ctors <- lookupTyCon tc
     let sub = makeSubst (zipWith (\ (aa, _) t -> (aa, t)) params args)
     pure $ map (ctorBranchTy sub) ctors
   where
@@ -270,11 +288,7 @@ checkFun (TmTFun _f aa ki t e) = do
 -- | 'inferType' computes the kind of its argument.
 inferType :: Type -> TC Kind
 inferType (TyAll aa ki t) = withTyVars [(aa, ki)] $ inferType t
-inferType (TyVarOcc aa) = do
-  env <- asks tcTyVars
-  case Map.lookup aa env of
-    Nothing -> throwError (TyNotInScope aa)
-    Just ki -> pure ki
+inferType (TyVarOcc aa) = lookupTyVar aa
 inferType TyUnit = pure KiStar
 inferType TyInt = pure KiStar
 inferType TyString = pure KiStar
@@ -286,41 +300,33 @@ inferType (TyArr t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 inferType (TyApp t s) = do
   inferType t >>= \case
     KiStar -> throwError (CannotTyApp t)
-inferType (TyConOcc tc) = do
-  env <- asks tcTyCons
-  case Map.lookup tc env of
-    Nothing -> throwError (TyConNotInScope tc)
-    Just dd -> pure (dataDeclKind dd)
+    KiArr k1 k2 -> checkType s k1 *> pure k2
+inferType (TyConOcc tc) = dataDeclKind <$> lookupTyCon tc
 
 checkType :: Type -> Kind -> TC ()
 checkType t k = inferType t >>= equalKinds k
 
 dataDeclKind :: DataDecl -> Kind
-dataDeclKind (DataDecl _ params _) = KiStar -- TODO: Use type parameters here. (Need KiArr)
-  -- foldr (\ (_, k) ki -> KiArr k ki) KiStar params
+dataDeclKind (DataDecl _ params _) = foldr (\ (_, k1) k2 -> KiArr k1 k2) KiStar params
 
-checkDataDecls :: [DataDecl] -> TC ([(TyCon, DataDecl)], [(Ctor, Type)])
-checkDataDecls ds = flip execStateT ([], []) $ do
-  traverse_ f ds
-  where
-    f dd@(DataDecl tc params ctors) = do
-      modify (\ (tcs, cs) -> ((tc, dd) : tcs, cs))
-      ctorbinds <- lift $ withTyCons [(tc, dd)] $ do
-        withTyVars params $ traverse (checkCtorDecl tc params) ctors
-      modify (\ (tcs, cs) -> (tcs, ctorbinds ++ cs))
+checkDataDecls :: [DataDecl] -> TC ()
+checkDataDecls ds = traverse_ checkDataDecl ds 
 
+checkDataDecl :: DataDecl -> TC ()
+checkDataDecl dd@(DataDecl tc params ctors) = do
+  modify (\ (Signature tcs cs) -> Signature (Map.insert tc dd tcs) cs)
+  withTyVars params $ traverse_ (checkCtorDecl tc params) ctors
 
-checkCtorDecl :: TyCon -> [(TyVar, Kind)] -> CtorDecl -> TC (Ctor, Type)
+checkCtorDecl :: TyCon -> [(TyVar, Kind)] -> CtorDecl -> TC ()
 checkCtorDecl tc params (CtorDecl c args) = do
   traverse_ (\arg -> checkType arg KiStar) args
-  let ctorRet = foldl TyApp (TyConOcc tc) (map (TyVarOcc . fst) params)
-  let ctorTy = foldr (uncurry TyAll) (foldr TyArr ctorRet args) params
-  pure (c, ctorTy)
+  let ctorRet = TyConApp tc (map (TyVarOcc . fst) params)
+  let ctorTy = foldr (uncurry TyAll) (foldr TyArr (fromTyConApp ctorRet) args) params
+  modify (\ (Signature tcs cs) -> Signature tcs (Map.insert c ctorTy cs))
 
 checkProgram :: Program -> Either TCError ()
-checkProgram (Program ds e) = runExcept . flip runReaderT emptyEnv $ runTC $ do
-  (tyconbinds, ctorbinds) <- checkDataDecls ds
-  _ <- withTyCons tyconbinds $ withCtors ctorbinds $ infer e
+checkProgram (Program ds e) = runTC $ do
+  checkDataDecls ds
+  _ <- infer e
   pure ()
-  where emptyEnv = TCEnv Map.empty Map.empty Map.empty Map.empty
 

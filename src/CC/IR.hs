@@ -1,10 +1,3 @@
-{-# LANGUAGE
-    DerivingStrategies
-  , GeneralizedNewtypeDeriving
-  , StandaloneDeriving
-  , FlexibleInstances
-  , MultiParamTypeClasses
-  #-}
 
 module CC.IR
   ( Program(..)
