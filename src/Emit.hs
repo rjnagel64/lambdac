@@ -2,7 +2,6 @@
 module Emit
     ( emitProgram
 
-    , demoProgram -- Only for testing
     ) where
 
 import Data.Function (on)
@@ -124,7 +123,6 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     -- mention the outermost constructor.
     tycode (ClosureH _) = "C"
     tycode (AllocH _) = "A"
-    tycode (ListH _) = "L"
     tycode (ProductH _ _) = "Q"
     tycode (SumH _ _) = "S"
     tycode (TyConH tc) = let n = show tc in show (length n) ++ n
@@ -159,7 +157,6 @@ typeForSort (ProductH _ _) = "struct pair *"
 typeForSort UnitH = "struct unit *"
 typeForSort BooleanH = "struct vbool *"
 typeForSort (SumH _ _) = "struct sum *"
-typeForSort (ListH _) = "struct list *"
 typeForSort (TyConH tc) = "struct " ++ show tc ++ " *"
 typeForSort (TyAppH t _) = typeForSort t
 
@@ -172,7 +169,6 @@ asSort BooleanH x = "CAST_bool(" ++ x ++ ")"
 asSort (ProductH _ _) x = "CAST_PAIR(" ++ x ++ ")"
 asSort (SumH _ _) x = "CAST_sum(" ++ x ++ ")"
 asSort UnitH x = "CAST_UNIT(" ++ x ++ ")"
-asSort (ListH _s) x = "CAST_list(" ++ x ++ ")"
 asSort (TyAppH t _) x = asSort t x
 asSort (TyConH tc) x = "CAST_" ++ show tc ++ "(" ++ x ++ ")"
 
@@ -209,7 +205,6 @@ collectThunkTypes cs = foldMap closureThunkTypes cs
     thunkTypesOf (ClosureH tele) = Set.insert (teleThunkType tele) (teleThunkTypes tele)
     thunkTypesOf (ProductH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
     thunkTypesOf (SumH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
-    thunkTypesOf (ListH t) = thunkTypesOf t
     thunkTypesOf (TyConH _) = Set.empty
     thunkTypesOf (TyAppH t1 t2) = thunkTypesOf t1 <> thunkTypesOf t2
 
@@ -392,22 +387,6 @@ emitCtorAllocate desc cd@(CtorDecl c args) =
     params = [emitPlace (Place s x) | (x, s) <- args]
     assignField (x, s) = "    ctor->" ++ show x ++ " = " ++ show x ++ ";"
 
-demoProgram :: Program
-demoProgram = Program [DeclData dd] e
-  where
-    dd = DataDecl tc [(aa, Star)] [CtorDecl cn [], CtorDecl cj [(Id "val", AllocH aa)]]
-    e =
-      LetValH (Place UnitH x) NilH
-      (LetValH (Place mn y) (CtorAppH (CtorApp cj [LocalName x]))
-      (HaltH mn (LocalName y)))
-    x = Id "x"
-    y = Id "y"
-    aa = TyVar (Id "aa")
-    tc = TyCon "maybe"
-    cn = Ctor "nothing"
-    cj = Ctor "just"
-    mn = TyAppH (TyConH tc) UnitH
-
 
 emitClosureDecl :: DataEnv -> CodeDecl -> [Line]
 emitClosureDecl denv cd@(CodeDecl d (envName, envd@(EnvDecl _ places)) params e) =
@@ -583,8 +562,6 @@ emitCtorAlloc denv envp kind capp = ctorAllocate ctordesc ++ "(" ++ commaSep arg
       BoolH False -> (Ctor "false", [])
       InlH x -> (Ctor "inl", [x])
       InrH x -> (Ctor "inr", [x])
-      ListNilH -> (Ctor "nil", [])
-      ListConsH x xs -> (Ctor "cons", [x, xs])
       CtorApp c as -> (c, as)
     args' = zipWith makeArg args (ctorArgCasts ctordesc)
     makeArg x (_, Nothing) = emitName envp x
@@ -677,18 +654,9 @@ sumDataDecl =
   , CtorDecl (Ctor "inr") [(Id "payload", AllocH bb)]
   ]
 
-listDataDecl :: DataDecl
-listDataDecl =
-  let aa = TyVar (Id "a") in
-  DataDecl (TyCon "list") [(aa, Star)]
-  [ CtorDecl (Ctor "nil") []
-  , CtorDecl (Ctor "cons") [(Id "head", AllocH aa), (Id "tail", ListH (AllocH aa))]
-  ]
-
 dataDescFor :: DataEnv -> TyConApp -> DataDesc
 dataDescFor _ CaseBool = dataDesc boolDataDecl []
 dataDescFor _ (CaseSum t s) = dataDesc sumDataDecl [t, s]
-dataDescFor _ (CaseList t) = dataDesc listDataDecl [t]
 dataDescFor denv (TyConApp tc args) = dataDesc (denv Map.! tc) args
 
 emitPrimOp :: EnvPtr -> PrimOp -> String

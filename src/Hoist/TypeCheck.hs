@@ -354,9 +354,6 @@ checkCtorApp _ CaseBool = throwError BadCtorApp
 checkCtorApp (InlH x) (CaseSum t _s) = checkCtorArgs [x] [t]
 checkCtorApp (InrH y) (CaseSum _t s) = checkCtorArgs [y] [s]
 checkCtorApp _ (CaseSum _ _) = throwError BadCtorApp
-checkCtorApp ListNilH (CaseList _) = pure ()
-checkCtorApp (ListConsH x xs) (CaseList t) = checkCtorArgs [x, xs] [t, ListH t]
-checkCtorApp _ (CaseList _) = throwError BadCtorApp
 checkCtorApp (CtorApp c args) (TyConApp tc tys) = do
   -- TODO: Do this like in CPS.TypeCheck.checkCtorApp
   DataDecl _ params ctors <- lookupTyCon tc
@@ -397,8 +394,6 @@ instantiateTyConApp CaseBool =
   pure $ Map.fromList [(Ctor "false", []), (Ctor "true", [])]
 instantiateTyConApp (CaseSum t s) =
   pure $ Map.fromList [(Ctor "inl", [ValueTele t]), (Ctor "inr", [ValueTele s])]
-instantiateTyConApp (CaseList t) =
-  pure $ Map.fromList [(Ctor "nil", []), (Ctor "cons", [ValueTele t, ValueTele (ListH t)])]
 instantiateTyConApp (TyConApp tc tys) = do
   DataDecl _ params ctors <- lookupTyCon tc
   sub <- makeSubst params tys
@@ -419,7 +414,6 @@ inferSort BooleanH = pure Star
 inferSort StringH = pure Star
 inferSort (ProductH t s) = checkSort t Star *> checkSort s Star *> pure Star
 inferSort (SumH t s) = checkSort t Star *> checkSort s Star *> pure Star
-inferSort (ListH t) = checkSort t Star *> pure Star
 inferSort (ClosureH tele) = checkTele tele *> pure Star
 
 checkSort :: Sort -> Kind -> TC ()

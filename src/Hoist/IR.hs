@@ -160,7 +160,7 @@ data Sort
   | StringH
   | ProductH Sort Sort
   | SumH Sort Sort
-  | ListH Sort
+  -- | ListH Sort
   | ClosureH ClosureTele
   | TyConH TyCon
   | TyAppH Sort Sort
@@ -184,7 +184,6 @@ data Kind = Star | KArr Kind Kind
 asTyConApp :: Sort -> Maybe TyConApp
 asTyConApp BooleanH = Just CaseBool
 asTyConApp (SumH t s) = Just (CaseSum t s)
-asTyConApp (ListH t) = Just (CaseList t)
 asTyConApp (TyConH tc) = Just (TyConApp tc [])
 asTyConApp (TyAppH t s) = go t [s]
   where
@@ -198,10 +197,12 @@ asTyConApp _ = Nothing
 fromTyConApp :: TyConApp -> Sort
 fromTyConApp CaseBool = BooleanH
 fromTyConApp (CaseSum t s) = SumH t s
-fromTyConApp (CaseList t) = ListH t
 fromTyConApp (TyConApp tc args) = foldl TyAppH (TyConH tc) args
 
-data TyConApp = CaseBool | CaseSum Sort Sort | CaseList Sort | TyConApp TyCon [Sort]
+data TyConApp
+  = CaseBool
+  | CaseSum Sort Sort
+  | TyConApp TyCon [Sort]
 
 
 
@@ -256,8 +257,6 @@ data CtorAppH
   = BoolH Bool
   | InlH Name
   | InrH Name
-  | ListNilH
-  | ListConsH Name Name
   | CtorApp Ctor [Name]
 
 data PrimOp
@@ -309,7 +308,6 @@ ftv UnitH = mempty
 ftv IntegerH = mempty
 ftv BooleanH = mempty
 ftv StringH = mempty
-ftv (ListH t) = ftv t
 ftv (ProductH t s) = ftv t <> ftv s
 ftv (SumH t s) = ftv t <> ftv s
 ftv (TyAppH t s) = ftv t <> ftv s
@@ -360,8 +358,6 @@ equalSort ae (SumH s1 s2) (SumH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t
 equalSort _ (SumH _ _) _ = False
 equalSort ae (TyAppH s1 s2) (TyAppH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
 equalSort _ (TyAppH _ _) _ = False
-equalSort ae (ListH s) (ListH t) = equalSort ae s t
-equalSort _ (ListH _) _ = False
 equalSort ae (ClosureH ss) (ClosureH ts) = equalTele ae ss ts
 equalSort _ (ClosureH _) _ = False
 
@@ -425,7 +421,6 @@ substSort _ StringH = StringH
 substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
 substSort sub (SumH s t) = SumH (substSort sub s) (substSort sub t)
 substSort sub (TyAppH s t) = TyAppH (substSort sub s) (substSort sub t)
-substSort sub (ListH t) = ListH (substSort sub t)
 substSort sub (ClosureH tele) = ClosureH (substTele sub tele)
 
 substTele :: Subst -> ClosureTele -> ClosureTele
@@ -506,8 +501,6 @@ pprintCtorApp :: CtorAppH -> String
 pprintCtorApp (BoolH b) = if b then "true" else "false"
 pprintCtorApp (InlH x) = "inl(" ++ show x ++ ")"
 pprintCtorApp (InrH y) = "inr(" ++ show y ++ ")"
-pprintCtorApp ListNilH = "nil()"
-pprintCtorApp (ListConsH x xs) = "cons(" ++ show x ++ ", " ++ show xs ++ ")"
 pprintCtorApp (CtorApp c xs) = show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String
@@ -547,7 +540,6 @@ pprintSort IntegerH = "int"
 pprintSort BooleanH = "bool"
 pprintSort UnitH = "unit"
 pprintSort StringH = "string"
-pprintSort (ListH t) = "list " ++ pprintSort t
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (SumH t s) = "sum " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (TyAppH t s) = pprintSort t ++ " " ++ pprintSort s
