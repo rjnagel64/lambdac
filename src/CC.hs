@@ -271,7 +271,6 @@ makeClosureEnv flds = do
     ftv ctx (Sum t1 t2) = ftv ctx t1 <> ftv ctx t2
     ftv ctx (Pair t1 t2) = ftv ctx t1 <> ftv ctx t2
     ftv ctx (TyApp t1 t2) = ftv ctx t1 <> ftv ctx t2
-    ftv ctx (List t) = ftv ctx t
 
 
 cconvValue :: K.ValueK -> ConvM ValueC

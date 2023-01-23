@@ -115,7 +115,7 @@ data Sort
   | Pair Sort Sort
   | Unit
   | Boolean
-  | List Sort
+  -- | List Sort
   | TyConOcc TyCon
   | TyApp Sort Sort
 
@@ -157,7 +157,6 @@ data Argument = ValueArg Name | TypeArg Sort
 data CaseKind
   = CaseBool
   | CaseSum Sort Sort
-  | CaseList Sort
   | TyConApp TyCon [Sort]
 
 data ArithC
@@ -230,8 +229,6 @@ data ValueC
   | InrC Name
   | IntC Int
   | BoolC Bool
-  | EmptyC
-  | ConsC Name Name
   | StringC String
   | CtorAppC Ctor [Name]
 
@@ -286,7 +283,6 @@ pprintSort Integer = "int"
 pprintSort (Alloc aa) = "alloc(" ++ show aa ++ ")"
 pprintSort String = "string"
 pprintSort Boolean = "bool"
-pprintSort (List s) = "list " ++ pprintSort s
 pprintSort (Sum s t) = "sum " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort (Pair s t) = "pair " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort Unit = "unit"
@@ -312,8 +308,6 @@ pprintValue (IntC i) = show i
 pprintValue (BoolC b) = if b then "true" else "false"
 pprintValue (InlC x) = "inl " ++ show x
 pprintValue (InrC y) = "inr " ++ show y
-pprintValue EmptyC = "nil"
-pprintValue (ConsC x xs) = "cons " ++ show x ++ " " ++ show xs
 pprintValue (StringC s) = show s
 pprintValue (CtorAppC c xs) = show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
 

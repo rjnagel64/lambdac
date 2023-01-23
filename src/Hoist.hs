@@ -55,7 +55,6 @@ sortOf C.Unit = UnitH
 sortOf C.String = StringH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.Sum t s) = SumH (sortOf t) (sortOf s)
-sortOf (C.List t) = ListH (sortOf t)
 sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
   where
     f (C.ValueTele s) = ValueTele (sortOf s)
@@ -71,7 +70,6 @@ kindOf (C.KArr k1 k2) = KArr (kindOf k1) (kindOf k2)
 caseKind :: C.CaseKind -> TyConApp
 caseKind C.CaseBool = CaseBool
 caseKind (C.CaseSum a b) = CaseSum (sortOf a) (sortOf b)
-caseKind (C.CaseList a) = CaseList (sortOf a)
 caseKind (C.TyConApp (C.TyCon tc) args) = TyConApp (TyCon tc) (map sortOf args)
 
 
@@ -269,9 +267,6 @@ hoistValue (C.PairC x y) =
 hoistValue C.NilC = pure NilH
 hoistValue (C.InlC x) = (CtorAppH . InlH) <$> hoistVarOcc x
 hoistValue (C.InrC x) = (CtorAppH . InrH) <$> hoistVarOcc x
-hoistValue C.EmptyC = pure (CtorAppH ListNilH)
-hoistValue (C.ConsC x xs) =
-  ((CtorAppH .) . ListConsH) <$> hoistVarOcc x <*> hoistVarOcc xs
 hoistValue (C.StringC s) = pure (StringValH s)
 hoistValue (C.CtorAppC (C.Ctor c) args) = (CtorAppH . CtorApp (Ctor c)) <$> traverse hoistVarOcc args
 
