@@ -1,1 +1,5 @@
-(nil @int, cons @bool true (nil @bool))
+data list (a : *) = {
+  nil();
+  cons(a, %list a)
+}
+(%nil @int, %cons @bool true (%nil @bool))

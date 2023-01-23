@@ -123,64 +123,6 @@ struct vbool *allocate_vbool_false(void) {
     return v;
 }
 
-void trace_list(struct alloc_header *alloc) {
-    struct list *l = CAST_list(alloc);
-    switch (l->discriminant) {
-    case 0:
-        // nil
-        {
-        struct list_nil *n = CAST_list_nil(l);
-        }
-        break;
-    case 1:
-        // cons
-        {
-        struct list_cons *c = CAST_list_cons(l);
-        mark_gray(c->head);
-        mark_gray(AS_ALLOC(c->tail));
-        }
-        break;
-    }
-}
-
-void display_list(struct alloc_header *alloc, struct string_buf *sb) {
-    struct list *l = CAST_list(alloc);
-    switch (l->discriminant) {
-    case 0:
-        string_buf_push(sb, "nil");
-        break;
-    case 1:
-        {
-        struct list_cons *c = CAST_list_cons(l);
-        string_buf_push(sb, "cons ");
-        c->head->info->display(c->head, sb);
-        string_buf_push(sb, " ");
-        display_list(AS_ALLOC(c->tail), sb);
-        }
-        break;
-    }
-}
-
-const type_info list_info = { trace_list, display_list };
-
-struct list *allocate_list_nil(void) {
-    struct list_nil *n = malloc(sizeof(struct list_nil));
-    n->header.discriminant = 0;
-
-    cons_new_alloc(AS_ALLOC(n), &list_info);
-    return CAST_list(n);
-}
-
-struct list *allocate_list_cons(struct alloc_header *x, struct list *xs) {
-    struct list_cons *c = malloc(sizeof(struct list_cons));
-    c->header.discriminant = 1;
-    c->head = x;
-    c->tail = xs;
-
-    cons_new_alloc(AS_ALLOC(c), &list_info);
-    return CAST_list(c);
-}
-
 void trace_pair(struct alloc_header *alloc) {
     struct pair *p = CAST_PAIR(alloc);
     mark_gray(p->fst);

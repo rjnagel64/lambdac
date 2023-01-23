@@ -1,7 +1,11 @@
-letrec sum : list int -> int =
-  \ (xs : list int) -> case uncons xs return int of {
+data list (a : *) = {
+  nil();
+  cons(a, %list a)
+}
+letrec sum : %list int -> int =
+  \ (xs : %list int) -> case xs return int of {
     nil -> 0;
-    cons (y : int) (ys : list int) -> y + sum ys
+    cons (y : int) (ys : %list int) -> y + sum ys
   };
 in
-sum (cons @int 5 (cons @int 4 (cons @int 3 (cons @int 2 (cons @int 1 (cons @int 0 (nil @int)))))))
+sum (%cons @int 5 (%cons @int 4 (%cons @int 3 (%cons @int 2 (%cons @int 1 (%cons @int 0 (%nil @int)))))))

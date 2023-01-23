@@ -1,10 +1,14 @@
-let foldr : forall a. forall b. (a -> b -> b) -> b -> list a -> b =
+data list (a : *) = {
+  nil();
+  cons(a, %list a)
+}
+let foldr : forall a. forall b. (a -> b -> b) -> b -> %list a -> b =
   \ @a -> \ @b ->
   \ (f : a -> b -> b) -> \ (z : b) ->
-  letrec go : list a -> b =
-    \ (xs : list a) -> case uncons xs return b of {
+  letrec go : %list a -> b =
+    \ (xs : %list a) -> case xs return b of {
       nil -> z;
-      cons (y : a) (ys : list a) -> f y (go ys)
+      cons (y : a) (ys : %list a) -> f y (go ys)
     };
   in
   go
@@ -13,4 +17,4 @@ let max2 : int -> int -> int =
   \ (elem : int) -> \ (acc : int) -> if elem > acc return int then elem else acc
 in
 foldr @int @int max2 0
-(cons @int 4 (cons @int 7 (cons @int 2 (cons @int 5 (nil @int)))))
+(%cons @int 4 (%cons @int 7 (%cons @int 2 (%cons @int 5 (%nil @int)))))

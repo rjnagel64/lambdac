@@ -76,10 +76,6 @@ tokens :-
   "int" { tok TokInt }
   "string" { tok TokString }
   "forall" { tok TokForall }
-  "nil" { tok TokNil }
-  "cons" { tok TokCons }
-  "list" { tok TokList }
-  "uncons" { tok TokUncons }
   "data" { tok TokData }
 
   -- Note: Permitting unary + on numeric literals actually causes some problems.

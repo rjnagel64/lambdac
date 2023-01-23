@@ -69,28 +69,6 @@ struct unit *allocate_unit(void);
 
 #define CAST_UNIT(v) ((struct unit *)(v))
 
-struct list {
-    struct alloc_header header;
-    uint32_t discriminant;
-};
-
-struct list_nil {
-    struct list header;
-};
-
-struct list_cons {
-    struct list header;
-    struct alloc_header *head;
-    struct list *tail;
-};
-
-struct list *allocate_list_nil(void);
-struct list *allocate_list_cons(struct alloc_header *x, struct list *xs);
-
-#define CAST_list(v) ((struct list *)(v))
-#define CAST_list_nil(v) ((struct list_nil *)(v))
-#define CAST_list_cons(v) ((struct list_cons *)(v))
-
 struct string_value {
     struct alloc_header header;
     uint64_t len;

@@ -62,10 +62,6 @@ import Source
   'bool' { TokBool _ }
   'string' { TokString _ }
   'forall' { TokForall _ }
-  'nil' { TokNil _ }
-  'cons' { TokCons _ }
-  'list' { TokList _ }
-  'uncons' { TokUncons _ }
   'data' { TokData _ }
 
   ID { TokID _ _ }
@@ -125,8 +121,6 @@ Term :: { Term }
      | 'letrec' RecBinds 'in' Term { TmLetRec (rundl $2) $4 }
      | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
        { TmCaseSum $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
-     | 'case' 'uncons' Term 'return' Type 'of' '{' 'nil' '->' Term ';' 'cons' VarBind VarBind '->' Term '}'
-       { TmCaseList $3 $5 $10 ($13, $14, $16) }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
      | 'case' Term 'return' Type 'of' '{' Alts '}' { TmCase $2 $4 (rundl $7) }
 
@@ -143,8 +137,6 @@ Term :: { Term }
 
      | 'inl' '@' AType '@' AType ATerm { TmInl $3 $5 $6 }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
-     | 'nil' '@' AType { TmEmpty $3 }
-     | 'cons' '@' AType ATerm ATerm { TmCons $3 $4 $5 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
@@ -213,7 +205,7 @@ Type :: { Type }
 
 AppType :: { Type }
         : AType { $1 }
-        | 'list' AppType { TyList $2 }
+	| AppType AType { TyApp $1 $2 }
 
 AType :: { Type }
       : '(' Type ')' { $2 }
