@@ -179,8 +179,6 @@ data ValueK
   | InrK TmVar
   | IntValK Int
   | BoolValK Bool
-  | EmptyK
-  | ConsK TmVar TmVar
   | StringValK String
   | CtorAppK Ctor [TmVar]
 
@@ -211,15 +209,15 @@ data TypeK
   | ProdK TypeK TypeK
   -- σ + τ
   | SumK TypeK TypeK
-  -- (τ+) -> ((σ+) -> !)+
+  -- (τ+) => ((σ+) -> !)+
   | FunK [TypeK] [CoTypeK]
-  -- List σ
-  | ListK TypeK
   -- forall aa+. ((σ+) -> !)+
   | AllK [(TyVar, KindK)] [CoTypeK]
   -- aa
   | TyVarOccK TyVar
+  -- T
   | TyConOccK TyCon
+  -- τ σ
   | TyAppK TypeK TypeK
 
 -- | A co-type is the type of a continuation.
@@ -235,12 +233,10 @@ data TyConApp
   = TyConApp TyCon [TypeK]
   | CaseBool
   | CaseSum TypeK TypeK
-  | CaseList TypeK
 
 asTyConApp :: TypeK -> Maybe TyConApp
 asTyConApp BoolK = Just CaseBool
 asTyConApp (SumK t s) = Just (CaseSum t s)
-asTyConApp (ListK t) = Just (CaseList t)
 asTyConApp (TyConOccK tc) = Just (TyConApp tc [])
 asTyConApp (TyAppK t s) = go t [s]
   where
@@ -253,7 +249,6 @@ fromTyConApp :: TyConApp -> TypeK
 fromTyConApp (TyConApp tc args) = foldl TyAppK (TyConOccK tc) args
 fromTyConApp CaseBool = BoolK
 fromTyConApp (CaseSum t s) = SumK t s
-fromTyConApp (CaseList t) = ListK t
 
 
 -- Alpha-Equality of types
@@ -288,8 +283,6 @@ eqTypeK' sc (SumK t1 s1) (SumK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
 eqTypeK' _ (SumK _ _) _ = False
 eqTypeK' sc (TyAppK t1 s1) (TyAppK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
 eqTypeK' _ (TyAppK _ _) _ = False
-eqTypeK' sc (ListK t1) (ListK t2) = eqTypeK' sc t1 t2
-eqTypeK' _ (ListK _) _ = False
 eqTypeK' sc (FunK ts1 ss1) (FunK ts2 ss2) =
   allEqual (eqTypeK' sc) ts1 ts2 && allEqual (eqCoTypeK' sc) ss1 ss2
 eqTypeK' _ (FunK _ _) _ = False
@@ -336,7 +329,6 @@ typeFV (FunK ts ss) = Set.unions (map typeFV ts) <> Set.unions (map coTypeFV ss)
 typeFV (ProdK t s) = typeFV t <> typeFV s
 typeFV (SumK t s) = typeFV t <> typeFV s
 typeFV (TyAppK t s) = typeFV t <> typeFV s
-typeFV (ListK t) = typeFV t
 typeFV UnitK = Set.empty
 typeFV IntK = Set.empty
 typeFV BoolK = Set.empty
@@ -360,7 +352,6 @@ substTypeK sub (FunK ts ss) = FunK (map (substTypeK sub) ts) (map (substCoTypeK 
 substTypeK sub (ProdK t s) = ProdK (substTypeK sub t) (substTypeK sub s)
 substTypeK sub (SumK t s) = SumK (substTypeK sub t) (substTypeK sub s)
 substTypeK sub (TyAppK t s) = TyAppK (substTypeK sub t) (substTypeK sub s)
-substTypeK sub (ListK t) = ListK (substTypeK sub t)
 substTypeK _ UnitK = UnitK
 substTypeK _ IntK = IntK
 substTypeK _ BoolK = BoolK
@@ -457,8 +448,6 @@ pprintValue (IntValK i) = show i
 pprintValue (BoolValK b) = if b then "true" else "false"
 pprintValue (InlK x) = "inl " ++ show x
 pprintValue (InrK y) = "inr " ++ show y
-pprintValue EmptyK = "nil"
-pprintValue (ConsK x y) = "cons " ++ show x ++ " " ++ show y
 pprintValue (StringValK s) = show s
 pprintValue (CtorAppK c args) = show c ++ "(" ++ intercalate ", " (map show args) ++ ")"
 
@@ -503,7 +492,6 @@ pprintContDef n (ContDef _ k xs e) =
 pprintType :: TypeK -> String
 pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s
 pprintType (SumK t s) = pprintAType t ++ " + " ++ pprintAType s
-pprintType (ListK t) = "list " ++ pprintAType t
 pprintType (FunK ts ss) =
   "(" ++ intercalate ", " tmParams ++ ") -> (" ++ intercalate ", " coParams ++ ")"
   where

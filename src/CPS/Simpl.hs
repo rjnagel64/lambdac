@@ -192,9 +192,6 @@ simplifyVal env (InrK z) = let z' = rename env z in (InrK z', recordOne z')
 simplifyVal _ NilK = (NilK, mempty)
 simplifyVal _ (IntValK i) = (IntValK i, mempty)
 simplifyVal _ (BoolValK b) = (BoolValK b, mempty)
-simplifyVal _ EmptyK = (EmptyK, mempty)
-simplifyVal env (ConsK y ys) =
-  let y' = rename env y; ys' = rename env ys in (ConsK y' ys', recordList [y', ys'])
 
 simplifyArith :: SimplEnv -> ArithK -> Either (ArithK, Census) Int
 simplifyArith env op = arith (renameOp op)
@@ -232,13 +229,6 @@ simplifyCase env x CaseBool [k1, k2] =
     (_, Just _) -> error "simplifyCase: env contained invalid value for bool type"
     (x', Nothing) -> (CaseK x' CaseBool [k1, k2], recordOne x')
 simplifyCase _ _ CaseBool _ = error "simplifyCase: incorrect number of branches for bool type"
-simplifyCase env x (CaseList t) [k1, k2] =
-  case lookupValue x env of
-    (_, Just EmptyK) -> (JumpK (snd k1) [], mempty)
-    (_, Just (ConsK y ys)) -> (JumpK (snd k2) [y, ys], recordList [y, ys])
-    (_, Just _) -> error "simplifyCase: env contained invalid value for list type"
-    (x', Nothing) -> (CaseK x' (CaseList t) [k1, k2], recordOne x')
-simplifyCase _ _ (CaseList _) _ = error "simplifyCase: incorrect number of branches for list type"
 simplifyCase _ _ _ _ = error "simplifyCase: cannot perform case analysis on this type"
 
 -- data Usage = MustKeep | ProductUsage Usage Usage | CanDiscard

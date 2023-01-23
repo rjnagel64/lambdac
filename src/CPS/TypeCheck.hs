@@ -244,9 +244,6 @@ checkCase x CaseBool ks =
 checkCase x (CaseSum t1 t2) ks =
   checkTmVar x (SumK t1 t2) *>
   checkBranches ks (Map.fromList [(Ctor "inl", [t1]), (Ctor "inr", [t2])])
-checkCase x (CaseList t) ks =
-  checkTmVar x (ListK t) *>
-  checkBranches ks (Map.fromList [(Ctor "nil", []), (Ctor "cons", [t, ListK t])])
 checkCase x tcapp ks = do
   checkTmVar x (fromTyConApp tcapp)
   branchTys <- instantiateTyConApp tcapp
@@ -294,8 +291,6 @@ checkValue (InrK y) (SumK _t s) = do
 checkValue (IntValK _) IntK = pure ()
 checkValue (BoolValK _) BoolK = pure ()
 checkValue (StringValK _) StringK = pure ()
-checkValue EmptyK (ListK _) = pure ()
-checkValue (ConsK x xs) (ListK t) = checkTmVar x t *> checkTmVar xs (ListK t)
 checkValue v@(CtorAppK c xs) t = case asTyConApp t of
   Nothing -> throwError (BadValue v t)
   Just tcapp -> checkCtorApp c xs tcapp
@@ -361,7 +356,6 @@ inferType (FunK ts ss) =
   pure StarK
 inferType (ProdK t s) = checkType t StarK *> checkType s StarK *> pure StarK
 inferType (SumK t s) = checkType t StarK *> checkType s StarK *> pure StarK
-inferType (ListK t) = checkType t StarK *> pure StarK
 inferType UnitK = pure StarK
 inferType IntK = pure StarK
 inferType BoolK = pure StarK

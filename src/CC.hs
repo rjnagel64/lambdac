@@ -166,7 +166,6 @@ cconvType K.BoolK = pure Boolean
 cconvType K.StringK = pure String
 cconvType (K.SumK t1 t2) = Sum <$> cconvType t1 <*> cconvType t2
 cconvType (K.ProdK t1 t2) = Pair <$> cconvType t1 <*> cconvType t2
-cconvType (K.ListK t) = List <$> cconvType t
 cconvType (K.FunK ts ss) = f <$> traverse cconvType ts <*> traverse cconvCoType ss
   where f ts' ss' = Closure (map ValueTele ts' ++ map ValueTele ss')
 cconvType (K.TyConOccK (K.TyCon tc)) = pure (TyConOcc (TyCon tc))
@@ -186,7 +185,6 @@ cconvTyConApp :: K.TyConApp -> ConvM CaseKind
 cconvTyConApp (K.TyConApp (K.TyCon tc) args) = TyConApp (TyCon tc) <$> traverse cconvType args
 cconvTyConApp K.CaseBool = pure CaseBool
 cconvTyConApp (K.CaseSum t s) = CaseSum <$> cconvType t <*> cconvType s
-cconvTyConApp (K.CaseList t) = CaseList <$> cconvType t
 
 cconv :: K.TermK a -> ConvM TermC
 cconv (K.HaltK x) = HaltC <$> cconvTmVar x
@@ -283,8 +281,6 @@ cconvValue (K.IntValK i) = pure (IntC i)
 cconvValue (K.BoolValK b) = pure (BoolC b)
 cconvValue (K.InlK x) = InlC <$> cconvTmVar x
 cconvValue (K.InrK y) = InrC <$> cconvTmVar y
-cconvValue K.EmptyK = pure EmptyC
-cconvValue (K.ConsK x y) = ConsC <$> cconvTmVar x <*> cconvTmVar y
 cconvValue (K.StringValK s) = pure (StringC s)
 cconvValue (K.CtorAppK (K.Ctor c) args) = CtorAppC (Ctor c) <$> traverse cconvTmVar args
 
