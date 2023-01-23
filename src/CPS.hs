@@ -659,6 +659,9 @@ cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
 -- and a list of branches with bound variables.
 cpsCase :: TmVar -> S.Type -> CoVar -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK ())
 cpsCase z t j bs = do
+  tcapp <- cpsType t >>= \t' -> case asTyConApp t' of
+    Nothing -> error "cannot perform case analysis on this type"
+    Just app -> pure app
   -- Pick names for each branch continuation
   scope <- asks cpsEnvScope
   let
@@ -673,8 +676,7 @@ cpsCase z t j bs = do
     (kont, _s') <- cpsBranch k xs e j
     pure ((Ctor c, k), kont)
   -- Assemble the result term
-  t' <- cpsType t
-  let res = foldr (LetContK . (:[])) (CaseK z t' ks) konts
+  let res = foldr (LetContK . (:[])) (CaseK z tcapp ks) konts
   pure res
 
 

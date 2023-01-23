@@ -28,6 +28,7 @@ module CPS.IR
     , eqCoTypeK
     , TyConApp(..)
     , asTyConApp
+    , fromTyConApp
 
     , KindK(..)
 
@@ -130,7 +131,7 @@ data TermK a
   -- f @t k
   | InstK TmVar [TypeK] [CoVar]
   -- case x : s of c1 -> k1 | c2 -> k2 | ..., branch
-  | CaseK TmVar TypeK [(Ctor, CoVar)]
+  | CaseK TmVar TyConApp [(Ctor, CoVar)]
   -- halt x
   | HaltK TmVar
 
@@ -230,9 +231,16 @@ data KindK
   | KArrK KindK KindK
   deriving (Eq)
 
-data TyConApp = TyConApp TyCon [TypeK]
+data TyConApp
+  = TyConApp TyCon [TypeK]
+  | CaseBool
+  | CaseSum TypeK TypeK
+  | CaseList TypeK
 
 asTyConApp :: TypeK -> Maybe TyConApp
+asTyConApp BoolK = Just CaseBool
+asTyConApp (SumK t s) = Just (CaseSum t s)
+asTyConApp (ListK t) = Just (CaseList t)
 asTyConApp (TyConOccK tc) = Just (TyConApp tc [])
 asTyConApp (TyAppK t s) = go t [s]
   where
@@ -240,6 +248,12 @@ asTyConApp (TyAppK t s) = go t [s]
     go (TyAppK t' s') acc = go t' (s' : acc)
     go _ _ = Nothing
 asTyConApp _ = Nothing
+
+fromTyConApp :: TyConApp -> TypeK
+fromTyConApp (TyConApp tc args) = foldl TyAppK (TyConOccK tc) args
+fromTyConApp CaseBool = BoolK
+fromTyConApp (CaseSum t s) = SumK t s
+fromTyConApp (CaseList t) = ListK t
 
 
 -- Alpha-Equality of types
@@ -415,8 +429,9 @@ pprintTerm n (CallK f xs ks) =
   indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
 pprintTerm n (InstK f ts ks) =
   indent n $ intercalate " @" (show f : map pprintType ts) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
-pprintTerm n (CaseK x t ks) =
+pprintTerm n (CaseK x tcapp ks) =
   let branches = intercalate " | " (map show ks) in
+  let t = fromTyConApp tcapp in
   indent n $ "case " ++ show x ++ " : " ++ pprintType t  ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValK x t v e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e

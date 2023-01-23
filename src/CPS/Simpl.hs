@@ -217,28 +217,28 @@ simplifyContDef env (ContDef ann k xs e) =
   (ContDef ann k xs e', census')
 
 -- | Perform beta-reduction for a case expression
-simplifyCase :: SimplEnv -> TmVar -> TypeK -> [(Ctor, CoVar)] -> (TermK a, Census)
-simplifyCase env x (SumK ta tb) [k1, k2] =
+simplifyCase :: SimplEnv -> TmVar -> TyConApp -> [(Ctor, CoVar)] -> (TermK a, Census)
+simplifyCase env x (CaseSum ta tb) [k1, k2] =
   case lookupValue x env of
     (_, Just (InlK y)) -> (JumpK (snd k1) [y], recordOne y)
     (_, Just (InrK z)) -> (JumpK (snd k2) [z], recordOne z)
     (_, Just _) -> error "simplifyCase: env contained invalid value for sum type"
-    (x', Nothing) -> (CaseK x' (SumK ta tb) [k1, k2], recordOne x')
-simplifyCase _ _ (SumK _ _) _ = error "simplifyCase: incorrect number of branches for sum type"
-simplifyCase env x BoolK [k1, k2] =
+    (x', Nothing) -> (CaseK x' (CaseSum ta tb) [k1, k2], recordOne x')
+simplifyCase _ _ (CaseSum _ _) _ = error "simplifyCase: incorrect number of branches for sum type"
+simplifyCase env x CaseBool [k1, k2] =
   case lookupValue x env of
     (_, Just (BoolValK True)) -> (JumpK (snd k1) [], mempty)
     (_, Just (BoolValK False)) -> (JumpK (snd k2) [], mempty)
     (_, Just _) -> error "simplifyCase: env contained invalid value for bool type"
-    (x', Nothing) -> (CaseK x' BoolK [k1, k2], recordOne x')
-simplifyCase _ _ BoolK _ = error "simplifyCase: incorrect number of branches for bool type"
-simplifyCase env x (ListK t) [k1, k2] =
+    (x', Nothing) -> (CaseK x' CaseBool [k1, k2], recordOne x')
+simplifyCase _ _ CaseBool _ = error "simplifyCase: incorrect number of branches for bool type"
+simplifyCase env x (CaseList t) [k1, k2] =
   case lookupValue x env of
     (_, Just EmptyK) -> (JumpK (snd k1) [], mempty)
     (_, Just (ConsK y ys)) -> (JumpK (snd k2) [y, ys], recordList [y, ys])
     (_, Just _) -> error "simplifyCase: env contained invalid value for list type"
-    (x', Nothing) -> (CaseK x' (ListK t) [k1, k2], recordOne x')
-simplifyCase _ _ (ListK _) _ = error "simplifyCase: incorrect number of branches for list type"
+    (x', Nothing) -> (CaseK x' (CaseList t) [k1, k2], recordOne x')
+simplifyCase _ _ (CaseList _) _ = error "simplifyCase: incorrect number of branches for list type"
 simplifyCase _ _ _ _ = error "simplifyCase: cannot perform case analysis on this type"
 
 -- data Usage = MustKeep | ProductUsage Usage Usage | CanDiscard

@@ -182,17 +182,11 @@ cconvKind :: K.KindK -> ConvM Kind
 cconvKind K.StarK = pure Star
 cconvKind (K.KArrK k1 k2) = KArr <$> cconvKind k1 <*> cconvKind k2
 
-asTyConApp :: Sort -> Maybe CaseKind
-asTyConApp Boolean = Just CaseBool
-asTyConApp (Sum a b) = Just (CaseSum a b)
-asTyConApp (List a) = Just (CaseList a)
-asTyConApp (TyConOcc tc) = Just (TyConApp tc [])
-asTyConApp (TyApp a b) = go a [b]
-  where
-    go (TyApp a' b') args = go a' (b' : args)
-    go (TyConOcc tc) args = Just (TyConApp tc args)
-    go _ _ = Nothing
-asTyConApp _ = Nothing
+cconvTyConApp :: K.TyConApp -> ConvM CaseKind
+cconvTyConApp (K.TyConApp (K.TyCon tc) args) = TyConApp (TyCon tc) <$> traverse cconvType args
+cconvTyConApp K.CaseBool = pure CaseBool
+cconvTyConApp (K.CaseSum t s) = CaseSum <$> cconvType t <*> cconvType s
+cconvTyConApp (K.CaseList t) = CaseList <$> cconvType t
 
 cconv :: K.TermK a -> ConvM TermC
 cconv (K.HaltK x) = HaltC <$> cconvTmVar x
@@ -201,13 +195,11 @@ cconv (K.CallK f xs ks) =
   CallC <$> cconvTmVar f <*> traverse (fmap ValueArg . cconvTmVar) xs <*> traverse cconvCoVar ks
 cconv (K.InstK f ts ks) =
   CallC <$> cconvTmVar f <*> traverse (fmap TypeArg . cconvType) ts <*> traverse cconvCoVar ks 
-cconv (K.CaseK x t ks) = do
+cconv (K.CaseK x kind ks) = do
   x' <- cconvTmVar x
-  kind <- fmap asTyConApp (cconvType t) >>= \case
-    Nothing -> error "cannot perform case analysis on this type"
-    Just tcapp -> pure tcapp
+  kind' <- cconvTyConApp kind
   ks' <- traverse (\ (K.Ctor c, k) -> (,) (Ctor c) <$> cconvCoVar k) ks
-  pure (CaseC x' kind ks')
+  pure (CaseC x' kind' ks')
 cconv (K.LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e

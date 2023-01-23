@@ -237,23 +237,20 @@ check (LetConcatK x y z e) = do
   checkTmVar z StringK
   withTmVars [(x, StringK)] $ check e
 
-checkCase :: TmVar -> TypeK -> [(Ctor, CoVar)] -> TC ()
-checkCase x BoolK ks =
+checkCase :: TmVar -> TyConApp -> [(Ctor, CoVar)] -> TC ()
+checkCase x CaseBool ks =
   checkTmVar x BoolK *>
   checkBranches ks (Map.fromList [(Ctor "false", []), (Ctor "true", [])])
-checkCase x (SumK t1 t2) ks =
+checkCase x (CaseSum t1 t2) ks =
   checkTmVar x (SumK t1 t2) *>
   checkBranches ks (Map.fromList [(Ctor "inl", [t1]), (Ctor "inr", [t2])])
-checkCase x (ListK t) ks =
+checkCase x (CaseList t) ks =
   checkTmVar x (ListK t) *>
   checkBranches ks (Map.fromList [(Ctor "nil", []), (Ctor "cons", [t, ListK t])])
-checkCase x s ks =
-  case asTyConApp s of
-    Nothing -> throwError (BadCaseAnalysis x s)
-    Just tcapp -> do
-      checkTmVar x s
-      branchTys <- instantiateTyConApp tcapp
-      checkBranches ks branchTys
+checkCase x tcapp ks = do
+  checkTmVar x (fromTyConApp tcapp)
+  branchTys <- instantiateTyConApp tcapp
+  checkBranches ks branchTys
 
 checkBranches :: [(Ctor, CoVar)] -> Map Ctor [TypeK] -> TC ()
 checkBranches branches branchTys = do
