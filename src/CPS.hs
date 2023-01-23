@@ -73,7 +73,6 @@ cpsType S.TyBool = pure BoolK
 cpsType (S.TySum a b) = SumK <$> cpsType a <*> cpsType b
 cpsType (S.TyProd a b) = ProdK <$> cpsType a <*> cpsType b
 cpsType (S.TyArr a b) = (\a' b' -> FunK [a'] [b']) <$> cpsType a <*> cpsCoType b
-cpsType (S.TyList a) = ListK <$> cpsType a
 cpsType (S.TyConOcc (S.TyCon tc)) = pure (TyConOccK (TyCon tc))
 cpsType (S.TyApp a b) = TyAppK <$> cpsType a <*> cpsType b
 
@@ -118,12 +117,6 @@ cps S.TmNil k =
     (e', t') <- k x S.TyUnit
     let res = LetValK x UnitK NilK e'
     pure (res, t')
-cps (S.TmEmpty s) k =
-  freshTm "x" $ \x -> do
-    (e', t') <- k x (S.TyList s)
-    s' <- ListK <$> cpsType s
-    let res = LetValK x s' EmptyK e'
-    pure (res, t')
 cps (S.TmInt i) k =
   freshTm "x" $ \x -> do
     (e', t') <- k x S.TyInt
@@ -167,14 +160,6 @@ cps (S.TmPair e1 e2) k =
         (e', t') <- k x ty
         ty' <- cpsType ty
         let res = LetValK x ty' (PairK v1 v2) e'
-        pure (res, t')
-cps (S.TmCons s e1 e2) k =
-  cps e1 $ \v1 _t1 ->
-    cps e2 $ \v2 _t2 -> do
-      freshTm "x" $ \x -> do
-        ty' <- ListK <$> cpsType s
-        (e', t') <- k x (S.TyList s)
-        let res = LetValK x ty' (ConsK v1 v2) e'
         pure (res, t')
 cps (S.TmConcat e1 e2) k =
   cps e1 $ \v1 _t1 ->
@@ -257,20 +242,7 @@ cps (S.TmIf e s et ef) k =
         s' <- cpsType s
         (e', _t') <- k x s
         let kont = ContDef () j [(x, s')] e'
-        -- NOTE: ef, et is the correct order here.
-        -- This is because case branches are laid out in order of discriminant.
-        -- false = 0, true = 1, so the branches should be laid
-        -- out as false, true as opposed to the source order true, false.
         res <- cpsCase z t j [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
-        pure (LetContK [kont] res, s)
-cps (S.TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
-  cps e $ \z t -> do
-    freshCo "j" $ \j ->
-      freshTm "x" $ \x -> do
-        s' <- cpsType s
-        (e', _t') <- k x s
-        let kont = ContDef () j [(x, s')] e'
-        res <- cpsCase z t j [(S.Ctor "nil", [], en), (S.Ctor "cons", [(y, thd), (ys, ttl)], ec)]
         pure (LetContK [kont] res, s)
 cps (S.TmApp e1 e2) k =
   cps e1 $ \v1 t1 -> do
@@ -414,11 +386,6 @@ cpsTail S.TmNil k =
   freshTm "x" $ \x -> do
     let res = LetValK x UnitK NilK (JumpK k [x])
     pure (res, S.TyUnit)
-cpsTail (S.TmEmpty s) k =
-  freshTm "x" $ \x -> do
-    s' <- ListK <$> cpsType s
-    let res = LetValK x s' EmptyK (JumpK k [x])
-    pure (res, S.TyList s)
 cpsTail (S.TmInt i) k =
   freshTm "x" $ \x -> do
     let res = LetValK x IntK (IntValK i) (JumpK k [x])
@@ -454,13 +421,6 @@ cpsTail (S.TmPair e1 e2) k =
         ty' <- cpsType ty
         let res = LetValK x ty' (PairK v1 v2) (JumpK k [x])
         pure (res, ty)
-cpsTail (S.TmCons s e1 e2) k =
-  cps e1 $ \v1 _t1 ->
-    cps e2 $ \v2 _t2 -> do
-      freshTm "x" $ \x -> do
-        ty' <- ListK <$> cpsType s
-        let res = LetValK x ty' (ConsK v1 v2) (JumpK k [x])
-        pure (res, S.TyList s)
 cpsTail (S.TmConcat e1 e2) k =
   cps e1 $ \v1 _t1 ->
     cps e2 $ \v2 _t2 -> do
@@ -487,16 +447,7 @@ cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
     pure (res, s)
 cpsTail (S.TmIf e s et ef) k =
   cps e $ \z t -> do
-    -- NOTE: ef, et is the correct order here.
-    -- This is because case branches are laid out in order of discriminant.
-    -- false = 0, true = 1, so the branches should be laid
-    -- out as false, true as oppose to the source order true,
-    -- false.
     res <- cpsCase z t k [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
-    pure (res, s)
-cpsTail (S.TmCaseList e s en ((y, thd), (ys, ttl), ec)) k =
-  cps e $ \z t -> do
-    res <- cpsCase z t k [(S.Ctor "nil", [], en), (S.Ctor "cons", [(y, thd), (ys, ttl)], ec)]
     pure (res, s)
 cpsTail (S.TmApp e1 e2) k =
   cps e1 $ \f t1 ->

@@ -126,13 +126,6 @@ data Term
   | TmNegate Term
   -- e1 `cmp` e2
   | TmCmp Term TmCmp Term
-  -- TODO: Now that I have polymorphic data types, I should remove primitive lists
-  -- nil @a
-  | TmEmpty Type
-  -- cons @a x xs
-  | TmCons Type Term Term
-  -- case uncons e return s of nil -> e1; cons (y : t1) (ys : t2) -> e2
-  | TmCaseList Term Type Term ((TmVar, Type), (TmVar, Type), Term)
   -- \ @(a : k) -> e
   | TmTLam TyVar Kind Term
   -- e @s
@@ -141,7 +134,9 @@ data Term
   | TmString String
   -- s1 ^ s2
   | TmConcat Term Term
+  -- c
   | TmCtorOcc Ctor
+  -- case e return s of { (c_i (x:t)+ -> e_i')+ }
   | TmCase Term Type [(Ctor, [(TmVar, Type)], Term)]
 
 data TmArith
@@ -174,7 +169,6 @@ data Type
   | TyBool
   | TyVarOcc TyVar
   | TyAll TyVar Kind Type
-  | TyList Type
   | TyString
   | TyConOcc TyCon
   | TyApp Type Type
@@ -185,13 +179,11 @@ instance Eq Type where
 data TyConApp
   = CaseBool
   | CaseSum Type Type
-  | CaseList Type
   | TyConApp TyCon [Type]
 
 asTyConApp :: Type -> Maybe TyConApp
 asTyConApp TyBool = Just CaseBool
 asTyConApp (TySum t s) = Just (CaseSum t s)
-asTyConApp (TyList t) = Just (CaseList t)
 asTyConApp (TyConOcc tc) = Just (TyConApp tc [])
 asTyConApp (TyApp t s) = go t [s]
   where
@@ -203,7 +195,6 @@ asTyConApp _ = Nothing
 fromTyConApp :: TyConApp -> Type
 fromTyConApp CaseBool = TyBool
 fromTyConApp (CaseSum t s) = TySum t s
-fromTyConApp (CaseList t) = TyList t
 fromTyConApp (TyConApp tc tys) = foldl TyApp (TyConOcc tc) tys
 
 data Kind
@@ -255,8 +246,6 @@ eqType ae (TyApp arg1 ret1) (TyApp arg2 ret2) =
 eqType _ (TyApp _ _) _ = False
 eqType ae (TyAll x k1 t) (TyAll y k2 s) = k1 == k2 && eqType (bindAE x y ae) t s
 eqType _ (TyAll _ _ _) _ = False
-eqType ae (TyList a) (TyList b) = eqType ae a b
-eqType _ (TyList _) _ = False
 
 
 data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Type }
@@ -296,7 +285,6 @@ substType _ TyUnit = TyUnit
 substType _ TyBool = TyBool
 substType _ TyInt = TyInt
 substType _ TyString = TyString
-substType sub (TyList t) = TyList (substType sub t)
 substType sub (TyProd t1 t2) = TyProd (substType sub t1) (substType sub t2)
 substType sub (TySum t1 t2) = TySum (substType sub t1) (substType sub t2)
 substType sub (TyArr t1 t2) = TyArr (substType sub t1) (substType sub t2)
@@ -314,7 +302,6 @@ ftv TyUnit = Set.empty
 ftv TyBool = Set.empty
 ftv TyInt = Set.empty
 ftv TyString = Set.empty
-ftv (TyList t) = ftv t
 ftv (TyConOcc _) = Set.empty
 ftv (TyApp t1 t2) = ftv t1 <> ftv t2
 
@@ -336,7 +323,6 @@ pprintType _ (TyVarOcc x) = show x
 pprintType _ (TyConOcc c) = show c
 pprintType p (TyAll x ki t) =
   parensIf (p > 0) $ "forall (" ++ show x ++ " : " ++ pprintKind ki ++ "). " ++ pprintType 0 t
-pprintType p (TyList t) = parensIf (p > 7) $ "list " ++ pprintType 8 t
 
 -- TODO: Decide textual representation for kind of inhabited types: '*' is
 -- ambiguous with product.

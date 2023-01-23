@@ -183,12 +183,6 @@ infer (TmInr a b e) = do
   check e b
   pure (TySum a b)
 
-infer (TmEmpty t) = pure (TyList t)
-infer (TmCons t e1 e2) = do
-  check e1 t
-  check e2 (TyList t)
-  pure (TyList t)
-
 infer TmNil = pure TyUnit
 infer (TmPair e1 e2) = TyProd <$> infer e1 <*> infer e2
 infer (TmFst e) = do
@@ -222,9 +216,6 @@ infer (TmIf ec s et ef) = do
 infer (TmCaseSum e s (xl, tl, el) (xr, tr, er)) = do
   let alts = [(Ctor "inl", [(xl, tl)], el), (Ctor "inr", [(xr, tr)], er)]
   inferCase e s alts
-infer (TmCaseList e s enil ((xhead, thead), (xtail, ttail), econs)) = do
-  let alts = [(Ctor "nil", [], enil), (Ctor "cons", [(xhead, thead), (xtail, ttail)], econs)]
-  inferCase e s alts
 infer (TmCase e s alts) = inferCase e s alts
 
 -- | Infer the type of a case analysis.
@@ -250,7 +241,6 @@ instantiateTyConApp :: TyConApp -> TC (Map Ctor [Type])
 instantiateTyConApp tcapp = case tcapp of
   CaseBool -> pure $ Map.fromList [(Ctor "false", []), (Ctor "true", [])]
   CaseSum t s -> pure $ Map.fromList [(Ctor "inl", [t]), (Ctor "inr", [s])]
-  CaseList t -> pure $ Map.fromList [(Ctor "nil", []), (Ctor "cons", [t, TyList t])]
   TyConApp tc args -> do
     DataDecl _ params ctors <- lookupTyCon tc
     let sub = makeSubst (zipWith (\ (aa, _) t -> (aa, t)) params args)
@@ -286,7 +276,6 @@ inferType TyUnit = pure KiStar
 inferType TyInt = pure KiStar
 inferType TyString = pure KiStar
 inferType TyBool = pure KiStar
-inferType (TyList t) = checkType t KiStar *> pure KiStar
 inferType (TySum t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 inferType (TyProd t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 inferType (TyArr t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
