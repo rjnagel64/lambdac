@@ -5,11 +5,7 @@ just hard-code do-notation for IO monad (no desugaring to bind/return)
 add some primitives for get and put
 
 
-TODO: think about how the CPS translation looks. It shouldn't be too bad,
-especially because we avoid desugaring, so there's an implicit straight-line
-continuation from the do-notation.
-
-
+Original formulation: bind expression in command {{{
 
 t ::= ... | IO t
 e ::= ... | do {c} | getLine | putLine
@@ -110,6 +106,7 @@ let fun f (s : State#) (k' : (State#, unit) -> !) =
 in
 k f
 
+}}}
 
 
 
@@ -122,7 +119,7 @@ Could be interesting, but almost effect-system-ish, which is a *bit* too
 complicated for a MVP implementation of I/O subsystem
 
 
-Revised formulation: bind command, not expr: {{{
+Revised formulation: bind command in command: {{{
 
 Syntax extensions:
 
@@ -302,3 +299,5 @@ This only permits one continuation (but iocall could also exist cf. let versus
 case one branch), but does not require building and invoking a continuation
 closure, along with further opportunities for straight-line code (since
 do-blocks often contain long sequences of commands)
+
+-- vim: set fdm=marker fmr={{{,}}} fdl=0:
