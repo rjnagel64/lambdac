@@ -7,6 +7,8 @@ add some primitives for get and put
 
 Original formulation: bind expression in command {{{
 
+### Syntax extensions:
+
 t ::= ... | IO t
 e ::= ... | do {c} | getLine | putLine
 c ::= pure e | x <- e; c
@@ -18,6 +20,9 @@ Judgments:
 Γ |- t : k
 Γ |- e : t
 Γ |- c : IO t
+
+Note: 'Γ |- c : IO t' means "in typing context Γ, the command 'c' uses IO to
+produce a result of type 't'".
 
 
 Γ |- t : *
@@ -107,7 +112,6 @@ in
 k f
 
 }}}
-
 
 
 Random idea: separate 'IO t' (side effect to produce value) from 'Eff' (side effect only)
@@ -299,5 +303,63 @@ This only permits one continuation (but iocall could also exist cf. let versus
 case one branch), but does not require building and invoking a continuation
 closure, along with further opportunities for straight-line code (since
 do-blocks often contain long sequences of commands)
+
+
+
+2023-01-23:
+Upon reflection, I do not think I can/should avoid the redex created when
+embedding 'e : IO t' in a command. A `do {c}` block is like an `IO`
+constructor, and the embedding is like applying a `runIO` observation.
+
+However, in analogous cases like `fst (x, y)` or `(\x -> x) 17`, I do not
+reduce those redexes when performing CPS translation. Therefore, I should not
+reduce `runIO (IO (\s k -> ...)) s' k'` either.
+
+Therefore, version 3: the 'bind' statement pulls from an expression, but
+'getLine' and 'putLine' are primitive commands (not expressions like in the
+original formulation)
+
+Version 3: {{{
+
+t ::= ... | IO t
+e ::= ... | do {c}
+c ::= pure e | x <- e; c | putLine e | getLine e
+
+Problem: do { s <- do {getLine ()}; u <- do {putLine s}; pure u } involves
+multiple switches between command and expression (and therefore extra redexes).
+
+}}}
+
+Hmm. Remember, the goal is to get the minimum viable functionality implemented.
+Administrative redexes are basically fine, and can be eliminated in the future.
+
+Simplest possible translation: {{{
+
+t ::= ... | IO t
+e ::= ... | pure e | let x : t <- e1 in e2 | putLine e | getLine e
+
+CPS[pure e] k = CPS[e] (λ (x : t) -> fun (s : State#) (k : (State#, t) -> !) => k s x)
+CPS[let x : t <- e1 in e2] k =
+  CPS[e1] (λ (m : IO u) ->
+    (fun (s : State#) (k2 : (State#, t) -> !) =>
+     m s (cont (s2 : State#, x : u) =>
+          CPS[e2] (λ (m2 : IO t) -> m2 s2 k2))))
+CPS[putLine e] k =
+  CPS[e] (λ (x : string) -> fun (s : State#) (k : (State#, unit) -> !) => iocall "putLine" s x k)
+CPS[getLine e] k =
+  CPS[e] (λ (x : unit) -> fun (s : State#) (k : (State#, string) -> !) => iocall "getLine" s x k)
+
+
+The entry point of a program now needs to be altered: to supply the initial
+state token and to extract the result.
+
+cpsMain[e] =
+  CPS[e] (λ (m : IO t) -> let s0 : State# = WORLD in m s0 (cont (sf : State#, x : t) => halt @t x)
+
+idea: temporarily, instead of the entry point being a plain expression, have it
+be either 'eval e' (e :: t) or 'exec e' (e :: IO t) to decide which cpsMain to invoke
+(This allows me to not break all my tests, but is not terribly elegant.)
+
+}}}
 
 -- vim: set fdm=marker fmr={{{,}}} fdl=0:
