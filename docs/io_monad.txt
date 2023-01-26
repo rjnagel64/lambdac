@@ -335,26 +335,41 @@ Administrative redexes are basically fine, and can be eliminated in the future.
 
 Simplest possible translation: {{{
 
+Source:
 t ::= ... | IO t
-e ::= ... | pure e | let x : t <- e1 in e2 | putLine e | getLine e
+e ::= ... | pure e | let x : t <- e1 in e2 | putLine e | getLine
 
-CPS[pure e] k = CPS[e] (λ (x : t) -> fun (s : State#) (k : (State#, t) -> !) => k s x)
+CPS:
+t ::= ... | token#
+e ::= ... | let s:token#, x:t <- io_op in e
+v ::= ... | WORLD
+io_op ::= getLine s | putLine s x
+
+Note: 'let s, x <- io_op in e' is necessary. It cannot be simplified to
+'getLine s k'/'putLine s x k' because I haven't figured out how to deal with
+the thunk types used by io primitives. (The IO primitives are part of the RTS and
+call 'suspend_TS'/'suspend_TU', but where are those suspend methods defined? It
+gets messy.)
+
+
+CPS[pure e] k = CPS[e] (λ (x : t) -> k (fun (s : token#) (k2 : (token#, t) -> !) => k2 s x))
 CPS[let x : t <- e1 in e2] k =
   CPS[e1] (λ (m : IO u) ->
-    (fun (s : State#) (k2 : (State#, t) -> !) =>
-     m s (cont (s2 : State#, x : u) =>
+    (fun (s : token#) (k2 : (token#, t) -> !) =>
+     m s (cont (s2 : token#, x : u) =>
           CPS[e2] (λ (m2 : IO t) -> m2 s2 k2))))
 CPS[putLine e] k =
-  CPS[e] (λ (x : string) -> fun (s : State#) (k : (State#, unit) -> !) => iocall "putLine" s x k)
-CPS[getLine e] k =
-  CPS[e] (λ (x : unit) -> fun (s : State#) (k : (State#, string) -> !) => iocall "getLine" s x k)
+  CPS[e] (λ (x : string) ->
+    k (fun (s : token#) (k2 : (token#, unit) -> !) => let s2, u <- putLine x s in k2 s2 u))
+CPS[getLine] k =
+  k (fun (s : token#) (k2 : (token#, string) -> !) => let s2, x <- getLine s in k2 s2 x)
 
 
 The entry point of a program now needs to be altered: to supply the initial
 state token and to extract the result.
 
 cpsMain[e] =
-  CPS[e] (λ (m : IO t) -> let s0 : State# = WORLD in m s0 (cont (sf : State#, x : t) => halt @t x)
+  CPS[e] (λ (m : IO t) -> let s0 : token# = WORLD in m s0 (cont (sf : token#, x : t) => halt @t x)
 
 idea: temporarily, instead of the entry point being a plain expression, have it
 be either 'eval e' (e :: t) or 'exec e' (e :: IO t) to decide which cpsMain to invoke
