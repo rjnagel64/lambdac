@@ -1,7 +1,6 @@
 
 module Emit
     ( emitProgram
-
     ) where
 
 import Data.Function (on)
@@ -216,6 +215,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes (mainL
     termThunkTypes (_, env) (CaseH _ _ alts) = Set.fromList [env Map.! k | (_, k) <- alts]
     termThunkTypes (lbl, env) (LetValH _ _ e) = termThunkTypes (lbl, env) e
     termThunkTypes (lbl, env) (LetPrimH _ _ e) = termThunkTypes (lbl, env) e
+    termThunkTypes (lbl, env) (LetBindH _ _ prim e) = termThunkTypes (lbl, env) e
     termThunkTypes (lbl, env) (LetProjectH _ _ _ e) = termThunkTypes (lbl, env) e
     termThunkTypes (lbl, env) (AllocClosure cs e) =
       termThunkTypes (lbl, foldr add env cs) e
@@ -499,6 +499,11 @@ emitTerm denv tenv envp (LetProjectH x y ProjectSnd e) =
 emitTerm denv tenv envp (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp envp p ++ ";"] ++
   emitTerm denv tenv envp e
+emitTerm denv tenv envp (LetBindH p1 p2 prim e) =
+  ["    " ++ emitPlace p1 ++ ";"
+  ,"    " ++ emitPlace p2 ++ ";"
+  ,"    " ++ emitPrimIO envp prim p1 p2 ++ ";"] ++
+  emitTerm denv tenv envp e
 emitTerm denv tenv envp (AllocClosure cs e) =
   emitClosureGroup envp cs ++
   let tenv' = extendThunkEnv tenv cs in
@@ -679,6 +684,12 @@ emitPrimOp envp (PrimGtInt64 x y) = emitPrimCall envp "prim_gtint64" [x, y]
 emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
 emitPrimOp envp (PrimConcatenate x y) = emitPrimCall envp "prim_concatenate" [x, y]
 emitPrimOp envp (PrimStrlen x) = emitPrimCall envp "prim_strlen" [x]
+
+emitPrimIO :: EnvPtr -> PrimIO -> Place -> Place -> String
+emitPrimIO envp (PrimGetLine x) p1 p2 =
+  "prim_getLine(" ++ commaSep [show x, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
+emitPrimIO envp (PrimPutLine x y) p1 p2 = 
+  "prim_putLine(" ++ commaSep [show x, show y, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
 
 emitPrimCall :: EnvPtr -> String -> [Name] -> String
 emitPrimCall envp fn xs = emitBuiltinCall envp (Id fn) xs

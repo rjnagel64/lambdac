@@ -71,7 +71,10 @@ struct unit *allocate_unit(void);
 
 struct string_value {
     struct alloc_header header;
+    // Invariant: this->len == strlen(this->contents)
     uint64_t len;
+    // Invariant: this->contents is a null-terminated array of characters.
+    // (question for the future: character encoding is ASCII or UTF-8?)
     // Note: I use a flexible array member here, rather than having 'char
     // *contents' because GC values cannot take ownership of their fields.
     // More specifically, because I do not have a notion of GC finalizers, I
@@ -113,5 +116,10 @@ struct vbool *prim_geint64(struct int64_value *x, struct int64_value *y);
 // Primitive operators on strings
 struct string_value *prim_concatenate(struct string_value *x, struct string_value *y);
 struct int64_value *prim_strlen(struct string_value *x);
+
+// IO primitives
+// Note: I/O primitives desparately need better error handling strategies.
+void prim_getLine(struct token *x, struct token **out_x, struct string_value **out_y);
+void prim_putLine(struct token *x, struct string_value *msg, struct token **out_x, struct unit **out_y);
 
 #endif

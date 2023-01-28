@@ -42,6 +42,7 @@ module Hoist.IR
     , ValueH(..)
     , CtorAppH(..)
     , PrimOp(..)
+    , PrimIO(..)
 
 
     , Program(..)
@@ -211,6 +212,8 @@ data TermH
   = LetValH Place ValueH TermH
   -- 'let z : bool = prim_int64gt(x, y) in e'
   | LetPrimH Place PrimOp TermH
+  -- 'let s1 : token#, x : t <- prim_putLine(s0, msg) in e'
+  | LetBindH Place Place PrimIO TermH
   -- 'let x : int64 = y .fst in e'
   | LetProjectH Place Name Projection TermH
   -- 'halt @bool x'
@@ -272,6 +275,10 @@ data PrimOp
   | PrimGeInt64 Name Name
   | PrimConcatenate Name Name
   | PrimStrlen Name
+
+data PrimIO
+  = PrimGetLine Name
+  | PrimPutLine Name Name
 
 
 
@@ -487,6 +494,9 @@ pprintTerm n (LetProjectH x y p e) =
     proj ProjectSnd = "snd"
 pprintTerm n (LetPrimH x p e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintPrim p ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetBindH p1 p2 prim e) =
+  indent n ("let " ++ ps ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
+  where ps = pprintPlace p1 ++ ", " ++ pprintPlace p2
 pprintTerm n (AllocClosure cs e) =
   indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
 
@@ -521,6 +531,10 @@ pprintPrim (PrimGtInt64 x y) = "prim_gtint64(" ++ show x ++ ", " ++ show y ++ ")
 pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimConcatenate x y) = "prim_concatenate(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimStrlen x) = "prim_strlen(" ++ show x ++ ")"
+
+pprintPrimIO :: PrimIO -> String
+pprintPrimIO (PrimGetLine x) = "prim_getLine(" ++ show x ++ ")"
+pprintPrimIO (PrimPutLine x y) = "prim_putLine(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintPlace :: Place -> String
 pprintPlace (Place s x) = show x ++ " : " ++ pprintSort s

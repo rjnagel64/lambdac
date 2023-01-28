@@ -277,3 +277,21 @@ struct string_value *prim_concatenate(struct string_value *x, struct string_valu
 struct int64_value *prim_strlen(struct string_value *x) {
     return allocate_int64(x->len);
 }
+
+void prim_getLine(struct token *x, struct token **out_x, struct string_value **out_y) {
+    // Eeurgh. C I/O routines.
+
+    // 512 bytes per line is enough for anyone, right????
+    // If the line is >=512 bytes, the first 511 and a null terminator will be placed in 'buf'.
+    //
+    static char buf[512];
+    fgets(buf, sizeof(buf), stdin); // I should really detect error conditions here.
+    *out_x = x;
+    *out_y = allocate_string(buf);
+}
+
+void prim_putLine(struct token *x, struct string_value *msg, struct token **out_x, struct unit **out_y) {
+    printf("%s\n", msg->contents);
+    *out_x = x;
+    *out_y = allocate_unit();
+}

@@ -237,6 +237,11 @@ checkTerm (LetPrimH p prim e) = do
   s <- checkPrimOp prim
   equalSorts (placeSort p) s
   withPlace p $ checkTerm e
+checkTerm (LetBindH p1 p2 prim e) = do
+  s <- checkPrimIO prim
+  equalSorts (placeSort p1) TokenH
+  equalSorts (placeSort p2) s
+  withPlace p1 $ withPlace p2 $ checkTerm e
 checkTerm (LetProjectH p x proj e) = do
   s <- lookupName x
   case (s, proj) of
@@ -331,6 +336,10 @@ checkPrimOp (PrimGtInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> 
 checkPrimOp (PrimGeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
 checkPrimOp (PrimConcatenate x y) = checkName x StringH *> checkName y StringH *> pure StringH
 checkPrimOp (PrimStrlen x) = checkName x StringH *> pure IntegerH
+
+checkPrimIO :: PrimIO -> TC Sort
+checkPrimIO (PrimGetLine x) = checkName x TokenH *> pure StringH
+checkPrimIO (PrimPutLine x y) = checkName x TokenH *> checkName y StringH *> pure UnitH
 
 -- | Check that a value has the given sort.
 checkValue :: ValueH -> Sort -> TC ()
