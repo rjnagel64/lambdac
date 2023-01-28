@@ -185,6 +185,21 @@ struct string_value *allocate_string(char *contents) {
     return s;
 }
 
+void trace_token(struct alloc_header *alloc) {
+}
+
+void display_token(struct alloc_header *alloc, struct string_buf *sb) {
+    string_buf_push(sb, "WORLD#");
+}
+
+const type_info token_info = { trace_token, display_token };
+
+struct token *allocate_token(void) {
+    struct token *n = malloc(sizeof(struct token));
+    cons_new_alloc(AS_ALLOC(n), &token_info);
+    return n;
+}
+
 struct int64_value *prim_addint64(struct int64_value *x, struct int64_value *y) {
     return allocate_int64(x->value + y->value);
 }

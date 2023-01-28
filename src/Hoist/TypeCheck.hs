@@ -344,6 +344,8 @@ checkValue (PairH x y) (ProductH s t) = do
 checkValue (PairH _ _) _ = throwError BadValue
 checkValue (StringValH _) StringH = pure ()
 checkValue (StringValH _) _ = throwError BadValue
+checkValue WorldToken TokenH = pure ()
+checkValue WorldToken _ = throwError BadValue
 checkValue (CtorAppH capp) s = case asTyConApp s of
   Nothing -> throwError BadCtorApp
   Just tcapp -> checkCtorApp capp tcapp
@@ -412,6 +414,7 @@ inferSort UnitH = pure Star
 inferSort IntegerH = pure Star
 inferSort BooleanH = pure Star
 inferSort StringH = pure Star
+inferSort TokenH = pure Star
 inferSort (ProductH t s) = checkSort t Star *> checkSort s Star *> pure Star
 inferSort (SumH t s) = checkSort t Star *> checkSort s Star *> pure Star
 inferSort (ClosureH tele) = checkTele tele *> pure Star

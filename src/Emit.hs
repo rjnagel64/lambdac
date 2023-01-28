@@ -116,6 +116,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     tycode BooleanH = "B"
     tycode StringH = "T"
     tycode UnitH = "U"
+    tycode TokenH = "K"
     -- In C, polymorphic types are represented uniformly.
     -- For example, 'list int64' and 'list (aa * bool)' are both represented
     -- using a 'struct list_val *' value. Therefore, when encoding a thunk type
@@ -156,6 +157,7 @@ typeForSort StringH = "struct string_value *"
 typeForSort (ProductH _ _) = "struct pair *"
 typeForSort UnitH = "struct unit *"
 typeForSort BooleanH = "struct vbool *"
+typeForSort TokenH = "struct token *"
 typeForSort (SumH _ _) = "struct sum *"
 typeForSort (TyConH tc) = "struct " ++ show tc ++ " *"
 typeForSort (TyAppH t _) = typeForSort t
@@ -169,6 +171,7 @@ asSort BooleanH x = "CAST_bool(" ++ x ++ ")"
 asSort (ProductH _ _) x = "CAST_PAIR(" ++ x ++ ")"
 asSort (SumH _ _) x = "CAST_sum(" ++ x ++ ")"
 asSort UnitH x = "CAST_UNIT(" ++ x ++ ")"
+asSort TokenH x = "CAST_TOKEN(" ++ x ++ ")"
 asSort (TyAppH t _) x = asSort t x
 asSort (TyConH tc) x = "CAST_" ++ show tc ++ "(" ++ x ++ ")"
 
@@ -180,6 +183,8 @@ asAlloc x = "AS_ALLOC(" ++ x ++ ")"
 codeDeclType :: CodeDecl -> ThunkType
 codeDeclType decl = teleThunkType (codeDeclTele decl)
 
+-- | Compute the set of thunk types (calling conventions) used by a program, so
+-- that appropriate support code can be generated.
 programThunkTypes :: Program -> Set ThunkType
 programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes (mainLbl, mainEnv) mainExpr
   where
@@ -205,6 +210,8 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes (mainL
           _ -> tmp
 
     termThunkTypes (_, _) (HaltH _ _) = Set.empty
+    -- Closure invocations and case analysis suspend a closure, so the
+    -- necessary thunk type must be recorded.
     termThunkTypes (_, env) (OpenH c _) = Set.singleton (env Map.! c)
     termThunkTypes (_, env) (CaseH _ _ alts) = Set.fromList [env Map.! k | (_, k) <- alts]
     termThunkTypes (lbl, env) (LetValH _ _ e) = termThunkTypes (lbl, env) e
@@ -546,6 +553,7 @@ emitValueAlloc _ _ _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
 emitValueAlloc _ envp _ (PairH x y) =
   "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ _ _ NilH = "allocate_unit()"
+emitValueAlloc _ _ _ WorldToken = "allocate_token()"
 emitValueAlloc denv envp ty (CtorAppH capp) =
   case asTyConApp ty of
     Nothing -> error "not a constructed type"

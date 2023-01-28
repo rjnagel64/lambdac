@@ -88,6 +88,14 @@ struct string_value *allocate_string(char *contents);
 
 #define CAST_STRING(v) ((struct string_value *)(v))
 
+struct token {
+    struct alloc_header header;
+};
+
+struct token *allocate_token(void);
+
+#define CAST_TOKEN(v) ((struct token *)(v))
+
 // Primitive operators on integers: arithmetic
 struct int64_value *prim_addint64(struct int64_value *x, struct int64_value *y);
 struct int64_value *prim_subint64(struct int64_value *x, struct int64_value *y);

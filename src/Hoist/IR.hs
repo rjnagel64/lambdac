@@ -129,7 +129,6 @@ codeDeclTele (CodeDecl _ _ params _) = ClosureTele (map f params)
     f (PlaceParam p) = ValueTele (placeSort p)
     f (TypeParam aa k) = TypeTele aa k
 
--- Hmm. EnvDecl does not need field names for the captured (singleton) types.
 data EnvDecl = EnvDecl [(TyVar, Kind)] [Place]
 
 data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
@@ -160,10 +159,10 @@ data Sort
   | StringH
   | ProductH Sort Sort
   | SumH Sort Sort
-  -- | ListH Sort
   | ClosureH ClosureTele
   | TyConH TyCon
   | TyAppH Sort Sort
+  | TokenH
 
 -- It's a bit unfortunate, but I do need to have separate telescopes for
 -- parameters and types. The difference is that parameters need names for each
@@ -251,6 +250,7 @@ data ValueH
   | StringValH String
   | PairH Name Name
   | NilH
+  | WorldToken
   | CtorAppH CtorAppH
 
 data CtorAppH
@@ -308,6 +308,7 @@ ftv UnitH = mempty
 ftv IntegerH = mempty
 ftv BooleanH = mempty
 ftv StringH = mempty
+ftv TokenH = mempty
 ftv (ProductH t s) = ftv t <> ftv s
 ftv (SumH t s) = ftv t <> ftv s
 ftv (TyAppH t s) = ftv t <> ftv s
@@ -352,6 +353,8 @@ equalSort _ UnitH UnitH = True
 equalSort _ UnitH _ = False
 equalSort _ StringH StringH = True
 equalSort _ StringH _ = False
+equalSort _ TokenH TokenH = True
+equalSort _ TokenH _ = False
 equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
 equalSort _ (ProductH _ _) _ = False
 equalSort ae (SumH s1 s2) (SumH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
@@ -418,6 +421,7 @@ substSort _ IntegerH = IntegerH
 substSort _ BooleanH = BooleanH
 substSort _ UnitH = UnitH
 substSort _ StringH = StringH
+substSort _ TokenH = TokenH
 substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
 substSort sub (SumH s t) = SumH (substSort sub s) (substSort sub t)
 substSort sub (TyAppH s t) = TyAppH (substSort sub s) (substSort sub t)
@@ -495,6 +499,7 @@ pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue NilH = "()"
 pprintValue (IntH i) = show i
 pprintValue (StringValH s) = show s
+pprintValue WorldToken = "WORLD#"
 pprintValue (CtorAppH capp) = pprintCtorApp capp
 
 pprintCtorApp :: CtorAppH -> String
@@ -540,6 +545,7 @@ pprintSort IntegerH = "int"
 pprintSort BooleanH = "bool"
 pprintSort UnitH = "unit"
 pprintSort StringH = "string"
+pprintSort TokenH = "token#"
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (SumH t s) = "sum " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (TyAppH t s) = pprintSort t ++ " " ++ pprintSort s
