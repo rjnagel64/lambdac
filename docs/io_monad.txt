@@ -341,23 +341,32 @@ e ::= ... | pure e | let x : t <- e1 in e2 | putLine e | getLine
 
 CPS:
 t ::= ... | token#
-e ::= ... | let s:token#, x:t <- io_op in e
+e ::= ... | let s, x <- getLine y in e | let s, u <- putLine x y in e
 v ::= ... | WORLD
-io_op ::= getLine s | putLine s x
 
 Note: 'let s, x <- io_op in e' is necessary. It cannot be simplified to
 'getLine s k'/'putLine s x k' because I haven't figured out how to deal with
 the thunk types used by io primitives. (The IO primitives are part of the RTS and
 call 'suspend_TS'/'suspend_TU', but where are those suspend methods defined? It
 gets messy.)
+(Actually, 'programThunkTypes' can now easily be modified to do this. I just
+need to implement that.)
 
 
 CPS[pure e] k = CPS[e] (λ (x : t) -> k (fun (s : token#) (k2 : (token#, t) -> !) => k2 s x))
-CPS[let x : t <- e1 in e2] k =
+CPS[let x : u <- e1 in e2] k =
   CPS[e1] (λ (m : IO u) ->
     (fun (s : token#) (k2 : (token#, t) -> !) =>
      m s (cont (s2 : token#, x : u) =>
           CPS[e2] (λ (m2 : IO t) -> m2 s2 k2))))
+  = CPS[e1] (λ (m1 : IO u) ->
+    let fun f (s1 : token#) (k2 : (token#, t) -> !) =
+      let cont k1 (s2 : token#, x : u) =>
+        CPS[e2] (λ (m2 : IO t) -> m2 s2 k2)
+      in
+      m1 s1 k1
+    in
+    k f)
 CPS[putLine e] k =
   CPS[e] (λ (x : string) ->
     k (fun (s : token#) (k2 : (token#, unit) -> !) => let s2, u <- putLine x s in k2 s2 u))
@@ -375,6 +384,22 @@ idea: temporarily, instead of the entry point being a plain expression, have it
 be either 'eval e' (e :: t) or 'exec e' (e :: IO t) to decide which cpsMain to invoke
 (This allows me to not break all my tests, but is not terribly elegant.)
 
+
+Comparison: CPS of monadic let vs pure let: {{{
+
+CPS[let x : t <- e1 in e2] k =
+  k (fun (s1 : State#, k2 : (State#, u) -> !) =>
+    let cont k1 (s2 : State#, x : t) =
+      CPS[e2] (λ (m2 : IO u) -> m2 s2 k2)
+    in
+    CPS[e1] (λ (m1 : IO t) -> m1 s1 k1))
+
+CPS[let x : t = e1 in e2] k =
+  let cont j (x : t) = CPS[e2] k in
+  CPS[e1] j
+
 }}}
 
--- vim: set fdm=marker fmr={{{,}}} fdl=0:
+}}}
+
+-- vim: set et sts=2 sw=2 fdm=marker fmr={{{,}}} fdl=0:

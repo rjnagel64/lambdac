@@ -75,6 +75,7 @@ cpsType (S.TyProd a b) = ProdK <$> cpsType a <*> cpsType b
 cpsType (S.TyArr a b) = (\a' b' -> FunK [a'] [b']) <$> cpsType a <*> cpsCoType b
 cpsType (S.TyConOcc (S.TyCon tc)) = pure (TyConOccK (TyCon tc))
 cpsType (S.TyApp a b) = TyAppK <$> cpsType a <*> cpsType b
+cpsType (S.TyIO a) = (\a' -> FunK [TokenK] [ContK [TokenK, a']]) <$> cpsType a
 
 cpsCoType :: S.Type -> CPS CoTypeK
 cpsCoType s = (\s' -> ContK [s']) <$> cpsType s
@@ -298,6 +299,37 @@ cps (S.TmCase e s alts) k =
         let kont = ContDef () j [(x, s')] e'
         res <- cpsCase z t j alts
         pure (LetContK [kont] res, s)
+-- cps (S.TmPure e) k =
+--   -- let fun f (s : token#) (k2 : (token#, t) -> !) = k2 s z; in k f
+--   cps e $ \z t ->
+--     freshTm "f" $ \f ->
+--       fun <- do
+--         freshTm "s" $ \s ->
+--           freshCo "k" $ \k' -> do
+--             let body = JumpK k' [s, x]
+--             let fun = FunDef () f [(s, TokenK)] [(k', ContK [TokenK, t])] body
+--             pure fun
+--       (e', t') <- k (funDefName fun)
+--       let res = LetFunK [fun] e'
+--       pure (res, t')
+-- cps (S.TmBind x t e1 e2) k = do
+--   -- Hmm. I'm really not sure how to implement this translation properly
+--   -- In particular, the location of the calls to cps, the construction of the
+--   -- contdef and fundef, etc.
+--   freshTm "f" $ \f -> do
+--     fun <- do
+--       freshTm "s" $ \s1 ->
+--         freshCo "k" $ \k1 -> do
+--           -- Construct a contdef
+--           -- CPS e1 with metacont: apply s1 and contdef
+--           -- contdef contains CPS e2
+--           -- Construct fundef for all of this
+--           -- pass fun value to cont
+--           _
+--           pure $ FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, _])] _e
+--     (e', t') <- k (funDefName fun)
+--     let res = LetFunK [fun] e'
+--     pure (res, t')
 
 cpsFun :: S.TmFun -> CPS (FunDef ())
 cpsFun (S.TmFun f x t s e) =

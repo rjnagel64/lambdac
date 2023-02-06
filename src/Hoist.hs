@@ -52,6 +52,7 @@ sortOf :: C.Sort -> Sort
 sortOf C.Integer = IntegerH
 sortOf C.Boolean = BooleanH
 sortOf C.Unit = UnitH
+sortOf C.Token = TokenH
 sortOf C.String = StringH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.Sum t s) = SumH (sortOf t) (sortOf s)
@@ -176,6 +177,10 @@ hoist (C.LetConcatC (x, s) y z e) = do
   op' <- PrimConcatenate <$> hoistVarOcc y <*> hoistVarOcc z
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' op' e')
+hoist (C.LetBindC (x1, s1) (x2, s2) prim e) = do
+  prim' <- hoistPrimIO prim
+  (x1', (x2', e')) <- withPlace x1 s1 $ withPlace x2 s2 $ hoist e
+  pure (LetBindH x1' x2' prim' e')
 hoist (C.LetFunC fs e) = do
   let
     (fbinds, fs') = unzip $ map (\def@(C.FunClosureDef f _ _ _) -> 
@@ -265,6 +270,7 @@ hoistValue (C.BoolC b) = pure (CtorAppH (BoolH b))
 hoistValue (C.PairC x y) =
   PairH <$> hoistVarOcc x <*> hoistVarOcc y
 hoistValue C.NilC = pure NilH
+hoistValue C.WorldTokenC = pure WorldToken
 hoistValue (C.InlC x) = (CtorAppH . InlH) <$> hoistVarOcc x
 hoistValue (C.InrC x) = (CtorAppH . InrH) <$> hoistVarOcc x
 hoistValue (C.StringC s) = pure (StringValH s)
@@ -283,6 +289,10 @@ hoistCmp (C.LtC x y) = PrimLtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (C.LeC x y) = PrimLeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (C.GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (C.GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+
+hoistPrimIO :: C.PrimIO -> HoistM PrimIO
+hoistPrimIO (C.GetLineC x) = PrimGetLine <$> hoistVarOcc x
+hoistPrimIO (C.PutLineC x y) = PrimPutLine <$> hoistVarOcc x <*> hoistVarOcc y
 
 
 nameClosureCode :: C.Name -> HoistM CodeLabel

@@ -138,6 +138,14 @@ data Term
   | TmCtorOcc Ctor
   -- case e return s of { (c_i (x:t)+ -> e_i')+ }
   | TmCase Term Type [(Ctor, [(TmVar, Type)], Term)]
+  -- -- pure e
+  -- | TmPure Term
+  -- -- let x : t <- e1 in e2
+  -- | TmBind TmVar Type Term Term
+  -- -- getLine
+  -- | TmGetLine
+  -- -- putLine e
+  -- | TmPutLine Term
 
 data TmArith
   = TmArithAdd
@@ -172,6 +180,7 @@ data Type
   | TyString
   | TyConOcc TyCon
   | TyApp Type Type
+  | TyIO Type
 
 instance Eq Type where
   (==) = eqType emptyAE
@@ -244,6 +253,9 @@ eqType _ (TyArr _ _) _ = False
 eqType ae (TyApp arg1 ret1) (TyApp arg2 ret2) =
   eqType ae arg1 arg2 && eqType ae ret1 ret2
 eqType _ (TyApp _ _) _ = False
+eqType ae (TyIO arg1) (TyIO arg2) =
+  eqType ae arg1 arg2
+eqType _ (TyIO _) _ = False
 eqType ae (TyAll x k1 t) (TyAll y k2 s) = k1 == k2 && eqType (bindAE x y ae) t s
 eqType _ (TyAll _ _ _) _ = False
 
@@ -289,6 +301,7 @@ substType sub (TyProd t1 t2) = TyProd (substType sub t1) (substType sub t2)
 substType sub (TySum t1 t2) = TySum (substType sub t1) (substType sub t2)
 substType sub (TyArr t1 t2) = TyArr (substType sub t1) (substType sub t2)
 substType sub (TyApp t1 t2) = TyApp (substType sub t1) (substType sub t2)
+substType sub (TyIO t1) = TyIO (substType sub t1)
 substType _ (TyConOcc tc) = TyConOcc tc
 
 -- | Compute the free type variables of a type
@@ -304,6 +317,7 @@ ftv TyInt = Set.empty
 ftv TyString = Set.empty
 ftv (TyConOcc _) = Set.empty
 ftv (TyApp t1 t2) = ftv t1 <> ftv t2
+ftv (TyIO t1) = ftv t1
 
 -- something something showsPrec
 pprintType :: Int -> Type -> String
@@ -319,6 +333,7 @@ pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ ppr
 pprintType p (TySum t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " + " ++ pprintType 6 t2
 -- infixl 10 __
 pprintType p (TyApp t1 t2) = parensIf (p > 10) $ pprintType 10 t1 ++ " " ++ pprintType 11 t2
+pprintType p (TyIO t1) = parensIf (p > 10) $ "IO " ++ pprintType 11 t1
 pprintType _ (TyVarOcc x) = show x
 pprintType _ (TyConOcc c) = show c
 pprintType p (TyAll x ki t) =

@@ -14,6 +14,7 @@ module CC.IR
   , ValueC(..)
   , ArithC(..)
   , CmpC(..)
+  , PrimIO(..)
   , Argument(..)
   , CaseKind(..)
   , FunClosureDef(..)
@@ -115,9 +116,9 @@ data Sort
   | Pair Sort Sort
   | Unit
   | Boolean
-  -- | List Sort
   | TyConOcc TyCon
   | TyApp Sort Sort
+  | Token
 
 data TeleEntry
   = ValueTele Sort
@@ -143,6 +144,7 @@ data TermC
   | LetSndC (Name, Sort) Name TermC
   | LetArithC (Name, Sort) ArithC TermC
   | LetCompareC (Name, Sort) CmpC TermC
+  | LetBindC (Name, Sort) (Name, Sort) PrimIO TermC
   | LetConcatC (Name, Sort) Name Name TermC -- let x = y ++ z in e, concatenation
   | LetFunC [FunClosureDef] TermC
   | LetContC [(Name, ContClosureDef)] TermC
@@ -172,6 +174,10 @@ data CmpC
   | LeC Name Name
   | GtC Name Name
   | GeC Name Name
+
+data PrimIO
+  = GetLineC Name
+  | PutLineC Name Name
 
 -- | A function definition, @f {aa+; x+} y+ k+ = e@.
 -- Both type and term parameters are permitted in the parameter list.
@@ -225,6 +231,7 @@ data EnvDef
 data ValueC
   = PairC Name Name
   | NilC
+  | WorldTokenC
   | InlC Name
   | InrC Name
   | IntC Int
@@ -276,6 +283,8 @@ pprintTerm n (LetCompareC x cmp e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetConcatC x y z e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ show y ++ " ++ " ++ show z ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetBindC x y prim e) =
+  indent n ("let " ++ pprintPlace x ++ ", " ++ pprintPlace y ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
 
 pprintSort :: Sort -> String
 pprintSort (Closure ss) = "(" ++ intercalate ", " (map pprintTele ss) ++ ") -> !"
@@ -286,6 +295,7 @@ pprintSort Boolean = "bool"
 pprintSort (Sum s t) = "sum " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort (Pair s t) = "pair " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort Unit = "unit"
+pprintSort Token = "token#"
 pprintSort (TyConOcc tc) = show tc
 pprintSort (TyApp s t) = pprintSort s ++ " " ++ pprintSort t
 
@@ -303,6 +313,7 @@ pprintPlace (x, s) = show x ++ " : " ++ pprintSort s
 
 pprintValue :: ValueC -> String
 pprintValue NilC = "()"
+pprintValue WorldTokenC = "WORLD#"
 pprintValue (PairC x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntC i) = show i
 pprintValue (BoolC b) = if b then "true" else "false"
@@ -324,6 +335,10 @@ pprintCompare (LtC x y) = show x ++ " < " ++ show y
 pprintCompare (LeC x y) = show x ++ " <= " ++ show y
 pprintCompare (GtC x y) = show x ++ " > " ++ show y
 pprintCompare (GeC x y) = show x ++ " >= " ++ show y
+
+pprintPrimIO :: PrimIO -> String
+pprintPrimIO (GetLineC x) = "getLine " ++ show x
+pprintPrimIO (PutLineC x y) = "putLine " ++ show x ++ " " ++ show y
 
 pprintFunClosureDef :: Int -> FunClosureDef -> String
 pprintFunClosureDef n (FunClosureDef f env params e) =

@@ -161,6 +161,7 @@ cconvType (K.AllK aas ss) = do
     let tele = map (uncurry TypeTele) aas' ++ map ValueTele ss'
     pure (Closure tele)
 cconvType K.UnitK = pure Unit
+cconvType K.TokenK = pure Token
 cconvType K.IntK = pure Integer
 cconvType K.BoolK = pure Boolean
 cconvType K.StringK = pure String
@@ -205,6 +206,10 @@ cconv (K.LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvAri
 cconv (K.LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
 cconv (K.LetConcatK x y z e) =
   withTm (x, K.StringK) $ \b -> LetConcatC b <$> cconvTmVar y <*> cconvTmVar z <*> cconv e
+cconv (K.LetBindK x y prim e) = do
+  (prim', ansTy) <- cconvPrimIO prim
+  withTm (x, K.TokenK) $ \b1 -> withTm (y, ansTy) $ \b2 ->
+    LetBindC b1 b2 prim' <$> cconv e
 cconv (K.LetFunAbsK fs e) = do
   let funBinds = map (\f -> (K.funDefName f, K.funDefType f)) fs
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
@@ -267,6 +272,7 @@ makeClosureEnv flds = do
     ftv _ Unit = Set.empty
     ftv _ Boolean = Set.empty
     ftv _ String = Set.empty
+    ftv _ Token = Set.empty
     ftv _ (TyConOcc _) = Set.empty
     ftv ctx (Sum t1 t2) = ftv ctx t1 <> ftv ctx t2
     ftv ctx (Pair t1 t2) = ftv ctx t1 <> ftv ctx t2
@@ -275,6 +281,7 @@ makeClosureEnv flds = do
 
 cconvValue :: K.ValueK -> ConvM ValueC
 cconvValue K.NilK = pure NilC
+cconvValue K.WorldTokenK = pure WorldTokenC
 cconvValue (K.PairK x y) = PairC <$> cconvTmVar x <*> cconvTmVar y
 cconvValue (K.IntValK i) = pure (IntC i)
 cconvValue (K.BoolValK b) = pure (BoolC b)
@@ -296,6 +303,12 @@ cconvCmp (K.CmpLtK x y) = LtC <$> cconvTmVar x <*> cconvTmVar y
 cconvCmp (K.CmpLeK x y) = LeC <$> cconvTmVar x <*> cconvTmVar y
 cconvCmp (K.CmpGtK x y) = GtC <$> cconvTmVar x <*> cconvTmVar y
 cconvCmp (K.CmpGeK x y) = GeC <$> cconvTmVar x <*> cconvTmVar y
+
+cconvPrimIO :: K.PrimIO -> ConvM (PrimIO, K.TypeK)
+cconvPrimIO (K.PrimGetLine x) =
+  (\x' -> (GetLineC x', K.StringK)) <$> cconvTmVar x
+cconvPrimIO (K.PrimPutLine x y) =
+  (\x' y' -> (PutLineC x' y', K.UnitK)) <$> cconvTmVar x <*> cconvTmVar y
 
 
 cconvTmVar :: K.TmVar -> ConvM Name

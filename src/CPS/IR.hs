@@ -8,6 +8,7 @@ module CPS.IR
     , ArithK(..)
     , CmpK(..)
     , ValueK(..)
+    , PrimIO(..)
 
     , TmVar(..)
     , CoVar(..)
@@ -117,6 +118,8 @@ data TermK a
   | LetCompareK TmVar CmpK (TermK a)
   -- let z = x ++ y in e
   | LetConcatK TmVar TmVar TmVar (TermK a)
+  -- let s, x <- io_op in e
+  | LetBindK TmVar TmVar PrimIO (TermK a)
 
   -- let rec ks in e
   | LetContK [ContDef a] (TermK a)
@@ -174,6 +177,7 @@ funDefType (AbsDef _ _ as ks _) = AllK as (map snd ks)
 -- | Values require no evaluation.
 data ValueK
   = NilK
+  | WorldTokenK
   | PairK TmVar TmVar
   | InlK TmVar
   | InrK TmVar
@@ -196,9 +200,15 @@ data CmpK
   | CmpGtK TmVar TmVar
   | CmpGeK TmVar TmVar
 
+data PrimIO
+  = PrimGetLine TmVar
+  | PrimPutLine TmVar TmVar
+
 data TypeK
   -- unit
   = UnitK
+  -- token#
+  | TokenK
   -- int
   | IntK
   -- bool
@@ -271,6 +281,8 @@ eqTypeK' sc (AllK aas ts) (AllK bbs ss) =
 eqTypeK' _ (AllK _ _) _ = False
 eqTypeK' _ UnitK UnitK = True
 eqTypeK' _ UnitK _ = False
+eqTypeK' _ TokenK TokenK = True
+eqTypeK' _ TokenK _ = False
 eqTypeK' _ IntK IntK = True
 eqTypeK' _ IntK _ = False
 eqTypeK' _ BoolK BoolK = True
@@ -330,6 +342,7 @@ typeFV (ProdK t s) = typeFV t <> typeFV s
 typeFV (SumK t s) = typeFV t <> typeFV s
 typeFV (TyAppK t s) = typeFV t <> typeFV s
 typeFV UnitK = Set.empty
+typeFV TokenK = Set.empty
 typeFV IntK = Set.empty
 typeFV BoolK = Set.empty
 typeFV StringK = Set.empty
@@ -353,6 +366,7 @@ substTypeK sub (ProdK t s) = ProdK (substTypeK sub t) (substTypeK sub s)
 substTypeK sub (SumK t s) = SumK (substTypeK sub t) (substTypeK sub s)
 substTypeK sub (TyAppK t s) = TyAppK (substTypeK sub t) (substTypeK sub s)
 substTypeK _ UnitK = UnitK
+substTypeK _ TokenK = TokenK
 substTypeK _ IntK = IntK
 substTypeK _ BoolK = BoolK
 substTypeK _ StringK = StringK
@@ -440,9 +454,12 @@ pprintTerm n (LetCompareK x cmp e) =
   indent n ("let " ++ show x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetConcatK x y z e) =
   indent n ("let " ++ show x ++ " = " ++ show y ++ " ++ " ++ show z ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetBindK x y prim e) =
+  indent n ("let " ++ show x ++ ", " ++ show y ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
 
 pprintValue :: ValueK -> String
 pprintValue NilK = "()"
+pprintValue WorldTokenK = "WORLD#"
 pprintValue (PairK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (IntValK i) = show i
 pprintValue (BoolValK b) = if b then "true" else "false"
@@ -464,6 +481,10 @@ pprintCompare (CmpLtK x y) = show x ++ " < " ++ show y
 pprintCompare (CmpLeK x y) = show x ++ " <= " ++ show y
 pprintCompare (CmpGtK x y) = show x ++ " > " ++ show y
 pprintCompare (CmpGeK x y) = show x ++ " >= " ++ show y
+
+pprintPrimIO :: PrimIO -> String
+pprintPrimIO (PrimGetLine x) = "getLine " ++ show x
+pprintPrimIO (PrimPutLine x y) = "putLine " ++ show x ++ " " ++ show y
 
 pprintFunDef :: Int -> FunDef a -> String
 pprintFunDef n (FunDef _ f xs ks e) =
@@ -499,6 +520,7 @@ pprintType (FunK ts ss) =
     coParams = map pprintCoType ss
 pprintType IntK = "int"
 pprintType UnitK = "unit"
+pprintType TokenK = "token"
 pprintType BoolK = "bool"
 pprintType StringK = "string"
 pprintType (TyVarOccK aa) = show aa
@@ -512,6 +534,7 @@ pprintAType :: TypeK -> String
 pprintAType (TyVarOccK aa) = show aa
 pprintAType IntK = "int"
 pprintAType UnitK = "unit"
+pprintAType TokenK = "unit"
 pprintAType BoolK = "bool"
 pprintAType StringK = "string"
 pprintAType t = "(" ++ pprintType t ++ ")"
