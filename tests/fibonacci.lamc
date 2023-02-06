@@ -1,5 +1,6 @@
-let
-  fun fib (n : int) : int =
+letrec
+  fib : int -> int =
+    \ (n : int) ->
     if n < 2 return int then n else fib (n - 1) + fib (n - 2);
 in
 fib 12

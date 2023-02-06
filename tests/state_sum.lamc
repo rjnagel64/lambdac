@@ -11,8 +11,9 @@ let
   modifyInt : (int -> int) -> (int -> unit * int) = \ (f : int -> int) ->
     \ (st : int) -> ((), f st)
 in
-let fun
-  trisum_state (n : int) : (int -> int * int) =
+letrec
+  trisum_state : int -> (int -> int * int) =
+    \ (n : int) ->
     if n == 0 return int -> int * int then
       getInt
     else

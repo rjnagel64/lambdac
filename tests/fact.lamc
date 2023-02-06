@@ -1,5 +1,6 @@
-let
-  fun fact (n : int) : int =
+letrec
+  fact : int -> int =
+    \ (n : int) ->
     if n == 0 return int then 1 else n * fact (n - 1);
 in
 fact 10

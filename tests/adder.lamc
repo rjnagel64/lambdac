@@ -1,3 +1,5 @@
-let fun adder (x : int) : int -> int = \ (y : int) -> x + y; in
+let adder : int -> int -> int =
+  \ (x : int) -> \ (y : int) -> x + y
+in
 let add3 : int -> int = adder 3 in
 add3 5

@@ -1,7 +1,8 @@
 -- Neither of these behave properly for negative inputs.
 let slow_divmod : int -> int -> (int * int) =
   \ (x : int) -> \ (y : int) ->
-    let fun go (n : int) : int * int =
+    letrec go : int -> int * int =
+      \ (n : int) ->
       if (n + 1) * y > x return int * int then
         (n, x - n * y)
       else
@@ -11,8 +12,8 @@ let slow_divmod : int -> int -> (int * int) =
 in
 let slow_divmod2 : int -> int -> int * int =
   \ (x : int) -> \ (y : int) ->
-    let fun go (n : int) : int -> int * int =
-      \ (i : int) ->
+    letrec go : int -> int -> int * int =
+      \ (n : int) -> \ (i : int) ->
       if n < y return int * int then
         (i, n)
       else

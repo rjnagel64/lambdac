@@ -1,5 +1,6 @@
-let
-  fun tri (n : int) : int =
+letrec
+  tri : int -> int =
+    \ (n : int) ->
     if n == 0 return int then 0 else n + tri (n - 1);
 in
 tri 10
