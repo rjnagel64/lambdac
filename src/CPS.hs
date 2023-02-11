@@ -95,6 +95,21 @@ cpsKind (S.KiArr k1 k2) = KArrK <$> cpsKind k1 <*> cpsKind k2
 -- Thus, such cases should be reported using `error` to halt the program, not
 -- `throwError`.
 
+cpsValue :: ValueK -> S.Type -> (TmVar -> S.Type -> CPS (TermK (), S.Type)) -> CPS (TermK (), S.Type)
+cpsValue v ty k =
+  freshTm "x" $ \x -> do
+    (e', t') <- k x ty
+    ty' <- cpsType ty
+    let res = LetValK x ty' v e'
+    pure (res, t')
+
+cpsValueTail :: ValueK -> S.Type -> CoVar -> CPS (TermK (), S.Type)
+cpsValueTail v ty k =
+  freshTm "x" $ \x -> do
+    ty' <- cpsType ty
+    let res = LetValK x ty' v (JumpK k [x])
+    pure (res, ty)
+
 -- | CPS-convert a term.
 -- Note: The types being passed to the continuation and returned overall are a
 -- bit confusing to me. It would be nice if I could write a precise
@@ -113,26 +128,10 @@ cps (S.TmCtorOcc c) k = do
   case Map.lookup c env of
     Nothing -> error "scope error"
     Just (c', t) -> k c' t
-cps S.TmNil k =
-  freshTm "x" $ \x -> do
-    (e', t') <- k x S.TyUnit
-    let res = LetValK x UnitK NilK e'
-    pure (res, t')
-cps (S.TmInt i) k =
-  freshTm "x" $ \x -> do
-    (e', t') <- k x S.TyInt
-    let res = LetValK x IntK (IntValK i) e'
-    pure (res, t')
-cps (S.TmBool b) k =
-  freshTm "x" $ \x -> do
-    (e', t') <- k x S.TyBool
-    let res = LetValK x BoolK (BoolValK b) e'
-    pure (res, t')
-cps (S.TmString s) k =
-  freshTm "x" $ \x -> do
-    (e', t') <- k x S.TyString
-    let res = LetValK x StringK (StringValK s) e'
-    pure (res, t')
+cps S.TmNil k = cpsValue NilK S.TyUnit k
+cps (S.TmInt i) k = cpsValue (IntValK i) S.TyInt k
+cps (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool k
+cps (S.TmString s) k = cpsValue (StringValK s) S.TyString k
 cps (S.TmArith e1 op e2) k =
   cps e1 $ \x _t1 -> do
     cps e2 $ \y _t2 -> do
@@ -415,20 +414,10 @@ cpsTail (S.TmLetRec fs e) k = do
     pure (fs'', e', t')
   let res = LetFunAbsK fs'' e'
   pure (res, t')
-cpsTail S.TmNil k =
-  freshTm "x" $ \x -> do
-    let res = LetValK x UnitK NilK (JumpK k [x])
-    pure (res, S.TyUnit)
-cpsTail (S.TmInt i) k =
-  freshTm "x" $ \x -> do
-    let res = LetValK x IntK (IntValK i) (JumpK k [x])
-    pure (res, S.TyInt)
-cpsTail (S.TmBool b) k =
-  freshTm "x" $ \x ->
-    pure (LetValK x BoolK (BoolValK b) (JumpK k [x]), S.TyBool)
-cpsTail (S.TmString s) k =
-  freshTm "x" $ \x ->
-    pure (LetValK x StringK (StringValK s) (JumpK k [x]), S.TyString)
+cpsTail S.TmNil k = cpsValueTail NilK S.TyUnit k
+cpsTail (S.TmInt i) k = cpsValueTail (IntValK i) S.TyInt k
+cpsTail (S.TmBool b) k = cpsValueTail (BoolValK b) S.TyBool k
+cpsTail (S.TmString s) k = cpsValueTail (StringValK s) S.TyString k
 cpsTail (S.TmArith e1 op e2) k =
   cps e1 $ \x _t1 -> do
     cps e2 $ \y _t2 -> do
