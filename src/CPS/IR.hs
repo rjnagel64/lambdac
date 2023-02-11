@@ -121,7 +121,7 @@ data TermK a
   -- let s, x <- io_op in e
   | LetBindK TmVar TmVar PrimIO (TermK a)
 
-  -- let rec ks in e
+  -- let ks in e
   | LetContK [ContDef a] (TermK a)
   -- let rec fs in e
   | LetFunAbsK [FunDef a] (TermK a)

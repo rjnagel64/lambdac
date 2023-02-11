@@ -681,6 +681,9 @@ data CPSEnv
 emptyEnv :: CPSEnv
 emptyEnv = CPSEnv Map.empty Map.empty Map.empty Map.empty
 
+-- Hmm. I'm starting to think that maybe I should only be using
+-- 'freshenVarBinds' instead of freshTm directly. (I.E., for reasons of having
+-- things be in the correct typing context)
 freshTm :: String -> (TmVar -> CPS a) -> CPS a
 freshTm x k = do
   scope <- asks cpsEnvScope
@@ -697,11 +700,11 @@ freshCo x k = do
   let extend (CPSEnv sc ctx tys cs) = CPSEnv (Map.insert x (i+1) sc) ctx tys cs
   local extend (k x')
 
-insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
+insertMany :: Ord k => Foldable t => t (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
 -- | Rename a sequence of variable bindings and bring them in to scope.
-freshenVarBinds :: [(S.TmVar, S.Type)] -> ([(TmVar, TypeK)] -> CPS a) -> CPS a
+freshenVarBinds :: Traversable t => t (S.TmVar, S.Type) -> (t (TmVar, TypeK) -> CPS a) -> CPS a
 freshenVarBinds bs k = do
   scope <- asks cpsEnvScope
   let
@@ -714,7 +717,7 @@ freshenVarBinds bs k = do
   bs'' <- traverse (\ (_, (x', t)) -> (,) x' <$> cpsType t) bs'
   local extend (k bs'')
 
-freshenTyVarBinds :: [(S.TyVar, S.Kind)] -> ([(TyVar, KindK)] -> CPS a) -> CPS a
+freshenTyVarBinds :: Traversable t => t (S.TyVar, S.Kind) -> (t (TyVar, KindK) -> CPS a) -> CPS a
 freshenTyVarBinds bs k = do
   scope <- asks cpsEnvScope
   let
