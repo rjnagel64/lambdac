@@ -396,10 +396,11 @@ cpsTail (S.TmLet x t e1 e2) k =
   -- -->
   -- let j (x:t) = [[e2]] k; in [[e1]] j
   -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
+  -- (because a let-expression has no ctor to discriminate on)
   freshCo "j" $ \j -> do
-    (kont, t2') <- cpsBranch j [(x, t)] e2 k
+    (kont, t2') <- cpsBranch [(x, t)] e2 k
     (e1', _t1') <- cpsTail e1 j
-    pure (LetContK [kont] e1', t2')
+    pure (LetContK [(j, kont)] e1', t2')
 cpsTail (S.TmRecFun fs e) k = do
   (fs', e', t') <- freshenFunBinds fs $ do
     fs' <- traverse cpsFun fs
@@ -631,12 +632,12 @@ cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
 
 -- | CPS-transform a case alternative @(x:t)+ -> e@.
 --
--- @cpsBranch k xs e j@ returns @(cont k xs = [[e]] j;, s)@ where @s@ is the
+-- @cpsBranch xs e j@ returns @(cont xs = [[e]] j;, s)@ where @s@ is the
 -- type of @e@.
-cpsBranch :: CoVar -> [(S.TmVar, S.Type)] -> S.Term -> CoVar -> CPS ((CoVar, ContDef ()), S.Type)
-cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
+cpsBranch :: [(S.TmVar, S.Type)] -> S.Term -> CoVar -> CPS (ContDef (), S.Type)
+cpsBranch xs e j = freshenVarBinds xs $ \xs' -> do
   (e', s') <- cpsTail e j
-  pure ((k, ContDef () xs' e'), s')
+  pure (ContDef () xs' e', s')
 
 -- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
 -- and a list of branches with bound variables.
@@ -645,22 +646,22 @@ cpsCase z t j bs = do
   tcapp <- cpsType t >>= \t' -> case asTyConApp t' of
     Nothing -> error "cannot perform case analysis on this type"
     Just app -> pure app
-  -- Pick names for each branch continuation
+  -- CPS each branch
+  konts <- for bs $ \ (S.Ctor c, xs, e) -> do
+    (kont, _s') <- cpsBranch xs e j
+    pure (Ctor c, kont)
+  -- Pick names for each branch and construct case alternatives
   scope <- asks cpsEnvScope
   let
-    pick sc b =
+    pick sc (c, b) =
       let i = fromMaybe 0 (Map.lookup "k" sc) in
       let k' = CoVar "k" i in
-      (Map.insert "k" (i+1) sc, (k', b))
-    (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' ctx tys cs
-  -- CPS each branch
-  (ks, konts) <- fmap unzip $ local extend $ for bs' $ \ (k, (S.Ctor c, xs, e)) -> do
-    (kont, _s') <- cpsBranch k xs e j
-    pure ((Ctor c, k), kont)
-  -- Assemble the result term
-  let res = foldr (LetContK . (:[])) (CaseK z tcapp ks) konts
-  pure res
+      (Map.insert "k" (i+1) sc, ((c, k'), (k', b)))
+    (scope', (alts, contBinds)) = fmap unzip $ mapAccumL pick scope konts
+  -- Technically, I should update the scope with scope' here, but the only thing
+  -- after it is pure, so I don't necessarily have to.
+  let extend (CPSEnv _sc ctx tys cs) = CPSEnv scope' ctx tys cs
+  local extend $ pure (LetContK contBinds (CaseK z tcapp alts))
 
 
 newtype CPS a = CPS { runCPS :: Reader CPSEnv a }
