@@ -76,8 +76,8 @@ withFn fn@(FunDef () f _ _ _) m = local g m
   where
     g env = env { inlineFnDefs = Map.insert f fn (inlineFnDefs env) }
 
-withCont :: ContDef () -> InlineM a -> InlineM a
-withCont kont@(ContDef () k _ _) m = local g m
+withCont :: (CoVar, ContDef ()) -> InlineM a -> InlineM a
+withCont (k, kont) m = local g m
   where
     g env = env { inlineCoDefs = Map.insert k kont (inlineCoDefs env) }
 
@@ -104,7 +104,7 @@ inlineK (JumpK k xs) = do
   env <- ask
   case Map.lookup k (inlineCoDefs env) of
     Nothing -> pure (JumpK k xs)
-    Just (ContDef () _ [(y, _)] e) -> withTmSub (y, xs !! 0) $ inlineK e
+    Just (ContDef () [(y, _)] e) -> withTmSub (y, xs !! 0) $ inlineK e
 inlineK (CallK f [x] [k]) = do
   env <- ask
   case Map.lookup f (inlineFnDefs env) of

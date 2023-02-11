@@ -199,9 +199,9 @@ check (InstK f ts ks) = do
   checkCoArgs ks ss'
 check (CaseK x s ks) = checkCase x s ks
 check (LetContK ks e) = do
-  for_ ks $ \ (ContDef _ _ xs e') -> do
+  for_ ks $ \ (k, ContDef _ xs e') -> do
     withTmVars xs $ check e'
-  let defs = map (\k -> (contDefName k, contDefType k)) ks
+  let defs = map (\ (k, cont) -> (k, contDefType cont)) ks
   withCoVars defs $ check e
 check (LetFunAbsK fs e) = do
   let defs = map (\f -> (funDefName f, funDefType f)) fs

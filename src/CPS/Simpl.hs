@@ -205,13 +205,13 @@ simplifyArith env op = arith (renameOp op)
       ((_, Just (IntValK i)), (_, Just (IntValK j))) -> Right (f i j)
       ((x', _), (y', _)) -> Left (g x' y', recordList [x', y'])
 
-simplifyContDef :: SimplEnv -> ContDef a -> (ContDef a, Census)
-simplifyContDef env (ContDef ann k xs e) =
+simplifyContDef :: SimplEnv -> (CoVar, ContDef a) -> ((CoVar, ContDef a), Census)
+simplifyContDef env (k, ContDef ann xs e) =
   -- Pass under xs binders
   let env' = foldr (under . fst) env xs in
   let (e', census) = simplify env' e in
   let census' = foldr (bind . fst) census xs in
-  (ContDef ann k xs e', census')
+  ((k, ContDef ann xs e'), census')
 
 -- | Perform beta-reduction for a case expression
 simplifyCase :: SimplEnv -> TmVar -> TyConApp -> [(Ctor, CoVar)] -> (TermK a, Census)

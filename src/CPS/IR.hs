@@ -20,7 +20,6 @@ module CPS.IR
     , funDefName
     , funDefType
     , ContDef(..)
-    , contDefName
     , contDefType
 
     , TypeK(..)
@@ -122,7 +121,7 @@ data TermK a
   | LetBindK TmVar TmVar PrimIO (TermK a)
 
   -- let ks in e
-  | LetContK [ContDef a] (TermK a)
+  | LetContK [(CoVar, ContDef a)] (TermK a)
   -- let rec fs in e
   | LetFunAbsK [FunDef a] (TermK a)
 
@@ -148,17 +147,14 @@ data TermK a
 -- Meanwhile, ContDef can/should have type parameters, then value parameters,
 -- akin to GHC's join points.
 
--- | Named basic blocks
--- @k (x:τ)+ := e@
--- TODO: Can CPS produce a recursive ContDef? If not, that's an invariant I
--- should make note of for the future. (E.G., non-recursive => inlineable)
-data ContDef a = ContDef a CoVar [(TmVar, TypeK)] (TermK a)
-
-contDefName :: ContDef a -> CoVar
-contDefName (ContDef _ k _ _) = k
+-- | Parametrized basic blocks, @cont (x:τ)+ => e@.
+-- Continuation values do not have names, and therefore cannot be recursive.
+-- Let-bound continuations are also non-recursive.
+-- (And therefore, inlining them is straightforward)
+data ContDef a = ContDef a [(TmVar, TypeK)] (TermK a)
 
 contDefType :: ContDef a -> CoTypeK
-contDefType (ContDef _ _ xs _) = ContK (map snd xs)
+contDefType (ContDef _ xs _) = ContK (map snd xs)
 
 -- | Function definitions: either term functions @f (x:τ) (k:σ) := e@,
 -- or type functions @f \@a (k:σ) := e@
@@ -502,8 +498,8 @@ pprintFunDef n (AbsDef _ f as ks e) =
     pprintTyParam (aa, kk) = "@" ++ show aa ++ " :: " ++ pprintKind kk
     pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
 
-pprintContDef :: Int -> ContDef a -> String
-pprintContDef n (ContDef _ k xs e) =
+pprintContDef :: Int -> (CoVar, ContDef a) -> String
+pprintContDef n (k, ContDef _ xs e) =
   indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     params = "(" ++ intercalate ", " (map pprintTmParam xs) ++ ")"

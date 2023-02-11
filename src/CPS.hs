@@ -209,10 +209,10 @@ cps (S.TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
     (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
       (e2', t2') <- cps e2 k
-      let kont = ContDef () j bs e2'
+      let kont = ContDef () bs e2'
       pure (kont, t2')
     (e1', _t1') <- cpsTail e1 j
-    pure (LetContK [kont] e1', t2')
+    pure (LetContK [(j, kont)] e1', t2')
 cps (S.TmRecFun fs e) k = do
   (fs', e', t') <- freshenFunBinds fs $ do
     fs' <- traverse cpsFun fs
@@ -233,18 +233,18 @@ cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
       freshTm "x" $ \x -> do
         s' <- cpsType s
         (e', _t') <- k x s
-        let kont = ContDef () j [(x, s')] e'
+        let kont = ContDef () [(x, s')] e'
         res <- cpsCase z t j [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
-        pure (LetContK [kont] res, s)
+        pure (LetContK [(j, kont)] res, s)
 cps (S.TmIf e s et ef) k =
   cps e $ \z t -> do
     freshCo "j" $ \j ->
       freshTm "x" $ \x -> do
         s' <- cpsType s
         (e', _t') <- k x s
-        let kont = ContDef () j [(x, s')] e'
+        let kont = ContDef () [(x, s')] e'
         res <- cpsCase z t j [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
-        pure (LetContK [kont] res, s)
+        pure (LetContK [(j, kont)] res, s)
 cps (S.TmApp e1 e2) k =
   cps e1 $ \v1 t1 -> do
     cps e2 $ \v2 _t2 -> do
@@ -255,7 +255,7 @@ cps (S.TmApp e1 e2) k =
         freshTm "x" $ \xv -> do
           (e', t') <- k xv retTy
           retTy' <- cpsType retTy
-          let res = LetContK [ContDef () kv [(xv, retTy')] e'] (CallK v1 [v2] [kv])
+          let res = LetContK [(kv, ContDef () [(xv, retTy')] e')] (CallK v1 [v2] [kv])
           pure (res, t')
 cps (S.TmTApp e t) k =
   cps e $ \v1 t1 -> do
@@ -268,7 +268,7 @@ cps (S.TmTApp e t) k =
         (e'', t'') <- k fv instTy
         instTy' <- cpsType instTy
         t' <- cpsType t
-        let res = LetContK [ContDef () kv [(fv, instTy')] e''] (InstK v1 [t'] [kv])
+        let res = LetContK [(kv, ContDef () [(fv, instTy')] e'')] (InstK v1 [t'] [kv])
         pure (res, t'')
 cps (S.TmFst e) k =
   cps e $ \v t ->  do
@@ -296,9 +296,9 @@ cps (S.TmCase e s alts) k =
       freshTm "x" $ \x -> do
         s' <- cpsType s
         (e', _t') <- k x s
-        let kont = ContDef () j [(x, s')] e'
+        let kont = ContDef () [(x, s')] e'
         res <- cpsCase z t j alts
-        pure (LetContK [kont] res, s)
+        pure (LetContK [(j, kont)] res, s)
 -- cps (S.TmPure e) k =
 --   -- let fun f (s : token#) (k2 : (token#, t) -> !) = k2 s z; in k f
 --   cps e $ \z t ->
@@ -633,10 +633,10 @@ cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
 --
 -- @cpsBranch k xs e j@ returns @(cont k xs = [[e]] j;, s)@ where @s@ is the
 -- type of @e@.
-cpsBranch :: CoVar -> [(S.TmVar, S.Type)] -> S.Term -> CoVar -> CPS (ContDef (), S.Type)
+cpsBranch :: CoVar -> [(S.TmVar, S.Type)] -> S.Term -> CoVar -> CPS ((CoVar, ContDef ()), S.Type)
 cpsBranch k xs e j = freshenVarBinds xs $ \xs' -> do
   (e', s') <- cpsTail e j
-  pure (ContDef () k xs' e', s')
+  pure ((k, ContDef () xs' e'), s')
 
 -- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
 -- and a list of branches with bound variables.

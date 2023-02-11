@@ -214,7 +214,7 @@ cconv (K.LetFunAbsK fs e) = do
   let funBinds = map (\f -> (K.funDefName f, K.funDefType f)) fs
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
 cconv (K.LetContK ks e) = do
-  let contBinds = map (\k -> (K.contDefName k, K.contDefType k)) ks
+  let contBinds = map (\ (k, cont) -> (k, K.contDefType cont)) ks
   withCos contBinds $ \_ -> LetContC <$> traverse cconvContDef ks <*> cconv e
 
 cconvFunDef :: K.FunDef a -> ConvM FunClosureDef
@@ -237,8 +237,8 @@ cconvFunDef (K.AbsDef _ f as ks e) = do
   let fnName (K.TmVar x i) = Name x i
   pure (FunClosureDef (fnName f) env params' e')
 
-cconvContDef :: K.ContDef a -> ConvM (Name, ContClosureDef)
-cconvContDef (K.ContDef _ k xs e) = do
+cconvContDef :: (K.CoVar, K.ContDef a) -> ConvM (Name, ContClosureDef)
+cconvContDef (k, K.ContDef _ xs e) = do
   ((xs', e'), flds) <- listen $
     withTms xs $ \xs' -> do
       e' <- cconv e
