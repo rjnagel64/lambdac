@@ -363,6 +363,7 @@ inferType (TyAppK t s) =
   inferType t >>= \case
     KArrK k1 k2 -> checkType s k1 *> pure k2
     StarK -> throwError (CannotTyApp t)
+inferType TokenK = pure StarK
 
 -- | Check that a co-type has the given kind.
 inferCoType :: CoTypeK -> TC KindK

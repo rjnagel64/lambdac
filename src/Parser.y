@@ -20,6 +20,7 @@ import Source
 %token
   '\\' { TokLambda _ }
   '->' { TokArrow _ }
+  '<-' { TokBind _ }
   '==' { TokDEquals _ }
   '!=' { TokNEquals _ }
   '=' { TokEquals _ }
@@ -63,6 +64,9 @@ import Source
   'string' { TokString _ }
   'forall' { TokForall _ }
   'data' { TokData _ }
+  'pure' { TokPure _ }
+  'getLine' { TokGetLine _ }
+  'putLine' { TokPutLine _ }
 
   ID { TokID _ _ }
   INT { TokINT _ _ }
@@ -117,6 +121,7 @@ Term :: { Term }
      | '\\' '(' ID ':' Type ')' '->' Term { TmLam (var $3) $5 $8 }
      | '\\' '@' ID '->' Term { TmTLam (tvar $3) KiStar $5 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
+     | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (var $2) $4 $6 $8 }
      | 'let' FunBinds 'in' Term { TmRecFun (rundl $2) $4 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (rundl $2) $4 }
      | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
@@ -139,6 +144,8 @@ Term :: { Term }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
+     | 'pure' ATerm { TmPure $2 }
+     | 'putLine' ATerm { TmPutLine $2 }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
 
 Alts :: { DList (Ctor, [(TmVar, Type)], Term) }
@@ -175,6 +182,7 @@ ATerm :: { Term }
      | STRING { TmString (string $1) }
      | 'true' { TmBool True }
      | 'false' { TmBool False }
+     | 'getLine' { TmGetLine }
 
 VarBind :: { (TmVar, Type) }
         : '(' ID ':' Type ')' { (var $2, $4) }

@@ -32,6 +32,7 @@ tokens :-
 
   [\\] { tok TokLambda }
   "->" { tok TokArrow }
+  "<-" { tok TokBind }
   ";" { tok TokSemi }
   ":" { tok TokColon }
   "." { tok TokDot }
@@ -77,6 +78,9 @@ tokens :-
   "string" { tok TokString }
   "forall" { tok TokForall }
   "data" { tok TokData }
+  "pure" { tok TokPure }
+  "getLine" { tok TokGetLine }
+  "putLine" { tok TokPutLine }
 
   -- Note: Permitting unary + on numeric literals actually causes some problems.
   -- n+1 lexes as 'n' '+1', which is a type error, with a very poor message.
@@ -111,6 +115,7 @@ mkLoc (AlexPn absPos lin col) s =
 data Token
   = TokLambda Loc
   | TokArrow Loc
+  | TokBind Loc
   | TokSemi Loc
   | TokColon Loc
   | TokDot Loc
@@ -169,11 +174,16 @@ data Token
   | TokList Loc
   | TokUncons Loc
   | TokData Loc
+
+  | TokPure Loc
+  | TokGetLine Loc
+  | TokPutLine Loc
   deriving (Show)
 
 instance Located Token where
   loc (TokLambda l) = l
   loc (TokArrow l) = l
+  loc (TokBind l) = l
   loc (TokSemi l) = l
   loc (TokColon l) = l
   loc (TokDot l) = l
@@ -224,6 +234,9 @@ instance Located Token where
   loc (TokList l) = l
   loc (TokUncons l) = l
   loc (TokData l) = l
+  loc (TokPure l) = l
+  loc (TokGetLine l) = l
+  loc (TokPutLine l) = l
 
 -- | Lex a string.
 lex :: String -> [Token]

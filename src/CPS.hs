@@ -110,6 +110,11 @@ cpsValueTail v ty k =
     let res = LetValK x ty' v (JumpK k [x])
     pure (res, ty)
 
+-- TODO: Consider fully-annotated variant of Source for easier CPS
+-- every term is paired with its type. Somewhat redundant, but simplifies CPS
+-- to take type as input rather than output. The elaboration pass that turns
+-- Source into AnnSource also paves the way for future sugar and inference.
+
 -- | CPS-convert a term.
 -- Note: The types being passed to the continuation and returned overall are a
 -- bit confusing to me. It would be nice if I could write a precise
@@ -205,6 +210,24 @@ cps (S.TmTLam aa ki e) k =
       (e'', t'') <- k f ty
       pure (LetFunAbsK [def] e'', t'')
 cps (S.TmLet x t e1 e2) k = do
+  -- This translation is actually slightly suboptimal, as mentioned by
+  -- [Compiling with Continuations, Continued].
+  -- Consider the translation of 'let x : int = 17 in x'. The current
+  -- translation will yield
+  --  let cont j (x : int) =
+  --    halt x
+  --  in
+  --  let t0 : int = 17 in
+  --  j t0
+  -- A more efficient translation would be simply
+  --  let x : int = 17 in
+  --  halt x
+  -- To implement this, I would have to examine the expression 'e1' to see if
+  -- it is a value (or function value), and pass that to the continuation
+  -- directly instead of reify/jump.
+  --
+  -- ==> LetCont along with ObjCont and MetaCont? 'LetCont x t e c' means
+  -- "after this, bind result value to x:t and pass result to CPS[e] c"??
   freshCo "j" $ \j -> do
     (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
       (e2', t2') <- cps e2 k
@@ -298,37 +321,43 @@ cps (S.TmSnd e) k =
       tb' <- cpsType tb
       let res = LetSndK x tb' v e'
       pure (res, t')
--- cps (S.TmPure e) k =
---   -- let fun f (s : token#) (k2 : (token#, t) -> !) = k2 s z; in k f
---   cps e $ \z t ->
---     freshTm "f" $ \f ->
---       fun <- do
---         freshTm "s" $ \s ->
---           freshCo "k" $ \k' -> do
---             let body = JumpK k' [s, x]
---             let fun = FunDef () f [(s, TokenK)] [(k', ContK [TokenK, t])] body
---             pure fun
---       (e', t') <- k (funDefName fun)
---       let res = LetFunK [fun] e'
---       pure (res, t')
--- cps (S.TmBind x t e1 e2) k = do
---   -- Hmm. I'm really not sure how to implement this translation properly
---   -- In particular, the location of the calls to cps, the construction of the
---   -- contdef and fundef, etc.
---   freshTm "f" $ \f -> do
---     fun <- do
---       freshTm "s" $ \s1 ->
---         freshCo "k" $ \k1 -> do
---           -- Construct a contdef
---           -- CPS e1 with metacont: apply s1 and contdef
---           -- contdef contains CPS e2
---           -- Construct fundef for all of this
---           -- pass fun value to cont
---           _
---           pure $ FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, _])] _e
---     (e', t') <- k (funDefName fun)
---     let res = LetFunK [fun] e'
---     pure (res, t')
+cps (S.TmPure e) k =
+  -- let fun f (s : token#) (k2 : (token#, t) -> !) = k2 s z; in k f
+  cps e $ \z t ->
+    freshTm "f" $ \f -> do
+      fun <- do
+        freshTm "s" $ \s ->
+          freshCo "k" $ \k' -> do
+            let body = JumpK k' [s, z]
+            t' <- cpsType t
+            let fun = FunDef () f [(s, TokenK)] [(k', ContK [TokenK, t'])] body
+            pure fun
+      (e', t') <- k (funDefName fun) (S.TyIO t)
+      let res = LetFunAbsK [fun] e'
+      pure (res, t')
+cps (S.TmBind x t e1 e2) k = do
+  cps e1 $ \m1 it1 ->
+    freshTm "f" $ \f -> do
+      fun <- do
+        freshTm "s" $ \s1 ->
+          freshCo "k" $ \k1 -> do
+            (contDef, t2') <- freshTm "s" $ \s2 ->
+              freshenVarBinds [(x, t)] $ \bs -> do
+              -- I don't understand what I'm doing here. I hope it works.
+              (e', t2) <- cps e2 $ \m2 it2 -> do
+                t2 <- case it2 of
+                  S.TyIO t2 -> pure t2
+                  _ -> error "body of bind is not monadic"
+                let contBody = CallK m2 [s2] [k1]
+                pure (contBody, t2)
+              t2' <- cpsType t2
+              pure (ContDef () ((s2, TokenK) : bs) e', t2')
+            freshCo "k" $ \k2 -> do
+              let funBody = LetContK [(k2, contDef)] (CallK m1 [s1] [k2])
+              pure $ FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
+      (e', t') <- k (funDefName fun) it1 -- dubious about the type here, but it seems to work.
+      let res = LetFunAbsK [fun] e'
+      pure (res, t')
 
 cpsFun :: S.TmFun -> CPS (FunDef ())
 cpsFun (S.TmFun f x t s e) =

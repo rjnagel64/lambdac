@@ -138,14 +138,14 @@ data Term
   | TmCtorOcc Ctor
   -- case e return s of { (c_i (x:t)+ -> e_i')+ }
   | TmCase Term Type [(Ctor, [(TmVar, Type)], Term)]
-  -- -- pure e
-  -- | TmPure Term
-  -- -- let x : t <- e1 in e2
-  -- | TmBind TmVar Type Term Term
-  -- -- getLine
-  -- | TmGetLine
-  -- -- putLine e
-  -- | TmPutLine Term
+  -- pure e
+  | TmPure Term
+  -- let x : t <- e1 in e2
+  | TmBind TmVar Type Term Term
+  -- getLine
+  | TmGetLine
+  -- putLine e
+  | TmPutLine Term
 
 data TmArith
   = TmArithAdd
