@@ -235,6 +235,9 @@ check (LetConcatK x y z e) = do
   checkTmVar y StringK
   checkTmVar z StringK
   withTmVars [(x, StringK)] $ check e
+check (LetBindK s x prim e) = do
+  t <- checkPrimIO prim
+  withTmVars [(s, TokenK), (x, t)] $ check e
 
 checkCase :: TmVar -> TyConApp -> [(Ctor, CoVar)] -> TC ()
 checkCase x CaseBool ks =
@@ -294,6 +297,15 @@ checkValue v@(CtorAppK c xs) t = case asTyConApp t of
   Nothing -> throwError (BadValue v t)
   Just tcapp -> checkCtorApp c xs tcapp
 checkValue v t = throwError (BadValue v t)
+
+checkPrimIO :: PrimIO -> TC TypeK
+checkPrimIO (PrimGetLine s) = do
+  checkTmVar s TokenK
+  pure StringK
+checkPrimIO (PrimPutLine s x) = do
+  checkTmVar s TokenK
+  checkTmVar x StringK
+  pure UnitK
 
 checkCtorApp :: Ctor -> [TmVar] -> TyConApp -> TC ()
 checkCtorApp c args tcapp@(TyConApp tc _) = do

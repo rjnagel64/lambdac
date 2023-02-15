@@ -343,19 +343,48 @@ cps (S.TmBind x t e1 e2) k = do
           freshCo "k" $ \k1 -> do
             (contDef, t2') <- freshTm "s" $ \s2 ->
               freshenVarBinds [(x, t)] $ \bs -> do
-              -- I don't understand what I'm doing here. I hope it works.
-              (e', t2) <- cps e2 $ \m2 it2 -> do
-                t2 <- case it2 of
-                  S.TyIO t2 -> pure t2
-                  _ -> error "body of bind is not monadic"
-                let contBody = CallK m2 [s2] [k1]
-                pure (contBody, t2)
-              t2' <- cpsType t2
-              pure (ContDef () ((s2, TokenK) : bs) e', t2')
+                -- I don't understand what I'm doing here. I hope it works.
+                (e', t2) <- cps e2 $ \m2 it2 -> do
+                  t2 <- case it2 of
+                    S.TyIO t2 -> pure (t2)
+                    _ -> error "body of bind is not monadic"
+                  let contBody = CallK m2 [s2] [k1]
+                  
+                  pure (contBody, t2)
+                t2' <- cpsType t2
+                pure (ContDef () ((s2, TokenK) : bs) e', t2')
             freshCo "k" $ \k2 -> do
               let funBody = LetContK [(k2, contDef)] (CallK m1 [s1] [k2])
               pure $ FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
       (e', t') <- k (funDefName fun) it1 -- dubious about the type here, but it seems to work.
+      let res = LetFunAbsK [fun] e'
+      pure (res, t')
+cps S.TmGetLine k = do
+  -- let fun f (s : token#) (k2 : (token#, t) -> !) = let s2, msg <- getLine s in k2 s2 msg; k f
+  freshTm "f" $ \f -> do
+    fun <- do
+      freshTm "s" $ \s1 ->
+        freshCo "k" $ \k1 -> do
+          freshTm "s" $ \s2 ->
+            freshTm "x" $ \msg -> do
+              let body = LetBindK s2 msg (PrimGetLine s1) (JumpK k1 [s2, msg])
+              let fun = FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, StringK])] body
+              pure fun
+    (e', t') <- k (funDefName fun) (S.TyIO S.TyString)
+    let res = LetFunAbsK [fun] e'
+    pure (res, t')
+cps (S.TmPutLine e) k = do
+  cps e $ \z t -> do
+    freshTm "f" $ \f -> do
+      fun <- do
+        freshTm "s" $ \s1 ->
+          freshCo "k" $ \k1 -> do
+            freshTm "s" $ \s2 ->
+              freshTm "u" $ \u -> do
+                let body = LetBindK s2 u (PrimPutLine s1 z) (JumpK k1 [s2, u])
+                let fun = FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, UnitK])] body
+                pure fun
+      (e', t') <- k (funDefName fun) (S.TyIO S.TyUnit)
       let res = LetFunAbsK [fun] e'
       pure (res, t')
 

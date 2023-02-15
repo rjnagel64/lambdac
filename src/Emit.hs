@@ -687,9 +687,9 @@ emitPrimOp envp (PrimStrlen x) = emitPrimCall envp "prim_strlen" [x]
 
 emitPrimIO :: EnvPtr -> PrimIO -> Place -> Place -> String
 emitPrimIO envp (PrimGetLine x) p1 p2 =
-  "prim_getLine(" ++ commaSep [show x, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
+  "prim_getLine(" ++ commaSep [emitName envp x, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
 emitPrimIO envp (PrimPutLine x y) p1 p2 = 
-  "prim_putLine(" ++ commaSep [show x, show y, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
+  "prim_putLine(" ++ commaSep [emitName envp x, emitName envp y, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
 
 emitPrimCall :: EnvPtr -> String -> [Name] -> String
 emitPrimCall envp fn xs = emitBuiltinCall envp (Id fn) xs
