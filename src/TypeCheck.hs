@@ -218,6 +218,17 @@ infer (TmCaseSum e s (xl, tl, el) (xr, tr, er)) = do
   inferCase e s alts
 infer (TmCase e s alts) = inferCase e s alts
 
+infer (TmPure e) = do
+  t <- infer e
+  pure (TyIO t)
+infer (TmBind x t e1 e2) = do
+  check e1 (TyIO t)
+  withVars [(x, t)] $ infer e2
+infer TmGetLine = pure (TyIO TyString)
+infer (TmPutLine e) = do
+  check e TyString
+  pure (TyIO TyUnit)
+
 -- | Infer the type of a case analysis.
 inferCase :: Term -> Type -> [(Ctor, [(TmVar, Type)], Term)] -> TC Type
 inferCase e s alts = do
