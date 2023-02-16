@@ -6,6 +6,7 @@ import sys
 
 # TODO: Move this script into tests/? Might need to adjust the CWD for cabal invocations
 # TODO: Type-Checker tests, where the expected output is the type of the program/the error message
+# TODO: Figure out how to do IO tests
 
 proc = subprocess.run(["cabal", "build"])
 if proc.returncode != 0:

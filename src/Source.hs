@@ -146,6 +146,8 @@ data Term
   | TmGetLine
   -- putLine e
   | TmPutLine Term
+  -- runIO e
+  | TmRunIO Term
 
 data TmArith
   = TmArithAdd

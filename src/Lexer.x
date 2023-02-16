@@ -81,6 +81,7 @@ tokens :-
   "pure" { tok TokPure }
   "getLine" { tok TokGetLine }
   "putLine" { tok TokPutLine }
+  "runIO" { tok TokRunIO }
 
   -- Note: Permitting unary + on numeric literals actually causes some problems.
   -- n+1 lexes as 'n' '+1', which is a type error, with a very poor message.
@@ -178,6 +179,7 @@ data Token
   | TokPure Loc
   | TokGetLine Loc
   | TokPutLine Loc
+  | TokRunIO Loc
   deriving (Show)
 
 instance Located Token where
@@ -237,6 +239,7 @@ instance Located Token where
   loc (TokPure l) = l
   loc (TokGetLine l) = l
   loc (TokPutLine l) = l
+  loc (TokRunIO l) = l
 
 -- | Lex a string.
 lex :: String -> [Token]

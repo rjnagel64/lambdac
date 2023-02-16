@@ -32,6 +32,7 @@ data TCError
   | CannotTyApp Type
   | CannotInstantiate Type
   | CannotScrutinize Type
+  | NotMonadic Type
 
   -- Misc.
   | InvalidLetRec TmVar
@@ -55,6 +56,7 @@ instance Show TCError where
   show (CannotApply t) = "value of type " ++ pprintType 0 t ++ " cannot have a value applied to it"
   show (CannotInstantiate t) = "value of type " ++ pprintType 0 t ++ " cannot have a type applied to it"
   show (CannotProject t) = "cannot project field from value of type " ++ pprintType 0 t
+  show (NotMonadic t) = "cannot execute value with non-monadic type " ++ pprintType 0 t
   show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
 
 newtype TC a = TC { getTC :: StateT Signature (ReaderT TCEnv (Except TCError)) a }
@@ -228,6 +230,10 @@ infer TmGetLine = pure (TyIO TyString)
 infer (TmPutLine e) = do
   check e TyString
   pure (TyIO TyUnit)
+infer (TmRunIO e) = do
+  infer e >>= \case
+    TyIO t -> pure t
+    t' -> throwError (NotMonadic t')
 
 -- | Infer the type of a case analysis.
 inferCase :: Term -> Type -> [(Ctor, [(TmVar, Type)], Term)] -> TC Type

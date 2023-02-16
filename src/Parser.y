@@ -67,6 +67,7 @@ import Source
   'pure' { TokPure _ }
   'getLine' { TokGetLine _ }
   'putLine' { TokPutLine _ }
+  'runIO' { TokRunIO _ }
 
   ID { TokID _ _ }
   INT { TokINT _ _ }
@@ -146,6 +147,7 @@ Term :: { Term }
      | 'snd' ATerm { TmSnd $2 }
      | 'pure' ATerm { TmPure $2 }
      | 'putLine' ATerm { TmPutLine $2 }
+     | 'runIO' ATerm { TmRunIO $2 }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
 
 Alts :: { DList (Ctor, [(TmVar, Type)], Term) }

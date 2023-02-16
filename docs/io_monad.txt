@@ -374,7 +374,7 @@ CPS[getLine] k =
   k (fun (s : token#) (k2 : (token#, string) -> !) => let s2, x <- getLine s in k2 s2 x)
 CPS[runIO e] k =
   CPS[e] (λ (m : IO t) →
-    let k1 = cont (s1 : token#, x : t) => k(x); in let s0 : token# = WORLD# in m s1 k1)
+    let k1 = cont (s1 : token#, x : t) => k(x); in let s0 : token# = WORLD# in m s0 k1)
 
 
 The entry point of a program now needs to be altered: to supply the initial

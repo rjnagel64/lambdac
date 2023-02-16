@@ -296,6 +296,7 @@ checkValue (StringValK _) StringK = pure ()
 checkValue v@(CtorAppK c xs) t = case asTyConApp t of
   Nothing -> throwError (BadValue v t)
   Just tcapp -> checkCtorApp c xs tcapp
+checkValue WorldTokenK TokenK = pure ()
 checkValue v t = throwError (BadValue v t)
 
 checkPrimIO :: PrimIO -> TC TypeK
