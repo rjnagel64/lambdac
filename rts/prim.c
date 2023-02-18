@@ -282,40 +282,26 @@ struct int64_value *prim_strlen(struct string_value *x) {
     return allocate_int64(x->len);
 }
 
-// TODO: Use POSIX getline instead of stdlib fgets for prim_getLine
-// Should make handling errors easier, and avoid need for static buffer
 void prim_getLine(struct token *x, struct token **out_x, struct string_value **out_y) {
-    // Eeurgh. C I/O routines.
-
-    // 512 bytes per line is enough for anyone, right????
-    // If the line is >=512 bytes, the first 511 and a null terminator will be placed in 'buf'.
-    static char buf[512];
-    // If EOF, no bytes are read into 'buf', so this will just return a copy of
-    // the previous line. I should probably fix that.
-    fgets(buf, sizeof(buf), stdin); // I should really detect error conditions here.
-    *out_x = x;
-    *out_y = allocate_string_from_slice(buf, strlen(buf));
+    char *line_buf = NULL;
+    size_t buf_size = 0;
+    ssize_t chars_read = getline(&line_buf, &buf_size, stdin);
+    if (chars_read == -1) {
+        // Error or EOF: return ""
+        // (I need better error handling for this. Still need to think about
+        // API) (It gets annoying because streams are quite stateful, and
+        // primops/RTS don't have great access to things like sum types)
+        *out_x = x;
+        *out_y = allocate_string_from_slice("", 0);
+        free(line_buf);
+    } else {
+        *out_x = x;
+        // We pass 'chars_read - 1' here to omit the trailing '\n' read by
+        // 'getline'.
+        *out_y = allocate_string_from_slice(line_buf, chars_read - 1);
+        free(line_buf);
+    }
 }
-
-/* void prim_getLine(struct token *x, struct token **out_x, struct string_value **out_y) { */
-/*     char *line_buf = NULL; */
-/*     size_t line_size = 0; */
-/*     ssize_t bytes_read = getline(&line_buf, &line_size, stdin); */
-/*     if (bytes_read == -1) { */
-/*         // Error or EOF: return "" */
-/*         // (I need better error handling for this. Still need to think about */
-/*         // API) (It gets annoying because streams are quite stateful, and */
-/*         // primops/RTS don't have great access to things like sum types) */
-/*         *out_x = x; */
-/*         *out_y = allocate_string_from_slice("", 0); */
-/*         free(line_buf); */
-/*     } else { */
-/*         // TODO: Strip trailing newline by passing line_size-1 */
-/*         *out_x = x; */
-/*         *out_y = allocate_string_from_slice(line_buf, line_size); */
-/*         free(line_buf); */
-/*     } */
-/* } */
 
 void prim_putLine(struct token *x, struct string_value *msg, struct token **out_x, struct unit **out_y) {
     printf("%s\n", msg->contents);
