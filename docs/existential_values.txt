@@ -1,0 +1,35 @@
+
+zero-cost existentials?
+
+x : t'[t] |- pack <t, x> : ∃aa. t'[aa]
+
+Type arguments are erased.
+Thus, representing this as a product yields a one-field record:
+
+struct exists_val {
+  struct alloc_header header;
+  // struct type_val *ty; (erased)
+  struct alloc_header *val;
+};
+
+This indirection is not really necessary, because we can trace its field just
+as easily as the whole thing.
+
+Thus, an existential type ∃aa.t[aa] can have the same runtime representation
+as t[t'] for any t'.
+
+
+This could be useful for (e.g.) closure environment types, which have the form
+'∃(aa : k)+. { (l : t[aa+])+ }'. Using zero-cost existentials, this can be
+implemented with the same runtime representation as '{ (l : t)+ }', a simple
+record.
+
+
+However, this only works for types that are already boxed. This can be seen
+from the kinding rule for existentials:
+
+Γ, α : κ |- t[α] : *
+--------------------
+Γ |- ∃α:κ. t[α] : *
+
+It requires t[α] : *, i.e., that the underlying type is boxed.

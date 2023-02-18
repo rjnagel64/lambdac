@@ -1,0 +1,42 @@
+
+defunctionalization: alternative to hoisting?
+
+TODO: Find some references on defunctionalization for implementing higher-order functions.
+
+defunctionalization is a program transformation, that replaces first-class
+functions with an auxiliary (G)ADT 'FN a b' and an operation 'apply :: (FN a b,
+a) -> b' ('apply' is non-first-class). Each function in the program becomes a
+constructor of 'FN', with the program code being added as a case alternative to
+'apply'. The new constructor of 'FN' contains fields for each free variable in
+the function, so this function works best after closure conversion.
+
+
+Example: adder
+let add : int -> (int -> int) = \ (x : int) -> \ (y : int) -> x + y in
+let adder : int -> int = add 3 in
+adder 5
+
+===>
+
+data FN : (*, *) -> * where
+  ADD : () -> FN (int, FN (int, int))
+  ADDER : (int) -> FN (int, int)
+
+apply : (FN (a, b), a) -> b
+apply (ADD, x) = ADDER(x)
+apply (ADDER x, y) = x + y
+
+let add : FN (int, FN (int, int)) = ADD() in
+let adder : FN (int, int) = apply(add, 3) in
+apply(adder, 5)
+
+
+I think this is isomorphic to the closure fields+code pointer approach. The
+difference is that the code pointer has become an index into the array of
+function codes.
+
+One useful difference is that because functions are encoded as a data type,
+each function can have its fields unpacked as part of the closure.
+
+
+I think this is worth considering as an alternate backend/compilation technique.

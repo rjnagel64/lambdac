@@ -1,0 +1,32 @@
+
+According to a comment on [this post][reddit], shift and reset have the
+following types. (It seems that the IR is already in CPS? not sure.)
+
+
+(I presume that variables are implicitly quantified at the top level: ∀t w)
+reset :  ((t → t) → w) → w
+
+(Implicit toplevel quantifiers: ∀t1 t2 w1 w2)
+(TODO: Reference "From shift and reset to polarized linear logic" by
+Chung-Chieh Shan to double-check type signature)
+(In particular, that (w1 -> w2) is a bit odd? why not (w1 -> w2) or (w2 -> w1)?)
+shift : ((∀w. t1 → (t2 → w) → w) → (w1 → w1) → w2) → (t1 → t2) → w2
+
+
+[reddit]: https://www.reddit.com/r/ProgrammingLanguages/comments/104ecrk/shiftreset_in_statically_typed_languages/
+
+playing type-tetris:
+
+reset = \ @t @w -> \ (e : (t -> t) -> w) -> e (\ (x : t) -> x)
+Basically, invoke CPS'ed expression with identity continuation.
+
+* f1 accepts a CPS term of type CPS[t1 -> t2]
+shift =
+  \ @t1 @t2 @w1 @w2 ->
+  \ (f1 : (∀w. t1 -> (t2 -> w) -> w) -> (w1 -> w2) -> w2) ->
+  \ (f2 : t1 -> t2) ->
+  f1 (? : ∀w. t1 -> (t2 -> w) -> w) (? : w1 -> w2)
+Hmm. I don't really see how I can implement this type signature. In particular,
+How can I synthesize (? : w1 -> w2), when both w1 and w2 are universal
+variables? I should double-check the publication.
+
