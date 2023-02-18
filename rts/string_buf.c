@@ -12,6 +12,14 @@ struct string_buf *string_buf_new(void) {
     return sb;
 }
 
+struct string_buf *string_buf_with_capacity(size_t capacity) {
+    struct string_buf *sb = malloc(sizeof(struct string_buf));
+    sb->len = 0;
+    sb->capacity = capacity + 1; // +1 for the null terminator.
+    sb->data = calloc(sb->capacity, sizeof(char));
+    return sb;
+}
+
 void string_buf_destroy(struct string_buf *sb) {
     free(sb->data);
     free(sb);

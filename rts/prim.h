@@ -69,25 +69,35 @@ struct unit *allocate_unit(void);
 
 #define CAST_UNIT(v) ((struct unit *)(v))
 
+// Note: Why 'string_value' uses a flexible array member
+//
+// The obvious representation of a string (a length and a pointer to the
+// contents) does not work well with my GC design.
+//
+// The essential problem is that when a 'string_value' is freed, it must also
+// release the memory for its contents. I do not have a notion of GC
+// finalizers, nor do I have means to special-case the 'type_info' for
+// 'string_value'.
+//
+// Consequently, the contents of the string must be kept in the same allocation
+// as the 'string_value' itself: using a flexible array member.
+//
+// One consequence of this is that if I needed to mutate or grow the contents
+// of a 'string_value', I would run into issues, but all strings are immutable,
+// so that is a non-issue.
+
+// Invariants:
+// * .contents is an array of (.len + 1) characters
+// * .len == strlen(.contents)
+// * .contents[.len] == '\0' (I.E., .contents is null-terminated)
+// * .contents contains well-formed ASCII data
+//   (Note: I should eventually make this UTF-8 data instead.)
 struct string_value {
     struct alloc_header header;
-    // Invariant: this->len == strlen(this->contents)
     uint64_t len;
-    // Invariant: this->contents is a null-terminated array of characters.
-    // (question for the future: character encoding is ASCII or UTF-8?)
-    // Note: I use a flexible array member here, rather than having 'char
-    // *contents' because GC values cannot take ownership of their fields.
-    // More specifically, because I do not have a notion of GC finalizers, I
-    // cannot free that 'char *contents' upon collection of this
-    // 'string_value', which would lead to a memory leak.
-    //
-    // One consequence of using a flexible array member is that it isn't easy
-    // to resize the contents of a 'string_value'. However, all strings are
-    // immutable, so that is a non-issue.
     char contents[];
 };
 
-// struct string_value *allocate_string_from_cstring(char *contents);
 struct string_value *allocate_string_from_slice(const char *src, size_t len);
 
 #define CAST_STRING(v) ((struct string_value *)(v))

@@ -3,11 +3,10 @@
 
 #include <stddef.h>
 
-// A string_buf is basically a vector<char>.
-// Or alternately, it's basically a StringBuilder? I can't seem to decide.
-// (Well, not all that much difference.)
+// A 'string_buf' is a growable sequence of characters. It is mostly intended
+// to be append-only, for constructing long 'string_value's.
 //
-// (Proposed) Invariants:
+// Invariants:
 // * .capacity > 0         (zero-size allocations get weird, and I need a null terminator anyway.)
 // * .data points to an allocation with space for exactly .capacity characters
 // * the string_buf owns the allocation at .data
@@ -21,6 +20,9 @@ struct string_buf {
 
 // Create a new string_buf with empty contents.
 struct string_buf *string_buf_new(void);
+// Create a new string_buf with empty contents enough capacity to store
+// 'capacity' characters of content without reallocating.
+struct string_buf *string_buf_with_capacity(size_t capacity);
 // Destroy a string_buf and its contents.
 void string_buf_destroy(struct string_buf *sb);
 

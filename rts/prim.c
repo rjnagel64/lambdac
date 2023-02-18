@@ -167,8 +167,8 @@ void trace_string(struct alloc_header *alloc) {
 }
 
 void display_string(struct alloc_header *alloc, struct string_buf *sb) {
-    // Actually, since 'display' is supposed to emit a debug representation of
-    // the value, this should add quotes and maybe do escaping.
+    // Actually, this should probably do string escaping in addition to
+    // surrounding with quotes.
     struct string_value *s = CAST_STRING(alloc);
     string_buf_push_slice(sb, "\"", 1);
     string_buf_push_slice(sb, s->contents, s->len);
@@ -189,11 +189,6 @@ struct string_value *allocate_string_from_slice(const char *src, size_t len) {
 struct string_value *allocate_string_from_buf(struct string_buf *sb) {
     return allocate_string_from_slice(sb->data, sb->len);
 }
-
-/* struct string_value *allocate_string_from_cstring(char *contents) { */
-/*     uint64_t len = strlen(contents); */
-/*     return allocate_string_from_slice(contents, len); */
-/* } */
 
 void trace_token(struct alloc_header *alloc) {
 }
@@ -275,7 +270,7 @@ struct vbool *prim_geint64(struct int64_value *x, struct int64_value *y) {
 }
 
 struct string_value *prim_concatenate(struct string_value *x, struct string_value *y) {
-    struct string_buf *sb = string_buf_new();
+    struct string_buf *sb = string_buf_with_capacity(x->len + y->len);
     string_buf_push_slice(sb, x->contents, x->len);
     string_buf_push_slice(sb, y->contents, y->len);
     struct string_value *s = allocate_string_from_buf(sb); // Copy contents into new string.
