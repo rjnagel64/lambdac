@@ -32,7 +32,9 @@ int main(void) {
     struct string_buf *sb = string_buf_new();
     struct alloc_header *result_value = get_result_value();
     result_value->info->display(result_value, sb);
-    printf("result = %s\n", string_buf_contents(sb));
+    printf("result = ");
+    fwrite(sb->data, sizeof(char), sb->len, stdout);
+    printf("\n");
     string_buf_destroy(sb);
 
     // Cleanup.
