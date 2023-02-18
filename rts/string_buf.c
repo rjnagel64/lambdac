@@ -21,7 +21,7 @@ char *string_buf_contents(struct string_buf *sb) {
     return sb->data;
 }
 
-void string_buf_push(struct string_buf *sb, const char *s) {
+void string_buf_push_cstr(struct string_buf *sb, const char *s) {
     size_t len = strlen(s);
     string_buf_push_slice(sb, s, len);
 }

@@ -30,7 +30,7 @@ char *string_buf_contents(struct string_buf *sb);
 // char *string_buf_consume(struct string_buf *sb);
 
 // Append a null-terminated string to the buffer.
-void string_buf_push(struct string_buf *sb, const char *s);
+// void string_buf_push_cstring(struct string_buf *sb, const char *s);
 // Append 'len' characters read from 's' to the buffer.
 void string_buf_push_slice(struct string_buf *sb, const char *s, size_t len);
 // Append a single character to the buffer.

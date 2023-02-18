@@ -368,13 +368,15 @@ emitCtorInfo desc (CtorDecl c args) =
   ["}"
   ,"void display_" ++ ctorId ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
   ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ "(alloc);"
-  ,"    string_buf_push(sb, \"" ++ show c ++ "\");"
-  ,"    string_buf_push(sb, \"(\");"] ++
-  intersperse "string_buf_push(sb, \", \");" (map displayField args) ++
-  ["    string_buf_push(sb, \")\");"
+  ,"    string_buf_push_slice(sb, " ++ ctorNameString ++ ", " ++ show ctorNameLen ++ ");"
+  ,"    string_buf_push_slice(sb, \"(\", 1);"] ++
+  intersperse "string_buf_push_slice(sb, \", \", 2);" (map displayField args) ++
+  ["    string_buf_push_slice(sb, \")\", 1);"
   ,"}"
   ,"const type_info " ++ ctorId ++ "_info = { trace_" ++ ctorId ++ ", display_" ++ ctorId ++ " };"]
   where
+    ctorNameString = show (show c)
+    ctorNameLen = length (show c)
     traceField (x, s) = "    mark_gray(ctor->" ++ show x ++ ");"
     displayField (x, s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(ctor->" ++ show x ++ ", sb);"
 
