@@ -1,0 +1,92 @@
+
+I would like to explore row types and extensible records.
+
+The paper "Extensible Records with Scoped Labels" paper (leijen) presents a
+type system, but expects to be used with HM-style type inference.
+
+I would like to explore what a fully-explicit typed IR would look like.
+(There may be some syntactic differences, because the original paper expects
+type inference for assorted mixfix syntaxes)
+
+
+Big idea: records (more generally, rows) can contain duplicate labels.
+Operations usually act on the first (leftmost) occurrence of a label. Record
+types are isomorphic when distinct labels can be permuted to make them equal,
+but duplicate labels cannot have their order exchanged.
+
+basic operations:
+* kind Row
+* type {} : Row
+* type t : Type, rr : Row |- {l : t | rr} : Row
+* empty record: {} : Record {}
+* extension: v : t, r : Record rr |- { l = v, r } : Record {l : t | rr}
+* projection: r : Record {l : t | rr} |- r.l : t
+* restriction: r : Record {l : t | rr} |- r - l : Record rr
+
+pros:
+* minimal impact on typechecker
+* simple typing rules
+* natural integration with row polymorphism
+
+cons:
+* restriction operator is common, particularly as part of the derived "field
+  update" operation. May need to do O(n) copies often
+* runtime representation unclear
+* equality of types is more complex than syntactic
+  (In particular, consider coercion. If v : A and A == B, then v : B. However,
+  for exchanging labels, this might not be a no-op.)
+
+
+
+# Runtime Representation of Record Values:
+
+I would also like to explore runtime representations for record values.
+Ideally, I would be able to have { field1 : type, field2 : type2, ... } be
+represented with
+
+struct ????? {
+  struct alloc_header header;
+  type1 field1;
+  type2 field2;
+  ...
+};
+
+because that would let field projections be just struct field access.
+(Efficient and type-safe) However, I would need to come up with a name for the
+record, and deduplicate occurrences of the record type, which is not terribly
+convenient.
+
+Also, unboxed and non-pointer-sized fields work out in the obvious manner.
+However, this approach doesn't really generalize to row-polymorphic records.
+
+
+A second approach would be to bring back the "generic product" value representation:
+
+struct generic_product {
+  struct alloc_header header;
+  uint32_t num_fields;
+  struct alloc_header *fields[];
+};
+
+With this, all records are represented by a single type. Field projection use
+type information at the call site to figure out what offset into 'fields' to
+use. (In the same manner, the compiler can figure out how to cast the extracted
+field.) However, this cannot easily support unboxed fields. (I don't even *have*
+unboxed values yet, but I might want some eventually.)
+Note: O(cheap) field access, O(n) extension/restriction
+
+
+A third approach would be to use a hash table, mapping field names to values.
+Similar to 'generic_product', this can only contain boxed values, and the info
+from the projection site is used to correctly downcast the value.
+I could probably figure out how to do minimal-overhead hash tables that exploit
+the fixed number of fields and field names, but in the limit, it's probably the
+same as 'generic_product'
+
+
+Leijen's paper seems to promote a variant of the 'generic_product' approach,
+where each field stores a field label and the value, sorted according to some
+order on labels. If rows are closed, field offsets can be computed statically.
+If rows are open, field offsets cannot be computed statically, but
+worker-wrapper transformation can be used to push field offset computations
+closer to call sites, where there's more type information.
