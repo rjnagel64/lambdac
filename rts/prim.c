@@ -177,25 +177,22 @@ void display_string(struct alloc_header *alloc, struct string_buf *sb) {
 
 const type_info string_info = { trace_string, display_string };
 
-struct string_value *allocate_string(char *contents) {
-    uint64_t len = strlen(contents);
+struct string_value *allocate_string_from_slice(const char *src, size_t len) {
     struct string_value *s = malloc(sizeof(struct string_value) + (len + 1) * sizeof(char));
-    memcpy(s->contents, contents, len);
+    memcpy(s->contents, src, len);
     s->contents[len] = '\0';
     s->len = len;
     cons_new_alloc(AS_ALLOC(s), &string_info);
     return s;
 }
 
-// TODO: pointer+length API to construct string
-// (copy 'n' bytes from 'src' to create resulting string)
-// (string literals can emit known size, other strings just need strlen anyway)
-/* struct string_value *allocate_string2(const char *src, size_t len) { */
-/*     struct string_value *s = malloc(sizeof(struct string_value) + (len + 1) * sizeof(char)); */
-/*     memcpy(s->contents, src, len); */
-/*     s->contents[len] = '\0'; // Null terminator. */
-/*     s->len = len; */
-/*     cons_new_alloc(AS_ALLOC(s), &string_info); */
+struct string_value *allocate_string_from_buf(struct string_buf *sb) {
+    return allocate_string_from_slice(sb->data, sb->len);
+}
+
+/* struct string_value *allocate_string_from_cstring(char *contents) { */
+/*     uint64_t len = strlen(contents); */
+/*     return allocate_string_from_slice(contents, len); */
 /* } */
 
 void trace_token(struct alloc_header *alloc) {
@@ -281,8 +278,7 @@ struct string_value *prim_concatenate(struct string_value *x, struct string_valu
     struct string_buf *sb = string_buf_new();
     string_buf_push_slice(sb, x->contents, x->len);
     string_buf_push_slice(sb, y->contents, y->len);
-    char *contents = string_buf_contents(sb); // Non-owning reference
-    struct string_value *s = allocate_string(contents); // Copy contents into new string.
+    struct string_value *s = allocate_string_from_buf(sb); // Copy contents into new string.
     string_buf_destroy(sb); // Destroy temporary buffer.
     return s;
 }
@@ -303,7 +299,7 @@ void prim_getLine(struct token *x, struct token **out_x, struct string_value **o
     // the previous line. I should probably fix that.
     fgets(buf, sizeof(buf), stdin); // I should really detect error conditions here.
     *out_x = x;
-    *out_y = allocate_string(buf);
+    *out_y = allocate_string_from_slice(buf, strlen(buf));
 }
 
 /* void prim_getLine(struct token *x, struct token **out_x, struct string_value **out_y) { */
@@ -316,16 +312,12 @@ void prim_getLine(struct token *x, struct token **out_x, struct string_value **o
 /*         // API) (It gets annoying because streams are quite stateful, and */
 /*         // primops/RTS don't have great access to things like sum types) */
 /*         *out_x = x; */
-/*         *out_y = allocate_string(""); */
+/*         *out_y = allocate_string_from_slice("", 0); */
 /*         free(line_buf); */
 /*     } else { */
-/*         // TODO: Strip trailing newline */
+/*         // TODO: Strip trailing newline by passing line_size-1 */
 /*         *out_x = x; */
-/*         // I'm not super happy that I have to read into an allocated buffer */
-/*         // with 'getline', then duplicate that buffer with 'allocate_string'. */
-/*         // It would be nice if I could take ownership of the 'getline' buffer */
-/*         // when I construct the string, but oh well. */
-/*         *out_y = allocate_string(line_buf); */
+/*         *out_y = allocate_string_from_slice(line_buf, line_size); */
 /*         free(line_buf); */
 /*     } */
 /* } */

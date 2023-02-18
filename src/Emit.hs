@@ -556,7 +556,8 @@ emitCase denv kind envp x branches =
 
 emitValueAlloc :: DataEnv -> EnvPtr -> Sort -> ValueH -> String
 emitValueAlloc _ _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
-emitValueAlloc _ _ _ (StringValH s) = "allocate_string(" ++ show s ++ ")"
+emitValueAlloc _ _ _ (StringValH s) =
+  "allocate_string_from_slice(" ++ show s ++ ", " ++ show (length s) ++ ")"
 emitValueAlloc _ envp _ (PairH x y) =
   "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
 emitValueAlloc _ _ _ NilH = "allocate_unit()"
