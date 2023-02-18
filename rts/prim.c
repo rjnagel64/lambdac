@@ -179,9 +179,9 @@ const type_info string_info = { trace_string, display_string };
 
 struct string_value *allocate_string(char *contents) {
     uint64_t len = strlen(contents);
-    struct string_value *s = malloc(sizeof(struct string_value) + len * sizeof(char));
-    // Hmmmmm. I malloc 'len' bytes, but read 'len+1'? suspicious.
-    memcpy(s->contents, contents, len+1); // Include null terminator.
+    struct string_value *s = malloc(sizeof(struct string_value) + (len + 1) * sizeof(char));
+    memcpy(s->contents, contents, len);
+    s->contents[len] = '\0';
     s->len = len;
     cons_new_alloc(AS_ALLOC(s), &string_info);
     return s;
