@@ -23,6 +23,10 @@ char *string_buf_contents(struct string_buf *sb) {
 
 void string_buf_push(struct string_buf *sb, const char *s) {
     size_t len = strlen(s);
+    string_buf_push_slice(sb, s, len);
+}
+
+void string_buf_push_slice(struct string_buf *sb, const char *s, size_t len) {
     size_t capacity = sb->capacity;
     while (sb->len + len + 1 > capacity) {
         capacity *= 2;
