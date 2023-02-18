@@ -98,7 +98,7 @@ struct string_value {
     char contents[];
 };
 
-struct string_value *allocate_string_from_slice(const char *src, size_t len);
+struct string_value *allocate_string(const char *src, size_t len);
 
 #define CAST_STRING(v) ((struct string_value *)(v))
 

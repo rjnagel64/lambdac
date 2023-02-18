@@ -177,7 +177,7 @@ void display_string(struct alloc_header *alloc, struct string_buf *sb) {
 
 const type_info string_info = { trace_string, display_string };
 
-struct string_value *allocate_string_from_slice(const char *src, size_t len) {
+struct string_value *allocate_string(const char *src, size_t len) {
     struct string_value *s = malloc(sizeof(struct string_value) + (len + 1) * sizeof(char));
     memcpy(s->contents, src, len);
     s->contents[len] = '\0';
@@ -187,7 +187,7 @@ struct string_value *allocate_string_from_slice(const char *src, size_t len) {
 }
 
 struct string_value *allocate_string_from_buf(struct string_buf *sb) {
-    return allocate_string_from_slice(sb->data, sb->len);
+    return allocate_string(sb->data, sb->len);
 }
 
 void trace_token(struct alloc_header *alloc) {
@@ -292,13 +292,13 @@ void prim_getLine(struct token *x, struct token **out_x, struct string_value **o
         // API) (It gets annoying because streams are quite stateful, and
         // primops/RTS don't have great access to things like sum types)
         *out_x = x;
-        *out_y = allocate_string_from_slice("", 0);
+        *out_y = allocate_string("", 0);
         free(line_buf);
     } else {
         *out_x = x;
         // We pass 'chars_read - 1' here to omit the trailing '\n' read by
         // 'getline'.
-        *out_y = allocate_string_from_slice(line_buf, chars_read - 1);
+        *out_y = allocate_string(line_buf, chars_read - 1);
         free(line_buf);
     }
 }
