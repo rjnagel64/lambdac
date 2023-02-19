@@ -5,8 +5,6 @@ import subprocess
 import sys
 
 # TODO: Move this script into tests/? Might need to adjust the CWD for cabal invocations
-# TODO: Type-Checker tests, where the expected output is the type of the program/the error message
-# TODO: Figure out how to do IO tests
 
 proc = subprocess.run(["cabal", "build"])
 if proc.returncode != 0:
@@ -31,9 +29,9 @@ class StandardTest:
         self.result = result
 
     def run(self, runner):
-        path = f"./tests/{self.name}.lamc"
+        src_path = f"./tests/{self.name}.lamc"
         exe_path = f"./tests/bin/{self.name}"
-        compile_command = [compiler_path, path, "-o", exe_path]
+        compile_command = [compiler_path, src_path, "-o", exe_path]
         compile_command.append("--check-cps")
         # compile_command.append("--check-cc")
         compile_command.append("--check-hoist")
@@ -48,6 +46,43 @@ class StandardTest:
             return
 
         runner.report_success(self.name)
+
+def io_test(name):
+    global tests_to_run
+    tests_to_run.append(IOTest(name))
+
+class IOTest:
+    def __init__(self, name):
+        self.name = name
+
+    def run(self, runner):
+        src_path = f"./tests/{self.name}.lamc"
+        exe_path = f"./tests/bin/{self.name}"
+        stdin_path = f"./tests/{self.name}.stdin"
+        stdout_path = f"./tests/{self.name}.stdout"
+        compile_command = [compiler_path, src_path, "-o", exe_path]
+        compile_command.append("--check-cps")
+        # compile_command.append("--check-cc")
+        compile_command.append("--check-hoist")
+        proc = subprocess.run(compile_command, capture_output=True, encoding="utf8")
+        if proc.returncode != 0:
+            runner.report_failure(self.name, proc.stdout, proc.stderr)
+            return
+
+        def execute(stdin_obj):
+            proc = subprocess.run([exe_path], stdin=stdin_obj, capture_output=True, encoding="utf8")
+            with open(stdout_path, "r") as stdout_obj:
+                expected_stdout = stdout_obj.read();
+            if proc.stdout != expected_stdout:
+                runner.report_failure(self.name, proc.stdout, proc.stderr)
+                return
+            runner.report_success(self.name)
+
+        try:
+            with open(stdin_path, "r") as stdin_obj:
+                execute(stdin_obj)
+        except FileNotFoundError:
+            execute(None)
 
 class CompileFail:
     def __init__(self, name):
@@ -95,6 +130,9 @@ standard_test("datacase", "true")
 standard_test("monolist", "25")
 standard_test("datapair", "true")
 standard_test("polydata", "consF(17, true)")
+io_test("hello")
+io_test("echo")
+io_test("bind_pure")
 
 def run_tests(test_filter):
     runner = TestRunner()
@@ -113,7 +151,7 @@ class TestRunner:
 
     def report_skipped(self, name):
         self.stats["skipped"] += 1
-        print(f"{name} SKIP")
+        # print(f"{name} SKIP")
 
     def report_success(self, name):
         self.stats["ran"] += 1

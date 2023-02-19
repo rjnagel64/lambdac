@@ -1,0 +1,1 @@
+runIO (let foo : int <- pure 17 in pure (foo + 5))

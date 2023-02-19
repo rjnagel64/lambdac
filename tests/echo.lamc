@@ -1,0 +1,1 @@
+runIO (let msg : string <- getLine in putLine msg)
