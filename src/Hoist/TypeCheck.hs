@@ -164,6 +164,29 @@ withTyVar aa k m = local (\ (Context places tys env) -> Context places (Map.inse
 withTyVars :: [(TyVar, Kind)] -> TC a -> TC a
 withTyVars aas = foldr (.) id (map (uncurry withTyVar) aas)
 
+withParams :: [ClosureParam] -> TC a -> TC a
+withParams [] m = m
+withParams (PlaceParam p : params) m = withPlace p $ withParams params m
+withParams (TypeParam aa k : params) m = withTyVar aa k $ withParams params m
+
+
+-- | Construct a well-kinded substitution by zipping a list of type parameters
+-- with a list of argument types.
+parameterSubst :: [(TyVar, Kind)] -> [Sort] -> TC Subst
+parameterSubst params args = listSubst <$> go params args
+  where
+    go [] [] = pure []
+    go ((aa, k) : aas) (t : ts) = checkSort t k *> fmap ((aa, t) :) (go aas ts)
+    go _ _ = throwError ArgumentCountMismatch
+
+-- | Use a Map to count muliplicity of each label.
+-- Report labels that appear more than once.
+checkUniqueLabels :: (Ord a, Show a) => [a] -> TC ()
+checkUniqueLabels ls = do
+  let multiplicity = Map.fromListWith (+) [(l, 1 :: Int) | l <- ls]
+  let duplicates = Map.keys $ Map.filter (> 1) multiplicity
+  unless (null duplicates) $ throwError (DuplicateLabels (map show duplicates))
+
 
 
 checkProgram :: Program -> Either TCError ()
@@ -203,12 +226,7 @@ checkCodeDecl decl@(CodeDecl cl (envp, envd) params body) = do
   let declTy = ClosureDeclType typarams recordparam tele
   modify (\ (Signature clos tcs) -> Signature (Map.insert cl declTy clos) tcs)
 
-withParams :: [ClosureParam] -> TC a -> TC a
-withParams [] m = m
-withParams (PlaceParam p : params) m = withPlace p $ withParams params m
-withParams (TypeParam aa k : params) m = withTyVar aa k $ withParams params m
-
--- Check that all field labels are disjoint, and that each field type is
+-- | Check that all field labels are disjoint, and that each field type is
 -- well-formed.
 checkEnvDecl :: EnvDecl -> TC ([(TyVar, Kind)], [(Id, Sort)])
 checkEnvDecl (EnvDecl tys places) = do
@@ -218,14 +236,6 @@ checkEnvDecl (EnvDecl tys places) = do
     checkSort s Star
     pure (x, s)
   pure (tys, fields)
-
--- | Use a Map to count muliplicity of each label.
--- Report labels that appear more than once.
-checkUniqueLabels :: (Ord a, Show a) => [a] -> TC ()
-checkUniqueLabels ls = do
-  let multiplicity = Map.fromListWith (+) [(l, 1 :: Int) | l <- ls]
-  let duplicates = Map.keys $ Map.filter (> 1) multiplicity
-  unless (null duplicates) $ throwError (DuplicateLabels (map show duplicates))
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()
@@ -273,22 +283,20 @@ checkName x s = do
   s' <- lookupName x
   equalSorts s s'
 
--- This should be
--- ClosureDeclType -> EnvAlloc -> TC ClosureTele, where the returned telescope
--- has been substituted with the envalloc's type arguments.
 checkEnvAlloc :: ClosureDeclType -> EnvAlloc -> TC ClosureTele
 checkEnvAlloc (ClosureDeclType typarams fields tele) (EnvAlloc tyargs valArgs) = do
   -- Subst envTyVars envTy for tyargs
   -- Use that to check { valArgs } against envTyFields
   -- Record equality: are fields required to be in same order?
   -- Probably??? Records are just labelled tuples, right???
-  sub <- makeSubst typarams tyargs
+  sub <- parameterSubst typarams tyargs
   let fieldTys = map (\ (x, s) -> (x, substSort sub s)) fields
   checkFieldTys valArgs fieldTys
 
   pure (substTele sub tele)
 
--- TODO: Generalize checkFieldTys to checkRecordValue
+-- Note: I eventually might want to generalize checkFieldTys to
+-- checkRecordValue, as a closure environment is basically just a record.
 checkFieldTys :: [(Id, Name)] -> [(Id, Sort)] -> TC ()
 checkFieldTys [] [] = pure ()
 checkFieldTys ((f', x) : fields) ((f, s) : fieldTys) = do
@@ -297,13 +305,6 @@ checkFieldTys ((f', x) : fields) ((f, s) : fieldTys) = do
   checkName x s
   checkFieldTys fields fieldTys
 checkFieldTys _ _ = throwError ArgumentCountMismatch
-
-makeSubst :: [(TyVar, Kind)] -> [Sort] -> TC Subst
-makeSubst params args = listSubst <$> go params args
-  where
-    go [] [] = pure []
-    go ((aa, k) : aas) (t : ts) = checkSort t k *> fmap ((aa, t) :) (go aas ts)
-    go _ _ = throwError ArgumentCountMismatch
 
 -- | Check that an argument list matches a parameter telescope,
 -- @Σ; Γ |- E : S@.
@@ -337,6 +338,7 @@ checkPrimOp (PrimGeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> 
 checkPrimOp (PrimConcatenate x y) = checkName x StringH *> checkName y StringH *> pure StringH
 checkPrimOp (PrimStrlen x) = checkName x StringH *> pure IntegerH
 
+-- | Check an I/O primitive operation, and compute its return sort.
 checkPrimIO :: PrimIO -> TC Sort
 checkPrimIO (PrimGetLine x) = checkName x TokenH *> pure StringH
 checkPrimIO (PrimPutLine x y) = checkName x TokenH *> checkName y StringH *> pure UnitH
@@ -359,37 +361,42 @@ checkValue (CtorAppH capp) s = case asTyConApp s of
   Nothing -> throwError BadCtorApp
   Just tcapp -> checkCtorApp capp tcapp
 
+-- | Check that a constructor application is a value of the given type
+-- constructor application.
 checkCtorApp :: CtorAppH -> TyConApp -> TC ()
 checkCtorApp (BoolH _) CaseBool = checkCtorArgs [] []
 checkCtorApp _ CaseBool = throwError BadCtorApp 
-checkCtorApp (InlH x) (CaseSum t _s) = checkCtorArgs [x] [t]
-checkCtorApp (InrH y) (CaseSum _t s) = checkCtorArgs [y] [s]
+checkCtorApp (InlH x) (CaseSum t _s) = checkCtorArgs [x] [ValueTele t]
+checkCtorApp (InrH y) (CaseSum _t s) = checkCtorArgs [y] [ValueTele s]
 checkCtorApp _ (CaseSum _ _) = throwError BadCtorApp
-checkCtorApp (CtorApp c args) (TyConApp tc tys) = do
-  -- TODO: Do this like in CPS.TypeCheck.checkCtorApp
-  DataDecl _ params ctors <- lookupTyCon tc
-  argTys <- case lookup c [(c', as) | CtorDecl c' as <- ctors] of
+checkCtorApp (CtorApp c args) tcapp = do
+  ctors <- instantiateTyConApp tcapp
+  case Map.lookup c ctors of
     Nothing -> throwError BadCtorApp
-    Just as -> pure as
-  let sub = listSubst (zip (map fst params) tys)
-  checkCtorArgs args (map (substSort sub . snd) argTys)
+    Just argTys -> checkCtorArgs args argTys
 checkCtorApp _ (TyConApp _ _) = throwError BadCtorApp
 
-checkCtorArgs :: [Name] -> [Sort] -> TC ()
+-- | Check a constructor's argument list against the constructors type
+-- signature.
+--
+-- Right now, constructors only have value arguments. However, in the future I
+-- may implement existentially-quantified ADTs, which would additionally have
+-- type arguments.
+checkCtorArgs :: [Name] -> [TeleEntry] -> TC ()
 checkCtorArgs [] [] = pure ()
-checkCtorArgs (x : xs) (t : ts) = checkName x t *> checkCtorArgs xs ts
+checkCtorArgs (x : xs) (ValueTele t : ts) = checkName x t *> checkCtorArgs xs ts
+checkCtorArgs (_ : _) (TypeTele _ _ : _) = throwError BadCtorApp -- no type arguments for ctors yet.
 checkCtorArgs _ _ = throwError ArgumentCountMismatch
 
--- I think I need something like DataDesc here.
--- * Check scrutinee has same type as the TyConApp
--- * Check coverage of branches?
--- * Lookup ctor, use that to check type of continuation
+-- | Check that a case analysis is well-formed.
 checkCase :: Name -> TyConApp -> [(Ctor, Name)] -> TC ()
 checkCase x tcapp branches = do
   checkName x (fromTyConApp tcapp)
   branchTys <- instantiateTyConApp tcapp
   checkBranches branches branchTys
 
+-- | Check that a set of case branches covers all the required constructors,
+-- and check that each branch has the correct type.
 checkBranches :: [(Ctor, Name)] -> Map Ctor [TeleEntry] -> TC ()
 checkBranches branches branchTys = do
   let provided = Set.fromList (map fst branches)
@@ -400,6 +407,9 @@ checkBranches branches branchTys = do
     let branchTy = branchTys Map.! c
     checkName k (ClosureH (ClosureTele branchTy))
 
+-- | Given the application of a type constructor to a list of arguments,
+-- compute a mapping from that type constructor's data constructors to the
+-- instantiated type of that constructor.
 instantiateTyConApp :: TyConApp -> TC (Map Ctor [TeleEntry])
 instantiateTyConApp CaseBool =
   pure $ Map.fromList [(Ctor "false", []), (Ctor "true", [])]
@@ -407,7 +417,7 @@ instantiateTyConApp (CaseSum t s) =
   pure $ Map.fromList [(Ctor "inl", [ValueTele t]), (Ctor "inr", [ValueTele s])]
 instantiateTyConApp (TyConApp tc tys) = do
   DataDecl _ params ctors <- lookupTyCon tc
-  sub <- makeSubst params tys
+  sub <- parameterSubst params tys
   let cs = Map.fromList [(c, map (ValueTele . substSort sub . snd) argTys) | CtorDecl c argTys <- ctors]
   pure cs
 
@@ -428,6 +438,7 @@ inferSort (ProductH t s) = checkSort t Star *> checkSort s Star *> pure Star
 inferSort (SumH t s) = checkSort t Star *> checkSort s Star *> pure Star
 inferSort (ClosureH tele) = checkTele tele *> pure Star
 
+-- | Check that a sort has the specified kind.
 checkSort :: Sort -> Kind -> TC ()
 checkSort s k = inferSort s >>= equalKinds k
 
