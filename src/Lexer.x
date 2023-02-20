@@ -18,13 +18,13 @@ $lc = [a-z_]
 $uc = [A-Z]
 
 $lcidstart = $lc
-$lcidcont = [$lc $uc $digit \-]
+$lcidcont = [$lc $uc $digit]
 
 $ucidstart = $uc
-$ucidcont = [$lc $uc $digit \-]
+$ucidcont = [$lc $uc $digit]
 
 $idstart = [$lc $uc]
-$idcont = [$lc $uc $digit \-]
+$idcont = [$lc $uc $digit]
 
 tokens :-
   $white+ ;
