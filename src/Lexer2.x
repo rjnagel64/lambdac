@@ -53,13 +53,28 @@ tokens :-
 
   -- Symbols
   "->" { simpleToken TokArrow }
+  "@" { simpleToken TokAt }
+  "<-" { simpleToken TokBind }
+  "^" { simpleToken TokCaret }
   ":" { simpleToken TokColon }
+  "," { simpleToken TokComma }
+  "==" { simpleToken TokDEquals }
   "." { simpleToken TokDot }
   "=" { simpleToken TokEquals }
+  ">=" { simpleToken TokGe }
   [\\] { simpleToken TokLambda }
+  "<" { simpleToken TokLAngle }
+  "{" { simpleToken TokLBrace }
+  "<=" { simpleToken TokLe }
   "(" { simpleToken TokLParen }
+  "-" { simpleToken TokMinus }
+  "!=" { simpleToken TokNEquals }
+  "%" { simpleToken TokPercent }
   "+" { simpleToken TokPlus }
+  "}" { simpleToken TokRBrace }
   ")" { simpleToken TokRParen }
+  ">" { simpleToken TokRAngle }
+  ";" { simpleToken TokSemi }
   "*" { simpleToken TokStar }
 
 {
@@ -85,15 +100,28 @@ data Token
   | TokSTRING String
   -- Symbols (order: alphabetical by name)
   | TokArrow
+  | TokAt
+  | TokBind
+  | TokCaret
   | TokColon
+  | TokComma
+  | TokDEquals
   | TokDot
   | TokEquals
+  | TokGe
   | TokLambda
-  | TokLParen
+  | TokLAngle
   | TokLBrace
+  | TokLe
+  | TokLParen
+  | TokMinus
+  | TokNEquals
+  | TokPercent
   | TokPlus
-  | TokRParen
   | TokRBrace
+  | TokRParen
+  | TokRAngle
+  | TokSemi
   | TokStar
   -- Keywords (order: alphabetical by name)
   | TokBool
@@ -122,7 +150,6 @@ data Token
   | TokThen
   | TokTrue
   | TokUnit
-  deriving (Show) -- For testing in Main.hs
 
 
 -- Section: Things required by the monadUserState wrapper:
