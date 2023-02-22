@@ -5,7 +5,10 @@ module Parser where
 import Data.List (intercalate)
 
 import Lexer
-import Loc
+import Loc (loc)
+
+import qualified Data.DList as DL
+import Data.DList (DList)
 
 import Source
 }
@@ -89,32 +92,32 @@ import Source
 %%
 
 Program :: { Program }
-	: DataDecls Term { Program (rundl $1) $2 }
+	: DataDecls Term { Program (DL.toList $1) $2 }
 	| Term { Program [] $1 }
 
 DataDecls :: { DList DataDecl }
-	  : DataDecl { dlsingle $1 }
-	  | DataDecls DataDecl { snoc $2 $1 }
+	  : DataDecl { DL.singleton $1 }
+	  | DataDecls DataDecl { DL.snoc $1 $2 }
 
 DataDecl :: { DataDecl }
-	 : 'data' ID '=' '{' CtorDecls '}' { DataDecl (tcon $2) [] (rundl $5) }
-	 | 'data' ID TyBinds '=' '{' CtorDecls '}' { DataDecl (tcon $2) (rundl $3) (rundl $6) }
+	 : 'data' ID '=' '{' CtorDecls '}' { DataDecl (tcon $2) [] (DL.toList $5) }
+	 | 'data' ID TyBinds '=' '{' CtorDecls '}' { DataDecl (tcon $2) (DL.toList $3) (DL.toList $6) }
 
 TyBinds :: { DList (TyVar, Kind) }
-	: TyBind { dlsingle $1 }
-	| TyBinds TyBind { snoc $2 $1 }
+	: TyBind { DL.singleton $1 }
+	| TyBinds TyBind { DL.snoc $1 $2 }
 
 CtorDecls :: { DList CtorDecl }
-	  : CtorDecl { dlsingle $1 }
-	  | CtorDecls ';' CtorDecl { snoc $3 $1 }
+	  : CtorDecl { DL.singleton $1 }
+	  | CtorDecls ';' CtorDecl { DL.snoc $1 $3 }
 
 CtorDecl :: { CtorDecl }
-	 : ID '(' CtorArgs ')' { CtorDecl (ctor $1) (rundl $3) }
+	 : ID '(' CtorArgs ')' { CtorDecl (ctor $1) (DL.toList $3) }
 	 | ID '(' ')' { CtorDecl (ctor $1) [] }
 
 CtorArgs :: { DList Type }
-	 : Type { dlsingle $1 }
-	 | CtorArgs ',' Type { snoc $3 $1 }
+	 : Type { DL.singleton $1 }
+	 | CtorArgs ',' Type { DL.snoc $1 $3 }
 
 
 Term :: { Term }
@@ -123,12 +126,12 @@ Term :: { Term }
      | '\\' '@' ID '->' Term { TmTLam (tvar $3) KiStar $5 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
      | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (var $2) $4 $6 $8 }
-     | 'let' FunBinds 'in' Term { TmRecFun (rundl $2) $4 }
-     | 'letrec' RecBinds 'in' Term { TmLetRec (rundl $2) $4 }
+     | 'let' FunBinds 'in' Term { TmRecFun (DL.toList $2) $4 }
+     | 'letrec' RecBinds 'in' Term { TmLetRec (DL.toList $2) $4 }
      | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
        { TmCaseSum $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
-     | 'case' Term 'return' Type 'of' '{' Alts '}' { TmCase $2 $4 (rundl $7) }
+     | 'case' Term 'return' Type 'of' '{' Alts '}' { TmCase $2 $4 (DL.toList $7) }
 
      | Term '+' Term { TmArith $1 TmArithAdd $3 }
      | Term '-' Term { TmArith $1 TmArithSub $3 }
@@ -151,9 +154,9 @@ Term :: { Term }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
 
 Alts :: { DList (Ctor, [(TmVar, Type)], Term) }
-     : {- empty -} { dlempty }
-     | Alt { dlsingle $1 }
-     | Alts ';' Alt { snoc $3 $1 }
+     : {- empty -} { DL.empty }
+     | Alt { DL.singleton $1 }
+     | Alts ';' Alt { DL.snoc $1 $3 }
 
 Alt :: { (Ctor, [(TmVar, Type)], Term) }
     -- Shift-reduce conflict
@@ -163,11 +166,11 @@ Alt :: { (Ctor, [(TmVar, Type)], Term) }
     --
     -- Therefore, the rule is manually split to avoid such nonsense.
     : ID '->' Term { (ctor $1, [], $3) }
-    | ID VarBinds '->' Term { (ctor $1, rundl $2, $4) }
+    | ID VarBinds '->' Term { (ctor $1, DL.toList $2, $4) }
 
 VarBinds :: { DList (TmVar, Type) }
-	 : VarBind { dlsingle $1 }
-	 | VarBinds VarBind { snoc $2 $1 }
+	 : VarBind { DL.singleton $1 }
+	 | VarBinds VarBind { DL.snoc $1 $2 }
 
 AppTerm :: { Term }
         : ATerm { $1 }
@@ -190,15 +193,15 @@ VarBind :: { (TmVar, Type) }
         : '(' ID ':' Type ')' { (var $2, $4) }
 
 FunBinds :: { DList TmFun }
-         : FunBind { dlsingle $1 }
-         | FunBinds FunBind { snoc $2 $1 }
+         : FunBind { DL.singleton $1 }
+         | FunBinds FunBind { DL.snoc $1 $2 }
 
 FunBind :: { TmFun }
         : 'fun' ID '(' ID ':' Type ')' ':' Type '=' Term ';' { TmFun (var $2) (var $4) $6 $9 $11 }
 
 RecBinds :: { DList (TmVar, Type, Term) }
-         : RecBind { dlsingle $1 }
-         | RecBinds RecBind { snoc $2 $1 }
+         : RecBind { DL.singleton $1 }
+         | RecBinds RecBind { DL.snoc $1 $2 }
 
 RecBind :: { (TmVar, Type, Term) }
         : ID ':' Type '=' Term ';' { (var $1, $3, $5) }

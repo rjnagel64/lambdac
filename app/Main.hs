@@ -9,6 +9,7 @@ import System.Process.Typed
 import System.FilePath
 
 import qualified Lexer as L
+import qualified Lexer2 as L2
 import qualified Parser as P
 import qualified Source as S
 import qualified TypeCheck as T
@@ -38,10 +39,10 @@ parseString s = case P.parseProgram (L.lex s) of
 parseFile :: FilePath -> IO S.Program
 parseFile f = readFile f >>= parseString
 
--- parseFile2 :: FilePath -> IO S.Program
--- parseFile2 fpath = do
+-- parseFile :: FilePath -> IO S.Program
+-- parseFile fpath = do
 --   s <- readFile fpath
---   case L2.lex s of
+--   case L2.lex fpath s of
 --     Left msg -> putStrLn ("lexical error: " ++ msg) >> exitFailure
 --     -- Hmm. Mismatch of token types, here.
 --     -- Annoying.
