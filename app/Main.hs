@@ -38,6 +38,21 @@ parseString s = case P.parseProgram (L.lex s) of
 parseFile :: FilePath -> IO S.Program
 parseFile f = readFile f >>= parseString
 
+-- parseFile2 :: FilePath -> IO S.Program
+-- parseFile2 fpath = do
+--   s <- readFile fpath
+--   case L2.lex s of
+--     Left msg -> putStrLn ("lexical error: " ++ msg) >> exitFailure
+--     -- Hmm. Mismatch of token types, here.
+--     -- Annoying.
+--     -- Could map conversion over token stream, but it's not terribly easy to
+--     -- push that downwards into the parser.
+--     -- I also don't want to completely rewrite the parser at the same time as the lexer.
+--     Right toks -> case P.parseProgram toks of
+--       Left P.EOF -> putStrLn "unexpected EOF" >> exitFailure
+--       Left (P.ErrorAt msg) -> putStrLn ("parse error:" ++ msg) >> exitFailure
+--       Right prog -> pure prog
+
 data DriverArgs
   = DriverArgs {
     driverFile :: String

@@ -22,6 +22,7 @@ library
       , containers ^>=0.6.5.1
       , mtl ^>=2.2.2
       , array ^>=0.5.4.0
+      , srcloc ^>=0.6.0.1
     build-tool-depends:
         alex:alex ^>=3.2
       , happy:happy ^>=1.19
@@ -33,6 +34,7 @@ library
       Experiments.Inference
       Experiments.Inline
       Lexer
+      Lexer2
       Loc
       Parser
       Source
