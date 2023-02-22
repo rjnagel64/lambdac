@@ -1,6 +1,6 @@
 
 {
-module Lexer2 (Token(..), L(..), lex) where
+module Lexer (Token(..), L(..), lex) where
 
 import Data.Loc
 

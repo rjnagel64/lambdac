@@ -4,7 +4,7 @@ module Parser where
 
 import Data.List (intercalate)
 
-import Lexer2
+import Lexer
 import Data.Loc (displayLoc)
 
 import qualified Data.DList as DL

@@ -8,7 +8,7 @@ import Options.Applicative
 import System.Process.Typed
 import System.FilePath
 
-import qualified Lexer2 as L
+import qualified Lexer as L
 import qualified Parser as P
 import qualified Source as S
 import qualified TypeCheck as T
