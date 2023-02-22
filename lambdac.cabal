@@ -34,9 +34,7 @@ library
       -- Experiments.Monomorphise
       Experiments.Inference
       Experiments.Inline
-      Lexer
       Lexer2
-      Loc
       Parser
       Source
       TypeCheck
