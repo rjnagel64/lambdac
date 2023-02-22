@@ -88,11 +88,12 @@ lex fpath input = runAlex input $ alexSetFilePath fpath >> loop
     loop = do
       tok <- alexMonadScan
       case tok of
-        L _ TokEOF -> return [tok]
+        L _ TokEOF -> return []
         _ -> (tok :) <$> loop
 
 -- | Tokens that can be produced by the lexical analyzer.
 data Token
+  -- Hmm. EOF needed by 'alexEOF :: Alex (L Token)', but is not included in the token stream.
   = TokEOF
   -- Literals and identifiers
   | TokID String
@@ -150,6 +151,7 @@ data Token
   | TokThen
   | TokTrue
   | TokUnit
+  deriving Show
 
 
 -- Section: Things required by the monadUserState wrapper:

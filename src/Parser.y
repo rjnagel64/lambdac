@@ -4,8 +4,8 @@ module Parser where
 
 import Data.List (intercalate)
 
-import Lexer
-import Loc (loc)
+import Lexer2
+import Data.Loc (displayLoc)
 
 import qualified Data.DList as DL
 import Data.DList (DList)
@@ -16,65 +16,65 @@ import Source
 %name parseTerm Term
 %name parseProgram Program
 
-%tokentype { Token }
+%tokentype { L Token }
 %monad { Either ParseError }
 %error { parseError }
 
 %token
-  '\\' { TokLambda _ }
-  '->' { TokArrow _ }
-  '<-' { TokBind _ }
-  '==' { TokDEquals _ }
-  '!=' { TokNEquals _ }
-  '=' { TokEquals _ }
-  '<=' { TokLe _ }
-  '<' { TokLAngle _ }
-  '>=' { TokGe _ }
-  '>' { TokRAngle _ }
-  '@' { TokAt _ }
-  '*' { TokStar _ }
-  '+' { TokPlus _ }
-  '-' { TokMinus _ }
-  '^' { TokCaret _ }
-  '%' { TokPercent _ }
-  ';' { TokSemi _ }
-  ':' { TokColon _ }
-  '.' { TokDot _ }
-  ',' { TokComma _ }
-  '(' { TokLParen _ }
-  ')' { TokRParen _ }
-  '{' { TokLBrace _ }
-  '}' { TokRBrace _ }
-  'fun' { TokFun _ }
-  'case' { TokCase _ }
-  'of' { TokOf _ }
-  'return' { TokReturn _ }
-  'let' { TokLet _ }
-  'letrec' { TokLetRec _ }
-  'in' { TokIn _ }
-  'inl' { TokInl _ }
-  'inr' { TokInr _ }
-  'fst' { TokFst _ }
-  'snd' { TokSnd _ }
-  'true' { TokTrue _ }
-  'false' { TokFalse _ }
-  'if' { TokIf _ }
-  'then' { TokThen _ }
-  'else' { TokElse _ }
-  'unit' { TokUnit _ }
-  'int' { TokInt _ }
-  'bool' { TokBool _ }
-  'string' { TokString _ }
-  'forall' { TokForall _ }
-  'data' { TokData _ }
-  'pure' { TokPure _ }
-  'getLine' { TokGetLine _ }
-  'putLine' { TokPutLine _ }
-  'runIO' { TokRunIO _ }
+  '\\' { L _ TokLambda }
+  '->' { L _ TokArrow }
+  '<-' { L _ TokBind }
+  '==' { L _ TokDEquals }
+  '!=' { L _ TokNEquals }
+  '=' { L _ TokEquals }
+  '<=' { L _ TokLe }
+  '<' { L _ TokLAngle }
+  '>=' { L _ TokGe }
+  '>' { L _ TokRAngle }
+  '@' { L _ TokAt }
+  '*' { L _ TokStar }
+  '+' { L _ TokPlus }
+  '-' { L _ TokMinus }
+  '^' { L _ TokCaret }
+  '%' { L _ TokPercent }
+  ';' { L _ TokSemi }
+  ':' { L _ TokColon }
+  '.' { L _ TokDot }
+  ',' { L _ TokComma }
+  '(' { L _ TokLParen }
+  ')' { L _ TokRParen }
+  '{' { L _ TokLBrace }
+  '}' { L _ TokRBrace }
+  'fun' { L _ TokFun }
+  'case' { L _ TokCase }
+  'of' { L _ TokOf }
+  'return' { L _ TokReturn }
+  'let' { L _ TokLet }
+  'letrec' { L _ TokLetRec }
+  'in' { L _ TokIn }
+  'inl' { L _ TokInl }
+  'inr' { L _ TokInr }
+  'fst' { L _ TokFst }
+  'snd' { L _ TokSnd }
+  'true' { L _ TokTrue }
+  'false' { L _ TokFalse }
+  'if' { L _ TokIf }
+  'then' { L _ TokThen }
+  'else' { L _ TokElse }
+  'unit' { L _ TokUnit }
+  'int' { L _ TokInt }
+  'bool' { L _ TokBool }
+  'string' { L _ TokString }
+  'forall' { L _ TokForall }
+  'data' { L _ TokData }
+  'pure' { L _ TokPure }
+  'getLine' { L _ TokGetLine }
+  'putLine' { L _ TokPutLine }
+  'runIO' { L _ TokRunIO }
 
-  ID { TokID _ _ }
-  INT { TokINT _ _ }
-  STRING { TokSTRING _ _ }
+  ID { L _ (TokID _) }
+  INT { L _ (TokINT _) }
+  STRING { L _ (TokSTRING _) }
 
 -- Precedence goes here, low to high
 -- Actually, I beginning to wish that I could have different precedence
@@ -247,26 +247,26 @@ instance Show ParseError where
   show EOF = "unexpected EOF"
   show (ErrorAt s) = s
 
-parseError :: [Token] -> Either ParseError a
+parseError :: [L Token] -> Either ParseError a
 parseError [] = Left EOF
-parseError ts@(token:_) = Left $
-  ErrorAt $ show (loc token) <> ": Parse Error:\n  " <> (intercalate "\n  " (show <$> take 5 ts))
+parseError ts@(L l token:_) = Left $
+  ErrorAt $ displayLoc l <> ": Parse Error:\n  " <> (intercalate "\n  " (show <$> take 5 ts))
 
-var :: Token -> TmVar
-var (TokID _ s) = TmVar s
+var :: L Token -> TmVar
+var (L _ (TokID s)) = TmVar s
 
-tvar :: Token -> TyVar
-tvar (TokID _ s) = TyVar s
+tvar :: L Token -> TyVar
+tvar (L _ (TokID s)) = TyVar s
 
-tcon :: Token -> TyCon
-tcon (TokID _ s) = TyCon s
+tcon :: L Token -> TyCon
+tcon (L _ (TokID s)) = TyCon s
 
-ctor :: Token -> Ctor
-ctor (TokID _ s) = Ctor s
+ctor :: L Token -> Ctor
+ctor (L _ (TokID s)) = Ctor s
 
-int :: Token -> Int
-int (TokINT _ s) = read s
+int :: L Token -> Int
+int (L _ (TokINT s)) = read s
 
-string :: Token -> String
-string (TokSTRING _ s) = read s -- remove initial/final quote and process escapes.
+string :: L Token -> String
+string (L _ (TokSTRING s)) = read s -- remove initial/final quote and process escapes.
 }

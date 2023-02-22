@@ -8,8 +8,7 @@ import Options.Applicative
 import System.Process.Typed
 import System.FilePath
 
-import qualified Lexer as L
-import qualified Lexer2 as L2
+import qualified Lexer2 as L
 import qualified Parser as P
 import qualified Source as S
 import qualified TypeCheck as T
@@ -30,29 +29,15 @@ import qualified Emit as E
 -- than I previously comprehended. It may be worthwhile to do that sort of
 -- analysis on Source instead.
 
-parseString :: String -> IO S.Program
-parseString s = case P.parseProgram (L.lex s) of
-  Left P.EOF -> putStrLn "unexpected EOF" >> exitFailure
-  Left (P.ErrorAt msg) -> putStrLn ("parse error:" ++ msg) >> exitFailure
-  Right x -> pure x
-
 parseFile :: FilePath -> IO S.Program
-parseFile f = readFile f >>= parseString
-
--- parseFile :: FilePath -> IO S.Program
--- parseFile fpath = do
---   s <- readFile fpath
---   case L2.lex fpath s of
---     Left msg -> putStrLn ("lexical error: " ++ msg) >> exitFailure
---     -- Hmm. Mismatch of token types, here.
---     -- Annoying.
---     -- Could map conversion over token stream, but it's not terribly easy to
---     -- push that downwards into the parser.
---     -- I also don't want to completely rewrite the parser at the same time as the lexer.
---     Right toks -> case P.parseProgram toks of
---       Left P.EOF -> putStrLn "unexpected EOF" >> exitFailure
---       Left (P.ErrorAt msg) -> putStrLn ("parse error:" ++ msg) >> exitFailure
---       Right prog -> pure prog
+parseFile fpath = do
+  s <- readFile fpath
+  case L.lex fpath s of
+    Left msg -> putStrLn ("lexical error: " ++ msg) >> exitFailure
+    Right toks -> case P.parseProgram toks of
+      Left P.EOF -> putStrLn "unexpected EOF" >> exitFailure
+      Left (P.ErrorAt msg) -> putStrLn ("parse error:" ++ msg) >> exitFailure
+      Right prog -> pure prog
 
 data DriverArgs
   = DriverArgs {
