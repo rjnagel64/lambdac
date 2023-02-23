@@ -133,6 +133,7 @@ standard_test("polydata", "consF(17, true)")
 io_test("hello")
 io_test("echo")
 io_test("bind_pure")
+standard_test("hash", "(508950784, 508950784)")
 
 def run_tests(test_filter):
     runner = TestRunner()

@@ -1,0 +1,32 @@
+
+data list (a : *) = {
+  nil();
+  cons(a, %list a)
+}
+
+-- Simple integer list hash function
+letrec hash1 : %list int -> int =
+  \ (xs : %list int) -> case xs return int of {
+    nil -> 17;
+    cons (x : int) (ys : %list int) -> x + 31 * hash1 ys
+  };
+in
+
+-- Tail-recursive version.
+-- Theoretically faster, because of tail recursion and unboxing multiple parameters,
+-- but I don't have those optimizations yet, so it's probably slower.
+let hash2 : %list int -> int =
+  \ (xs0 : %list int) ->
+  letrec go : %list int -> int * int -> int =
+    \ (xs : %list int) -> \ (acc : int * int) -> case xs return int of {
+      nil -> fst acc + snd acc * 17;
+      cons (x : int) (ys : %list int) -> go ys (fst acc + snd acc * x, snd acc * 31)
+    };
+  in
+  go xs0 (0, 1)
+in
+
+let l : %list int =
+  %cons @int 7 (%cons @int 12 (%cons @int 94 (%cons @int 0 (%cons @int 24 (%nil @int)))))
+in
+(hash1 l, hash2 l)

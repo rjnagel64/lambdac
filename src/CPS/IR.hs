@@ -8,6 +8,7 @@ module CPS.IR
     , ArithK(..)
     , CmpK(..)
     , ValueK(..)
+    , CoValueK(..)
     , PrimIO(..)
 
     , TmVar(..)
@@ -181,6 +182,10 @@ data ValueK
   | BoolValK Bool
   | StringValK String
   | CtorAppK Ctor [TmVar]
+
+data CoValueK a
+  = CoVarK CoVar
+  | ContValK (ContDef a)
 
 data ArithK
   = AddK TmVar TmVar

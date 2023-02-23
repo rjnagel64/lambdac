@@ -377,7 +377,7 @@ emitCtorInfo desc (CtorDecl c args) =
   where
     ctorNameString = show (show c)
     ctorNameLen = length (show c)
-    traceField (x, s) = "    mark_gray(ctor->" ++ show x ++ ");"
+    traceField (x, s) = "    mark_gray(AS_ALLOC(ctor->" ++ show x ++ "));"
     displayField (x, s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(ctor->" ++ show x ++ ", sb);"
 
 emitCtorAllocate :: DataDesc -> CtorDecl -> [Line]

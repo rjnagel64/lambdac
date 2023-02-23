@@ -74,6 +74,9 @@ bindTys aas flds =
   let bound = Set.fromList $ fmap (uncurry TyOcc) (toList aas) in
   Fields (occs, tys Set.\\ bound)
 
+-- Hmm. Should probably add 'StateT Int' in order to generate names for
+-- anonymous continuations. 'let __anon5 : (...) -> ! = cont(...) => e; in ...'
+-- probably won't cause name collisions.
 newtype ConvM a = ConvM { runConvM :: ReaderT Context (Writer Fields) a }
 
 deriving instance Functor ConvM
@@ -324,6 +327,13 @@ cconvCoVar x = do
   case Map.lookup x cos of
     Nothing -> error ("variable not in scope: " ++ show x)
     Just (x', s) -> writer (x', singleOcc x' s)
+
+-- cconvCoArgs :: Traversable t => t (K.CoValueK a) -> ConvM ([(Name, ContClosureDef)], t Name)
+-- cconvCoArgs ks = mapAccumL f init ks -- aargh. Need StateT [...] ConvM, but ConvM also has StateT Int
+--   where
+--     init = []
+--     f (K.CoVarK k) = _
+--     f (K.ContValK cont) = _
 
 cconvTyVar :: K.TyVar -> ConvM TyVar
 cconvTyVar aa = do
