@@ -162,7 +162,7 @@ instantiate aas ts ss = do
     zipExact _ _ = throwError ArityMismatch
 
 
-checkProgram :: Program () -> Either TypeError ()
+checkProgram :: Program -> Either TypeError ()
 checkProgram (Program ds e) = runTC $ do
   withDataDecls ds $ check e
 

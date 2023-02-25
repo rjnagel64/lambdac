@@ -84,7 +84,7 @@ instance Show Ctor where
 
 -- TODO: Remove annotation parameter from CPS.IR
 -- I'm not using it for anything, it's being a burden.
-data Program a = Program [DataDecl] (TermK a)
+data Program = Program [DataDecl] (TermK ())
 
 data DataDecl = DataDecl TyCon [(TyVar, KindK)] [CtorDecl]
 
@@ -417,7 +417,7 @@ bindSubst = mapAccumL bindOne
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
 
-pprintProgram :: Program a -> String
+pprintProgram :: Program -> String
 pprintProgram (Program ds e) = concatMap (pprintDataDecl 0) ds ++ pprintTerm 0 e
 
 pprintDataDecl :: Int -> DataDecl -> String

@@ -741,7 +741,7 @@ ctorWrapperBinds (S.DataDecl tc params ctors) = map ctorDeclType ctors
         ret = foldl S.TyApp (S.TyConOcc tc) (map (S.TyVarOcc . fst) params)
         ty = foldr (uncurry S.TyAll) (foldr S.TyArr ret args) params
 
-cpsProgram :: S.Program -> Program ()
+cpsProgram :: S.Program -> Program
 cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
   ds' <- traverse cpsDataDecl ds
 

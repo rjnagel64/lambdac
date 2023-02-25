@@ -139,7 +139,7 @@ withTm :: (K.TmVar, K.TypeK) -> ((Name, Sort) -> ConvM a) -> ConvM a
 withTm b k = withTms (Identity b) (k . runIdentity)
 
 
-cconvProgram :: K.Program a -> Program
+cconvProgram :: K.Program -> Program
 cconvProgram (K.Program ds e) = runConv $ do
   ds' <- traverse cconvDataDecl ds
   e' <- cconv e
