@@ -178,7 +178,7 @@ checkCtorDecl :: CtorDecl -> TC ()
 checkCtorDecl (CtorDecl c args) = traverse_ (\t -> checkType t StarK) args
 
 
-check :: TermK a -> TC ()
+check :: TermK -> TC ()
 check (HaltK x) = do
   _ <- lookupTmVar x
   pure ()

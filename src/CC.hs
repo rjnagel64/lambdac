@@ -190,7 +190,7 @@ cconvTyConApp (K.TyConApp (K.TyCon tc) args) = TyConApp (TyCon tc) <$> traverse 
 cconvTyConApp K.CaseBool = pure CaseBool
 cconvTyConApp (K.CaseSum t s) = CaseSum <$> cconvType t <*> cconvType s
 
-cconv :: K.TermK a -> ConvM TermC
+cconv :: K.TermK -> ConvM TermC
 cconv (K.HaltK x) = HaltC <$> cconvTmVar x
 cconv (K.JumpK k xs) = JumpC <$> cconvCoVar k <*> traverse cconvTmVar xs
 cconv (K.CallK f xs ks) =

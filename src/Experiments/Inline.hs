@@ -27,7 +27,7 @@ data VarFlags = VarFlags { vfRef :: Bool, vfAssign :: Bool }
 
 data Operand
   = Operand {
-    opndExp :: TermK ()
+    opndExp :: TermK
   , opndEnv :: Env
   , opndLoc :: ExpLoc
   }
@@ -52,10 +52,10 @@ data Store
   = Store {
     storeVars :: IntMap VarFlags
   , storeContexts :: IntMap ContextFlags
-  , storeExps :: IntMap (Maybe (TermK ()))
+  , storeExps :: IntMap (Maybe TermK)
   }
 
-newtype Cont = Cont { runCont :: TermK () -> Store -> TermK () }
+newtype Cont = Cont { runCont :: TermK -> Store -> TermK }
 
 
 -- Hmm. One really big problem with my current setup for CPS.IR is that I can
@@ -67,5 +67,5 @@ newtype Cont = Cont { runCont :: TermK () -> Store -> TermK () }
 -- stage.
 --
 -- I don't think I can implement this right now, unfortunately.
-inline :: TermK () -> Context -> Env -> Cont -> Store -> TermK ()
+inline :: TermK -> Context -> Env -> Cont -> Store -> TermK
 inline e g r k s = e -- Can't implement right now, just residualize the whole program.

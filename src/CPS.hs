@@ -95,7 +95,7 @@ cpsKind (S.KiArr k1 k2) = KArrK <$> cpsKind k1 <*> cpsKind k2
 -- Thus, such cases should be reported using `error` to halt the program, not
 -- `throwError`.
 
-cpsValue :: ValueK -> S.Type -> (TmVar -> S.Type -> CPS (TermK (), S.Type)) -> CPS (TermK (), S.Type)
+cpsValue :: ValueK -> S.Type -> (TmVar -> S.Type -> CPS (TermK, S.Type)) -> CPS (TermK, S.Type)
 cpsValue v ty k =
   freshTm "x" $ \x -> do
     (e', t') <- k x ty
@@ -103,7 +103,7 @@ cpsValue v ty k =
     let res = LetValK x ty' v e'
     pure (res, t')
 
-cpsValueTail :: ValueK -> S.Type -> CoVar -> CPS (TermK (), S.Type)
+cpsValueTail :: ValueK -> S.Type -> CoVar -> CPS (TermK, S.Type)
 cpsValueTail v ty k =
   freshTm "x" $ \x -> do
     ty' <- cpsType ty
@@ -120,9 +120,9 @@ cpsValueTail v ty k =
 -- bit confusing to me. It would be nice if I could write a precise
 -- (dependently-typed) type signature, just as a form of documentation.
 --
--- IIRC, the (TermK (), S.Type) returned here does not have the same meaning as
--- the (TermK (), S.Type) returned by cpsTail.
-cps :: S.Term -> (TmVar -> S.Type -> CPS (TermK (), S.Type)) -> CPS (TermK (), S.Type)
+-- IIRC, the (TermK, S.Type) returned here does not have the same meaning as
+-- the (TermK, S.Type) returned by cpsTail.
+cps :: S.Term -> (TmVar -> S.Type -> CPS (TermK, S.Type)) -> CPS (TermK, S.Type)
 cps (S.TmVarOcc x) k = do
   env <- asks cpsEnvCtx
   case Map.lookup x env of
@@ -429,7 +429,7 @@ cpsFun (S.TmTFun f aa ki s e) =
 -- | CPS-convert a term in tail position.
 -- In tail position, the continuation is always a continuation variable, which
 -- allows for simpler translations.
-cpsTail :: S.Term -> CoVar -> CPS (TermK (), S.Type)
+cpsTail :: S.Term -> CoVar -> CPS (TermK, S.Type)
 cpsTail (S.TmVarOcc x) k = do
   env <- asks cpsEnvCtx
   case Map.lookup x env of
@@ -685,12 +685,12 @@ cpsTail (S.TmRunIO e) k = do
 -- Nullary constructors (no value args, no type params) are merely let-expressions:
 -- let mkbar : bar = mkbar() in ...
 
-makeCtorWrapper :: TyCon -> [(TyVar, KindK)] -> Ctor -> [TypeK] -> TermK () -> CPS (TermK ())
+makeCtorWrapper :: TyCon -> [(TyVar, KindK)] -> Ctor -> [TypeK] -> TermK -> CPS TermK
 makeCtorWrapper tc params c ctorargs e = do
   (w, _) <- go (let Ctor tmp = c in TmVar tmp 0) (map Left params ++ map Right ctorargs) [] e
   pure w
   where
-    go :: TmVar -> [Either (TyVar, KindK) TypeK] -> [TmVar] -> TermK () -> CPS (TermK (), TypeK)
+    go :: TmVar -> [Either (TyVar, KindK) TypeK] -> [TmVar] -> TermK -> CPS (TermK, TypeK)
     go name [] arglist body = do
       let val = CtorAppK c arglist
       let wrapperTy = foldl (\ t (aa, _) -> TyAppK t (TyVarOccK aa)) (TyConOccK tc) params
@@ -712,13 +712,13 @@ makeCtorWrapper tc params c ctorargs e = do
             let wrapper = LetFunAbsK [fun] body
             pure (wrapper, FunK [argTy] [ContK [innerTy]])
 
-makeDataWrapper :: DataDecl -> TermK () -> CPS (TermK ())
+makeDataWrapper :: DataDecl -> TermK -> CPS TermK
 makeDataWrapper (DataDecl tc params ctors) e = go ctors e
   where
     go [] e' = pure e'
     go (CtorDecl c args : cs) e' = makeCtorWrapper tc params c args =<< go cs e'
 
-addCtorWrappers :: [DataDecl] -> TermK () -> CPS (TermK ())
+addCtorWrappers :: [DataDecl] -> TermK -> CPS TermK
 addCtorWrappers [] e = pure e
 addCtorWrappers (dd : ds) e = makeDataWrapper dd =<< addCtorWrappers ds e
 
@@ -758,13 +758,13 @@ cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
 
 -- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
 -- a return type, and a list of branches with bound variables.
-cpsCase :: S.Term -> CoVar -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK (), S.Type)
+cpsCase :: S.Term -> CoVar -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
 cpsCase e j s alts =
   cps e $ \z t -> do
     res <- cpsCase' z t j alts
     pure (res, s)
 
-cpsCase' :: TmVar -> S.Type -> CoVar -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK ())
+cpsCase' :: TmVar -> S.Type -> CoVar -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS TermK
 cpsCase' z t j bs = do
   tcapp <- cpsType t >>= \t' -> case asTyConApp t' of
     Nothing -> error "cannot perform case analysis on this type"

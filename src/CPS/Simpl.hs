@@ -9,7 +9,7 @@ import Data.Set (Set)
 import CPS.IR
 
 
-simpl :: TermK a -> TermK a
+simpl :: TermK -> TermK
 simpl t = fst $ simplify emptyEnv t
   where emptyEnv = SimplEnv Map.empty Map.empty
 
@@ -96,7 +96,7 @@ bind x (Census xs) = Census (Set.delete x xs)
 query :: TmVar -> Census -> SimplUsage
 query x (Census xs) = if Set.member x xs then SomeUses else NoUses
 
-ifLive :: TmVar -> (TermK a -> TermK a) -> (Census -> Census) -> (TermK a, Census) -> (TermK a, Census)
+ifLive :: TmVar -> (TermK -> TermK) -> (Census -> Census) -> (TermK, Census) -> (TermK, Census)
 ifLive x rebuildTm rebuildCensus (e, census) = case query x census of
   NoUses -> (e, census)
   SomeUses -> (rebuildTm e, rebuildCensus census)
@@ -105,7 +105,7 @@ ifLive x rebuildTm rebuildCensus (e, census) = case query x census of
 -- afterward.
 --
 -- TODO: Annotate fun/cont definition with OneShot/MultiShot (for inlining)
-simplify :: SimplEnv -> TermK a -> (TermK a, Census)
+simplify :: SimplEnv -> TermK -> (TermK, Census)
 simplify env (HaltK x) =
   let x' = rename env x in
   (HaltK x', recordOne x')
@@ -214,7 +214,7 @@ simplifyContDef env (k, ContDef xs e) =
   ((k, ContDef xs e'), census')
 
 -- | Perform beta-reduction for a case expression
-simplifyCase :: SimplEnv -> TmVar -> TyConApp -> [(Ctor, CoVar)] -> (TermK a, Census)
+simplifyCase :: SimplEnv -> TmVar -> TyConApp -> [(Ctor, CoVar)] -> (TermK, Census)
 simplifyCase env x (CaseSum ta tb) [k1, k2] =
   case lookupValue x env of
     (_, Just (InlK y)) -> (JumpK (snd k1) [y], recordOne y)
@@ -238,5 +238,5 @@ simplifyCase _ _ _ _ = error "simplifyCase: cannot perform case analysis on this
 -- -- Must iterate to fixpoint
 -- markParamUsage :: TermK a -> TermK ParamUsage
 -- -- Use the parameter info to remove unused parameters, and rewrite the call sites.
--- removeUnusedParams :: TermK ParamUsage -> TermK ()
+-- removeUnusedParams :: TermK ParamUsage -> TermK
 

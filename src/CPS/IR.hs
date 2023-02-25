@@ -84,7 +84,7 @@ instance Show Ctor where
 
 -- TODO: Remove annotation parameter from CPS.IR
 -- I'm not using it for anything, it's being a burden.
-data Program = Program [DataDecl] (TermK ())
+data Program = Program [DataDecl] TermK
 
 data DataDecl = DataDecl TyCon [(TyVar, KindK)] [CtorDecl]
 
@@ -106,27 +106,27 @@ data CtorDecl = CtorDecl Ctor [TypeK]
 -- The reason for this divergence is to reduce the number of closures and tail
 -- calls required by the C backend, as I do not have particularly efficient
 -- generated code.
-data TermK a
+data TermK
   -- Assignments
   -- let val x:t = v in e
-  = LetValK TmVar TypeK ValueK (TermK a)
+  = LetValK TmVar TypeK ValueK TermK
   -- let x:t = fst y in e
-  | LetFstK TmVar TypeK TmVar (TermK a)
+  | LetFstK TmVar TypeK TmVar TermK
   -- let x:t = snd y in e
-  | LetSndK TmVar TypeK TmVar (TermK a)
+  | LetSndK TmVar TypeK TmVar TermK
   -- let z = x `op` y in e
-  | LetArithK TmVar ArithK (TermK a)
+  | LetArithK TmVar ArithK TermK
   -- let z = x `cmp` y in e 
-  | LetCompareK TmVar CmpK (TermK a)
+  | LetCompareK TmVar CmpK TermK
   -- let z = x ++ y in e
-  | LetConcatK TmVar TmVar TmVar (TermK a)
+  | LetConcatK TmVar TmVar TmVar TermK
   -- let s, x <- io_op in e
-  | LetBindK TmVar TmVar PrimIO (TermK a)
+  | LetBindK TmVar TmVar PrimIO TermK
 
   -- let ks in e
-  | LetContK [(CoVar, ContDef)] (TermK a)
+  | LetContK [(CoVar, ContDef)] TermK
   -- let rec fs in e
-  | LetFunAbsK [FunDef] (TermK a)
+  | LetFunAbsK [FunDef] TermK
 
   -- Block terminators
   -- k x..., goto k(x...)
@@ -154,7 +154,7 @@ data TermK a
 -- Continuation values do not have names, and therefore cannot be recursive.
 -- Let-bound continuations are also non-recursive.
 -- (And therefore, inlining them is straightforward)
-data ContDef = ContDef [(TmVar, TypeK)] (TermK ())
+data ContDef = ContDef [(TmVar, TypeK)] TermK
 
 contDefType :: ContDef -> CoTypeK
 contDefType (ContDef xs _) = ContK (map snd xs)
@@ -162,8 +162,8 @@ contDefType (ContDef xs _) = ContK (map snd xs)
 -- | Function definitions: either term functions @f (x:τ) (k:σ) := e@,
 -- or type functions @f \@a (k:σ) := e@
 data FunDef
-  = FunDef TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK ())
-  | AbsDef TmVar [(TyVar, KindK)] [(CoVar, CoTypeK)] (TermK ())
+  = FunDef TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] TermK
+  | AbsDef TmVar [(TyVar, KindK)] [(CoVar, CoTypeK)] TermK
 
 funDefName :: FunDef -> TmVar
 funDefName (FunDef f _ _ _) = f
@@ -430,7 +430,7 @@ pprintCtorDecl :: Int -> CtorDecl -> String
 pprintCtorDecl n (CtorDecl c args) =
   indent n $ show c ++ "(" ++ intercalate ", " (map pprintType args) ++ ")"
 
-pprintTerm :: Int -> TermK a -> String
+pprintTerm :: Int -> TermK -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
 pprintTerm n (CallK f xs ks) =

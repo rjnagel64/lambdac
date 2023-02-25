@@ -96,7 +96,7 @@ appCoSub k = do
     Just k' -> pure k'
 
 -- | Inline definitions and simplify redexes.
-inlineK :: TermK () -> InlineM (TermK ())
+inlineK :: TermK -> InlineM TermK
 -- Occurrences get inlined if their definition is in the environment.
 -- (TODO: Inline decision based on context of occurrence, not just context of
 -- definition?)
@@ -200,7 +200,7 @@ data Usage
 -- countOccurrences vs (LetFstK x y e) = _
 
 -- Count number of 'let' bindings, recursively.
-sizeK :: TermK () -> Int
+sizeK :: TermK -> Int
 sizeK (LetFunAbsK fs e) = sum (map size fs) + sizeK e
   where
     size (FunDef _ _ _ e') = sizeK e'
@@ -266,7 +266,7 @@ unlabel (IsProduct _ t1 _ t2) = ProdK (unlabel t1) (unlabel t2)
 -- because the body uses it.
 -- (the simplifier will clean this up, usually. If it doesn't, the optimizer
 -- should be less zealous)
-rebuildDefinition :: (TmVar, LabelledProduct) -> Endo (TermK ())
+rebuildDefinition :: (TmVar, LabelledProduct) -> Endo TermK
 -- Nothing to do: x : t is already in scope
 rebuildDefinition (x, NotProduct t) = mempty
 rebuildDefinition (x, IsProduct y1 t1 y2 t2) =
@@ -275,7 +275,7 @@ rebuildDefinition (x, IsProduct y1 t1 y2 t2) =
     rebuildDefinition (y2, t2) <>
       Endo (LetValK x (ProdK (unlabel t1) (unlabel t2)) (PairK y1 y2))
 
-rebuildDefinitions :: [(TmVar, LabelledProduct)] -> Endo (TermK ())
+rebuildDefinitions :: [(TmVar, LabelledProduct)] -> Endo TermK
 rebuildDefinitions prods = foldMap rebuildDefinition prods
 
 -- flattenFunDef :: FunDef a -> FunDef a
@@ -286,14 +286,14 @@ rebuildDefinitions prods = foldMap rebuildDefinition prods
 --     e' = _ -- rebuild parameter list, transform call sites
 
 -- Turn 'bind (p : t1 * t2) in e' into 'bind (x : t1, y : t2) in let p = (x, y) in e'
--- flattenBinder :: [(TmVar, TypeK)] -> TermK () -> TermK ()
+-- flattenBinder :: [(TmVar, TypeK)] -> TermK -> TermK
 -- flattenBinder xs e = _
 
 
 -- | Given an argument descibed by a product type, flatten it into components.
 -- This produces an endomorphism (to add the required projection statements),
 -- and a list of parameters.
-flattenArgument :: (TmVar, LabelledProduct) -> (Endo (TermK ()), [TmVar])
+flattenArgument :: (TmVar, LabelledProduct) -> (Endo TermK, [TmVar])
 flattenArgument (x, NotProduct t) = (mempty, [x])
 flattenArgument (p, IsProduct y1 t1 y2 t2) = mconcat [
     -- Hmm. This only ever generates arguments for each leaf.
@@ -305,12 +305,12 @@ flattenArgument (p, IsProduct y1 t1 y2 t2) = mconcat [
   , flattenArgument (y2, t2)
   ]
 
-flattenCallSite :: TmVar -> [(TmVar, LabelledProduct)] -> [CoVar] -> TermK ()
+flattenCallSite :: TmVar -> [(TmVar, LabelledProduct)] -> [CoVar] -> TermK
 flattenCallSite fn prods ks =
   let (Endo build, xs') = foldMap flattenArgument prods in
   build (CallK fn xs' ks)
 
-flattenJumpSite :: CoVar -> [(TmVar, LabelledProduct)] -> TermK ()
+flattenJumpSite :: CoVar -> [(TmVar, LabelledProduct)] -> TermK
 flattenJumpSite co prods =
   let (Endo build, xs') = foldMap flattenArgument prods in
   build (JumpK co xs')
