@@ -82,6 +82,8 @@ instance Show Ctor where
   show (Ctor c) = c
 
 
+-- TODO: Remove annotation parameter from CPS.IR
+-- I'm not using it for anything, it's being a burden.
 data Program a = Program [DataDecl] (TermK a)
 
 data DataDecl = DataDecl TyCon [(TyVar, KindK)] [CtorDecl]
@@ -152,24 +154,24 @@ data TermK a
 -- Continuation values do not have names, and therefore cannot be recursive.
 -- Let-bound continuations are also non-recursive.
 -- (And therefore, inlining them is straightforward)
-data ContDef a = ContDef a [(TmVar, TypeK)] (TermK a)
+data ContDef a = ContDef [(TmVar, TypeK)] (TermK a)
 
 contDefType :: ContDef a -> CoTypeK
-contDefType (ContDef _ xs _) = ContK (map snd xs)
+contDefType (ContDef xs _) = ContK (map snd xs)
 
 -- | Function definitions: either term functions @f (x:τ) (k:σ) := e@,
 -- or type functions @f \@a (k:σ) := e@
 data FunDef a
-  = FunDef a TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK a)
-  | AbsDef a TmVar [(TyVar, KindK)] [(CoVar, CoTypeK)] (TermK a)
+  = FunDef TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK a)
+  | AbsDef TmVar [(TyVar, KindK)] [(CoVar, CoTypeK)] (TermK a)
 
 funDefName :: FunDef a -> TmVar
-funDefName (FunDef _ f _ _ _) = f
-funDefName (AbsDef _ f _ _ _) = f
+funDefName (FunDef f _ _ _) = f
+funDefName (AbsDef f _ _ _) = f
 
 funDefType :: FunDef a -> TypeK
-funDefType (FunDef _ _ xs ks _) = FunK (map snd xs) (map snd ks)
-funDefType (AbsDef _ _ as ks _) = AllK as (map snd ks)
+funDefType (FunDef _ xs ks _) = FunK (map snd xs) (map snd ks)
+funDefType (AbsDef _ as ks _) = AllK as (map snd ks)
 
 -- | Values require no evaluation.
 data ValueK
@@ -488,14 +490,14 @@ pprintPrimIO (PrimGetLine x) = "getLine " ++ show x
 pprintPrimIO (PrimPutLine x y) = "putLine " ++ show x ++ " " ++ show y
 
 pprintFunDef :: Int -> FunDef a -> String
-pprintFunDef n (FunDef _ f xs ks e) =
+pprintFunDef n (FunDef f xs ks e) =
   indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     -- One parameter list or two?
     params = "(" ++ intercalate ", " (map pprintTmParam xs ++ map pprintCoParam ks) ++ ")"
     pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
     pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
-pprintFunDef n (AbsDef _ f as ks e) =
+pprintFunDef n (AbsDef f as ks e) =
   indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     -- One parameter list or two?
@@ -504,7 +506,7 @@ pprintFunDef n (AbsDef _ f as ks e) =
     pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
 
 pprintContDef :: Int -> (CoVar, ContDef a) -> String
-pprintContDef n (k, ContDef _ xs e) =
+pprintContDef n (k, ContDef xs e) =
   indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
     params = "(" ++ intercalate ", " (map pprintTmParam xs) ++ ")"

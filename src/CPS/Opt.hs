@@ -72,7 +72,7 @@ withVal x v m = local f m
     f env = env { inlineValDefs = Map.insert x v (inlineValDefs env) }
 
 withFn :: FunDef () -> InlineM a -> InlineM a
-withFn fn@(FunDef () f _ _ _) m = local g m
+withFn fn@(FunDef f _ _ _) m = local g m
   where
     g env = env { inlineFnDefs = Map.insert f fn (inlineFnDefs env) }
 
@@ -104,12 +104,12 @@ inlineK (JumpK k xs) = do
   env <- ask
   case Map.lookup k (inlineCoDefs env) of
     Nothing -> pure (JumpK k xs)
-    Just (ContDef () [(y, _)] e) -> withTmSub (y, xs !! 0) $ inlineK e
+    Just (ContDef [(y, _)] e) -> withTmSub (y, xs !! 0) $ inlineK e
 inlineK (CallK f [x] [k]) = do
   env <- ask
   case Map.lookup f (inlineFnDefs env) of
     Nothing -> pure (CallK f [x] [k])
-    Just (FunDef () _ [(y, _)] [(k', _)] e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
+    Just (FunDef _ [(y, _)] [(k', _)] e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
 -- Eliminators use 'inlineValDefs' to beta-reduce, if possible.
 -- (A function parameter will not reduce, e.g.)
 -- Actually, isn't reducing @case inl x of ...@ and @fst (x, y)@ the
@@ -203,8 +203,8 @@ data Usage
 sizeK :: TermK () -> Int
 sizeK (LetFunAbsK fs e) = sum (map size fs) + sizeK e
   where
-    size (FunDef () _ _ _ e') = sizeK e'
-    size (AbsDef () _ _ _ e') = sizeK e'
+    size (FunDef _ _ _ e') = sizeK e'
+    size (AbsDef _ _ _ e') = sizeK e'
 sizeK (LetValK x _ v e) = 1 + sizeK e
 
 
@@ -279,7 +279,7 @@ rebuildDefinitions :: [(TmVar, LabelledProduct)] -> Endo (TermK ())
 rebuildDefinitions prods = foldMap rebuildDefinition prods
 
 -- flattenFunDef :: FunDef a -> FunDef a
--- flattenFunDef (FunDef ann f xs ks e) = FunDef ann f xs' ks e'
+-- flattenFunDef (FunDef f xs ks e) = FunDef f xs' ks e'
 --   where
 --     prods = _
 --     xs' = concatMap _ (productLeaves prods)

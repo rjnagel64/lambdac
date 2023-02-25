@@ -195,7 +195,7 @@ cps (S.TmLam x argTy e) k =
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
         (e', retTy) <- cpsTail e k'
         s' <- cpsCoType retTy
-        let fun = FunDef () f bs [(k', s')] e'
+        let fun = FunDef f bs [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
       (e'', t'') <- k f ty
       pure (LetFunAbsK [fun] e'', t'')
@@ -205,7 +205,7 @@ cps (S.TmTLam aa ki e) k =
       (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
         (e', retTy) <- cpsTail e k'
         s' <- cpsCoType retTy
-        let def = AbsDef () f bs [(k', s')] e'
+        let def = AbsDef f bs [(k', s')] e'
         pure (def, S.TyAll aa ki retTy)
       (e'', t'') <- k f ty
       pure (LetFunAbsK [def] e'', t'')
@@ -231,7 +231,7 @@ cps (S.TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
     (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
       (e2', t2') <- cps e2 k
-      let kont = ContDef () bs e2'
+      let kont = ContDef bs e2'
       pure (kont, t2')
     (e1', _t1') <- cpsTail e1 j
     pure (LetContK [(j, kont)] e1', t2')
@@ -253,7 +253,7 @@ cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
   kont <- freshTm "x" $ \x -> do
     s' <- cpsType s
     (e', _t') <- k x s
-    let kont = ContDef () [(x, s')] e'
+    let kont = ContDef [(x, s')] e'
     pure kont
   freshCo "j" $ \j -> do
     (res, s') <- cpsCase e j s [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
@@ -262,7 +262,7 @@ cps (S.TmIf e s et ef) k = do
   kont <- freshTm "x" $ \x -> do
     s' <- cpsType s
     (e', _t') <- k x s
-    let kont = ContDef () [(x, s')] e'
+    let kont = ContDef [(x, s')] e'
     pure kont
   freshCo "j" $ \j -> do
     (res, s') <- cpsCase e j s [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
@@ -271,7 +271,7 @@ cps (S.TmCase e s alts) k = do
   kont <- freshTm "x" $ \x -> do
     s' <- cpsType s
     (e', _t') <- k x s
-    let kont = ContDef () [(x, s')] e'
+    let kont = ContDef [(x, s')] e'
     pure kont
   freshCo "j" $ \j -> do
     (res, s') <- cpsCase e j s alts
@@ -286,7 +286,7 @@ cps (S.TmApp e1 e2) k =
         freshTm "x" $ \xv -> do
           (e', t') <- k xv retTy
           retTy' <- cpsType retTy
-          let res = LetContK [(kv, ContDef () [(xv, retTy')] e')] (CallK v1 [v2] [kv])
+          let res = LetContK [(kv, ContDef [(xv, retTy')] e')] (CallK v1 [v2] [kv])
           pure (res, t')
 cps (S.TmTApp e t) k =
   cps e $ \v1 t1 -> do
@@ -299,7 +299,7 @@ cps (S.TmTApp e t) k =
         (e'', t'') <- k fv instTy
         instTy' <- cpsType instTy
         t' <- cpsType t
-        let res = LetContK [(kv, ContDef () [(fv, instTy')] e'')] (InstK v1 [t'] [kv])
+        let res = LetContK [(kv, ContDef [(fv, instTy')] e'')] (InstK v1 [t'] [kv])
         pure (res, t'')
 cps (S.TmFst e) k =
   cps e $ \v t ->  do
@@ -330,7 +330,7 @@ cps (S.TmPure e) k =
           freshCo "k" $ \k' -> do
             let body = JumpK k' [s, z]
             t' <- cpsType t
-            let fun = FunDef () f [(s, TokenK)] [(k', ContK [TokenK, t'])] body
+            let fun = FunDef f [(s, TokenK)] [(k', ContK [TokenK, t'])] body
             pure fun
       (e', t') <- k (funDefName fun) (S.TyIO t)
       let res = LetFunAbsK [fun] e'
@@ -347,13 +347,13 @@ cps (S.TmBind x t e1 e2) k = do
                 (e', it2) <- cps e2 $ \m2 it2 -> do
                   let contBody = CallK m2 [s2] [k1]
                   pure (contBody, it2)
-                pure (ContDef () ((s2, TokenK) : bs) e', it2)
+                pure (ContDef ((s2, TokenK) : bs) e', it2)
             freshCo "k" $ \k2 -> do
               let funBody = LetContK [(k2, contDef)] (CallK m1 [s1] [k2])
               t2' <- case it2 of
                 S.TyIO t2 -> cpsType t2
                 _ -> error "body of bind is not monadic"
-              let funDef = FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
+              let funDef = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
               pure (funDef, it2)
       (e', t') <- k (funDefName fun) it2 -- dubious about the type here, but it seems to work.
       let res = LetFunAbsK [fun] e'
@@ -367,7 +367,7 @@ cps S.TmGetLine k = do
           freshTm "s" $ \s2 ->
             freshTm "x" $ \msg -> do
               let body = LetBindK s2 msg (PrimGetLine s1) (JumpK k1 [s2, msg])
-              let fun = FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, StringK])] body
+              let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, StringK])] body
               pure fun
     (e', t') <- k (funDefName fun) (S.TyIO S.TyString)
     let res = LetFunAbsK [fun] e'
@@ -381,7 +381,7 @@ cps (S.TmPutLine e) k = do
             freshTm "s" $ \s2 ->
               freshTm "u" $ \u -> do
                 let body = LetBindK s2 u (PrimPutLine s1 z) (JumpK k1 [s2, u])
-                let fun = FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, UnitK])] body
+                let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, UnitK])] body
                 pure fun
       (e', t') <- k (funDefName fun) (S.TyIO S.TyUnit)
       let res = LetFunAbsK [fun] e'
@@ -394,7 +394,7 @@ cps (S.TmRunIO e) k = do
     (cont, t') <- freshTm "s" $ \sv -> freshTm "x" $ \xv -> do
       (e', t') <- k xv retTy
       retTy' <- cpsType retTy
-      pure (ContDef () [(sv, TokenK), (xv, retTy')] e', t')
+      pure (ContDef [(sv, TokenK), (xv, retTy')] e', t')
     freshCo "k_run" $ \kv -> do
       freshTm "s" $ \s0 -> do
         let res = LetContK [(kv, cont)] (LetValK s0 TokenK WorldTokenK (CallK m [s0] [kv]))
@@ -411,7 +411,7 @@ cpsFun (S.TmFun f x t s e) =
     fun <- freshenVarBinds [(x, t)] $ \bs -> do
       (e', _s') <- cpsTail e k
       s' <- cpsCoType s
-      pure (FunDef () f' bs [(k, s')] e')
+      pure (FunDef f' bs [(k, s')] e')
     pure fun
 cpsFun (S.TmTFun f aa ki s e) =
   freshCo "k" $ \k -> do
@@ -423,7 +423,7 @@ cpsFun (S.TmTFun f aa ki s e) =
     fun <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
       (e', _s') <- cpsTail e k
       s' <- cpsCoType s
-      pure (AbsDef () f' bs [(k, s')] e')
+      pure (AbsDef f' bs [(k, s')] e')
     pure fun
 
 -- | CPS-convert a term in tail position.
@@ -446,7 +446,7 @@ cpsTail (S.TmLam x argTy e) k =
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
         (e', retTy) <- cpsTail e k'
         s' <- cpsCoType retTy
-        let fun = FunDef () f bs [(k', s')] e'
+        let fun = FunDef f bs [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
       let res = LetFunAbsK [fun] (JumpK k [f])
       pure (res, ty)
@@ -456,7 +456,7 @@ cpsTail (S.TmTLam aa ki e) k =
       (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
         (e', retTy) <- cpsTail e k'
         s' <- cpsCoType retTy
-        let def = AbsDef () f bs [(k', s')] e'
+        let def = AbsDef f bs [(k', s')] e'
         pure (def, S.TyAll aa ki retTy)
       let res = LetFunAbsK [def] (JumpK k [f])
       pure (res, ty)
@@ -583,7 +583,7 @@ cpsTail (S.TmPure e) k =
           freshCo "k" $ \k' -> do
             let body = JumpK k' [s, z]
             t' <- cpsType t
-            let fun = FunDef () f [(s, TokenK)] [(k', ContK [TokenK, t'])] body
+            let fun = FunDef f [(s, TokenK)] [(k', ContK [TokenK, t'])] body
             pure fun
       let res = LetFunAbsK [fun] (JumpK k [f])
       pure (res, S.TyIO t)
@@ -599,13 +599,13 @@ cpsTail (S.TmBind x t e1 e2) k = do
                 (e', it2) <- cps e2 $ \m2 it2 -> do
                   let contBody = CallK m2 [s2] [k1]
                   pure (contBody, it2)
-                pure (ContDef () ((s2, TokenK) : bs) e', it2)
+                pure (ContDef ((s2, TokenK) : bs) e', it2)
             freshCo "k" $ \k2 -> do
               let funBody = LetContK [(k2, contDef)] (CallK m1 [s1] [k2])
               t2' <- case it2 of
                 S.TyIO t2 -> cpsType t2
                 _ -> error "body of bind is not monadic"
-              let funDef = FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
+              let funDef = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
               pure (funDef, it2)
       let res = LetFunAbsK [fun] (JumpK k [f])
       pure (res, it2)
@@ -618,7 +618,7 @@ cpsTail S.TmGetLine k = do
           freshTm "s" $ \s2 ->
             freshTm "x" $ \msg -> do
               let body = LetBindK s2 msg (PrimGetLine s1) (JumpK k1 [s2, msg])
-              let fun = FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, StringK])] body
+              let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, StringK])] body
               pure fun
     let res = LetFunAbsK [fun] (JumpK k [f])
     pure (res, S.TyIO S.TyString)
@@ -631,7 +631,7 @@ cpsTail (S.TmPutLine e) k = do
             freshTm "s" $ \s2 ->
               freshTm "u" $ \u -> do
                 let body = LetBindK s2 u (PrimPutLine s1 z) (JumpK k1 [s2, u])
-                let fun = FunDef () f [(s1, TokenK)] [(k1, ContK [TokenK, UnitK])] body
+                let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, UnitK])] body
                 pure fun
       let res = LetFunAbsK [fun] (JumpK k [f])
       pure (res, S.TyIO S.TyUnit)
@@ -642,7 +642,7 @@ cpsTail (S.TmRunIO e) k = do
       _ -> error "cannot runIO non-monadic value"
     (cont, t') <- freshTm "s" $ \sv -> freshTm "x" $ \xv -> do
       retTy' <- cpsType retTy
-      pure (ContDef () [(sv, TokenK), (xv, retTy')] (JumpK k [xv]), retTy)
+      pure (ContDef [(sv, TokenK), (xv, retTy')] (JumpK k [xv]), retTy)
     freshCo "k_run" $ \kv -> do
       freshTm "s" $ \s0 -> do
         let res = LetContK [(kv, cont)] (LetValK s0 TokenK WorldTokenK (CallK m [s0] [kv]))
@@ -700,7 +700,7 @@ makeCtorWrapper tc params c ctorargs e = do
       freshTm "w" $ \newName ->
         freshCo "k" $ \newCont -> do
           (inner, innerTy) <- go newName args arglist (JumpK newCont [newName])
-          let fun = AbsDef () name [(aa, k)] [(newCont, ContK [innerTy])] inner
+          let fun = AbsDef name [(aa, k)] [(newCont, ContK [innerTy])] inner
           let wrapper = LetFunAbsK [fun] body
           pure (wrapper, AllK [(aa, k)] [ContK [innerTy]])
     go name (Right argTy : args) arglist body =
@@ -708,7 +708,7 @@ makeCtorWrapper tc params c ctorargs e = do
         freshTm "arg" $ \newArg ->
           freshCo "k" $ \newCont -> do
             (inner, innerTy) <- go newName args (arglist ++ [newArg]) (JumpK newCont [newName])
-            let fun = FunDef () name [(newArg, argTy)] [(newCont, ContK [innerTy])] inner
+            let fun = FunDef name [(newArg, argTy)] [(newCont, ContK [innerTy])] inner
             let wrapper = LetFunAbsK [fun] body
             pure (wrapper, FunK [argTy] [ContK [innerTy]])
 
@@ -793,7 +793,7 @@ cpsCase' z t j bs = do
 cpsBranch :: [(S.TmVar, S.Type)] -> S.Term -> CoVar -> CPS (ContDef (), S.Type)
 cpsBranch xs e j = freshenVarBinds xs $ \xs' -> do
   (e', s') <- cpsTail e j
-  pure (ContDef () xs' e', s')
+  pure (ContDef xs' e', s')
 
 
 newtype CPS a = CPS { runCPS :: Reader CPSEnv a }
