@@ -400,7 +400,7 @@ cps (S.TmRunIO e) k = do
         let res = LetContK [(kv, cont)] (LetValK s0 TokenK WorldTokenK (CallK m [s0] [kv]))
         pure (res, t')
 
-cpsFun :: S.TmFun -> CPS (FunDef ())
+cpsFun :: S.TmFun -> CPS FunDef
 cpsFun (S.TmFun f x t s e) =
   freshCo "k" $ \k -> do
     env <- asks cpsEnvCtx
@@ -790,7 +790,7 @@ cpsCase' z t j bs = do
 --
 -- @cpsBranch xs e j@ returns @(cont xs = [[e]] j;, s)@ where @s@ is the
 -- type of @e@.
-cpsBranch :: [(S.TmVar, S.Type)] -> S.Term -> CoVar -> CPS (ContDef (), S.Type)
+cpsBranch :: [(S.TmVar, S.Type)] -> S.Term -> CoVar -> CPS (ContDef, S.Type)
 cpsBranch xs e j = freshenVarBinds xs $ \xs' -> do
   (e', s') <- cpsTail e j
   pure (ContDef xs' e', s')

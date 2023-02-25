@@ -124,9 +124,9 @@ data TermK a
   | LetBindK TmVar TmVar PrimIO (TermK a)
 
   -- let ks in e
-  | LetContK [(CoVar, ContDef a)] (TermK a)
+  | LetContK [(CoVar, ContDef)] (TermK a)
   -- let rec fs in e
-  | LetFunAbsK [FunDef a] (TermK a)
+  | LetFunAbsK [FunDef] (TermK a)
 
   -- Block terminators
   -- k x..., goto k(x...)
@@ -154,22 +154,22 @@ data TermK a
 -- Continuation values do not have names, and therefore cannot be recursive.
 -- Let-bound continuations are also non-recursive.
 -- (And therefore, inlining them is straightforward)
-data ContDef a = ContDef [(TmVar, TypeK)] (TermK a)
+data ContDef = ContDef [(TmVar, TypeK)] (TermK ())
 
-contDefType :: ContDef a -> CoTypeK
+contDefType :: ContDef -> CoTypeK
 contDefType (ContDef xs _) = ContK (map snd xs)
 
 -- | Function definitions: either term functions @f (x:τ) (k:σ) := e@,
 -- or type functions @f \@a (k:σ) := e@
-data FunDef a
-  = FunDef TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK a)
-  | AbsDef TmVar [(TyVar, KindK)] [(CoVar, CoTypeK)] (TermK a)
+data FunDef
+  = FunDef TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] (TermK ())
+  | AbsDef TmVar [(TyVar, KindK)] [(CoVar, CoTypeK)] (TermK ())
 
-funDefName :: FunDef a -> TmVar
+funDefName :: FunDef -> TmVar
 funDefName (FunDef f _ _ _) = f
 funDefName (AbsDef f _ _ _) = f
 
-funDefType :: FunDef a -> TypeK
+funDefType :: FunDef -> TypeK
 funDefType (FunDef _ xs ks _) = FunK (map snd xs) (map snd ks)
 funDefType (AbsDef _ as ks _) = AllK as (map snd ks)
 
@@ -185,9 +185,9 @@ data ValueK
   | StringValK String
   | CtorAppK Ctor [TmVar]
 
-data CoValueK a
+data CoValueK
   = CoVarK CoVar
-  | ContValK (ContDef a)
+  | ContValK ContDef
 
 data ArithK
   = AddK TmVar TmVar
@@ -489,7 +489,7 @@ pprintPrimIO :: PrimIO -> String
 pprintPrimIO (PrimGetLine x) = "getLine " ++ show x
 pprintPrimIO (PrimPutLine x y) = "putLine " ++ show x ++ " " ++ show y
 
-pprintFunDef :: Int -> FunDef a -> String
+pprintFunDef :: Int -> FunDef -> String
 pprintFunDef n (FunDef f xs ks e) =
   indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where
@@ -505,7 +505,7 @@ pprintFunDef n (AbsDef f as ks e) =
     pprintTyParam (aa, kk) = "@" ++ show aa ++ " :: " ++ pprintKind kk
     pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
 
-pprintContDef :: Int -> (CoVar, ContDef a) -> String
+pprintContDef :: Int -> (CoVar, ContDef) -> String
 pprintContDef n (k, ContDef xs e) =
   indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
   where

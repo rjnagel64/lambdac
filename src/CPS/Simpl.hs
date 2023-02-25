@@ -205,7 +205,7 @@ simplifyArith env op = arith (renameOp op)
       ((_, Just (IntValK i)), (_, Just (IntValK j))) -> Right (f i j)
       ((x', _), (y', _)) -> Left (g x' y', recordList [x', y'])
 
-simplifyContDef :: SimplEnv -> (CoVar, ContDef a) -> ((CoVar, ContDef a), Census)
+simplifyContDef :: SimplEnv -> (CoVar, ContDef) -> ((CoVar, ContDef), Census)
 simplifyContDef env (k, ContDef xs e) =
   -- Pass under xs binders
   let env' = foldr (under . fst) env xs in

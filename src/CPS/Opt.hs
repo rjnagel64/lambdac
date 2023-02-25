@@ -43,9 +43,9 @@ data InlineEnv
     inlineSizeThreshold :: Int
 
   -- | If a continuation variable has an unfolding, it is stored here.
-  , inlineCoDefs :: Map CoVar (ContDef ())
+  , inlineCoDefs :: Map CoVar ContDef
   -- | If a function has an unfolding, it is stored here.
-  , inlineFnDefs :: Map TmVar (FunDef ())
+  , inlineFnDefs :: Map TmVar FunDef
 
   -- | Values are bound here, so that beta-redexes can reduce.
   , inlineValDefs :: Map TmVar ValueK
@@ -71,12 +71,12 @@ withVal x v m = local f m
   where
     f env = env { inlineValDefs = Map.insert x v (inlineValDefs env) }
 
-withFn :: FunDef () -> InlineM a -> InlineM a
+withFn :: FunDef -> InlineM a -> InlineM a
 withFn fn@(FunDef f _ _ _) m = local g m
   where
     g env = env { inlineFnDefs = Map.insert f fn (inlineFnDefs env) }
 
-withCont :: (CoVar, ContDef ()) -> InlineM a -> InlineM a
+withCont :: (CoVar, ContDef) -> InlineM a -> InlineM a
 withCont (k, kont) m = local g m
   where
     g env = env { inlineCoDefs = Map.insert k kont (inlineCoDefs env) }
