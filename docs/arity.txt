@@ -47,3 +47,85 @@ See "Call Arity" for more discussion of these topics (uncurrying and eta-expansi
 Another topic to note is that if source-level applications are uncurried, their
 CPS translation will involve translating and naming `n` temporaries to make the
 call.
+
+
+
+
+Vague thoughts, without reference to paper:
+===========================================
+
+data Ar = Bot | AtLeast Nat
+
+-- 'ar e n == rho' means that when 'e' is applied to 'n' arguments, the free
+-- variables of 'e' are applied to at least 'rho[x]' arguments.
+ar :: Expr -> Int -> Map Var Ar
+
+* Use lattice for analysis result:
+  ;
+* Top element of lattice is `AtLeast 0`. It means that we know nothing about
+  the number of arguments.
+* Bottom element is kind of like an infinite number of arguments. (Impossible,
+  diverges, something you would get from a diverging express like `f x = f x x`)
+
+* rewriting on the fly?
+
+
+Arity analysis on CPS:
+
+ar : Expr -> Map CoVar CoAr -> Map TmVar Ar
+
+Given arity info for the possible continuations of an expression, use that to
+compute the arities applied to each free variable.
+
+type CoAr = [Int] -- number of arguments applied to each value
+
+Source arity analysis is special case where this only one continuation that
+accepts only one value.
+
+
+
+example: Source adder
+
+let adder : int -> (int -> int) =
+  \ (x : int) -> \ (y : int) -> x + y
+in
+let add3 : int -> int = adder 3 in
+add3 5
+
+arity (let adder ...) 0 =
+  let rho0 = arity(let add3 ...) 0 in
+  arity (\ (x : int) ...) (rho0 ! 'adder') `join` rho0
+  where
+    arity (let add3 ...) 0 =
+      let rho1 = arity (add3 5) 0 in
+      arity (adder 3) (rho1 ! 'add3') `join` rho1
+      where
+        arity (add3 5) 0 = arity (add3) 1 = { add3 -> 1 }
+      arity (adder 3) (rho1 ! 'adder') = arity (adder 3) 1 = arity (adder) 2 = { adder -> 2 }
+    arity (\ (x : int) ...) (rho0 ! 'adder') = arity (\ (x : int) ...) 2
+    (hmm. Lost track of notation.)
+
+
+example: CPS adder
+
+let fun adder (x : int, k0 : (int) => ((int) -> !)) =
+  let fun inner (y : int, k1 : (int -> !)) =
+    let sum : int = x + y in
+    k1 sum
+  in
+  k0 inner
+in
+let cont k2 (add3 : (int) => ((int) -> !)) =
+  let cont k3 (result : int) =
+    halt result
+  in
+  let arg0 : int = 5 in
+  add3 arg1 k3
+in
+let arg1 : int = 3 in
+adder arg1 k2
+
+Assume all functions are non-recursive, so I don't have to worry about
+iteration to fixpoint. (yet)
+
+TODO: Figure out rules for how to start the analysis, propagate the analysis
