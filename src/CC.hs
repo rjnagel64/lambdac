@@ -11,10 +11,13 @@ import Data.Set (Set)
 
 import Control.Monad.Reader
 import Control.Monad.Writer hiding (Sum)
+import Control.Monad.State
 
+import Data.Bifunctor
 import Data.Foldable (toList)
 import Data.Function (on)
 import Data.Functor.Identity
+import Data.Functor.Compose
 import Prelude hiding (cos)
 
 import qualified CPS.IR as K
@@ -192,16 +195,44 @@ cconvTyConApp (K.CaseSum t s) = CaseSum <$> cconvType t <*> cconvType s
 
 cconv :: K.TermK -> ConvM TermC
 cconv (K.HaltK x) = HaltC <$> cconvTmVar x
-cconv (K.JumpK k xs) = JumpC <$> cconvCoVar k <*> traverse cconvTmVar xs
-cconv (K.CallK f xs ks) =
-  CallC <$> cconvTmVar f <*> traverse (fmap ValueArg . cconvTmVar) xs <*> traverse cconvCoVar ks
-cconv (K.InstK f ts ks) =
-  CallC <$> cconvTmVar f <*> traverse (fmap TypeArg . cconvType) ts <*> traverse cconvCoVar ks 
+cconv (K.JumpK k xs) = do
+  (kbinds, Identity k') <- cconvCoArgs (Identity (K.CoVarK k))
+  xs' <- traverse cconvTmVar xs
+  let term = JumpC k' xs'
+  if null kbinds then
+    pure term
+  else
+    pure (LetContC kbinds term)
+cconv (K.CallK f xs ks) = do
+  f' <- cconvTmVar f
+  xs' <- traverse (fmap ValueArg . cconvTmVar) xs
+  (kbinds, ks') <- cconvCoArgs (map K.CoVarK ks)
+  let term = (CallC f' xs' ks')
+  if null kbinds then
+    pure term
+  else
+    pure (LetContC kbinds term)
+cconv (K.InstK f ts ks) = do
+  f' <- cconvTmVar f
+  ts' <- traverse (fmap TypeArg . cconvType) ts
+  (kbinds, ks') <- cconvCoArgs (map K.CoVarK ks)
+  let term = CallC f' ts' ks'
+  if null kbinds then
+    pure term
+  else
+    pure (LetContC kbinds term)
 cconv (K.CaseK x kind ks) = do
   x' <- cconvTmVar x
   kind' <- cconvTyConApp kind
-  ks' <- traverse (\ (K.Ctor c, k) -> (,) (Ctor c) <$> cconvCoVar k) ks
-  pure (CaseC x' kind' ks')
+  -- Not quite the same as CallK/InstK because each co-"argument" is paired
+  -- with a constructor (and the constructor also needs to be translated)
+  (kbinds, ks0') <- cconvCoArgs (Compose $ map (second K.CoVarK) ks)
+  let ks' = map (\ (K.Ctor c, k') -> (Ctor c, k')) (getCompose ks0')
+  let term = CaseC x' kind' ks'
+  if null kbinds then
+    pure term
+  else
+    pure (LetContC kbinds term)
 cconv (K.LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e
@@ -218,7 +249,9 @@ cconv (K.LetFunAbsK fs e) = do
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
 cconv (K.LetContK ks e) = do
   let contBinds = map (\ (k, cont) -> (k, K.contDefType cont)) ks
-  withCos contBinds $ \_ -> LetContC <$> traverse cconvContDef ks <*> cconv e
+  let contName (K.CoVar x i) = Name x i
+  let cconvContBind (k, cont) = (,) (contName k) <$> cconvContDef cont
+  withCos contBinds $ \_ -> LetContC <$> traverse cconvContBind ks <*> cconv e
 
 cconvFunDef :: K.FunDef -> ConvM FunClosureDef
 cconvFunDef (K.FunDef f xs ks e) = do
@@ -240,15 +273,14 @@ cconvFunDef (K.AbsDef f as ks e) = do
   let fnName (K.TmVar x i) = Name x i
   pure (FunClosureDef (fnName f) env params' e')
 
-cconvContDef :: (K.CoVar, K.ContDef) -> ConvM (Name, ContClosureDef)
-cconvContDef (k, K.ContDef xs e) = do
+cconvContDef :: (K.ContDef) -> ConvM (ContClosureDef)
+cconvContDef (K.ContDef xs e) = do
   ((xs', e'), flds) <- listen $
     withTms xs $ \xs' -> do
       e' <- cconv e
       pure (xs', e')
   env <- makeClosureEnv flds
-  let contName (K.CoVar x i) = Name x i
-  pure (contName k, ContClosureDef env xs' e')
+  pure (ContClosureDef env xs' e')
 
 makeClosureEnv :: Fields -> ConvM EnvDef
 makeClosureEnv flds = do
@@ -328,12 +360,18 @@ cconvCoVar x = do
     Nothing -> error ("variable not in scope: " ++ show x)
     Just (x', s) -> writer (x', singleOcc x' s)
 
--- cconvCoArgs :: Traversable t => t (K.CoValueK a) -> ConvM ([(Name, ContClosureDef)], t Name)
--- cconvCoArgs ks = mapAccumL f init ks -- aargh. Need StateT [...] ConvM, but ConvM also has StateT Int
---   where
---     init = []
---     f (K.CoVarK k) = _
---     f (K.ContValK cont) = _
+cconvCoArgs :: Traversable t => t K.CoValueK -> ConvM ([(Name, ContClosureDef)], t Name)
+cconvCoArgs ks = do
+  (args, (_, defs)) <- runStateT (traverse (StateT . f) ks) (0, [])
+  pure (defs, args)
+  where
+    -- Already a variable. Don't need to bind a definition, just convert it.
+    f (K.CoVarK k) (i, defs) = (\k' -> (k', (i, defs))) <$> cconvCoVar k
+    -- Need to generate a name for the cont, convert the cont, etc.
+    f (K.ContValK cont) (i, defs) = do
+      let k' = Name "__anon_cont" i
+      cont' <- cconvContDef cont
+      pure (k', (i+1, (k', cont'):defs))
 
 cconvTyVar :: K.TyVar -> ConvM TyVar
 cconvTyVar aa = do
