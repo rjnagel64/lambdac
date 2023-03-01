@@ -90,3 +90,100 @@ order on labels. If rows are closed, field offsets can be computed statically.
 If rows are open, field offsets cannot be computed statically, but
 worker-wrapper transformation can be used to push field offset computations
 closer to call sites, where there's more type information.
+
+
+
+# Mock-up: sorted span of key-value pairs
+
+```
+struct record_field {
+  // some string-like type for field labels goes here
+  struct label key;
+  struct alloc_header *val;
+};
+struct record {
+  struct alloc_header header;
+  uint32_t num_fields;
+  struct record_field fields[];
+};
+
+struct record *allocate_record(uint32_t num_fields, struct record_field *fields) {
+  // malloc(header + u32 + size*record_field)
+  // assume fields to be sorted?
+  // copy fields into record
+}
+
+struct alloc_header *project_field(struct record *rec, struct label *l) {
+  // binary search for index -- need total order on labels. (compare, leq, or lt)
+  ;
+  // Project the field value at that index.
+}
+
+struct record *extend_record(struct record *rec, struct label *l, struct alloc_header *v) {
+  // bsearch to find point of insertion
+  // memcpy items before insert point
+  // append new value
+  // memcpy items after insert point
+  ;
+}
+```
+
+Idea: labels are interned strings. bounded number of labels in a program,
+immutable, only need total order.
+
+```
+struct label_pool {
+  // some sort of interning scheme. Probably buffer & hash table (string -> offset).
+};
+private buffer interned_strings; // some internal representation. probably global.
+struct label {
+  // private details, unique identifier of entry in label pool.
+}
+
+// Total order on labels.
+bool cmp_label_lt(const struct label *l1, const struct label *l2);
+
+void init_labels_pool(void); // create the buffer
+void destroy_all_labels(void); // free the buffer
+struct label *make_label(size_t len, const char *s); // allocate/dedup label in buffer.
+```
+
+
+```
+struct record_field {
+  struct label l;
+  uint32_t depth;
+  struct alloc_header *val;
+};
+```
+
+A record field consists of a label, how deeply shadowed the label is, and the
+value. The shadowing level means that when binary search finds a label with
+equal value, we can jump to the topmost value with that label.
+
+```
+def lookup_field(rec, l, lo, hi):
+  // perform binary search over rec.fields[lo..hi] (inclusive-exclusive) for label 'l'.
+  while lo < hi: // if lo == hi, zero-length slice: fail.
+    let mid = lo + (hi - lo)/2;
+    let field = &rec.fields[mid]
+    if (l < field.l):
+      hi = mid
+      continue
+    else if (field.l < l):
+      lo = mid
+      continue
+    else: // total order implies field.l == l
+      // Because shadowed labels are all equal, we need to find the outermost
+      // label with this value. To solve this, each field contains the shadowing
+      // depth of its label. For example, if binary search terminates at the
+      // third copy of label 'foo', '.depth' will be '2'. If it by chance did
+      // find the first copy, '.depth' would be '0'. Problem solved.
+      return mid - fields[mid].depth
+
+  panic!("unreachable: field projections are well-typed")
+
+def project_field(rec, l):
+  let idx = lookup_field(rec, l, 0, rec.num_fields)
+  return rec.fields[idx].val
+```
