@@ -206,7 +206,7 @@ cconv (K.JumpK k xs) = do
 cconv (K.CallK f xs ks) = do
   f' <- cconvTmVar f
   xs' <- traverse (fmap ValueArg . cconvTmVar) xs
-  (kbinds, ks') <- cconvCoArgs (map K.CoVarK ks)
+  (kbinds, ks') <- cconvCoArgs ks
   let term = (CallC f' xs' ks')
   if null kbinds then
     pure term
@@ -215,7 +215,7 @@ cconv (K.CallK f xs ks) = do
 cconv (K.InstK f ts ks) = do
   f' <- cconvTmVar f
   ts' <- traverse (fmap TypeArg . cconvType) ts
-  (kbinds, ks') <- cconvCoArgs (map K.CoVarK ks)
+  (kbinds, ks') <- cconvCoArgs ks
   let term = CallC f' ts' ks'
   if null kbinds then
     pure term

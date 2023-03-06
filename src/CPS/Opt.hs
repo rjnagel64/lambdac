@@ -105,10 +105,10 @@ inlineK (JumpK k xs) = do
   case Map.lookup k (inlineCoDefs env) of
     Nothing -> pure (JumpK k xs)
     Just (ContDef [(y, _)] e) -> withTmSub (y, xs !! 0) $ inlineK e
-inlineK (CallK f [x] [k]) = do
+inlineK (CallK f [x] [CoVarK k]) = do
   env <- ask
   case Map.lookup f (inlineFnDefs env) of
-    Nothing -> pure (CallK f [x] [k])
+    Nothing -> pure (CallK f [x] [CoVarK k])
     Just (FunDef _ [(y, _)] [(k', _)] e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
 -- Eliminators use 'inlineValDefs' to beta-reduce, if possible.
 -- (A function parameter will not reduce, e.g.)
@@ -308,7 +308,7 @@ flattenArgument (p, IsProduct y1 t1 y2 t2) = mconcat [
 flattenCallSite :: TmVar -> [(TmVar, LabelledProduct)] -> [CoVar] -> TermK
 flattenCallSite fn prods ks =
   let (Endo build, xs') = foldMap flattenArgument prods in
-  build (CallK fn xs' ks)
+  build (CallK fn xs' (map CoVarK ks))
 
 flattenJumpSite :: CoVar -> [(TmVar, LabelledProduct)] -> TermK
 flattenJumpSite co prods =

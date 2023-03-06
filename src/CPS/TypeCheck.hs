@@ -11,6 +11,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 
 import Data.Foldable (for_, traverse_)
+import Data.Traversable (for)
 
 import CPS.IR
 
@@ -199,9 +200,9 @@ check (InstK f ts ks) = do
   checkCoArgs ks ss'
 check (CaseK x s ks) = checkCase x s ks
 check (LetContK ks e) = do
-  for_ ks $ \ (k, ContDef xs e') -> do
-    withTmVars xs $ check e'
-  let defs = map (\ (k, cont) -> (k, contDefType cont)) ks
+  defs <- for ks $ \ (k, cont) -> do
+    s <- inferContDef cont
+    pure (k, s)
   withCoVars defs $ check e
 check (LetFunAbsK fs e) = do
   let defs = map (\f -> (funDefName f, funDefType f)) fs
@@ -238,6 +239,11 @@ check (LetConcatK x y z e) = do
 check (LetBindK s x prim e) = do
   t <- checkPrimIO prim
   withTmVars [(s, TokenK), (x, t)] $ check e
+
+inferContDef :: ContDef -> TC CoTypeK
+inferContDef (ContDef xs e) = do
+  withTmVars xs $ check e
+  pure $ ContK [s | (_, s) <- xs]
 
 checkCase :: TmVar -> TyConApp -> [(Ctor, CoVar)] -> TC ()
 checkCase x CaseBool ks =
@@ -349,10 +355,16 @@ checkTmArgs [] [] = pure ()
 checkTmArgs (x:xs) (s:ss) = checkTmVar x s *> checkTmArgs xs ss
 checkTmArgs _ _ = throwError ArityMismatch
 
-checkCoArgs :: [CoVar] -> [CoTypeK] -> TC ()
+checkCoArgs :: [CoValueK] -> [CoTypeK] -> TC ()
 checkCoArgs [] [] = pure ()
-checkCoArgs (k:ks) (s:ss) = checkCoVar k s *> checkCoArgs ks ss
+checkCoArgs (k:ks) (s:ss) = checkCoValue k s *> checkCoArgs ks ss
 checkCoArgs _ _ = throwError ArityMismatch
+
+checkCoValue :: CoValueK -> CoTypeK -> TC ()
+checkCoValue (CoVarK k) s = checkCoVar k s
+checkCoValue (ContValK cont) s = do
+  s' <- inferContDef cont
+  equalCoTypes s s'
 
 
 -- | Check that a type has the given kind.

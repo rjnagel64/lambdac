@@ -132,9 +132,9 @@ data TermK
   -- k x..., goto k(x...)
   | JumpK CoVar [TmVar]
   -- f x k, call f(x, k)
-  | CallK TmVar [TmVar] [CoVar]
+  | CallK TmVar [TmVar] [CoValueK]
   -- f @t k
-  | InstK TmVar [TypeK] [CoVar]
+  | InstK TmVar [TypeK] [CoValueK]
   -- case x : s of c1 -> k1 | c2 -> k2 | ..., branch
   | CaseK TmVar TyConApp [(Ctor, CoVar)]
   -- halt x
@@ -434,9 +434,9 @@ pprintTerm :: Int -> TermK -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
 pprintTerm n (CallK f xs ks) =
-  indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map show ks) ++ ";\n"
+  indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map pprintCoValue ks) ++ ";\n"
 pprintTerm n (InstK f ts ks) =
-  indent n $ intercalate " @" (show f : map pprintType ts) ++ " " ++ intercalate " " (map show ks) ++ ";\n"
+  indent n $ intercalate " @" (show f : map pprintType ts) ++ " " ++ intercalate " " (map pprintCoValue ks) ++ ";\n"
 pprintTerm n (CaseK x tcapp ks) =
   let branches = intercalate " | " (map show ks) in
   let t = fromTyConApp tcapp in
@@ -446,7 +446,7 @@ pprintTerm n (LetValK x t v e) =
 pprintTerm n (LetFunAbsK fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContK ks e) =
-  indent n "letcont\n" ++ concatMap (pprintContDef (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
+  indent n "letcont\n" ++ concatMap (pprintContBind (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetFstK x t y e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndK x t y e) =
@@ -470,6 +470,10 @@ pprintValue (InlK x) = "inl " ++ show x
 pprintValue (InrK y) = "inr " ++ show y
 pprintValue (StringValK s) = show s
 pprintValue (CtorAppK c args) = show c ++ "(" ++ intercalate ", " (map show args) ++ ")"
+
+pprintCoValue :: CoValueK -> String
+pprintCoValue (CoVarK k) = show k
+pprintCoValue (ContValK cont) = pprintContDef cont
 
 pprintArith :: ArithK -> String
 pprintArith (AddK x y) = show x ++ " + " ++ show y
@@ -505,13 +509,19 @@ pprintFunDef n (AbsDef f as ks e) =
     pprintTyParam (aa, kk) = "@" ++ show aa ++ " :: " ++ pprintKind kk
     pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
 
-pprintContDef :: Int -> (CoVar, ContDef) -> String
-pprintContDef n (k, ContDef xs e) =
-  indent n (show k ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
+pprintContDef :: ContDef -> String
+-- Hmm. This isn't going to work very well.
+-- The body of the continuation will be broken onto new lines.
+pprintContDef (ContDef xs e) = "(cont " ++ pprintTmParams xs ++ " => " ++ pprintTerm 0 e ++ ")"
+
+pprintContBind :: Int -> (CoVar, ContDef) -> String
+pprintContBind n (k, ContDef xs e) =
+  indent n (show k ++ " " ++ pprintTmParams xs ++ " =\n") ++ pprintTerm (n+2) e
   where
-    params = "(" ++ intercalate ", " (map pprintTmParam xs) ++ ")"
-    pprintTmParam :: (TmVar, TypeK) -> String
-    pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
+
+pprintTmParams :: [(TmVar, TypeK)] -> String
+pprintTmParams xs = "(" ++ intercalate ", " (map f xs) ++ ")"
+  where f (x, t) = show x ++ " : " ++ pprintType t
 
 pprintType :: TypeK -> String
 pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s
