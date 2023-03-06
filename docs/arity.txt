@@ -92,6 +92,7 @@ in
 let add3 : int -> int = adder 3 in
 add3 5
 
+-- analyze the arity, with these tentative rules
 arity (let adder ...) 0 =
   let rho0 = arity(let add3 ...) 0 in
   arity (\ (x : int) ...) (rho0 ! 'adder') `join` rho0
