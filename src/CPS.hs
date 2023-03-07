@@ -283,25 +283,24 @@ cps (S.TmApp e1 e2) k =
       retTy <- case t1 of
         S.TyArr _argTy retTy -> pure retTy
         _ -> error "type error"
-      freshCo "k" $ \kv ->
-        freshTm "x" $ \xv -> do
-          (e', t') <- k xv retTy
-          retTy' <- cpsType retTy
-          let res = LetContK [(kv, ContDef [(xv, retTy')] e')] (CallK v1 [v2] [CoVarK kv])
-          pure (res, t')
-cps (S.TmTApp e t) k =
+      (cont, t') <- freshTm "x" $ \xv -> do
+        (e', t') <- k xv retTy
+        retTy' <- cpsType retTy
+        pure (ContDef [(xv, retTy')] e', t')
+      let res = CallK v1 [v2] [ContValK cont]
+      pure (res, t')
+cps (S.TmTApp e ty) k =
   cps e $ \v1 t1 -> do
-    (aa, t1') <- case t1 of
-      S.TyAll aa _ki t1' -> pure (aa, t1')
+    ty' <- cpsType ty
+    instTy <- case t1 of
+      S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa ty) t1')
       _ -> error "type error"
-    freshCo "k" $ \kv ->
-      freshTm "f" $ \fv -> do
-        let instTy = S.substType (S.singleSubst aa t) t1'
-        (e'', t'') <- k fv instTy
-        instTy' <- cpsType instTy
-        t' <- cpsType t
-        let res = LetContK [(kv, ContDef [(fv, instTy')] e'')] (InstK v1 [t'] [CoVarK kv])
-        pure (res, t'')
+    (cont, t'') <- freshTm "f" $ \fv -> do
+      (e'', t'') <- k fv instTy
+      instTy' <- cpsType instTy
+      pure (ContDef [(fv, instTy')] e'', t'')
+    let res = InstK v1 [ty'] [ContValK cont]
+    pure (res, t'')
 cps (S.TmFst e) k =
   cps e $ \v t ->  do
     (ta, _tb) <- case t of
