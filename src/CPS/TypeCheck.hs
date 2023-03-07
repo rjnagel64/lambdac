@@ -245,7 +245,7 @@ inferContDef (ContDef xs e) = do
   withTmVars xs $ check e
   pure $ ContK [s | (_, s) <- xs]
 
-checkCase :: TmVar -> TyConApp -> [(Ctor, CoVar)] -> TC ()
+checkCase :: TmVar -> TyConApp -> [(Ctor, CoValueK)] -> TC ()
 checkCase x CaseBool ks =
   checkTmVar x BoolK *>
   checkBranches ks (Map.fromList [(Ctor "false", []), (Ctor "true", [])])
@@ -257,7 +257,7 @@ checkCase x tcapp ks = do
   branchTys <- instantiateTyConApp tcapp
   checkBranches ks branchTys
 
-checkBranches :: [(Ctor, CoVar)] -> Map Ctor [TypeK] -> TC ()
+checkBranches :: [(Ctor, CoValueK)] -> Map Ctor [TypeK] -> TC ()
 checkBranches branches branchTys = do
   let provided = Set.fromList (map fst branches)
   let required = Map.keysSet branchTys
@@ -266,7 +266,7 @@ checkBranches branches branchTys = do
     throwError BadCaseLabels
   for_ branches $ \ (c, k) -> do
     let branchTy = branchTys Map.! c
-    checkCoVar k (ContK branchTy)
+    checkCoValue k (ContK branchTy)
 
 checkArith :: ArithK -> TC ()
 checkArith (AddK x y) = checkIntBinOp x y

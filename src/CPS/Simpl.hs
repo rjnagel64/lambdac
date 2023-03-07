@@ -214,20 +214,20 @@ simplifyContDef env (k, ContDef xs e) =
   ((k, ContDef xs e'), census')
 
 -- | Perform beta-reduction for a case expression
-simplifyCase :: SimplEnv -> TmVar -> TyConApp -> [(Ctor, CoVar)] -> (TermK, Census)
-simplifyCase env x (CaseSum ta tb) [k1, k2] =
+simplifyCase :: SimplEnv -> TmVar -> TyConApp -> [(Ctor, CoValueK)] -> (TermK, Census)
+simplifyCase env x (CaseSum ta tb) [(c1, CoVarK k1), (c2, CoVarK k2)] =
   case lookupValue x env of
-    (_, Just (InlK y)) -> (JumpK (snd k1) [y], recordOne y)
-    (_, Just (InrK z)) -> (JumpK (snd k2) [z], recordOne z)
+    (_, Just (InlK y)) -> (JumpK k1 [y], recordOne y)
+    (_, Just (InrK z)) -> (JumpK k2 [z], recordOne z)
     (_, Just _) -> error "simplifyCase: env contained invalid value for sum type"
-    (x', Nothing) -> (CaseK x' (CaseSum ta tb) [k1, k2], recordOne x')
+    (x', Nothing) -> (CaseK x' (CaseSum ta tb) [(c1, CoVarK k1), (c2, CoVarK k2)], recordOne x')
 simplifyCase _ _ (CaseSum _ _) _ = error "simplifyCase: incorrect number of branches for sum type"
-simplifyCase env x CaseBool [k1, k2] =
+simplifyCase env x CaseBool [(c1, CoVarK k1), (c2, CoVarK k2)] =
   case lookupValue x env of
-    (_, Just (BoolValK True)) -> (JumpK (snd k1) [], mempty)
-    (_, Just (BoolValK False)) -> (JumpK (snd k2) [], mempty)
+    (_, Just (BoolValK True)) -> (JumpK k1 [], mempty)
+    (_, Just (BoolValK False)) -> (JumpK k2 [], mempty)
     (_, Just _) -> error "simplifyCase: env contained invalid value for bool type"
-    (x', Nothing) -> (CaseK x' CaseBool [k1, k2], recordOne x')
+    (x', Nothing) -> (CaseK x' CaseBool [(c1, CoVarK k1), (c2, CoVarK k2)], recordOne x')
 simplifyCase _ _ CaseBool _ = error "simplifyCase: incorrect number of branches for bool type"
 simplifyCase _ _ _ _ = error "simplifyCase: cannot perform case analysis on this type"
 

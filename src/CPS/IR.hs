@@ -136,7 +136,7 @@ data TermK
   -- f @t k
   | InstK TmVar [TypeK] [CoValueK]
   -- case x : s of c1 -> k1 | c2 -> k2 | ..., branch
-  | CaseK TmVar TyConApp [(Ctor, CoVar)]
+  | CaseK TmVar TyConApp [(Ctor, CoValueK)]
   -- halt x
   | HaltK TmVar
 
@@ -438,7 +438,7 @@ pprintTerm n (CallK f xs ks) =
 pprintTerm n (InstK f ts ks) =
   indent n $ intercalate " @" (show f : map pprintType ts) ++ " " ++ intercalate " " (map pprintCoValue ks) ++ ";\n"
 pprintTerm n (CaseK x tcapp ks) =
-  let branches = intercalate " | " (map show ks) in
+  let branches = intercalate " | " (map pprintBranch ks) in
   let t = fromTyConApp tcapp in
   indent n $ "case " ++ show x ++ " : " ++ pprintType t  ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValK x t v e) =
@@ -459,6 +459,9 @@ pprintTerm n (LetConcatK x y z e) =
   indent n ("let " ++ show x ++ " = " ++ show y ++ " ++ " ++ show z ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetBindK x y prim e) =
   indent n ("let " ++ show x ++ ", " ++ show y ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
+
+pprintBranch :: (Ctor, CoValueK) -> String
+pprintBranch (c, k) = show c ++ " -> " ++ pprintCoValue k
 
 pprintValue :: ValueK -> String
 pprintValue NilK = "()"

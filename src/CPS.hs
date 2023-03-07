@@ -6,6 +6,7 @@ module CPS
 
 import qualified Data.Map as Map
 import Data.Map (Map)
+import Data.Bifunctor
 import Data.Maybe (fromMaybe)
 import Data.Traversable (mapAccumL, for)
 
@@ -779,8 +780,8 @@ cpsCase' z t j bs = do
     pick sc (c, b) =
       let i = fromMaybe 0 (Map.lookup "k" sc) in
       let k' = CoVar "k" i in
-      (Map.insert "k" (i+1) sc, ((c, k'), (k', b)))
-    (scope', (alts, contBinds)) = fmap unzip $ mapAccumL pick scope konts
+      (Map.insert "k" (i+1) sc, ((c, CoVarK k'), (k', b)))
+    (scope', (alts, contBinds)) = second unzip $ mapAccumL pick scope konts
   -- Technically, I should update the scope with scope' here, but the only thing
   -- after it is pure, so I don't necessarily have to.
   let extend (CPSEnv _sc ctx tys cs) = CPSEnv scope' ctx tys cs

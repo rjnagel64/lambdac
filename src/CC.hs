@@ -13,7 +13,6 @@ import Control.Monad.Reader
 import Control.Monad.Writer hiding (Sum)
 import Control.Monad.State
 
-import Data.Bifunctor
 import Data.Foldable (toList)
 import Data.Function (on)
 import Data.Functor.Identity
@@ -226,7 +225,7 @@ cconv (K.CaseK x kind ks) = do
   kind' <- cconvTyConApp kind
   -- Not quite the same as CallK/InstK because each co-"argument" is paired
   -- with a constructor (and the constructor also needs to be translated)
-  (kbinds, ks0') <- cconvCoArgs (Compose $ map (second K.CoVarK) ks)
+  (kbinds, ks0') <- cconvCoArgs (Compose ks)
   let ks' = map (\ (K.Ctor c, k') -> (Ctor c, k')) (getCompose ks0')
   let term = CaseC x' kind' ks'
   if null kbinds then
