@@ -246,19 +246,17 @@ cps (S.TmLet x t e1 e2) k = do
     (e1', _t1') <- cpsTail e1 j
     pure (LetContK [(j, kont)] e1', t2')
 cps (S.TmRecFun fs e) k = do
-  (fs', e', t') <- freshenFunBinds fs $ do
+  freshenFunBinds fs $ do
     fs' <- traverse cpsFun fs
     (e', t') <- cps e k
-    pure (fs', e', t')
-  let res = LetFunAbsK fs' e'
-  pure (res, t')
+    let res = LetFunAbsK fs' e'
+    pure (res, t')
 cps (S.TmLetRec fs e) k = do
-  (fs'', e', t') <- freshenRecBinds fs $ \fs' -> do
+  freshenRecBinds fs $ \fs' -> do
     fs'' <- traverse cpsFun fs'
     (e', t') <- cps e k
-    pure (fs'', e', t')
-  let res = LetFunAbsK fs'' e'
-  pure (res, t')
+    let res = LetFunAbsK fs'' e'
+    pure (res, t')
 cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
   kont <- freshTm "x" $ \x -> do
     s' <- cpsType s
@@ -478,19 +476,17 @@ cpsTail (S.TmLet x t e1 e2) k =
     (e1', _t1') <- cpsTail e1 j
     pure (LetContK [(j, kont)] e1', t2')
 cpsTail (S.TmRecFun fs e) k = do
-  (fs', e', t') <- freshenFunBinds fs $ do
+  freshenFunBinds fs $ do
     fs' <- traverse cpsFun fs
     (e', t') <- cpsTail e k
-    pure (fs', e', t')
-  let res = LetFunAbsK fs' e'
-  pure (res, t')
+    let res = LetFunAbsK fs' e'
+    pure (res, t')
 cpsTail (S.TmLetRec fs e) k = do
-  (fs'', e', t') <- freshenRecBinds fs $ \fs' -> do
+  freshenRecBinds fs $ \fs' -> do
     fs'' <- traverse cpsFun fs'
     (e', t') <- cpsTail e k
-    pure (fs'', e', t')
-  let res = LetFunAbsK fs'' e'
-  pure (res, t')
+    let res = LetFunAbsK fs'' e'
+    pure (res, t')
 cpsTail S.TmNil k = cpsValue NilK S.TyUnit (ObjCont k)
 cpsTail (S.TmInt i) k = cpsValue (IntValK i) S.TyInt (ObjCont k)
 cpsTail (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool (ObjCont k)
