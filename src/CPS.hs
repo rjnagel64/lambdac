@@ -125,6 +125,20 @@ applyCont (MetaCont f) x ty = f x ty
 -- to take type as input rather than output. The elaboration pass that turns
 -- Source into AnnSource also paves the way for future sugar and inference.
 
+cps' :: S.Term -> Cont -> CPS (TermK, S.Type)
+cps' (S.TmVarOcc x) k = do
+  env <- asks cpsEnvCtx
+  case Map.lookup x env of
+    Nothing -> error "scope error"
+    Just (x', t') -> applyCont k x' t'
+cps' (S.TmCtorOcc c) k = do
+  env <- asks cpsEnvCtors
+  case Map.lookup c env of
+    Nothing -> error "scope error"
+    Just (c', t') -> applyCont k c' t'
+cps' e (MetaCont k) = cps e k
+cps' e (ObjCont k) = cpsTail e k
+
 -- | CPS-convert a term.
 -- Note: The types being passed to the continuation and returned overall are a
 -- bit confusing to me. It would be nice if I could write a precise
@@ -133,16 +147,8 @@ applyCont (MetaCont f) x ty = f x ty
 -- IIRC, the (TermK, S.Type) returned here does not have the same meaning as
 -- the (TermK, S.Type) returned by cpsTail.
 cps :: S.Term -> (TmVar -> S.Type -> CPS (TermK, S.Type)) -> CPS (TermK, S.Type)
-cps (S.TmVarOcc x) k = do
-  env <- asks cpsEnvCtx
-  case Map.lookup x env of
-    Nothing -> error "scope error"
-    Just (x', t) -> applyCont (MetaCont k) x' t
-cps (S.TmCtorOcc c) k = do
-  env <- asks cpsEnvCtors
-  case Map.lookup c env of
-    Nothing -> error "scope error"
-    Just (c', t) -> applyCont (MetaCont k) c' t
+cps (S.TmVarOcc x) k = cps' (S.TmVarOcc x) (MetaCont k)
+cps (S.TmCtorOcc c) k = cps' (S.TmCtorOcc c) (MetaCont k)
 cps S.TmNil k = cpsValue NilK S.TyUnit (MetaCont k)
 cps (S.TmInt i) k = cpsValue (IntValK i) S.TyInt (MetaCont k)
 cps (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool (MetaCont k)
@@ -432,16 +438,8 @@ cpsFun (S.TmTFun f aa ki s e) =
 -- In tail position, the continuation is always a continuation variable, which
 -- allows for simpler translations.
 cpsTail :: S.Term -> CoVar -> CPS (TermK, S.Type)
-cpsTail (S.TmVarOcc x) k = do
-  env <- asks cpsEnvCtx
-  case Map.lookup x env of
-    Nothing -> error "scope error"
-    Just (x', t') -> applyCont (ObjCont k) x' t'
-cpsTail (S.TmCtorOcc c) k = do
-  env <- asks cpsEnvCtors
-  case Map.lookup c env of
-    Nothing -> error "scope error"
-    Just (c', t') -> applyCont (ObjCont k) c' t'
+cpsTail (S.TmVarOcc x) k = cps' (S.TmVarOcc x) (ObjCont k)
+cpsTail (S.TmCtorOcc c) k = cps' (S.TmCtorOcc c) (ObjCont k)
 cpsTail (S.TmLam x argTy e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
@@ -753,8 +751,7 @@ cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
 
   -- Unfortunately, I cannot use cpsTail here because 'HaltK' is not a covar.
   -- If I manage the hybrid/fused cps transform, I should revisit this.
-  (e', _t) <- local extend $ cps e (\z t -> pure (HaltK z, t))
-  -- let e'' = LetFunAbsK (map snd ctorWrappers) e'
+  (e', _t) <- local extend $ cps' e (MetaCont $ \z t -> pure (HaltK z, t))
   e'' <- addCtorWrappers ds' e'
   pure (Program ds' e'')
 
