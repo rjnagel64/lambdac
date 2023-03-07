@@ -136,6 +136,10 @@ cps' (S.TmCtorOcc c) k = do
   case Map.lookup c env of
     Nothing -> error "scope error"
     Just (c', t') -> applyCont k c' t'
+cps' S.TmNil k = cpsValue NilK S.TyUnit k
+cps' (S.TmInt i) k = cpsValue (IntValK i) S.TyInt k
+cps' (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool k
+cps' (S.TmString s) k = cpsValue (StringValK s) S.TyString k
 cps' e (MetaCont k) = cps e k
 cps' e (ObjCont k) = cpsTail e k
 
@@ -149,10 +153,10 @@ cps' e (ObjCont k) = cpsTail e k
 cps :: S.Term -> (TmVar -> S.Type -> CPS (TermK, S.Type)) -> CPS (TermK, S.Type)
 cps (S.TmVarOcc x) k = cps' (S.TmVarOcc x) (MetaCont k)
 cps (S.TmCtorOcc c) k = cps' (S.TmCtorOcc c) (MetaCont k)
-cps S.TmNil k = cpsValue NilK S.TyUnit (MetaCont k)
-cps (S.TmInt i) k = cpsValue (IntValK i) S.TyInt (MetaCont k)
-cps (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool (MetaCont k)
-cps (S.TmString s) k = cpsValue (StringValK s) S.TyString (MetaCont k)
+cps S.TmNil k = cps' S.TmNil (MetaCont k)
+cps (S.TmInt i) k = cps' (S.TmInt i) (MetaCont k)
+cps (S.TmBool b) k = cps' (S.TmBool b) (MetaCont k)
+cps (S.TmString s) k = cps' (S.TmString s) (MetaCont k)
 cps (S.TmArith e1 op e2) k =
   cps e1 $ \x _t1 -> do
     cps e2 $ \y _t2 -> do
@@ -485,9 +489,9 @@ cpsTail (S.TmLetRec fs e) k = do
     let res = LetFunAbsK fs'' e'
     pure (res, t')
 cpsTail S.TmNil k = cpsValue NilK S.TyUnit (ObjCont k)
-cpsTail (S.TmInt i) k = cpsValue (IntValK i) S.TyInt (ObjCont k)
-cpsTail (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool (ObjCont k)
-cpsTail (S.TmString s) k = cpsValue (StringValK s) S.TyString (ObjCont k)
+cpsTail (S.TmInt i) k = cps' (S.TmInt i) (ObjCont k)
+cpsTail (S.TmBool b) k = cps' (S.TmBool b) (ObjCont k)
+cpsTail (S.TmString s) k = cps' (S.TmString s) (ObjCont k)
 cpsTail (S.TmArith e1 op e2) k =
   cps e1 $ \x _t1 -> do
     cps e2 $ \y _t2 -> do
