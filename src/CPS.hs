@@ -187,7 +187,7 @@ cps (S.TmInl a b e) k =
   cps e $ \z _t -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
-      (e', t') <- k x ty
+      (e', t') <- applyCont (MetaCont k) x ty
       ty' <- cpsType ty
       let res = LetValK x ty' (InlK z) e'
       pure (res, t')
@@ -195,7 +195,7 @@ cps (S.TmInr a b e) k =
   cps e $ \z _t -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
-      (e', t') <- k x ty
+      (e', t') <- applyCont (MetaCont k) x ty
       ty' <- cpsType ty
       let res = LetValK x ty' (InrK z) e'
       pure (res, t')
@@ -207,7 +207,7 @@ cps (S.TmLam x argTy e) k =
         s' <- cpsCoType retTy
         let fun = FunDef f bs [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
-      (e'', t'') <- k f ty
+      (e'', t'') <- applyCont (MetaCont k) f ty
       pure (LetFunAbsK [fun] e'', t'')
 cps (S.TmTLam aa ki e) k =
   freshTm "f" $ \f ->
@@ -217,7 +217,7 @@ cps (S.TmTLam aa ki e) k =
         s' <- cpsCoType retTy
         let def = AbsDef f bs [(k', s')] e'
         pure (def, S.TyAll aa ki retTy)
-      (e'', t'') <- k f ty
+      (e'', t'') <- applyCont (MetaCont k) f ty
       pure (LetFunAbsK [def] e'', t'')
 cps (S.TmLet x t e1 e2) k = do
   -- This translation is actually slightly suboptimal, as mentioned by
@@ -258,32 +258,29 @@ cps (S.TmLetRec fs e) k = do
     let res = LetFunAbsK fs'' e'
     pure (res, t')
 cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
-  kont <- freshTm "x" $ \x -> do
+  cont <- freshTm "x" $ \x -> do
     s' <- cpsType s
     (e', _t') <- k x s
-    let kont = ContDef [(x, s')] e'
-    pure kont
+    pure (ContDef [(x, s')] e')
   freshCo "j" $ \j -> do
     (res, s') <- cpsCase e j s [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
-    pure (LetContK [(j, kont)] res, s')
+    pure (LetContK [(j, cont)] res, s')
 cps (S.TmIf e s et ef) k = do
-  kont <- freshTm "x" $ \x -> do
+  cont <- freshTm "x" $ \x -> do
     s' <- cpsType s
     (e', _t') <- k x s
-    let kont = ContDef [(x, s')] e'
-    pure kont
+    pure (ContDef [(x, s')] e')
   freshCo "j" $ \j -> do
     (res, s') <- cpsCase e j s [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
-    pure (LetContK [(j, kont)] res, s')
+    pure (LetContK [(j, cont)] res, s')
 cps (S.TmCase e s alts) k = do
-  kont <- freshTm "x" $ \x -> do
+  cont <- freshTm "x" $ \x -> do
     s' <- cpsType s
     (e', _t') <- k x s
-    let kont = ContDef [(x, s')] e'
-    pure kont
+    pure (ContDef [(x, s')] e')
   freshCo "j" $ \j -> do
     (res, s') <- cpsCase e j s alts
-    pure (LetContK [(j, kont)] res, s')
+    pure (LetContK [(j, cont)] res, s')
 cps (S.TmApp e1 e2) k =
   cps e1 $ \v1 t1 -> do
     cps e2 $ \v2 _t2 -> do
@@ -453,8 +450,9 @@ cpsTail (S.TmLam x argTy e) k =
         s' <- cpsCoType retTy
         let fun = FunDef f bs [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
-      let res = LetFunAbsK [fun] (JumpK k [f])
-      pure (res, ty)
+      (e'', t'') <- applyCont (ObjCont k) f ty
+      let res = LetFunAbsK [fun] e''
+      pure (res, t'')
 cpsTail (S.TmTLam aa ki e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
@@ -463,8 +461,9 @@ cpsTail (S.TmTLam aa ki e) k =
         s' <- cpsCoType retTy
         let def = AbsDef f bs [(k', s')] e'
         pure (def, S.TyAll aa ki retTy)
-      let res = LetFunAbsK [def] (JumpK k [f])
-      pure (res, ty)
+      (e'', t'') <- applyCont (ObjCont k) f ty
+      let res = LetFunAbsK [def] e''
+      pure (res, t'')
 cpsTail (S.TmLet x t e1 e2) k =
   -- [[let x:t = e1 in e2]] k
   -- -->
@@ -527,15 +526,17 @@ cpsTail (S.TmInl a b e) k =
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       ty' <- cpsType ty
-      let res = LetValK x ty' (InlK z) (JumpK k [x])
-      pure (res, ty)
+      (e', t') <- applyCont (ObjCont k) x ty
+      let res = LetValK x ty' (InlK z) e'
+      pure (res, t')
 cpsTail (S.TmInr a b e) k =
   cps e $ \z _ -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       ty' <- cpsType ty
-      let res = LetValK x ty' (InrK z) (JumpK k [x])
-      pure (res, ty)
+      (e', t') <- applyCont (ObjCont k) x ty
+      let res = LetValK x ty' (InrK z) e'
+      pure (res, t')
 cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
   cpsCase e k s [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
 cpsTail (S.TmIf e s et ef) k =
