@@ -96,20 +96,29 @@ cpsKind (S.KiArr k1 k2) = KArrK <$> cpsKind k1 <*> cpsKind k2
 -- Thus, such cases should be reported using `error` to halt the program, not
 -- `throwError`.
 
-cpsValue :: ValueK -> S.Type -> (TmVar -> S.Type -> CPS (TermK, S.Type)) -> CPS (TermK, S.Type)
+cpsValue :: ValueK -> S.Type -> Cont -> CPS (TermK, S.Type)
 cpsValue v ty k =
   freshTm "x" $ \x -> do
-    (e', t') <- k x ty
+    (e', t') <- applyCont k x ty
     ty' <- cpsType ty
     let res = LetValK x ty' v e'
     pure (res, t')
 
-cpsValueTail :: ValueK -> S.Type -> CoVar -> CPS (TermK, S.Type)
-cpsValueTail v ty k =
-  freshTm "x" $ \x -> do
-    ty' <- cpsType ty
-    let res = LetValK x ty' v (JumpK k [x])
-    pure (res, ty)
+data Cont
+  = MetaCont (TmVar -> S.Type -> CPS (TermK, S.Type))
+  | ObjCont CoVar
+
+applyCont :: Cont -> TmVar -> S.Type -> CPS (TermK, S.Type)
+applyCont (ObjCont k) x ty = let res = JumpK k [x] in pure (res, ty)
+applyCont (MetaCont f) x ty = f x ty
+
+-- -- probably need variable name/type?
+-- -- Should this return a type in addition to the covalue?
+-- reifyCont :: Cont -> CoValueK
+-- reifyCont (ObjCont k) = CoVarK k
+-- -- Hmm. Need type of argument? Then can invoke cont to get body, return
+-- -- ContValK (ContDef [(x, ty')] e)
+-- reifyCont (MetaCont f) = _
 
 -- TODO: Consider fully-annotated variant of Source for easier CPS
 -- every term is paired with its type. Somewhat redundant, but simplifies CPS
@@ -128,16 +137,16 @@ cps (S.TmVarOcc x) k = do
   env <- asks cpsEnvCtx
   case Map.lookup x env of
     Nothing -> error "scope error"
-    Just (x', t) -> k x' t
+    Just (x', t) -> applyCont (MetaCont k) x' t
 cps (S.TmCtorOcc c) k = do
   env <- asks cpsEnvCtors
   case Map.lookup c env of
     Nothing -> error "scope error"
-    Just (c', t) -> k c' t
-cps S.TmNil k = cpsValue NilK S.TyUnit k
-cps (S.TmInt i) k = cpsValue (IntValK i) S.TyInt k
-cps (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool k
-cps (S.TmString s) k = cpsValue (StringValK s) S.TyString k
+    Just (c', t) -> applyCont (MetaCont k) c' t
+cps S.TmNil k = cpsValue NilK S.TyUnit (MetaCont k)
+cps (S.TmInt i) k = cpsValue (IntValK i) S.TyInt (MetaCont k)
+cps (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool (MetaCont k)
+cps (S.TmString s) k = cpsValue (StringValK s) S.TyString (MetaCont k)
 cps (S.TmArith e1 op e2) k =
   cps e1 $ \x _t1 -> do
     cps e2 $ \y _t2 -> do
@@ -432,12 +441,12 @@ cpsTail (S.TmVarOcc x) k = do
   env <- asks cpsEnvCtx
   case Map.lookup x env of
     Nothing -> error "scope error"
-    Just (x', t') -> pure (JumpK k [x'], t')
+    Just (x', t') -> applyCont (ObjCont k) x' t'
 cpsTail (S.TmCtorOcc c) k = do
   env <- asks cpsEnvCtors
   case Map.lookup c env of
     Nothing -> error "scope error"
-    Just (c', t') -> pure (JumpK k [c'], t')
+    Just (c', t') -> applyCont (ObjCont k) c' t'
 cpsTail (S.TmLam x argTy e) k =
   freshTm "f" $ \ f ->
     freshCo "k" $ \k' -> do
@@ -482,10 +491,10 @@ cpsTail (S.TmLetRec fs e) k = do
     pure (fs'', e', t')
   let res = LetFunAbsK fs'' e'
   pure (res, t')
-cpsTail S.TmNil k = cpsValueTail NilK S.TyUnit k
-cpsTail (S.TmInt i) k = cpsValueTail (IntValK i) S.TyInt k
-cpsTail (S.TmBool b) k = cpsValueTail (BoolValK b) S.TyBool k
-cpsTail (S.TmString s) k = cpsValueTail (StringValK s) S.TyString k
+cpsTail S.TmNil k = cpsValue NilK S.TyUnit (ObjCont k)
+cpsTail (S.TmInt i) k = cpsValue (IntValK i) S.TyInt (ObjCont k)
+cpsTail (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool (ObjCont k)
+cpsTail (S.TmString s) k = cpsValue (StringValK s) S.TyString (ObjCont k)
 cpsTail (S.TmArith e1 op e2) k =
   cps e1 $ \x _t1 -> do
     cps e2 $ \y _t2 -> do
