@@ -140,6 +140,26 @@ cps' S.TmNil k = cpsValue NilK S.TyUnit k
 cps' (S.TmInt i) k = cpsValue (IntValK i) S.TyInt k
 cps' (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool k
 cps' (S.TmString s) k = cpsValue (StringValK s) S.TyString k
+cps' (S.TmLam x argTy e) k =
+  freshTm "f" $ \f ->
+    freshCo "k" $ \k' -> do
+      (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
+        (e', retTy) <- cpsTail e k'
+        s' <- cpsCoType retTy
+        let fun = FunDef f bs [(k', s')] e'
+        pure (fun, S.TyArr argTy retTy)
+      (e'', t'') <- applyCont k f ty
+      pure (LetFunAbsK [fun] e'', t'')
+cps' (S.TmTLam aa ki e) k =
+  freshTm "f" $ \f ->
+    freshCo "k" $ \k' -> do
+      (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
+        (e', retTy) <- cpsTail e k'
+        s' <- cpsCoType retTy
+        let def = AbsDef f bs [(k', s')] e'
+        pure (def, S.TyAll aa ki retTy)
+      (e'', t'') <- applyCont k f ty
+      pure (LetFunAbsK [def] e'', t'')
 cps' (S.TmInl a b e) k = do
   cps e $ \z _t -> do
     freshTm "x" $ \x -> do
@@ -231,26 +251,8 @@ cps (S.TmConcat e1 e2) k =
         pure (res, t')
 cps (S.TmInl a b e) k = cps' (S.TmInl a b e) (MetaCont k)
 cps (S.TmInr a b e) k = cps' (S.TmInr a b e) (MetaCont k)
-cps (S.TmLam x argTy e) k =
-  freshTm "f" $ \f ->
-    freshCo "k" $ \k' -> do
-      (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
-        (e', retTy) <- cpsTail e k'
-        s' <- cpsCoType retTy
-        let fun = FunDef f bs [(k', s')] e'
-        pure (fun, S.TyArr argTy retTy)
-      (e'', t'') <- applyCont (MetaCont k) f ty
-      pure (LetFunAbsK [fun] e'', t'')
-cps (S.TmTLam aa ki e) k =
-  freshTm "f" $ \f ->
-    freshCo "k" $ \k' -> do
-      (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
-        (e', retTy) <- cpsTail e k'
-        s' <- cpsCoType retTy
-        let def = AbsDef f bs [(k', s')] e'
-        pure (def, S.TyAll aa ki retTy)
-      (e'', t'') <- applyCont (MetaCont k) f ty
-      pure (LetFunAbsK [def] e'', t'')
+cps (S.TmLam x argTy e) k = cps' (S.TmLam x argTy e) (MetaCont k)
+cps (S.TmTLam aa ki e) k = cps' (S.TmTLam aa ki e) (MetaCont k)
 cps (S.TmLet x t e1 e2) k = do
   -- This translation is actually slightly suboptimal, as mentioned by
   -- [Compiling with Continuations, Continued].
@@ -448,28 +450,8 @@ cpsFun (S.TmTFun f aa ki s e) =
 cpsTail :: S.Term -> CoVar -> CPS (TermK, S.Type)
 cpsTail (S.TmVarOcc x) k = cps' (S.TmVarOcc x) (ObjCont k)
 cpsTail (S.TmCtorOcc c) k = cps' (S.TmCtorOcc c) (ObjCont k)
-cpsTail (S.TmLam x argTy e) k =
-  freshTm "f" $ \ f ->
-    freshCo "k" $ \k' -> do
-      (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
-        (e', retTy) <- cpsTail e k'
-        s' <- cpsCoType retTy
-        let fun = FunDef f bs [(k', s')] e'
-        pure (fun, S.TyArr argTy retTy)
-      (e'', t'') <- applyCont (ObjCont k) f ty
-      let res = LetFunAbsK [fun] e''
-      pure (res, t'')
-cpsTail (S.TmTLam aa ki e) k =
-  freshTm "f" $ \f ->
-    freshCo "k" $ \k' -> do
-      (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
-        (e', retTy) <- cpsTail e k'
-        s' <- cpsCoType retTy
-        let def = AbsDef f bs [(k', s')] e'
-        pure (def, S.TyAll aa ki retTy)
-      (e'', t'') <- applyCont (ObjCont k) f ty
-      let res = LetFunAbsK [def] e''
-      pure (res, t'')
+cpsTail (S.TmLam x argTy e) k = cps' (S.TmLam x argTy e) (ObjCont k)
+cpsTail (S.TmTLam aa ki e) k = cps' (S.TmTLam aa ki e) (ObjCont k)
 cpsTail (S.TmLet x t e1 e2) k =
   -- [[let x:t = e1 in e2]] k
   -- -->
