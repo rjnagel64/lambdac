@@ -314,7 +314,7 @@ cps (S.TmFst e) k =
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
-      (e', t') <- k x ta
+      (e', t') <- applyCont (MetaCont k) x ta
       ta' <- cpsType ta
       let res = LetFstK x ta' v e'
       pure (res, t')
@@ -324,7 +324,7 @@ cps (S.TmSnd e) k =
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
-      (e', t') <- k x tb
+      (e', t') <- applyCont (MetaCont k) x tb
       tb' <- cpsType tb
       let res = LetSndK x tb' v e'
       pure (res, t')
@@ -564,18 +564,20 @@ cpsTail (S.TmFst e) k =
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
+      (e', t') <- applyCont (ObjCont k) x ta
       ta' <- cpsType ta
-      let res = LetFstK x ta' z (JumpK k [x])
-      pure (res, ta)
+      let res = LetFstK x ta' z e'
+      pure (res, t')
 cpsTail (S.TmSnd e) k =
   cps e $ \z t -> do
     (_ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
+      (e', t') <- applyCont (ObjCont k) x tb
       tb' <- cpsType tb
-      let res = LetSndK x tb' z (JumpK k [x])
-      pure (res, tb)
+      let res = LetSndK x tb' z e'
+      pure (res, t')
 cpsTail (S.TmPure e) k =
   -- let fun f (s : token#) (k2 : (token#, t) -> !) = k2 s z; in k f
   cps e $ \z t ->
