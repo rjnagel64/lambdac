@@ -140,6 +140,22 @@ cps' S.TmNil k = cpsValue NilK S.TyUnit k
 cps' (S.TmInt i) k = cpsValue (IntValK i) S.TyInt k
 cps' (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool k
 cps' (S.TmString s) k = cpsValue (StringValK s) S.TyString k
+cps' (S.TmInl a b e) k = do
+  cps e $ \z _t -> do
+    freshTm "x" $ \x -> do
+      let ty = S.TySum a b
+      ty' <- cpsType ty
+      (e', t') <- applyCont k x ty
+      let res = LetValK x ty' (InlK z) e'
+      pure (res, t')
+cps' (S.TmInr a b e) k = do
+  cps e $ \z _t -> do
+    freshTm "x" $ \x -> do
+      let ty = S.TySum a b
+      ty' <- cpsType ty
+      (e', t') <- applyCont k x ty
+      let res = LetValK x ty' (InrK z) e'
+      pure (res, t')
 cps' e (MetaCont k) = cps e k
 cps' e (ObjCont k) = cpsTail e k
 
@@ -193,22 +209,8 @@ cps (S.TmConcat e1 e2) k =
         (e', t') <- k x S.TyString
         let res = LetConcatK x v1 v2 e'
         pure (res, t')
-cps (S.TmInl a b e) k =
-  cps e $ \z _t -> do
-    freshTm "x" $ \x -> do
-      let ty = S.TySum a b
-      (e', t') <- applyCont (MetaCont k) x ty
-      ty' <- cpsType ty
-      let res = LetValK x ty' (InlK z) e'
-      pure (res, t')
-cps (S.TmInr a b e) k =
-  cps e $ \z _t -> do
-    freshTm "x" $ \x -> do
-      let ty = S.TySum a b
-      (e', t') <- applyCont (MetaCont k) x ty
-      ty' <- cpsType ty
-      let res = LetValK x ty' (InrK z) e'
-      pure (res, t')
+cps (S.TmInl a b e) k = cps' (S.TmInl a b e) (MetaCont k)
+cps (S.TmInr a b e) k = cps' (S.TmInr a b e) (MetaCont k)
 cps (S.TmLam x argTy e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
@@ -523,22 +525,8 @@ cpsTail (S.TmConcat e1 e2) k =
       freshTm "x" $ \x -> do
         let res = LetConcatK x v1 v2 (JumpK k [x])
         pure (res, S.TyString)
-cpsTail (S.TmInl a b e) k =
-  cps e $ \z _ -> do
-    freshTm "x" $ \x -> do
-      let ty = S.TySum a b
-      ty' <- cpsType ty
-      (e', t') <- applyCont (ObjCont k) x ty
-      let res = LetValK x ty' (InlK z) e'
-      pure (res, t')
-cpsTail (S.TmInr a b e) k =
-  cps e $ \z _ -> do
-    freshTm "x" $ \x -> do
-      let ty = S.TySum a b
-      ty' <- cpsType ty
-      (e', t') <- applyCont (ObjCont k) x ty
-      let res = LetValK x ty' (InrK z) e'
-      pure (res, t')
+cpsTail (S.TmInl a b e) k = cps' (S.TmInl a b e) (ObjCont k)
+cpsTail (S.TmInr a b e) k = cps' (S.TmInr a b e) (ObjCont k)
 cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
   cpsCase e k s [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
 cpsTail (S.TmIf e s et ef) k =
