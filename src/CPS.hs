@@ -232,6 +232,18 @@ cps' (S.TmPair e1 e2) k =
         ty' <- cpsType ty
         let res = LetValK x ty' (PairK v1 v2) e'
         pure (res, t')
+cps' (S.TmRecFun fs e) k =
+  freshenFunBinds fs $ do
+    fs' <- traverse cpsFun fs
+    (e', t') <- cps' e k
+    let res = LetFunAbsK fs' e'
+    pure (res, t')
+cps' (S.TmLetRec fs e) k =
+  freshenRecBinds fs $ \fs' -> do
+    fs'' <- traverse cpsFun fs'
+    (e', t') <- cps' e k
+    let res = LetFunAbsK fs'' e'
+    pure (res, t')
 cps' e (MetaCont k) = cps e k
 cps' e (ObjCont k) = cpsTail e k
 
@@ -284,18 +296,8 @@ cps (S.TmLet x t e1 e2) k = do
       pure (kont, t2')
     (e1', _t1') <- cpsTail e1 j
     pure (LetContK [(j, kont)] e1', t2')
-cps (S.TmRecFun fs e) k = do
-  freshenFunBinds fs $ do
-    fs' <- traverse cpsFun fs
-    (e', t') <- cps e k
-    let res = LetFunAbsK fs' e'
-    pure (res, t')
-cps (S.TmLetRec fs e) k = do
-  freshenRecBinds fs $ \fs' -> do
-    fs'' <- traverse cpsFun fs'
-    (e', t') <- cps e k
-    let res = LetFunAbsK fs'' e'
-    pure (res, t')
+cps (S.TmRecFun fs e) k = cps' (S.TmRecFun fs e) (MetaCont k)
+cps (S.TmLetRec fs e) k = cps' (S.TmLetRec fs e) (MetaCont k)
 cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
   cont <- freshTm "x" $ \x -> do
     s' <- cpsType s
@@ -467,18 +469,8 @@ cpsTail (S.TmLet x t e1 e2) k =
     (kont, t2') <- cpsBranch [(x, t)] e2 k
     (e1', _t1') <- cpsTail e1 j
     pure (LetContK [(j, kont)] e1', t2')
-cpsTail (S.TmRecFun fs e) k = do
-  freshenFunBinds fs $ do
-    fs' <- traverse cpsFun fs
-    (e', t') <- cpsTail e k
-    let res = LetFunAbsK fs' e'
-    pure (res, t')
-cpsTail (S.TmLetRec fs e) k = do
-  freshenRecBinds fs $ \fs' -> do
-    fs'' <- traverse cpsFun fs'
-    (e', t') <- cpsTail e k
-    let res = LetFunAbsK fs'' e'
-    pure (res, t')
+cpsTail (S.TmRecFun fs e) k = cps' (S.TmRecFun fs e) (ObjCont k)
+cpsTail (S.TmLetRec fs e) k = cps' (S.TmLetRec fs e) (ObjCont k)
 cpsTail S.TmNil k = cpsValue NilK S.TyUnit (ObjCont k)
 cpsTail (S.TmInt i) k = cps' (S.TmInt i) (ObjCont k)
 cpsTail (S.TmBool b) k = cps' (S.TmBool b) (ObjCont k)
