@@ -395,29 +395,28 @@ cps (S.TmLet x t e1 e2) k = do
 cps (S.TmRecFun fs e) k = cps' (S.TmRecFun fs e) (MetaCont k)
 cps (S.TmLetRec fs e) k = cps' (S.TmLetRec fs e) (MetaCont k)
 cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
-  cont <- freshTm "x" $ \x -> do
-    s' <- cpsType s
-    (e', _t') <- k x s
-    pure (ContDef [(x, s')] e')
-  freshCo "j" $ \j -> do
-    (res, s') <- cpsCase e j s [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
-    pure (LetContK [(j, cont)] res, s')
+  let alts = [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
+  (coval, _) <- reifyCont (MetaCont k) s
+  case coval of
+    CoVarK j -> cpsCase e j s alts
+    ContValK cont -> freshCo "j" $ \j -> do
+      (res, s') <- cpsCase e j s alts
+      pure (LetContK [(j, cont)] res, s')
 cps (S.TmIf e s et ef) k = do
-  cont <- freshTm "x" $ \x -> do
-    s' <- cpsType s
-    (e', _t') <- k x s
-    pure (ContDef [(x, s')] e')
-  freshCo "j" $ \j -> do
-    (res, s') <- cpsCase e j s [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
-    pure (LetContK [(j, cont)] res, s')
+  let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
+  (coval, _) <- reifyCont (MetaCont k) s
+  case coval of
+    CoVarK j -> cpsCase e j s alts
+    ContValK cont -> freshCo "j" $ \j -> do
+      (res, s') <- cpsCase e j s alts
+      pure (LetContK [(j, cont)] res, s')
 cps (S.TmCase e s alts) k = do
-  cont <- freshTm "x" $ \x -> do
-    s' <- cpsType s
-    (e', _t') <- k x s
-    pure (ContDef [(x, s')] e')
-  freshCo "j" $ \j -> do
-    (res, s') <- cpsCase e j s alts
-    pure (LetContK [(j, cont)] res, s')
+  (coval, _) <- reifyCont (MetaCont k) s
+  case coval of
+    CoVarK j -> cpsCase e j s alts
+    ContValK cont -> freshCo "j" $ \j -> do
+      (res, s') <- cpsCase e j s alts
+      pure (LetContK [(j, cont)] res, s')
 cps (S.TmApp e1 e2) k = cps' (S.TmApp e1 e2) (MetaCont k)
 cps (S.TmTApp e ty) k = cps' (S.TmTApp e ty) (MetaCont k)
 cps (S.TmFst e) k = cps' (S.TmFst e) (MetaCont k)
@@ -485,12 +484,29 @@ cpsTail (S.TmPair e1 e2) k = cps' (S.TmPair e1 e2) (ObjCont k)
 cpsTail (S.TmConcat e1 e2) k = cps' (S.TmConcat e1 e2) (ObjCont k)
 cpsTail (S.TmInl a b e) k = cps' (S.TmInl a b e) (ObjCont k)
 cpsTail (S.TmInr a b e) k = cps' (S.TmInr a b e) (ObjCont k)
-cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
-  cpsCase e k s [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
-cpsTail (S.TmIf e s et ef) k =
-  cpsCase e k s [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
-cpsTail (S.TmCase e s alts) k =
-  cpsCase e k s alts
+cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
+  let alts = [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
+  (coval, _) <- reifyCont (ObjCont k) s
+  case coval of
+    CoVarK j -> cpsCase e j s alts
+    ContValK cont -> freshCo "j" $ \j -> do
+      (res, s') <- cpsCase e j s alts
+      pure (LetContK [(j, cont)] res, s')
+cpsTail (S.TmIf e s et ef) k = do
+  let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
+  (coval, _) <- reifyCont (ObjCont k) s
+  case coval of
+    CoVarK j -> cpsCase e j s alts
+    ContValK cont -> freshCo "j" $ \j -> do
+      (res, s') <- cpsCase e j s alts
+      pure (LetContK [(j, cont)] res, s')
+cpsTail (S.TmCase e s alts) k = do
+  (coval, _) <- reifyCont (ObjCont k) s
+  case coval of
+    CoVarK j -> cpsCase e j s alts
+    ContValK cont -> freshCo "j" $ \j -> do
+      (res, s') <- cpsCase e j s alts
+      pure (LetContK [(j, cont)] res, s')
 cpsTail (S.TmApp e1 e2) k = cps' (S.TmApp e1 e2) (ObjCont k)
 cpsTail (S.TmTApp e ty) k = cps' (S.TmTApp e ty) (ObjCont k)
 cpsTail (S.TmFst e) k = cps' (S.TmFst e) (ObjCont k)
