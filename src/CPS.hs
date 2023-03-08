@@ -351,6 +351,27 @@ cps' (S.TmCase e s alts) k =
 cps' e (MetaCont k) = cps e k
 cps' e (ObjCont k) = cpsTail e k
 
+-- Note: CPS translation of let-expressions:
+--
+-- This translation is actually slightly suboptimal, as mentioned by
+-- [Compiling with Continuations, Continued].
+-- Consider the translation of 'let x : int = 17 in x'. The current
+-- translation will yield
+--  let cont j (x : int) =
+--    halt x
+--  in
+--  let t0 : int = 17 in
+--  j t0
+-- A more efficient translation would be simply
+--  let x : int = 17 in
+--  halt x
+-- To implement this, I would have to examine the expression 'e1' to see if
+-- it is a value (or function value), and pass that to the continuation
+-- directly instead of reify/jump.
+--
+-- ==> LetCont along with ObjCont and MetaCont? 'LetCont x t e c' means
+-- "after this, bind result value to x:t and pass result to CPS[e] c"??
+
 -- | CPS-convert a term.
 -- Note: The types being passed to the continuation and returned overall are a
 -- bit confusing to me. It would be nice if I could write a precise
@@ -360,47 +381,31 @@ cps' e (ObjCont k) = cpsTail e k
 -- the (TermK, S.Type) returned by cpsTail.
 cps :: S.Term -> (TmVar -> S.Type -> CPS (TermK, S.Type)) -> CPS (TermK, S.Type)
 cps (S.TmLet x t e1 e2) k = do
-  -- This translation is actually slightly suboptimal, as mentioned by
-  -- [Compiling with Continuations, Continued].
-  -- Consider the translation of 'let x : int = 17 in x'. The current
-  -- translation will yield
-  --  let cont j (x : int) =
-  --    halt x
-  --  in
-  --  let t0 : int = 17 in
-  --  j t0
-  -- A more efficient translation would be simply
-  --  let x : int = 17 in
-  --  halt x
-  -- To implement this, I would have to examine the expression 'e1' to see if
-  -- it is a value (or function value), and pass that to the continuation
-  -- directly instead of reify/jump.
-  --
-  -- ==> LetCont along with ObjCont and MetaCont? 'LetCont x t e c' means
-  -- "after this, bind result value to x:t and pass result to CPS[e] c"??
+  -- [[let x:t = e1 in e2]] k
+  -- -->
+  -- let j = cont (x:t) => [[e2]] k; in [[e1]] j
+  -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
+  -- (because a let-expression has no ctor to discriminate on)
+  (cont, t2') <- cpsBranch [(x, t)] e2 (MetaCont k)
   freshCo "j" $ \j -> do
-    (kont, t2') <- freshenVarBinds [(x, t)] $ \bs -> do
-      (e2', t2') <- cps e2 k
-      let kont = ContDef bs e2'
-      pure (kont, t2')
-    (e1', _t1') <- cpsTail e1 j
-    pure (LetContK [(j, kont)] e1', t2')
+    (e1', _t1') <- cps' e1 (ObjCont j)
+    pure (LetContK [(j, cont)] e1', t2')
 cps e k = cps' e (MetaCont k)
 
 -- | CPS-convert a term in tail position.
 -- In tail position, the continuation is always a continuation variable, which
 -- allows for simpler translations.
 cpsTail :: S.Term -> CoVar -> CPS (TermK, S.Type)
-cpsTail (S.TmLet x t e1 e2) k =
+cpsTail (S.TmLet x t e1 e2) k = do
   -- [[let x:t = e1 in e2]] k
   -- -->
   -- let j (x:t) = [[e2]] k; in [[e1]] j
   -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
   -- (because a let-expression has no ctor to discriminate on)
+  (cont, t2') <- cpsBranch [(x, t)] e2 (ObjCont k)
   freshCo "j" $ \j -> do
-    (kont, t2') <- cpsBranch [(x, t)] e2 k
-    (e1', _t1') <- cpsTail e1 j
-    pure (LetContK [(j, kont)] e1', t2')
+    (e1', _t1') <- cps' e1 (ObjCont j)
+    pure (LetContK [(j, cont)] e1', t2')
 cpsTail e k = cps' e (ObjCont k)
 
 
@@ -561,7 +566,7 @@ cpsBranches z t j bs = do
     Just app -> pure app
   -- CPS each branch
   konts <- for bs $ \ (S.Ctor c, xs, e) -> do
-    (kont, _s') <- cpsBranch xs e j
+    (kont, _s') <- cpsBranch xs e (ObjCont j)
     pure (Ctor c, kont)
   -- Pick names for each branch and construct case alternatives
   scope <- asks cpsEnvScope
@@ -578,11 +583,11 @@ cpsBranches z t j bs = do
 
 -- | CPS-transform a case alternative @(x:t)+ -> e@.
 --
--- @cpsBranch xs e j@ returns @(cont xs = [[e]] j;, s)@ where @s@ is the
+-- @cpsBranch xs e k@ returns @(cont xs = [[e]] k;, s)@ where @s@ is the
 -- type of @e@.
-cpsBranch :: [(S.TmVar, S.Type)] -> S.Term -> CoVar -> CPS (ContDef, S.Type)
-cpsBranch xs e j = freshenVarBinds xs $ \xs' -> do
-  (e', s') <- cps' e (ObjCont j)
+cpsBranch :: [(S.TmVar, S.Type)] -> S.Term -> Cont -> CPS (ContDef, S.Type)
+cpsBranch xs e k = freshenVarBinds xs $ \xs' -> do
+  (e', s') <- cps' e k
   pure (ContDef xs' e', s')
 
 
