@@ -95,22 +95,35 @@ cpsKind (S.KiArr k1 k2) = KArrK <$> cpsKind k1 <*> cpsKind k2
 -- Thus, such cases should be reported using `error` to halt the program, not
 -- `throwError`.
 
-cpsValue :: ValueK -> S.Type -> Cont -> CPS (TermK, S.Type)
-cpsValue v ty k =
-  freshTm "x" $ \x -> do
-    (e', t') <- applyCont k x ty
-    ty' <- cpsType ty
-    let res = LetValK x ty' v e'
-    pure (res, t')
+-- | Translate an entire program to continuation-passing style.
+cpsProgram :: S.Program -> Program
+cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
+  ds' <- traverse cpsDataDecl ds
 
+  let ctorbinds = concatMap ctorWrapperBinds ds
+  let extend (CPSEnv sc tms tys cs) = CPSEnv sc tms tys (insertMany ctorbinds cs)
+
+  -- Unfortunately, I cannot use ObjCont here because 'HaltK' is not a covar.
+  -- If I manage the hybrid/fused cps transform, I should revisit this.
+  (e', _t) <- local extend $ cps e (MetaCont $ \z t -> pure (HaltK z, t))
+  e'' <- addCtorWrappers ds' e'
+  pure (Program ds' e'')
+
+
+-- | A continuation specifies what to do with the result of evaluating an
+-- expression.
 data Cont
   = MetaCont (TmVar -> S.Type -> CPS (TermK, S.Type))
   | ObjCont CoVar
 
+-- | A continuation can be applied to a value (plus its source type) to obtain
+-- an answer term.
 applyCont :: Cont -> TmVar -> S.Type -> CPS (TermK, S.Type)
 applyCont (ObjCont k) x ty = let res = JumpK k [x] in pure (res, ty)
 applyCont (MetaCont f) x ty = f x ty
 
+-- | A continuation can be /reified/ (turned into a 'CoValueK') by combining it
+-- with the (source) type of the value it expects.
 reifyCont :: Cont -> S.Type -> CPS (CoValueK, S.Type)
 reifyCont (ObjCont k) ty = pure (CoVarK k, ty)
 reifyCont (MetaCont f) ty =
@@ -388,6 +401,15 @@ cps (S.TmCase e s alts) k =
 -- ==> LetCont along with ObjCont and MetaCont? 'LetCont x t e c' means
 -- "after this, bind result value to x:t and pass result to CPS[e] c"??
 
+-- | Translate a primtive value to continuation-passing style.
+cpsValue :: ValueK -> S.Type -> Cont -> CPS (TermK, S.Type)
+cpsValue v ty k =
+  freshTm "x" $ \x -> do
+    (e', t') <- applyCont k x ty
+    ty' <- cpsType ty
+    let res = LetValK x ty' v e'
+    pure (res, t')
+
 -- | Translate a function definition into continuation-passing style.
 cpsFun :: S.TmFun -> CPS FunDef
 cpsFun (S.TmFun f x t s e) =
@@ -414,6 +436,45 @@ cpsFun (S.TmTFun f aa ki s e) =
       s' <- cpsCoType s
       pure (AbsDef f' bs [(k, s')] e')
     pure fun
+
+-- | CPS-transform a case expression.
+cpsCase :: S.Term -> Cont -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
+cpsCase e k s alts = do
+  (coval, _) <- reifyCont k s
+  case coval of
+    CoVarK j -> cpsCase' e j s alts
+    ContValK cont -> freshCo "j" $ \j -> do
+      (e', t') <- cpsCase' e j s alts
+      pure (LetContK [(j, cont)] e', t')
+
+-- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
+-- a return type, and a list of branches with bound variables.
+cpsCase' :: S.Term -> CoVar -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
+cpsCase' e j s alts =
+  cps e $ MetaCont $ \z t -> do
+    res <- cpsBranches z t j alts
+    pure (res, s)
+
+cpsBranches :: TmVar -> S.Type -> CoVar -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS TermK
+cpsBranches z t j bs = do
+  tcapp <- cpsType t >>= \t' -> case asTyConApp t' of
+    Nothing -> error "cannot perform case analysis on this type"
+    Just app -> pure app
+  -- CPS each branch
+  conts <- for bs $ \ (S.Ctor c, xs, e) -> do
+    (cont, _s') <- cpsBranch xs e (ObjCont j)
+    pure (Ctor c, ContValK cont)
+  pure (CaseK z tcapp conts)
+
+-- | CPS-transform a case alternative @(x:t)+ -> e@.
+--
+-- @cpsBranch xs e k@ returns @(cont xs = [[e]] k;, s)@ where @s@ is the
+-- type of @e@.
+cpsBranch :: [(S.TmVar, S.Type)] -> S.Term -> Cont -> CPS (ContDef, S.Type)
+cpsBranch xs e k = freshenVarBinds xs $ \xs' -> do
+  (e', s') <- cps e k
+  pure (ContDef xs' e', s')
+
 
 -- Note: Constructor wrapper functions
 --
@@ -507,57 +568,6 @@ ctorWrapperBinds (S.DataDecl tc params ctors) = map ctorDeclType ctors
       where
         ret = foldl S.TyApp (S.TyConOcc tc) (map (S.TyVarOcc . fst) params)
         ty = foldr (uncurry S.TyAll) (foldr S.TyArr ret args) params
-
-cpsProgram :: S.Program -> Program
-cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
-  ds' <- traverse cpsDataDecl ds
-
-  let ctorbinds = concatMap ctorWrapperBinds ds
-  let extend (CPSEnv sc tms tys cs) = CPSEnv sc tms tys (insertMany ctorbinds cs)
-
-  -- Unfortunately, I cannot use ObjCont here because 'HaltK' is not a covar.
-  -- If I manage the hybrid/fused cps transform, I should revisit this.
-  (e', _t) <- local extend $ cps e (MetaCont $ \z t -> pure (HaltK z, t))
-  e'' <- addCtorWrappers ds' e'
-  pure (Program ds' e'')
-
--- | CPS-transform a case expression.
-cpsCase :: S.Term -> Cont -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
-cpsCase e k s alts = do
-  (coval, _) <- reifyCont k s
-  case coval of
-    CoVarK j -> cpsCase' e j s alts
-    ContValK cont -> freshCo "j" $ \j -> do
-      (e', t') <- cpsCase' e j s alts
-      pure (LetContK [(j, cont)] e', t')
-
--- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
--- a return type, and a list of branches with bound variables.
-cpsCase' :: S.Term -> CoVar -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
-cpsCase' e j s alts =
-  cps e $ MetaCont $ \z t -> do
-    res <- cpsBranches z t j alts
-    pure (res, s)
-
-cpsBranches :: TmVar -> S.Type -> CoVar -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS TermK
-cpsBranches z t j bs = do
-  tcapp <- cpsType t >>= \t' -> case asTyConApp t' of
-    Nothing -> error "cannot perform case analysis on this type"
-    Just app -> pure app
-  -- CPS each branch
-  conts <- for bs $ \ (S.Ctor c, xs, e) -> do
-    (cont, _s') <- cpsBranch xs e (ObjCont j)
-    pure (Ctor c, ContValK cont)
-  pure (CaseK z tcapp conts)
-
--- | CPS-transform a case alternative @(x:t)+ -> e@.
---
--- @cpsBranch xs e k@ returns @(cont xs = [[e]] k;, s)@ where @s@ is the
--- type of @e@.
-cpsBranch :: [(S.TmVar, S.Type)] -> S.Term -> Cont -> CPS (ContDef, S.Type)
-cpsBranch xs e k = freshenVarBinds xs $ \xs' -> do
-  (e', s') <- cps e k
-  pure (ContDef xs' e', s')
 
 
 newtype CPS a = CPS { runCPS :: Reader CPSEnv a }
