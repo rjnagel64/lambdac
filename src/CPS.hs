@@ -6,7 +6,6 @@ module CPS
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import Data.Bifunctor
 import Data.Maybe (fromMaybe)
 import Data.Traversable (mapAccumL, for)
 
@@ -546,21 +545,10 @@ cpsBranches z t j bs = do
     Nothing -> error "cannot perform case analysis on this type"
     Just app -> pure app
   -- CPS each branch
-  konts <- for bs $ \ (S.Ctor c, xs, e) -> do
-    (kont, _s') <- cpsBranch xs e (ObjCont j)
-    pure (Ctor c, kont)
-  -- Pick names for each branch and construct case alternatives
-  scope <- asks cpsEnvScope
-  let
-    pick sc (c, b) =
-      let i = fromMaybe 0 (Map.lookup "k" sc) in
-      let k' = CoVar "k" i in
-      (Map.insert "k" (i+1) sc, ((c, CoVarK k'), (k', b)))
-    (scope', (alts, contBinds)) = second unzip $ mapAccumL pick scope konts
-  -- Technically, I should update the scope with scope' here, but the only thing
-  -- after it is pure, so I don't necessarily have to.
-  let extend (CPSEnv _sc ctx tys cs) = CPSEnv scope' ctx tys cs
-  local extend $ pure (LetContK contBinds (CaseK z tcapp alts))
+  conts <- for bs $ \ (S.Ctor c, xs, e) -> do
+    (cont, _s') <- cpsBranch xs e (ObjCont j)
+    pure (Ctor c, ContValK cont)
+  pure (CaseK z tcapp conts)
 
 -- | CPS-transform a case alternative @(x:t)+ -> e@.
 --
