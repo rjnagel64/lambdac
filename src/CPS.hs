@@ -126,6 +126,15 @@ reifyCont (MetaCont f) ty =
 -- to take type as input rather than output. The elaboration pass that turns
 -- Source into AnnSource also paves the way for future sugar and inference.
 
+-- | Compute the Continuation-Passing Style transformation of a source term.
+--
+-- This requires the term to translate, as well as a continuation of type
+-- 'Cont' that specifies what happens to the result of evaluating the
+-- expression.
+--
+-- Returns an equivalent 'CPS.IR.TermK', as well as a source type that is
+-- /probably/ the type of the expression, but I can't quite wrap my head around
+-- it.
 cps' :: S.Term -> Cont -> CPS (TermK, S.Type)
 cps' (S.TmVarOcc x) k = do
   env <- asks cpsEnvCtx
@@ -233,6 +242,16 @@ cps' (S.TmPair e1 e2) k =
         ty' <- cpsType ty
         let res = LetValK x ty' (PairK v1 v2) e'
         pure (res, t')
+cps' (S.TmLet x t e1 e2) k = do
+  -- [[let x:t = e1 in e2]] k
+  -- -->
+  -- let j = cont (x:t) => [[e2]] k; in [[e1]] j
+  -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
+  -- (because a let-expression has no ctor to discriminate on)
+  (cont, t2') <- cpsBranch [(x, t)] e2 k
+  freshCo "j" $ \j -> do
+    (e1', _t1') <- cps' e1 (ObjCont j)
+    pure (LetContK [(j, cont)] e1', t2')
 cps' (S.TmRecFun fs e) k =
   freshenFunBinds fs $ do
     fs' <- traverse cpsFun fs
@@ -348,8 +367,6 @@ cps' (S.TmIf e s et ef) k = do
   cpsCase' e k s alts
 cps' (S.TmCase e s alts) k =
   cpsCase' e k s alts
-cps' e (MetaCont k) = cps e k
-cps' e (ObjCont k) = cpsTail e k
 
 -- Note: CPS translation of let-expressions:
 --
@@ -372,43 +389,7 @@ cps' e (ObjCont k) = cpsTail e k
 -- ==> LetCont along with ObjCont and MetaCont? 'LetCont x t e c' means
 -- "after this, bind result value to x:t and pass result to CPS[e] c"??
 
--- | CPS-convert a term.
--- Note: The types being passed to the continuation and returned overall are a
--- bit confusing to me. It would be nice if I could write a precise
--- (dependently-typed) type signature, just as a form of documentation.
---
--- IIRC, the (TermK, S.Type) returned here does not have the same meaning as
--- the (TermK, S.Type) returned by cpsTail.
-cps :: S.Term -> (TmVar -> S.Type -> CPS (TermK, S.Type)) -> CPS (TermK, S.Type)
-cps (S.TmLet x t e1 e2) k = do
-  -- [[let x:t = e1 in e2]] k
-  -- -->
-  -- let j = cont (x:t) => [[e2]] k; in [[e1]] j
-  -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
-  -- (because a let-expression has no ctor to discriminate on)
-  (cont, t2') <- cpsBranch [(x, t)] e2 (MetaCont k)
-  freshCo "j" $ \j -> do
-    (e1', _t1') <- cps' e1 (ObjCont j)
-    pure (LetContK [(j, cont)] e1', t2')
-cps e k = cps' e (MetaCont k)
-
--- | CPS-convert a term in tail position.
--- In tail position, the continuation is always a continuation variable, which
--- allows for simpler translations.
-cpsTail :: S.Term -> CoVar -> CPS (TermK, S.Type)
-cpsTail (S.TmLet x t e1 e2) k = do
-  -- [[let x:t = e1 in e2]] k
-  -- -->
-  -- let j (x:t) = [[e2]] k; in [[e1]] j
-  -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
-  -- (because a let-expression has no ctor to discriminate on)
-  (cont, t2') <- cpsBranch [(x, t)] e2 (ObjCont k)
-  freshCo "j" $ \j -> do
-    (e1', _t1') <- cps' e1 (ObjCont j)
-    pure (LetContK [(j, cont)] e1', t2')
-cpsTail e k = cps' e (ObjCont k)
-
-
+-- | Translate a function definition into continuation-passing style.
 cpsFun :: S.TmFun -> CPS FunDef
 cpsFun (S.TmFun f x t s e) =
   freshCo "k" $ \k -> do
