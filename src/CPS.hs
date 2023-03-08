@@ -144,7 +144,7 @@ cps' (S.TmLam x argTy e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
-        (e', retTy) <- cpsTail e k'
+        (e', retTy) <- cps' e (ObjCont k')
         s' <- cpsCoType retTy
         let fun = FunDef f bs [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
@@ -154,14 +154,14 @@ cps' (S.TmTLam aa ki e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
       (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
-        (e', retTy) <- cpsTail e k'
+        (e', retTy) <- cps' e (ObjCont k')
         s' <- cpsCoType retTy
         let def = AbsDef f bs [(k', s')] e'
         pure (def, S.TyAll aa ki retTy)
       (e'', t'') <- applyCont k f ty
       pure (LetFunAbsK [def] e'', t'')
 cps' (S.TmInl a b e) k = do
-  cps e $ \z _t -> do
+  cps' e $ MetaCont $ \z _t -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       ty' <- cpsType ty
@@ -169,7 +169,7 @@ cps' (S.TmInl a b e) k = do
       let res = LetValK x ty' (InlK z) e'
       pure (res, t')
 cps' (S.TmInr a b e) k = do
-  cps e $ \z _t -> do
+  cps' e $ MetaCont $ \z _t -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       ty' <- cpsType ty
@@ -177,7 +177,7 @@ cps' (S.TmInr a b e) k = do
       let res = LetValK x ty' (InrK z) e'
       pure (res, t')
 cps' (S.TmFst e) k = 
-  cps e $ \z t -> do
+  cps' e $ MetaCont $ \z t -> do
     (ta, _tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
@@ -187,7 +187,7 @@ cps' (S.TmFst e) k =
       let res = LetFstK x ta' z e'
       pure (res, t')
 cps' (S.TmSnd e) k = 
-  cps e $ \z t -> do
+  cps' e $ MetaCont $ \z t -> do
     (_ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
@@ -197,28 +197,28 @@ cps' (S.TmSnd e) k =
       let res = LetSndK x tb' z e'
       pure (res, t')
 cps' (S.TmArith e1 op e2) k =
-  cps e1 $ \x _t1 -> do
-    cps e2 $ \y _t2 -> do
+  cps' e1 $ MetaCont $ \x _t1 -> do
+    cps' e2 $ MetaCont $ \y _t2 -> do
       freshTm "z" $ \z -> do
         (e', t') <- applyCont k z S.TyInt
         let res = LetArithK z (makeArith op x y) e'
         pure (res, t')
 cps' (S.TmNegate e) k =
-  cps e $ \x _t -> do
+  cps' e $ MetaCont $ \x _t -> do
     freshTm "z" $ \z -> do
       (e', t') <- applyCont k z S.TyInt
       let res = LetArithK z (NegK x) e'
       pure (res, t')
 cps' (S.TmCmp e1 cmp e2) k =
-  cps e1 $ \x _t1 -> do
-    cps e2 $ \y _t2 -> do
+  cps' e1 $ MetaCont $ \x _t1 -> do
+    cps' e2 $ MetaCont $ \y _t2 -> do
       freshTm "z" $ \z -> do
         (e', t') <- applyCont k z S.TyBool
         let res = LetCompareK z (makeCompare cmp x y) e'
         pure (res, t')
 cps' (S.TmConcat e1 e2) k =
-  cps e1 $ \v1 _t1 ->
-    cps e2 $ \v2 _t2 -> do
+  cps' e1 $ MetaCont $ \v1 _t1 ->
+    cps' e2 $ MetaCont $ \v2 _t2 -> do
       freshTm "x" $ \x -> do
         (e', t') <- applyCont k x S.TyString
         let res = LetConcatK x v1 v2 e'
