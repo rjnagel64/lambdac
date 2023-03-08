@@ -135,59 +135,59 @@ reifyCont (MetaCont f) ty =
 -- Returns an equivalent 'CPS.IR.TermK', as well as a source type that is
 -- /probably/ the type of the expression, but I can't quite wrap my head around
 -- it.
-cps' :: S.Term -> Cont -> CPS (TermK, S.Type)
-cps' (S.TmVarOcc x) k = do
+cps :: S.Term -> Cont -> CPS (TermK, S.Type)
+cps (S.TmVarOcc x) k = do
   env <- asks cpsEnvCtx
   case Map.lookup x env of
     Nothing -> error "scope error"
     Just (x', t') -> applyCont k x' t'
-cps' (S.TmCtorOcc c) k = do
+cps (S.TmCtorOcc c) k = do
   env <- asks cpsEnvCtors
   case Map.lookup c env of
     Nothing -> error "scope error"
     Just (c', t') -> applyCont k c' t'
-cps' S.TmNil k = cpsValue NilK S.TyUnit k
-cps' (S.TmInt i) k = cpsValue (IntValK i) S.TyInt k
-cps' (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool k
-cps' (S.TmString s) k = cpsValue (StringValK s) S.TyString k
-cps' (S.TmLam x argTy e) k =
+cps S.TmNil k = cpsValue NilK S.TyUnit k
+cps (S.TmInt i) k = cpsValue (IntValK i) S.TyInt k
+cps (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool k
+cps (S.TmString s) k = cpsValue (StringValK s) S.TyString k
+cps (S.TmLam x argTy e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
-        (e', retTy) <- cps' e (ObjCont k')
+        (e', retTy) <- cps e (ObjCont k')
         s' <- cpsCoType retTy
         let fun = FunDef f bs [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
       (e'', t'') <- applyCont k f ty
       pure (LetFunAbsK [fun] e'', t'')
-cps' (S.TmTLam aa ki e) k =
+cps (S.TmTLam aa ki e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
       (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
-        (e', retTy) <- cps' e (ObjCont k')
+        (e', retTy) <- cps e (ObjCont k')
         s' <- cpsCoType retTy
         let def = AbsDef f bs [(k', s')] e'
         pure (def, S.TyAll aa ki retTy)
       (e'', t'') <- applyCont k f ty
       pure (LetFunAbsK [def] e'', t'')
-cps' (S.TmInl a b e) k = do
-  cps' e $ MetaCont $ \z _t -> do
+cps (S.TmInl a b e) k = do
+  cps e $ MetaCont $ \z _t -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       ty' <- cpsType ty
       (e', t') <- applyCont k x ty
       let res = LetValK x ty' (InlK z) e'
       pure (res, t')
-cps' (S.TmInr a b e) k = do
-  cps' e $ MetaCont $ \z _t -> do
+cps (S.TmInr a b e) k = do
+  cps e $ MetaCont $ \z _t -> do
     freshTm "x" $ \x -> do
       let ty = S.TySum a b
       ty' <- cpsType ty
       (e', t') <- applyCont k x ty
       let res = LetValK x ty' (InrK z) e'
       pure (res, t')
-cps' (S.TmFst e) k = 
-  cps' e $ MetaCont $ \z t -> do
+cps (S.TmFst e) k = 
+  cps e $ MetaCont $ \z t -> do
     (ta, _tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
@@ -196,8 +196,8 @@ cps' (S.TmFst e) k =
       ta' <- cpsType ta
       let res = LetFstK x ta' z e'
       pure (res, t')
-cps' (S.TmSnd e) k = 
-  cps' e $ MetaCont $ \z t -> do
+cps (S.TmSnd e) k = 
+  cps e $ MetaCont $ \z t -> do
     (_ta, tb) <- case t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
@@ -206,43 +206,43 @@ cps' (S.TmSnd e) k =
       tb' <- cpsType tb
       let res = LetSndK x tb' z e'
       pure (res, t')
-cps' (S.TmArith e1 op e2) k =
-  cps' e1 $ MetaCont $ \x _t1 -> do
-    cps' e2 $ MetaCont $ \y _t2 -> do
+cps (S.TmArith e1 op e2) k =
+  cps e1 $ MetaCont $ \x _t1 -> do
+    cps e2 $ MetaCont $ \y _t2 -> do
       freshTm "z" $ \z -> do
         (e', t') <- applyCont k z S.TyInt
         let res = LetArithK z (makeArith op x y) e'
         pure (res, t')
-cps' (S.TmNegate e) k =
-  cps' e $ MetaCont $ \x _t -> do
+cps (S.TmNegate e) k =
+  cps e $ MetaCont $ \x _t -> do
     freshTm "z" $ \z -> do
       (e', t') <- applyCont k z S.TyInt
       let res = LetArithK z (NegK x) e'
       pure (res, t')
-cps' (S.TmCmp e1 cmp e2) k =
-  cps' e1 $ MetaCont $ \x _t1 -> do
-    cps' e2 $ MetaCont $ \y _t2 -> do
+cps (S.TmCmp e1 cmp e2) k =
+  cps e1 $ MetaCont $ \x _t1 -> do
+    cps e2 $ MetaCont $ \y _t2 -> do
       freshTm "z" $ \z -> do
         (e', t') <- applyCont k z S.TyBool
         let res = LetCompareK z (makeCompare cmp x y) e'
         pure (res, t')
-cps' (S.TmConcat e1 e2) k =
-  cps' e1 $ MetaCont $ \v1 _t1 ->
-    cps' e2 $ MetaCont $ \v2 _t2 -> do
+cps (S.TmConcat e1 e2) k =
+  cps e1 $ MetaCont $ \v1 _t1 ->
+    cps e2 $ MetaCont $ \v2 _t2 -> do
       freshTm "x" $ \x -> do
         (e', t') <- applyCont k x S.TyString
         let res = LetConcatK x v1 v2 e'
         pure (res, t')
-cps' (S.TmPair e1 e2) k =
-  cps' e1 $ MetaCont $ \v1 t1 ->
-    cps' e2 $ MetaCont $ \v2 t2 ->
+cps (S.TmPair e1 e2) k =
+  cps e1 $ MetaCont $ \v1 t1 ->
+    cps e2 $ MetaCont $ \v2 t2 ->
       freshTm "x" $ \x -> do
         let ty = S.TyProd t1 t2
         (e', t') <- applyCont k x ty
         ty' <- cpsType ty
         let res = LetValK x ty' (PairK v1 v2) e'
         pure (res, t')
-cps' (S.TmLet x t e1 e2) k = do
+cps (S.TmLet x t e1 e2) k = do
   -- [[let x:t = e1 in e2]] k
   -- -->
   -- let j = cont (x:t) => [[e2]] k; in [[e1]] j
@@ -250,31 +250,31 @@ cps' (S.TmLet x t e1 e2) k = do
   -- (because a let-expression has no ctor to discriminate on)
   (cont, t2') <- cpsBranch [(x, t)] e2 k
   freshCo "j" $ \j -> do
-    (e1', _t1') <- cps' e1 (ObjCont j)
+    (e1', _t1') <- cps e1 (ObjCont j)
     pure (LetContK [(j, cont)] e1', t2')
-cps' (S.TmRecFun fs e) k =
+cps (S.TmRecFun fs e) k =
   freshenFunBinds fs $ do
     fs' <- traverse cpsFun fs
-    (e', t') <- cps' e k
+    (e', t') <- cps e k
     let res = LetFunAbsK fs' e'
     pure (res, t')
-cps' (S.TmLetRec fs e) k =
+cps (S.TmLetRec fs e) k =
   freshenRecBinds fs $ \fs' -> do
     fs'' <- traverse cpsFun fs'
-    (e', t') <- cps' e k
+    (e', t') <- cps e k
     let res = LetFunAbsK fs'' e'
     pure (res, t')
-cps' (S.TmApp e1 e2) k =
-  cps' e1 $ MetaCont $ \fv t1 -> do
-    cps' e2 $ MetaCont $ \xv _t2 -> do
+cps (S.TmApp e1 e2) k =
+  cps e1 $ MetaCont $ \fv t1 -> do
+    cps e2 $ MetaCont $ \xv _t2 -> do
       retTy <- case t1 of
         S.TyArr _argTy retTy -> pure retTy
         _ -> error "type error"
       (cont, t') <- reifyCont k retTy
       let res = CallK fv [xv] [cont]
       pure (res, t')
-cps' (S.TmTApp e ty) k =
-  cps' e $ MetaCont $ \fv t1 -> do
+cps (S.TmTApp e ty) k =
+  cps e $ MetaCont $ \fv t1 -> do
     ty' <- cpsType ty
     instTy <- case t1 of
       S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa ty) t1')
@@ -282,9 +282,9 @@ cps' (S.TmTApp e ty) k =
     (cont, t') <- reifyCont k instTy
     let res = InstK fv [ty'] [cont]
     pure (res, t')
-cps' (S.TmPure e) k =
+cps (S.TmPure e) k =
   -- let fun f (s : token#) (k2 : (token#, t) -> !) = k2 s z; in k f
-  cps' e $ MetaCont $ \z t ->
+  cps e $ MetaCont $ \z t ->
     freshTm "f_pure" $ \f -> do
       fun <- do
         freshTm "s" $ \s ->
@@ -296,8 +296,8 @@ cps' (S.TmPure e) k =
       (e', t') <- applyCont k (funDefName fun) (S.TyIO t)
       let res = LetFunAbsK [fun] e'
       pure (res, t')
-cps' (S.TmBind x t e1 e2) k =
-  cps' e1 $ MetaCont $ \m1 it1 ->
+cps (S.TmBind x t e1 e2) k =
+  cps e1 $ MetaCont $ \m1 _it1 ->
     freshTm "f_bind" $ \f -> do
       (fun, it2) <- do
         freshTm "s" $ \s1 ->
@@ -305,7 +305,7 @@ cps' (S.TmBind x t e1 e2) k =
             (contDef, it2) <- freshTm "s" $ \s2 ->
               freshenVarBinds [(x, t)] $ \bs -> do
                 -- I don't understand what I'm doing here. I hope it works.
-                (e', it2) <- cps' e2 $ MetaCont $ \m2 it2 -> do
+                (e', it2) <- cps e2 $ MetaCont $ \m2 it2 -> do
                   let contBody = CallK m2 [s2] [CoVarK k1]
                   pure (contBody, it2)
                 pure (ContDef ((s2, TokenK) : bs) e', it2)
@@ -319,7 +319,7 @@ cps' (S.TmBind x t e1 e2) k =
       (e', t') <- applyCont k (funDefName fun) it2
       let res = LetFunAbsK [fun] e'
       pure (res, t')
-cps' S.TmGetLine k = do
+cps S.TmGetLine k = do
   -- let fun f (s : token#) (k2 : (token#, t) -> !) = let s2, msg <- getLine s in k2 s2 msg; k f
   freshTm "f_get" $ \f -> do
     fun <- do
@@ -333,8 +333,8 @@ cps' S.TmGetLine k = do
     (e', t') <- applyCont k (funDefName fun) (S.TyIO S.TyString)
     let res = LetFunAbsK [fun] e'
     pure (res, t')
-cps' (S.TmPutLine e) k = do
-  cps' e $ MetaCont $ \z t -> do
+cps (S.TmPutLine e) k = do
+  cps e $ MetaCont $ \z _t -> do
     freshTm "f_put" $ \f -> do
       fun <- do
         freshTm "s" $ \s1 ->
@@ -347,8 +347,8 @@ cps' (S.TmPutLine e) k = do
       (e', t') <- applyCont k (funDefName fun) (S.TyIO S.TyUnit)
       let res = LetFunAbsK [fun] e'
       pure (res, t')
-cps' (S.TmRunIO e) k = do
-  cps' e $ MetaCont $ \m it -> do
+cps (S.TmRunIO e) k = do
+  cps e $ MetaCont $ \m it -> do
     retTy <- case it of
       S.TyIO t -> pure t
       _ -> error "cannot runIO non-monadic value"
@@ -359,14 +359,14 @@ cps' (S.TmRunIO e) k = do
     freshTm "s" $ \s0 -> do
       let res = LetValK s0 TokenK WorldTokenK (CallK m [s0] [ContValK cont])
       pure (res, t')
-cps' (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
+cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
   let alts = [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
-  cpsCase' e k s alts
-cps' (S.TmIf e s et ef) k = do
+  cpsCase e k s alts
+cps (S.TmIf e s et ef) k = do
   let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
-  cpsCase' e k s alts
-cps' (S.TmCase e s alts) k =
-  cpsCase' e k s alts
+  cpsCase e k s alts
+cps (S.TmCase e s alts) k =
+  cpsCase e k s alts
 
 -- Note: CPS translation of let-expressions:
 --
@@ -399,7 +399,7 @@ cpsFun (S.TmFun f x t s e) =
       Nothing -> error "cpsFun: function not in scope (unreachable)"
       Just (f', _) -> pure f'
     fun <- freshenVarBinds [(x, t)] $ \bs -> do
-      (e', _s') <- cps' e (ObjCont k)
+      (e', _s') <- cps e (ObjCont k)
       s' <- cpsCoType s
       pure (FunDef f' bs [(k, s')] e')
     pure fun
@@ -411,7 +411,7 @@ cpsFun (S.TmTFun f aa ki s e) =
       Nothing -> error "cpsFun: function not in scope (unreachable)"
       Just (f', _) -> pure f'
     fun <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
-      (e', _s') <- cps' e (ObjCont k)
+      (e', _s') <- cps e (ObjCont k)
       s' <- cpsCoType s
       pure (AbsDef f' bs [(k, s')] e')
     pure fun
@@ -518,25 +518,25 @@ cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
 
   -- Unfortunately, I cannot use ObjCont here because 'HaltK' is not a covar.
   -- If I manage the hybrid/fused cps transform, I should revisit this.
-  (e', _t) <- local extend $ cps' e (MetaCont $ \z t -> pure (HaltK z, t))
+  (e', _t) <- local extend $ cps e (MetaCont $ \z t -> pure (HaltK z, t))
   e'' <- addCtorWrappers ds' e'
   pure (Program ds' e'')
 
-
-cpsCase' :: S.Term -> Cont -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
-cpsCase' e k s alts = do
+-- | CPS-transform a case expression.
+cpsCase :: S.Term -> Cont -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
+cpsCase e k s alts = do
   (coval, _) <- reifyCont k s
   case coval of
-    CoVarK j -> cpsCase e j s alts
+    CoVarK j -> cpsCase' e j s alts
     ContValK cont -> freshCo "j" $ \j -> do
-      (e', t') <- cpsCase e j s alts
+      (e', t') <- cpsCase' e j s alts
       pure (LetContK [(j, cont)] e', t')
 
 -- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
 -- a return type, and a list of branches with bound variables.
-cpsCase :: S.Term -> CoVar -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
-cpsCase e j s alts =
-  cps' e $ MetaCont $ \z t -> do
+cpsCase' :: S.Term -> CoVar -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
+cpsCase' e j s alts =
+  cps e $ MetaCont $ \z t -> do
     res <- cpsBranches z t j alts
     pure (res, s)
 
@@ -568,7 +568,7 @@ cpsBranches z t j bs = do
 -- type of @e@.
 cpsBranch :: [(S.TmVar, S.Type)] -> S.Term -> Cont -> CPS (ContDef, S.Type)
 cpsBranch xs e k = freshenVarBinds xs $ \xs' -> do
-  (e', s') <- cps' e k
+  (e', s') <- cps e k
   pure (ContDef xs' e', s')
 
 
