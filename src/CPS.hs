@@ -196,6 +196,33 @@ cps' (S.TmSnd e) k =
       tb' <- cpsType tb
       let res = LetSndK x tb' z e'
       pure (res, t')
+cps' (S.TmArith e1 op e2) k =
+  cps e1 $ \x _t1 -> do
+    cps e2 $ \y _t2 -> do
+      freshTm "z" $ \z -> do
+        (e', t') <- applyCont k z S.TyInt
+        let res = LetArithK z (makeArith op x y) e'
+        pure (res, t')
+cps' (S.TmNegate e) k =
+  cps e $ \x _t -> do
+    freshTm "z" $ \z -> do
+      (e', t') <- applyCont k z S.TyInt
+      let res = LetArithK z (NegK x) e'
+      pure (res, t')
+cps' (S.TmCmp e1 cmp e2) k =
+  cps e1 $ \x _t1 -> do
+    cps e2 $ \y _t2 -> do
+      freshTm "z" $ \z -> do
+        (e', t') <- applyCont k z S.TyBool
+        let res = LetCompareK z (makeCompare cmp x y) e'
+        pure (res, t')
+cps' (S.TmConcat e1 e2) k =
+  cps e1 $ \v1 _t1 ->
+    cps e2 $ \v2 _t2 -> do
+      freshTm "x" $ \x -> do
+        (e', t') <- applyCont k x S.TyString
+        let res = LetConcatK x v1 v2 e'
+        pure (res, t')
 cps' e (MetaCont k) = cps e k
 cps' e (ObjCont k) = cpsTail e k
 
@@ -213,26 +240,9 @@ cps S.TmNil k = cps' S.TmNil (MetaCont k)
 cps (S.TmInt i) k = cps' (S.TmInt i) (MetaCont k)
 cps (S.TmBool b) k = cps' (S.TmBool b) (MetaCont k)
 cps (S.TmString s) k = cps' (S.TmString s) (MetaCont k)
-cps (S.TmArith e1 op e2) k =
-  cps e1 $ \x _t1 -> do
-    cps e2 $ \y _t2 -> do
-      freshTm "z" $ \z -> do
-        (e', t') <- k z S.TyInt
-        let res = LetArithK z (makeArith op x y) e'
-        pure (res, t')
-cps (S.TmNegate e) k =
-  cps e $ \x _t -> do
-    freshTm "z" $ \z -> do
-      (e', t') <- k z S.TyInt
-      let res = LetArithK z (NegK x) e'
-      pure (res, t')
-cps (S.TmCmp e1 cmp e2) k =
-  cps e1 $ \x _t1 -> do
-    cps e2 $ \y _t2 -> do
-      freshTm "z" $ \z -> do
-        (e', t') <- k z S.TyBool
-        let res = LetCompareK z (makeCompare cmp x y) e'
-        pure (res, t')
+cps (S.TmArith e1 op e2) k = cps' (S.TmArith e1 op e2) (MetaCont k)
+cps (S.TmNegate e) k = cps' (S.TmNegate e) (MetaCont k)
+cps (S.TmCmp e1 cmp e2) k = cps' (S.TmCmp e1 cmp e2) (MetaCont k)
 cps (S.TmPair e1 e2) k =
   cps e1 $ \v1 t1 ->
     cps e2 $ \v2 t2 ->
@@ -242,13 +252,7 @@ cps (S.TmPair e1 e2) k =
         ty' <- cpsType ty
         let res = LetValK x ty' (PairK v1 v2) e'
         pure (res, t')
-cps (S.TmConcat e1 e2) k =
-  cps e1 $ \v1 _t1 ->
-    cps e2 $ \v2 _t2 -> do
-      freshTm "x" $ \x -> do
-        (e', t') <- k x S.TyString
-        let res = LetConcatK x v1 v2 e'
-        pure (res, t')
+cps (S.TmConcat e1 e2) k = cps' (S.TmConcat e1 e2) (MetaCont k)
 cps (S.TmInl a b e) k = cps' (S.TmInl a b e) (MetaCont k)
 cps (S.TmInr a b e) k = cps' (S.TmInr a b e) (MetaCont k)
 cps (S.TmLam x argTy e) k = cps' (S.TmLam x argTy e) (MetaCont k)
@@ -478,23 +482,9 @@ cpsTail S.TmNil k = cpsValue NilK S.TyUnit (ObjCont k)
 cpsTail (S.TmInt i) k = cps' (S.TmInt i) (ObjCont k)
 cpsTail (S.TmBool b) k = cps' (S.TmBool b) (ObjCont k)
 cpsTail (S.TmString s) k = cps' (S.TmString s) (ObjCont k)
-cpsTail (S.TmArith e1 op e2) k =
-  cps e1 $ \x _t1 -> do
-    cps e2 $ \y _t2 -> do
-      freshTm "z" $ \z -> do
-        let res = LetArithK z (makeArith op x y) (JumpK k [z])
-        pure (res, S.TyInt)
-cpsTail (S.TmNegate e) k =
-  cps e $ \x _t -> do
-    freshTm "z" $ \z -> do
-      let res = LetArithK z (NegK x) (JumpK k [z])
-      pure (res, S.TyInt)
-cpsTail (S.TmCmp e1 cmp e2) k =
-  cps e1 $ \x _t1 -> do
-    cps e2 $ \y _t2 -> do
-      freshTm "z" $ \z -> do
-        let res = LetCompareK z (makeCompare cmp x y) (JumpK k [z])
-        pure (res, S.TyBool)
+cpsTail (S.TmArith e1 op e2) k = cps' (S.TmArith e1 op e2) (ObjCont k)
+cpsTail (S.TmNegate e) k = cps' (S.TmNegate e) (ObjCont k)
+cpsTail (S.TmCmp e1 cmp e2) k = cps' (S.TmCmp e1 cmp e2) (ObjCont k)
 cpsTail (S.TmPair e1 e2) k =
   cps e1 $ \v1 t1 ->
     cps e2 $ \v2 t2 ->
@@ -503,12 +493,7 @@ cpsTail (S.TmPair e1 e2) k =
         ty' <- cpsType ty
         let res = LetValK x ty' (PairK v1 v2) (JumpK k [x])
         pure (res, ty)
-cpsTail (S.TmConcat e1 e2) k =
-  cps e1 $ \v1 _t1 ->
-    cps e2 $ \v2 _t2 -> do
-      freshTm "x" $ \x -> do
-        let res = LetConcatK x v1 v2 (JumpK k [x])
-        pure (res, S.TyString)
+cpsTail (S.TmConcat e1 e2) k = cps' (S.TmConcat e1 e2) (ObjCont k)
 cpsTail (S.TmInl a b e) k = cps' (S.TmInl a b e) (ObjCont k)
 cpsTail (S.TmInr a b e) k = cps' (S.TmInr a b e) (ObjCont k)
 cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
