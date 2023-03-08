@@ -245,6 +245,24 @@ cps' (S.TmLetRec fs e) k =
     (e', t') <- cps' e k
     let res = LetFunAbsK fs'' e'
     pure (res, t')
+cps' (S.TmApp e1 e2) k =
+  cps' e1 $ MetaCont $ \fv t1 -> do
+    cps' e2 $ MetaCont $ \xv _t2 -> do
+      retTy <- case t1 of
+        S.TyArr _argTy retTy -> pure retTy
+        _ -> error "type error"
+      (cont, t') <- reifyCont k retTy
+      let res = CallK fv [xv] [cont]
+      pure (res, t')
+cps' (S.TmTApp e ty) k =
+  cps' e $ MetaCont $ \fv t1 -> do
+    ty' <- cpsType ty
+    instTy <- case t1 of
+      S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa ty) t1')
+      _ -> error "type error"
+    (cont, t') <- reifyCont k instTy
+    let res = InstK fv [ty'] [cont]
+    pure (res, t')
 cps' e (MetaCont k) = cps e k
 cps' e (ObjCont k) = cpsTail e k
 
@@ -323,24 +341,8 @@ cps (S.TmCase e s alts) k = do
   freshCo "j" $ \j -> do
     (res, s') <- cpsCase e j s alts
     pure (LetContK [(j, cont)] res, s')
-cps (S.TmApp e1 e2) k =
-  cps e1 $ \fv t1 -> do
-    cps e2 $ \xv _t2 -> do
-      retTy <- case t1 of
-        S.TyArr _argTy retTy -> pure retTy
-        _ -> error "type error"
-      (cont, t') <- reifyCont (MetaCont k) retTy
-      let res = CallK fv [xv] [cont]
-      pure (res, t')
-cps (S.TmTApp e ty) k =
-  cps e $ \v1 t1 -> do
-    ty' <- cpsType ty
-    instTy <- case t1 of
-      S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa ty) t1')
-      _ -> error "type error"
-    (cont, t') <- reifyCont (MetaCont k) instTy
-    let res = InstK v1 [ty'] [cont]
-    pure (res, t')
+cps (S.TmApp e1 e2) k = cps' (S.TmApp e1 e2) (MetaCont k)
+cps (S.TmTApp e ty) k = cps' (S.TmTApp e ty) (MetaCont k)
 cps (S.TmFst e) k = cps' (S.TmFst e) (MetaCont k)
 cps (S.TmSnd e) k = cps' (S.TmSnd e) (MetaCont k)
 cps (S.TmPure e) k =
@@ -483,24 +485,8 @@ cpsTail (S.TmIf e s et ef) k =
   cpsCase e k s [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
 cpsTail (S.TmCase e s alts) k =
   cpsCase e k s alts
-cpsTail (S.TmApp e1 e2) k =
-  cps e1 $ \fv t1 ->
-    cps e2 $ \xv _t2 -> do
-      retTy <- case t1 of
-        S.TyArr _argTy retTy -> pure retTy
-        _ -> error "type error"
-      (cont, t') <- reifyCont (ObjCont k) retTy
-      let res = CallK fv [xv] [cont]
-      pure (res, t')
-cpsTail (S.TmTApp e ty) k =
-  cps e $ \v1 t1 -> do
-    ty' <- cpsType ty
-    instTy <- case t1 of
-      S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa ty) t1')
-      _ -> error "type error"
-    (cont, t') <- reifyCont (ObjCont k) instTy
-    let res = InstK v1 [ty'] [cont]
-    pure (res, t')
+cpsTail (S.TmApp e1 e2) k = cps' (S.TmApp e1 e2) (ObjCont k)
+cpsTail (S.TmTApp e ty) k = cps' (S.TmTApp e ty) (ObjCont k)
 cpsTail (S.TmFst e) k = cps' (S.TmFst e) (ObjCont k)
 cpsTail (S.TmSnd e) k = cps' (S.TmSnd e) (ObjCont k)
 cpsTail (S.TmPure e) k =
