@@ -359,21 +359,6 @@ cps' e (ObjCont k) = cpsTail e k
 -- IIRC, the (TermK, S.Type) returned here does not have the same meaning as
 -- the (TermK, S.Type) returned by cpsTail.
 cps :: S.Term -> (TmVar -> S.Type -> CPS (TermK, S.Type)) -> CPS (TermK, S.Type)
-cps (S.TmVarOcc x) k = cps' (S.TmVarOcc x) (MetaCont k)
-cps (S.TmCtorOcc c) k = cps' (S.TmCtorOcc c) (MetaCont k)
-cps S.TmNil k = cps' S.TmNil (MetaCont k)
-cps (S.TmInt i) k = cps' (S.TmInt i) (MetaCont k)
-cps (S.TmBool b) k = cps' (S.TmBool b) (MetaCont k)
-cps (S.TmString s) k = cps' (S.TmString s) (MetaCont k)
-cps (S.TmArith e1 op e2) k = cps' (S.TmArith e1 op e2) (MetaCont k)
-cps (S.TmNegate e) k = cps' (S.TmNegate e) (MetaCont k)
-cps (S.TmCmp e1 cmp e2) k = cps' (S.TmCmp e1 cmp e2) (MetaCont k)
-cps (S.TmPair e1 e2) k = cps' (S.TmPair e1 e2) (MetaCont k)
-cps (S.TmConcat e1 e2) k = cps' (S.TmConcat e1 e2) (MetaCont k)
-cps (S.TmInl a b e) k = cps' (S.TmInl a b e) (MetaCont k)
-cps (S.TmInr a b e) k = cps' (S.TmInr a b e) (MetaCont k)
-cps (S.TmLam x argTy e) k = cps' (S.TmLam x argTy e) (MetaCont k)
-cps (S.TmTLam aa ki e) k = cps' (S.TmTLam aa ki e) (MetaCont k)
 cps (S.TmLet x t e1 e2) k = do
   -- This translation is actually slightly suboptimal, as mentioned by
   -- [Compiling with Continuations, Continued].
@@ -400,21 +385,24 @@ cps (S.TmLet x t e1 e2) k = do
       pure (kont, t2')
     (e1', _t1') <- cpsTail e1 j
     pure (LetContK [(j, kont)] e1', t2')
-cps (S.TmRecFun fs e) k = cps' (S.TmRecFun fs e) (MetaCont k)
-cps (S.TmLetRec fs e) k = cps' (S.TmLetRec fs e) (MetaCont k)
-cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
-  cps' (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) (MetaCont k)
-cps (S.TmIf e s et ef) k = cps' (S.TmIf e s et ef) (MetaCont k)
-cps (S.TmCase e s alts) k = cps' (S.TmCase e s alts) (MetaCont k)
-cps (S.TmApp e1 e2) k = cps' (S.TmApp e1 e2) (MetaCont k)
-cps (S.TmTApp e ty) k = cps' (S.TmTApp e ty) (MetaCont k)
-cps (S.TmFst e) k = cps' (S.TmFst e) (MetaCont k)
-cps (S.TmSnd e) k = cps' (S.TmSnd e) (MetaCont k)
-cps (S.TmPure e) k = cps' (S.TmPure e) (MetaCont k)
-cps (S.TmBind x t e1 e2) k = cps' (S.TmBind x t e1 e2) (MetaCont k)
-cps S.TmGetLine k = cps' S.TmGetLine (MetaCont k)
-cps (S.TmPutLine e) k = cps' (S.TmPutLine e) (MetaCont k)
-cps (S.TmRunIO e) k = cps' (S.TmRunIO e) (MetaCont k)
+cps e k = cps' e (MetaCont k)
+
+-- | CPS-convert a term in tail position.
+-- In tail position, the continuation is always a continuation variable, which
+-- allows for simpler translations.
+cpsTail :: S.Term -> CoVar -> CPS (TermK, S.Type)
+cpsTail (S.TmLet x t e1 e2) k =
+  -- [[let x:t = e1 in e2]] k
+  -- -->
+  -- let j (x:t) = [[e2]] k; in [[e1]] j
+  -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
+  -- (because a let-expression has no ctor to discriminate on)
+  freshCo "j" $ \j -> do
+    (kont, t2') <- cpsBranch [(x, t)] e2 k
+    (e1', _t1') <- cpsTail e1 j
+    pure (LetContK [(j, kont)] e1', t2')
+cpsTail e k = cps' e (ObjCont k)
+
 
 cpsFun :: S.TmFun -> CPS FunDef
 cpsFun (S.TmFun f x t s e) =
@@ -425,7 +413,7 @@ cpsFun (S.TmFun f x t s e) =
       Nothing -> error "cpsFun: function not in scope (unreachable)"
       Just (f', _) -> pure f'
     fun <- freshenVarBinds [(x, t)] $ \bs -> do
-      (e', _s') <- cpsTail e k
+      (e', _s') <- cps' e (ObjCont k)
       s' <- cpsCoType s
       pure (FunDef f' bs [(k, s')] e')
     pure fun
@@ -437,55 +425,10 @@ cpsFun (S.TmTFun f aa ki s e) =
       Nothing -> error "cpsFun: function not in scope (unreachable)"
       Just (f', _) -> pure f'
     fun <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
-      (e', _s') <- cpsTail e k
+      (e', _s') <- cps' e (ObjCont k)
       s' <- cpsCoType s
       pure (AbsDef f' bs [(k, s')] e')
     pure fun
-
--- | CPS-convert a term in tail position.
--- In tail position, the continuation is always a continuation variable, which
--- allows for simpler translations.
-cpsTail :: S.Term -> CoVar -> CPS (TermK, S.Type)
-cpsTail (S.TmVarOcc x) k = cps' (S.TmVarOcc x) (ObjCont k)
-cpsTail (S.TmCtorOcc c) k = cps' (S.TmCtorOcc c) (ObjCont k)
-cpsTail (S.TmLam x argTy e) k = cps' (S.TmLam x argTy e) (ObjCont k)
-cpsTail (S.TmTLam aa ki e) k = cps' (S.TmTLam aa ki e) (ObjCont k)
-cpsTail (S.TmLet x t e1 e2) k =
-  -- [[let x:t = e1 in e2]] k
-  -- -->
-  -- let j (x:t) = [[e2]] k; in [[e1]] j
-  -- (This is similar to, but not quite the same as @case e1 of x:t -> e2@)
-  -- (because a let-expression has no ctor to discriminate on)
-  freshCo "j" $ \j -> do
-    (kont, t2') <- cpsBranch [(x, t)] e2 k
-    (e1', _t1') <- cpsTail e1 j
-    pure (LetContK [(j, kont)] e1', t2')
-cpsTail (S.TmRecFun fs e) k = cps' (S.TmRecFun fs e) (ObjCont k)
-cpsTail (S.TmLetRec fs e) k = cps' (S.TmLetRec fs e) (ObjCont k)
-cpsTail S.TmNil k = cpsValue NilK S.TyUnit (ObjCont k)
-cpsTail (S.TmInt i) k = cps' (S.TmInt i) (ObjCont k)
-cpsTail (S.TmBool b) k = cps' (S.TmBool b) (ObjCont k)
-cpsTail (S.TmString s) k = cps' (S.TmString s) (ObjCont k)
-cpsTail (S.TmArith e1 op e2) k = cps' (S.TmArith e1 op e2) (ObjCont k)
-cpsTail (S.TmNegate e) k = cps' (S.TmNegate e) (ObjCont k)
-cpsTail (S.TmCmp e1 cmp e2) k = cps' (S.TmCmp e1 cmp e2) (ObjCont k)
-cpsTail (S.TmPair e1 e2) k = cps' (S.TmPair e1 e2) (ObjCont k)
-cpsTail (S.TmConcat e1 e2) k = cps' (S.TmConcat e1 e2) (ObjCont k)
-cpsTail (S.TmInl a b e) k = cps' (S.TmInl a b e) (ObjCont k)
-cpsTail (S.TmInr a b e) k = cps' (S.TmInr a b e) (ObjCont k)
-cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
-  cps' (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) (ObjCont k)
-cpsTail (S.TmIf e s et ef) k = cps' (S.TmIf e s et ef) (ObjCont k)
-cpsTail (S.TmCase e s alts) k = cps' (S.TmCase e s alts) (ObjCont k)
-cpsTail (S.TmApp e1 e2) k = cps' (S.TmApp e1 e2) (ObjCont k)
-cpsTail (S.TmTApp e ty) k = cps' (S.TmTApp e ty) (ObjCont k)
-cpsTail (S.TmFst e) k = cps' (S.TmFst e) (ObjCont k)
-cpsTail (S.TmSnd e) k = cps' (S.TmSnd e) (ObjCont k)
-cpsTail (S.TmPure e) k = cps' (S.TmPure e) (ObjCont k)
-cpsTail (S.TmBind x t e1 e2) k = cps' (S.TmBind x t e1 e2) (ObjCont k)
-cpsTail S.TmGetLine k = cps' S.TmGetLine (ObjCont k)
-cpsTail (S.TmPutLine e) k = cps' (S.TmPutLine e) (ObjCont k)
-cpsTail (S.TmRunIO e) k = cps' (S.TmRunIO e) (ObjCont k)
 
 -- Note: Constructor wrapper functions
 --
@@ -587,7 +530,7 @@ cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
   let ctorbinds = concatMap ctorWrapperBinds ds
   let extend (CPSEnv sc tms tys cs) = CPSEnv sc tms tys (insertMany ctorbinds cs)
 
-  -- Unfortunately, I cannot use cpsTail here because 'HaltK' is not a covar.
+  -- Unfortunately, I cannot use ObjCont here because 'HaltK' is not a covar.
   -- If I manage the hybrid/fused cps transform, I should revisit this.
   (e', _t) <- local extend $ cps' e (MetaCont $ \z t -> pure (HaltK z, t))
   e'' <- addCtorWrappers ds' e'
