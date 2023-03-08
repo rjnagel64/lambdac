@@ -263,6 +263,83 @@ cps' (S.TmTApp e ty) k =
     (cont, t') <- reifyCont k instTy
     let res = InstK fv [ty'] [cont]
     pure (res, t')
+cps' (S.TmPure e) k =
+  -- let fun f (s : token#) (k2 : (token#, t) -> !) = k2 s z; in k f
+  cps' e $ MetaCont $ \z t ->
+    freshTm "f_pure" $ \f -> do
+      fun <- do
+        freshTm "s" $ \s ->
+          freshCo "k" $ \k' -> do
+            let body = JumpK k' [s, z]
+            t' <- cpsType t
+            let fun = FunDef f [(s, TokenK)] [(k', ContK [TokenK, t'])] body
+            pure fun
+      (e', t') <- applyCont k (funDefName fun) (S.TyIO t)
+      let res = LetFunAbsK [fun] e'
+      pure (res, t')
+cps' (S.TmBind x t e1 e2) k =
+  cps' e1 $ MetaCont $ \m1 it1 ->
+    freshTm "f_bind" $ \f -> do
+      (fun, it2) <- do
+        freshTm "s" $ \s1 ->
+          freshCo "k" $ \k1 -> do
+            (contDef, it2) <- freshTm "s" $ \s2 ->
+              freshenVarBinds [(x, t)] $ \bs -> do
+                -- I don't understand what I'm doing here. I hope it works.
+                (e', it2) <- cps' e2 $ MetaCont $ \m2 it2 -> do
+                  let contBody = CallK m2 [s2] [CoVarK k1]
+                  pure (contBody, it2)
+                pure (ContDef ((s2, TokenK) : bs) e', it2)
+            t2' <- case it2 of
+              S.TyIO t2 -> cpsType t2
+              _ -> error "body of bind is not monadic"
+            let funBody = CallK m1 [s1] [ContValK contDef]
+            let funDef = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
+            pure (funDef, it2)
+      -- dubious about the type here, but it seems to work.
+      (e', t') <- applyCont k (funDefName fun) it2
+      let res = LetFunAbsK [fun] e'
+      pure (res, t')
+cps' S.TmGetLine k = do
+  -- let fun f (s : token#) (k2 : (token#, t) -> !) = let s2, msg <- getLine s in k2 s2 msg; k f
+  freshTm "f_get" $ \f -> do
+    fun <- do
+      freshTm "s" $ \s1 ->
+        freshCo "k" $ \k1 -> do
+          freshTm "s" $ \s2 ->
+            freshTm "x" $ \msg -> do
+              let body = LetBindK s2 msg (PrimGetLine s1) (JumpK k1 [s2, msg])
+              let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, StringK])] body
+              pure fun
+    (e', t') <- applyCont k (funDefName fun) (S.TyIO S.TyString)
+    let res = LetFunAbsK [fun] e'
+    pure (res, t')
+cps' (S.TmPutLine e) k = do
+  cps' e $ MetaCont $ \z t -> do
+    freshTm "f_put" $ \f -> do
+      fun <- do
+        freshTm "s" $ \s1 ->
+          freshCo "k" $ \k1 -> do
+            freshTm "s" $ \s2 ->
+              freshTm "u" $ \u -> do
+                let body = LetBindK s2 u (PrimPutLine s1 z) (JumpK k1 [s2, u])
+                let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, UnitK])] body
+                pure fun
+      (e', t') <- applyCont k (funDefName fun) (S.TyIO S.TyUnit)
+      let res = LetFunAbsK [fun] e'
+      pure (res, t')
+cps' (S.TmRunIO e) k = do
+  cps' e $ MetaCont $ \m it -> do
+    retTy <- case it of
+      S.TyIO t -> pure t
+      _ -> error "cannot runIO non-monadic value"
+    (cont, t') <- freshTm "s" $ \sv -> freshTm "x" $ \xv -> do
+      retTy' <- cpsType retTy
+      (e', t') <- applyCont k xv retTy
+      pure (ContDef [(sv, TokenK), (xv, retTy')] e', t')
+    freshTm "s" $ \s0 -> do
+      let res = LetValK s0 TokenK WorldTokenK (CallK m [s0] [ContValK cont])
+      pure (res, t')
 cps' e (MetaCont k) = cps e k
 cps' e (ObjCont k) = cpsTail e k
 
@@ -345,83 +422,11 @@ cps (S.TmApp e1 e2) k = cps' (S.TmApp e1 e2) (MetaCont k)
 cps (S.TmTApp e ty) k = cps' (S.TmTApp e ty) (MetaCont k)
 cps (S.TmFst e) k = cps' (S.TmFst e) (MetaCont k)
 cps (S.TmSnd e) k = cps' (S.TmSnd e) (MetaCont k)
-cps (S.TmPure e) k =
-  -- let fun f (s : token#) (k2 : (token#, t) -> !) = k2 s z; in k f
-  cps e $ \z t ->
-    freshTm "f_pure" $ \f -> do
-      fun <- do
-        freshTm "s" $ \s ->
-          freshCo "k" $ \k' -> do
-            let body = JumpK k' [s, z]
-            t' <- cpsType t
-            let fun = FunDef f [(s, TokenK)] [(k', ContK [TokenK, t'])] body
-            pure fun
-      (e', t') <- applyCont (MetaCont k) (funDefName fun) (S.TyIO t)
-      let res = LetFunAbsK [fun] e'
-      pure (res, t')
-cps (S.TmBind x t e1 e2) k = do
-  cps e1 $ \m1 it1 ->
-    freshTm "f_bind" $ \f -> do
-      (fun, it2) <- do
-        freshTm "s" $ \s1 ->
-          freshCo "k" $ \k1 -> do
-            (contDef, it2) <- freshTm "s" $ \s2 ->
-              freshenVarBinds [(x, t)] $ \bs -> do
-                -- I don't understand what I'm doing here. I hope it works.
-                (e', it2) <- cps e2 $ \m2 it2 -> do
-                  let contBody = CallK m2 [s2] [CoVarK k1]
-                  pure (contBody, it2)
-                pure (ContDef ((s2, TokenK) : bs) e', it2)
-            t2' <- case it2 of
-              S.TyIO t2 -> cpsType t2
-              _ -> error "body of bind is not monadic"
-            let funBody = CallK m1 [s1] [ContValK contDef]
-            let funDef = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
-            pure (funDef, it2)
-      -- dubious about the type here, but it seems to work.
-      (e', t') <- applyCont (MetaCont k) (funDefName fun) it2
-      let res = LetFunAbsK [fun] e'
-      pure (res, t')
-cps S.TmGetLine k = do
-  -- let fun f (s : token#) (k2 : (token#, t) -> !) = let s2, msg <- getLine s in k2 s2 msg; k f
-  freshTm "f_get" $ \f -> do
-    fun <- do
-      freshTm "s" $ \s1 ->
-        freshCo "k" $ \k1 -> do
-          freshTm "s" $ \s2 ->
-            freshTm "x" $ \msg -> do
-              let body = LetBindK s2 msg (PrimGetLine s1) (JumpK k1 [s2, msg])
-              let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, StringK])] body
-              pure fun
-    (e', t') <- applyCont (MetaCont k) (funDefName fun) (S.TyIO S.TyString)
-    let res = LetFunAbsK [fun] e'
-    pure (res, t')
-cps (S.TmPutLine e) k = do
-  cps e $ \z t -> do
-    freshTm "f_put" $ \f -> do
-      fun <- do
-        freshTm "s" $ \s1 ->
-          freshCo "k" $ \k1 -> do
-            freshTm "s" $ \s2 ->
-              freshTm "u" $ \u -> do
-                let body = LetBindK s2 u (PrimPutLine s1 z) (JumpK k1 [s2, u])
-                let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, UnitK])] body
-                pure fun
-      (e', t') <- applyCont (MetaCont k) (funDefName fun) (S.TyIO S.TyUnit)
-      let res = LetFunAbsK [fun] e'
-      pure (res, t')
-cps (S.TmRunIO e) k = do
-  cps e $ \m it -> do
-    retTy <- case it of
-      S.TyIO t -> pure t
-      _ -> error "cannot runIO non-monadic value"
-    (cont, t') <- freshTm "s" $ \sv -> freshTm "x" $ \xv -> do
-      retTy' <- cpsType retTy
-      (e', t') <- applyCont (MetaCont k) xv retTy
-      pure (ContDef [(sv, TokenK), (xv, retTy')] e', t')
-    freshTm "s" $ \s0 -> do
-      let res = LetValK s0 TokenK WorldTokenK (CallK m [s0] [ContValK cont])
-      pure (res, t')
+cps (S.TmPure e) k = cps' (S.TmPure e) (MetaCont k)
+cps (S.TmBind x t e1 e2) k = cps' (S.TmBind x t e1 e2) (MetaCont k)
+cps S.TmGetLine k = cps' S.TmGetLine (MetaCont k)
+cps (S.TmPutLine e) k = cps' (S.TmPutLine e) (MetaCont k)
+cps (S.TmRunIO e) k = cps' (S.TmRunIO e) (MetaCont k)
 
 cpsFun :: S.TmFun -> CPS FunDef
 cpsFun (S.TmFun f x t s e) =
@@ -490,83 +495,11 @@ cpsTail (S.TmApp e1 e2) k = cps' (S.TmApp e1 e2) (ObjCont k)
 cpsTail (S.TmTApp e ty) k = cps' (S.TmTApp e ty) (ObjCont k)
 cpsTail (S.TmFst e) k = cps' (S.TmFst e) (ObjCont k)
 cpsTail (S.TmSnd e) k = cps' (S.TmSnd e) (ObjCont k)
-cpsTail (S.TmPure e) k =
-  -- let fun f (s : token#) (k2 : (token#, t) -> !) = k2 s z; in k f
-  cps e $ \z t ->
-    freshTm "f_pure" $ \f -> do
-      fun <- do
-        freshTm "s" $ \s ->
-          freshCo "k" $ \k' -> do
-            let body = JumpK k' [s, z]
-            t' <- cpsType t
-            let fun = FunDef f [(s, TokenK)] [(k', ContK [TokenK, t'])] body
-            pure fun
-      (e', t') <- applyCont (ObjCont k) (funDefName fun) (S.TyIO t)
-      let res = LetFunAbsK [fun] e'
-      pure (res, t')
-cpsTail (S.TmBind x t e1 e2) k = do
-  cps e1 $ \m1 it1 ->
-    freshTm "f_bind" $ \f -> do
-      (fun, it2) <- do
-        freshTm "s" $ \s1 ->
-          freshCo "k" $ \k1 -> do
-            (contDef, it2) <- freshTm "s" $ \s2 ->
-              freshenVarBinds [(x, t)] $ \bs -> do
-                -- I don't understand what I'm doing here. I hope it works.
-                (e', it2) <- cps e2 $ \m2 it2 -> do
-                  let contBody = CallK m2 [s2] [CoVarK k1]
-                  pure (contBody, it2)
-                pure (ContDef ((s2, TokenK) : bs) e', it2)
-            t2' <- case it2 of
-              S.TyIO t2 -> cpsType t2
-              _ -> error "body of bind is not monadic"
-            let funBody = CallK m1 [s1] [ContValK contDef]
-            let funDef = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
-            pure (funDef, it2)
-      -- dubious about the type here, but it seems to work.
-      (e', t') <- applyCont (ObjCont k) (funDefName fun) it2
-      let res = LetFunAbsK [fun] e'
-      pure (res, t')
-cpsTail S.TmGetLine k = do
-  -- let fun f (s : token#) (k2 : (token#, t) -> !) = let s2, msg <- getLine s in k2 s2 msg; k f
-  freshTm "f_get" $ \f -> do
-    fun <- do
-      freshTm "s" $ \s1 ->
-        freshCo "k" $ \k1 -> do
-          freshTm "s" $ \s2 ->
-            freshTm "x" $ \msg -> do
-              let body = LetBindK s2 msg (PrimGetLine s1) (JumpK k1 [s2, msg])
-              let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, StringK])] body
-              pure fun
-    (e', t') <- applyCont (ObjCont k) (funDefName fun) (S.TyIO S.TyString)
-    let res = LetFunAbsK [fun] e'
-    pure (res, t')
-cpsTail (S.TmPutLine e) k = do
-  cps e $ \z t -> do
-    freshTm "f_put" $ \f -> do
-      fun <- do
-        freshTm "s" $ \s1 ->
-          freshCo "k" $ \k1 -> do
-            freshTm "s" $ \s2 ->
-              freshTm "u" $ \u -> do
-                let body = LetBindK s2 u (PrimPutLine s1 z) (JumpK k1 [s2, u])
-                let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, UnitK])] body
-                pure fun
-      (e', t') <- applyCont (ObjCont k) (funDefName fun) (S.TyIO S.TyUnit)
-      let res = LetFunAbsK [fun] e'
-      pure (res, t')
-cpsTail (S.TmRunIO e) k = do
-  cps e $ \m it -> do
-    retTy <- case it of
-      S.TyIO t -> pure t
-      _ -> error "cannot runIO non-monadic value"
-    (cont, t') <- freshTm "s" $ \sv -> freshTm "x" $ \xv -> do
-      retTy' <- cpsType retTy
-      (e', t') <- applyCont (ObjCont k) xv retTy
-      pure (ContDef [(sv, TokenK), (xv, retTy')] e', t')
-    freshTm "s" $ \s0 -> do
-      let res = LetValK s0 TokenK WorldTokenK (CallK m [s0] [ContValK cont])
-      pure (res, t')
+cpsTail (S.TmPure e) k = cps' (S.TmPure e) (ObjCont k)
+cpsTail (S.TmBind x t e1 e2) k = cps' (S.TmBind x t e1 e2) (ObjCont k)
+cpsTail S.TmGetLine k = cps' S.TmGetLine (ObjCont k)
+cpsTail (S.TmPutLine e) k = cps' (S.TmPutLine e) (ObjCont k)
+cpsTail (S.TmRunIO e) k = cps' (S.TmRunIO e) (ObjCont k)
 
 -- Note: Constructor wrapper functions
 --
