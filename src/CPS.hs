@@ -112,13 +112,14 @@ applyCont :: Cont -> TmVar -> S.Type -> CPS (TermK, S.Type)
 applyCont (ObjCont k) x ty = let res = JumpK k [x] in pure (res, ty)
 applyCont (MetaCont f) x ty = f x ty
 
--- -- probably need variable name/type?
--- -- Should this return a type in addition to the covalue?
--- reifyCont :: Cont -> CoValueK
--- reifyCont (ObjCont k) = CoVarK k
--- -- Hmm. Need type of argument? Then can invoke cont to get body, return
--- -- ContValK (ContDef [(x, ty')] e)
--- reifyCont (MetaCont f) = _
+reifyCont :: Cont -> S.Type -> CPS (CoValueK, S.Type)
+reifyCont (ObjCont k) ty = pure (CoVarK k, ty)
+reifyCont (MetaCont f) ty =
+  freshTm "x" $ \x -> do
+    ty' <- cpsType ty
+    (e', t') <- f x ty
+    let cont = ContDef [(x, ty')] e'
+    pure (ContValK cont, t')
 
 -- TODO: Consider fully-annotated variant of Source for easier CPS
 -- every term is paired with its type. Somewhat redundant, but simplifies CPS
@@ -323,16 +324,13 @@ cps (S.TmCase e s alts) k = do
     (res, s') <- cpsCase e j s alts
     pure (LetContK [(j, cont)] res, s')
 cps (S.TmApp e1 e2) k =
-  cps e1 $ \v1 t1 -> do
-    cps e2 $ \v2 _t2 -> do
+  cps e1 $ \fv t1 -> do
+    cps e2 $ \xv _t2 -> do
       retTy <- case t1 of
         S.TyArr _argTy retTy -> pure retTy
         _ -> error "type error"
-      (cont, t') <- freshTm "x" $ \xv -> do
-        (e', t') <- k xv retTy
-        retTy' <- cpsType retTy
-        pure (ContDef [(xv, retTy')] e', t')
-      let res = CallK v1 [v2] [ContValK cont]
+      (cont, t') <- reifyCont (MetaCont k) retTy
+      let res = CallK fv [xv] [cont]
       pure (res, t')
 cps (S.TmTApp e ty) k =
   cps e $ \v1 t1 -> do
@@ -340,12 +338,9 @@ cps (S.TmTApp e ty) k =
     instTy <- case t1 of
       S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa ty) t1')
       _ -> error "type error"
-    (cont, t'') <- freshTm "f" $ \fv -> do
-      (e'', t'') <- k fv instTy
-      instTy' <- cpsType instTy
-      pure (ContDef [(fv, instTy')] e'', t'')
-    let res = InstK v1 [ty'] [ContValK cont]
-    pure (res, t'')
+    (cont, t') <- reifyCont (MetaCont k) instTy
+    let res = InstK v1 [ty'] [cont]
+    pure (res, t')
 cps (S.TmFst e) k = cps' (S.TmFst e) (MetaCont k)
 cps (S.TmSnd e) k = cps' (S.TmSnd e) (MetaCont k)
 cps (S.TmPure e) k =
@@ -489,21 +484,23 @@ cpsTail (S.TmIf e s et ef) k =
 cpsTail (S.TmCase e s alts) k =
   cpsCase e k s alts
 cpsTail (S.TmApp e1 e2) k =
-  cps e1 $ \f t1 ->
-    cps e2 $ \x _t2 -> do
+  cps e1 $ \fv t1 ->
+    cps e2 $ \xv _t2 -> do
       retTy <- case t1 of
         S.TyArr _argTy retTy -> pure retTy
         _ -> error "type error"
-      let res = CallK f [x] [CoVarK k]
-      pure (res, retTy)
-cpsTail (S.TmTApp e t) k =
+      (cont, t') <- reifyCont (ObjCont k) retTy
+      let res = CallK fv [xv] [cont]
+      pure (res, t')
+cpsTail (S.TmTApp e ty) k =
   cps e $ \v1 t1 -> do
-    t' <- cpsType t
+    ty' <- cpsType ty
     instTy <- case t1 of
-      S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa t) t1')
+      S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa ty) t1')
       _ -> error "type error"
-    let res = InstK v1 [t'] [CoVarK k]
-    pure (res, instTy)
+    (cont, t') <- reifyCont (ObjCont k) instTy
+    let res = InstK v1 [ty'] [cont]
+    pure (res, t')
 cpsTail (S.TmFst e) k = cps' (S.TmFst e) (ObjCont k)
 cpsTail (S.TmSnd e) k = cps' (S.TmSnd e) (ObjCont k)
 cpsTail (S.TmPure e) k =
