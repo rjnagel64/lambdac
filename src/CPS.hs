@@ -223,6 +223,15 @@ cps' (S.TmConcat e1 e2) k =
         (e', t') <- applyCont k x S.TyString
         let res = LetConcatK x v1 v2 e'
         pure (res, t')
+cps' (S.TmPair e1 e2) k =
+  cps' e1 $ MetaCont $ \v1 t1 ->
+    cps' e2 $ MetaCont $ \v2 t2 ->
+      freshTm "x" $ \x -> do
+        let ty = S.TyProd t1 t2
+        (e', t') <- applyCont k x ty
+        ty' <- cpsType ty
+        let res = LetValK x ty' (PairK v1 v2) e'
+        pure (res, t')
 cps' e (MetaCont k) = cps e k
 cps' e (ObjCont k) = cpsTail e k
 
@@ -243,15 +252,7 @@ cps (S.TmString s) k = cps' (S.TmString s) (MetaCont k)
 cps (S.TmArith e1 op e2) k = cps' (S.TmArith e1 op e2) (MetaCont k)
 cps (S.TmNegate e) k = cps' (S.TmNegate e) (MetaCont k)
 cps (S.TmCmp e1 cmp e2) k = cps' (S.TmCmp e1 cmp e2) (MetaCont k)
-cps (S.TmPair e1 e2) k =
-  cps e1 $ \v1 t1 ->
-    cps e2 $ \v2 t2 ->
-      freshTm "x" $ \x -> do
-        let ty = S.TyProd t1 t2
-        (e', t') <- k x ty
-        ty' <- cpsType ty
-        let res = LetValK x ty' (PairK v1 v2) e'
-        pure (res, t')
+cps (S.TmPair e1 e2) k = cps' (S.TmPair e1 e2) (MetaCont k)
 cps (S.TmConcat e1 e2) k = cps' (S.TmConcat e1 e2) (MetaCont k)
 cps (S.TmInl a b e) k = cps' (S.TmInl a b e) (MetaCont k)
 cps (S.TmInr a b e) k = cps' (S.TmInr a b e) (MetaCont k)
@@ -485,14 +486,7 @@ cpsTail (S.TmString s) k = cps' (S.TmString s) (ObjCont k)
 cpsTail (S.TmArith e1 op e2) k = cps' (S.TmArith e1 op e2) (ObjCont k)
 cpsTail (S.TmNegate e) k = cps' (S.TmNegate e) (ObjCont k)
 cpsTail (S.TmCmp e1 cmp e2) k = cps' (S.TmCmp e1 cmp e2) (ObjCont k)
-cpsTail (S.TmPair e1 e2) k =
-  cps e1 $ \v1 t1 ->
-    cps e2 $ \v2 t2 ->
-      freshTm "x" $ \x -> do
-        let ty = S.TyProd t1 t2
-        ty' <- cpsType ty
-        let res = LetValK x ty' (PairK v1 v2) (JumpK k [x])
-        pure (res, ty)
+cpsTail (S.TmPair e1 e2) k = cps' (S.TmPair e1 e2) (ObjCont k)
 cpsTail (S.TmConcat e1 e2) k = cps' (S.TmConcat e1 e2) (ObjCont k)
 cpsTail (S.TmInl a b e) k = cps' (S.TmInl a b e) (ObjCont k)
 cpsTail (S.TmInr a b e) k = cps' (S.TmInr a b e) (ObjCont k)
