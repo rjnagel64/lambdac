@@ -340,6 +340,14 @@ cps' (S.TmRunIO e) k = do
     freshTm "s" $ \s0 -> do
       let res = LetValK s0 TokenK WorldTokenK (CallK m [s0] [ContValK cont])
       pure (res, t')
+cps' (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
+  let alts = [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
+  cpsCase' e k s alts
+cps' (S.TmIf e s et ef) k = do
+  let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
+  cpsCase' e k s alts
+cps' (S.TmCase e s alts) k =
+  cpsCase' e k s alts
 cps' e (MetaCont k) = cps e k
 cps' e (ObjCont k) = cpsTail e k
 
@@ -394,29 +402,10 @@ cps (S.TmLet x t e1 e2) k = do
     pure (LetContK [(j, kont)] e1', t2')
 cps (S.TmRecFun fs e) k = cps' (S.TmRecFun fs e) (MetaCont k)
 cps (S.TmLetRec fs e) k = cps' (S.TmLetRec fs e) (MetaCont k)
-cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
-  let alts = [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
-  (coval, _) <- reifyCont (MetaCont k) s
-  case coval of
-    CoVarK j -> cpsCase e j s alts
-    ContValK cont -> freshCo "j" $ \j -> do
-      (res, s') <- cpsCase e j s alts
-      pure (LetContK [(j, cont)] res, s')
-cps (S.TmIf e s et ef) k = do
-  let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
-  (coval, _) <- reifyCont (MetaCont k) s
-  case coval of
-    CoVarK j -> cpsCase e j s alts
-    ContValK cont -> freshCo "j" $ \j -> do
-      (res, s') <- cpsCase e j s alts
-      pure (LetContK [(j, cont)] res, s')
-cps (S.TmCase e s alts) k = do
-  (coval, _) <- reifyCont (MetaCont k) s
-  case coval of
-    CoVarK j -> cpsCase e j s alts
-    ContValK cont -> freshCo "j" $ \j -> do
-      (res, s') <- cpsCase e j s alts
-      pure (LetContK [(j, cont)] res, s')
+cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
+  cps' (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) (MetaCont k)
+cps (S.TmIf e s et ef) k = cps' (S.TmIf e s et ef) (MetaCont k)
+cps (S.TmCase e s alts) k = cps' (S.TmCase e s alts) (MetaCont k)
 cps (S.TmApp e1 e2) k = cps' (S.TmApp e1 e2) (MetaCont k)
 cps (S.TmTApp e ty) k = cps' (S.TmTApp e ty) (MetaCont k)
 cps (S.TmFst e) k = cps' (S.TmFst e) (MetaCont k)
@@ -484,29 +473,10 @@ cpsTail (S.TmPair e1 e2) k = cps' (S.TmPair e1 e2) (ObjCont k)
 cpsTail (S.TmConcat e1 e2) k = cps' (S.TmConcat e1 e2) (ObjCont k)
 cpsTail (S.TmInl a b e) k = cps' (S.TmInl a b e) (ObjCont k)
 cpsTail (S.TmInr a b e) k = cps' (S.TmInr a b e) (ObjCont k)
-cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
-  let alts = [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
-  (coval, _) <- reifyCont (ObjCont k) s
-  case coval of
-    CoVarK j -> cpsCase e j s alts
-    ContValK cont -> freshCo "j" $ \j -> do
-      (res, s') <- cpsCase e j s alts
-      pure (LetContK [(j, cont)] res, s')
-cpsTail (S.TmIf e s et ef) k = do
-  let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
-  (coval, _) <- reifyCont (ObjCont k) s
-  case coval of
-    CoVarK j -> cpsCase e j s alts
-    ContValK cont -> freshCo "j" $ \j -> do
-      (res, s') <- cpsCase e j s alts
-      pure (LetContK [(j, cont)] res, s')
-cpsTail (S.TmCase e s alts) k = do
-  (coval, _) <- reifyCont (ObjCont k) s
-  case coval of
-    CoVarK j -> cpsCase e j s alts
-    ContValK cont -> freshCo "j" $ \j -> do
-      (res, s') <- cpsCase e j s alts
-      pure (LetContK [(j, cont)] res, s')
+cpsTail (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k =
+  cps' (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) (ObjCont k)
+cpsTail (S.TmIf e s et ef) k = cps' (S.TmIf e s et ef) (ObjCont k)
+cpsTail (S.TmCase e s alts) k = cps' (S.TmCase e s alts) (ObjCont k)
 cpsTail (S.TmApp e1 e2) k = cps' (S.TmApp e1 e2) (ObjCont k)
 cpsTail (S.TmTApp e ty) k = cps' (S.TmTApp e ty) (ObjCont k)
 cpsTail (S.TmFst e) k = cps' (S.TmFst e) (ObjCont k)
@@ -624,16 +594,25 @@ cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
   pure (Program ds' e'')
 
 
+cpsCase' :: S.Term -> Cont -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
+cpsCase' e k s alts = do
+  (coval, _) <- reifyCont k s
+  case coval of
+    CoVarK j -> cpsCase e j s alts
+    ContValK cont -> freshCo "j" $ \j -> do
+      (e', t') <- cpsCase e j s alts
+      pure (LetContK [(j, cont)] e', t')
+
 -- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
 -- a return type, and a list of branches with bound variables.
 cpsCase :: S.Term -> CoVar -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
 cpsCase e j s alts =
-  cps e $ \z t -> do
-    res <- cpsCase' z t j alts
+  cps' e $ MetaCont $ \z t -> do
+    res <- cpsBranches z t j alts
     pure (res, s)
 
-cpsCase' :: TmVar -> S.Type -> CoVar -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS TermK
-cpsCase' z t j bs = do
+cpsBranches :: TmVar -> S.Type -> CoVar -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS TermK
+cpsBranches z t j bs = do
   tcapp <- cpsType t >>= \t' -> case asTyConApp t' of
     Nothing -> error "cannot perform case analysis on this type"
     Just app -> pure app
@@ -660,7 +639,7 @@ cpsCase' z t j bs = do
 -- type of @e@.
 cpsBranch :: [(S.TmVar, S.Type)] -> S.Term -> CoVar -> CPS (ContDef, S.Type)
 cpsBranch xs e j = freshenVarBinds xs $ \xs' -> do
-  (e', s') <- cpsTail e j
+  (e', s') <- cps' e (ObjCont j)
   pure (ContDef xs' e', s')
 
 
