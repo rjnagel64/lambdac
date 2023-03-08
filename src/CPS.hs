@@ -356,7 +356,7 @@ cps (S.TmPure e) k =
             t' <- cpsType t
             let fun = FunDef f [(s, TokenK)] [(k', ContK [TokenK, t'])] body
             pure fun
-      (e', t') <- k (funDefName fun) (S.TyIO t)
+      (e', t') <- applyCont (MetaCont k) (funDefName fun) (S.TyIO t)
       let res = LetFunAbsK [fun] e'
       pure (res, t')
 cps (S.TmBind x t e1 e2) k = do
@@ -378,7 +378,8 @@ cps (S.TmBind x t e1 e2) k = do
             let funBody = CallK m1 [s1] [ContValK contDef]
             let funDef = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
             pure (funDef, it2)
-      (e', t') <- k (funDefName fun) it2 -- dubious about the type here, but it seems to work.
+      -- dubious about the type here, but it seems to work.
+      (e', t') <- applyCont (MetaCont k) (funDefName fun) it2
       let res = LetFunAbsK [fun] e'
       pure (res, t')
 cps S.TmGetLine k = do
@@ -392,7 +393,7 @@ cps S.TmGetLine k = do
               let body = LetBindK s2 msg (PrimGetLine s1) (JumpK k1 [s2, msg])
               let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, StringK])] body
               pure fun
-    (e', t') <- k (funDefName fun) (S.TyIO S.TyString)
+    (e', t') <- applyCont (MetaCont k) (funDefName fun) (S.TyIO S.TyString)
     let res = LetFunAbsK [fun] e'
     pure (res, t')
 cps (S.TmPutLine e) k = do
@@ -406,7 +407,7 @@ cps (S.TmPutLine e) k = do
                 let body = LetBindK s2 u (PrimPutLine s1 z) (JumpK k1 [s2, u])
                 let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, UnitK])] body
                 pure fun
-      (e', t') <- k (funDefName fun) (S.TyIO S.TyUnit)
+      (e', t') <- applyCont (MetaCont k) (funDefName fun) (S.TyIO S.TyUnit)
       let res = LetFunAbsK [fun] e'
       pure (res, t')
 cps (S.TmRunIO e) k = do
@@ -415,8 +416,8 @@ cps (S.TmRunIO e) k = do
       S.TyIO t -> pure t
       _ -> error "cannot runIO non-monadic value"
     (cont, t') <- freshTm "s" $ \sv -> freshTm "x" $ \xv -> do
-      (e', t') <- k xv retTy
       retTy' <- cpsType retTy
+      (e', t') <- applyCont (MetaCont k) xv retTy
       pure (ContDef [(sv, TokenK), (xv, retTy')] e', t')
     freshTm "s" $ \s0 -> do
       let res = LetValK s0 TokenK WorldTokenK (CallK m [s0] [ContValK cont])
@@ -500,8 +501,9 @@ cpsTail (S.TmPure e) k =
             t' <- cpsType t
             let fun = FunDef f [(s, TokenK)] [(k', ContK [TokenK, t'])] body
             pure fun
-      let res = LetFunAbsK [fun] (JumpK k [f])
-      pure (res, S.TyIO t)
+      (e', t') <- applyCont (ObjCont k) (funDefName fun) (S.TyIO t)
+      let res = LetFunAbsK [fun] e'
+      pure (res, t')
 cpsTail (S.TmBind x t e1 e2) k = do
   cps e1 $ \m1 it1 ->
     freshTm "f_bind" $ \f -> do
@@ -521,8 +523,10 @@ cpsTail (S.TmBind x t e1 e2) k = do
             let funBody = CallK m1 [s1] [ContValK contDef]
             let funDef = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, t2'])] funBody
             pure (funDef, it2)
-      let res = LetFunAbsK [fun] (JumpK k [f])
-      pure (res, it2)
+      -- dubious about the type here, but it seems to work.
+      (e', t') <- applyCont (ObjCont k) (funDefName fun) it2
+      let res = LetFunAbsK [fun] e'
+      pure (res, t')
 cpsTail S.TmGetLine k = do
   -- let fun f (s : token#) (k2 : (token#, t) -> !) = let s2, msg <- getLine s in k2 s2 msg; k f
   freshTm "f_get" $ \f -> do
@@ -534,8 +538,9 @@ cpsTail S.TmGetLine k = do
               let body = LetBindK s2 msg (PrimGetLine s1) (JumpK k1 [s2, msg])
               let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, StringK])] body
               pure fun
-    let res = LetFunAbsK [fun] (JumpK k [f])
-    pure (res, S.TyIO S.TyString)
+    (e', t') <- applyCont (ObjCont k) (funDefName fun) (S.TyIO S.TyString)
+    let res = LetFunAbsK [fun] e'
+    pure (res, t')
 cpsTail (S.TmPutLine e) k = do
   cps e $ \z t -> do
     freshTm "f_put" $ \f -> do
@@ -547,8 +552,9 @@ cpsTail (S.TmPutLine e) k = do
                 let body = LetBindK s2 u (PrimPutLine s1 z) (JumpK k1 [s2, u])
                 let fun = FunDef f [(s1, TokenK)] [(k1, ContK [TokenK, UnitK])] body
                 pure fun
-      let res = LetFunAbsK [fun] (JumpK k [f])
-      pure (res, S.TyIO S.TyUnit)
+      (e', t') <- applyCont (ObjCont k) (funDefName fun) (S.TyIO S.TyUnit)
+      let res = LetFunAbsK [fun] e'
+      pure (res, t')
 cpsTail (S.TmRunIO e) k = do
   cps e $ \m it -> do
     retTy <- case it of
@@ -556,7 +562,8 @@ cpsTail (S.TmRunIO e) k = do
       _ -> error "cannot runIO non-monadic value"
     (cont, t') <- freshTm "s" $ \sv -> freshTm "x" $ \xv -> do
       retTy' <- cpsType retTy
-      pure (ContDef [(sv, TokenK), (xv, retTy')] (JumpK k [xv]), retTy)
+      (e', t') <- applyCont (ObjCont k) xv retTy
+      pure (ContDef [(sv, TokenK), (xv, retTy')] e', t')
     freshTm "s" $ \s0 -> do
       let res = LetValK s0 TokenK WorldTokenK (CallK m [s0] [ContValK cont])
       pure (res, t')
