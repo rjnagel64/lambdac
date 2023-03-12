@@ -5,7 +5,6 @@ module Parser where
 import Data.List (intercalate)
 
 import Lexer
-import Data.Loc (displayLoc)
 
 import qualified Data.DList as DL
 import Data.DList (DList)
@@ -241,16 +240,16 @@ TyBind :: { (TyVar, Kind) }
        : '(' ID ':' Kind ')' { (tvar $2, $4) }
 
 {
-data ParseError = EOF | ErrorAt String
+data ParseError = EOF | ErrorAt Loc String
 
 instance Show ParseError where
   show EOF = "unexpected EOF"
-  show (ErrorAt s) = s
+  show (ErrorAt l s) = s
 
 parseError :: [L Token] -> Either ParseError a
 parseError [] = Left EOF
 parseError ts@(L l token:_) = Left $
-  ErrorAt $ displayLoc l <> ": Parse Error:\n  " <> (intercalate "\n  " (show <$> take 5 ts))
+  ErrorAt l $ "Parse Error:\n  " <> (intercalate "\n  " (show <$> take 5 ts))
 
 var :: L Token -> TmVar
 var (L _ (TokID s)) = TmVar s

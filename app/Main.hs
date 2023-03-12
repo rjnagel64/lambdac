@@ -36,7 +36,8 @@ parseFile fpath = do
     Left msg -> putStrLn ("lexical error: " ++ msg) >> exitFailure
     Right toks -> case P.parseProgram toks of
       Left P.EOF -> putStrLn "unexpected EOF" >> exitFailure
-      Left (P.ErrorAt msg) -> putStrLn ("parse error:" ++ msg) >> exitFailure
+      Left (P.ErrorAt l msg) ->
+        putStrLn ("parse error: " ++ L.displayLoc l ++ ": " ++ msg) >> exitFailure
       Right prog -> pure prog
 
 data DriverArgs
