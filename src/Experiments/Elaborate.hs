@@ -288,6 +288,12 @@ appCo :: Coercion -> Term' -> Term'
 appCo (ReflCo _) e' = e'
 appCo (Coercion f) e' = TmApp' f e'
 
+abstCo :: Coercion -> Type -> UVar -> Coercion
+abstCo co a bb = Coercion (TmLam' (Var "x") a (TmTLam' bb (appCo co (TmVar' (Var "x")))))
+
+instCo :: Coercion -> Type -> Type -> Coercion
+instCo co b a = Coercion (TmLam' (Var "x") b (appCo co (TmTApp' (TmVar' (Var "x")) a)))
+
 -- '(d, f) <- subtype g a b' shows that in context 'g', 'a' is a subtype of
 -- 'b'.
 -- It produces an output context 'd', and a coercion term 'f' with type
@@ -346,7 +352,8 @@ instantiateL g a' (TyEVar b') = do
 instantiateL g a' (TyForall bb b) = do
   (dh, f) <- instantiateL (g :>: EntryUVar bb) a' b
   let d = discardUVar dh bb
-  pure (d, Coercion (TmTLam' bb (TmLam' (Var "x") (TyEVar a') (appCo f (TmVar' (Var "x"))))))
+  let co = abstCo f (TyEVar a') bb
+  pure (d, co)
 instantiateL g a' (TyArr a1 a2) = do
   (a2', a1', g') <- articulate g a'
   (h, f1) <- instantiateR g' a1 a1'
@@ -368,7 +375,7 @@ instantiateR g (TyForall bb b) a' = do
   b' <- newEVar
   (dh, f) <- instantiateR (g :>: EntryMarker b' :>: EntryEVar b') (open b bb b') a'
   let d = discardMarker dh b'
-  let co = Coercion (TmLam' (Var "f") (TyForall bb b) (appCo f (TmTApp' (TmVar' (Var "f")) (TyEVar b'))))
+  let co = instCo f (TyForall bb b) (TyEVar b')
   pure (d, co)
 instantiateR g (TyArr a1 a2) a' = do
   (a2', a1', g') <- articulate g a'
