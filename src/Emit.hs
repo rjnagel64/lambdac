@@ -20,6 +20,11 @@ import Hoist.IR
 -- Reader EmitEnv T.Builder -- no monoid instance
 -- EmitEnv -> T.Builder -- monoid instance
 
+-- At a minimum, Austral's C backend is slightly refined: return list of line,
+-- where line is (indentation level :: Int, line contents :: String)
+-- (See https://borretti.me/article/design-austral-compiler#crender for
+-- details)
+
 -- newtype Emit = Emit { runEmit :: EmitEnv -> T.Builder }
 -- deriving newtype instance Semigroup Emit
 -- deriving newtype instance Monoid Emit

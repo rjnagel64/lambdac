@@ -1,5 +1,6 @@
 {-# LANGUAGE StandaloneDeriving, DerivingStrategies, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, LambdaCase #-}
+{-# OPTIONS_GHC -Wall #-}
 
 module Experiments.Inference where
 
@@ -29,6 +30,16 @@ import Control.Monad.Except
 -- It should be straightforward to derive rules for products and sums
 -- (via scott-encoding?)
 -- (or maybe just directly.)
+--
+-- The big question, I guess, is this:
+-- do fst/snd and case..of count as eliminators for spines?
+-- Probably.
+-- (If you use 'either' for case..of and encode tuples as '(x, y) === \f -> f x
+-- y', then yeah, using those constructs means function application, which
+-- creates a spine.)
+
+-- The other big question: higher-kinded types. These rules only use kind *
+-- (i.e., need rules for tyapp, tycon, etc.)
 
 
 data Var = Var String
@@ -368,7 +379,7 @@ app _ (TyUVar _) _ = throwError "rigid type variable cannot have argument applie
 
 -- | Assert that a monotype is well-formed w.r.t. a context.
 wfMono :: Context -> Mono -> M ()
-wfMono g t = pure ()
+wfMono _g _t = pure () -- fill this in.
 
 
 -- Random idea: algorithmic inference as an arrow. I'm not really sure what
@@ -409,17 +420,17 @@ pprintEntry (EntryMarker a') = "|> " ++ show a'
 pprintEntry (EntryVar x a) = show x ++ " : " ++ pprintType 0 a
 
 pprintType :: Int -> Type -> String
-pprintType p TyUnit = "unit"
+pprintType _ TyUnit = "unit"
 pprintType p (TyArr a b) = parensIf (p > 5) $ pprintType 6 a ++ " -> " ++ pprintType 5 b
 pprintType p (TyForall aa a) = parensIf (p > 0) $ "forall " ++ show aa ++ ". " ++ pprintType 0 a
-pprintType p (TyUVar aa) = show aa
-pprintType p (TyEVar a') = show a'
+pprintType _ (TyUVar aa) = show aa
+pprintType _ (TyEVar a') = show a'
 
 pprintMono :: Int -> Mono -> String
-pprintMono p MonoUnit = "unit"
+pprintMono _ MonoUnit = "unit"
 pprintMono p (MonoArr a b) = parensIf (p > 5) $ pprintMono 6 a ++ " -> " ++ pprintMono 5 b
-pprintMono p (MonoUVar aa) = show aa
-pprintMono p (MonoEVar a') = show a'
+pprintMono _ (MonoUVar aa) = show aa
+pprintMono _ (MonoEVar a') = show a'
 
 instance Show Var where
   show (Var x) = x
