@@ -145,6 +145,10 @@ substCtx g (TyForall aa a) = TyForall aa (substCtx g a)
 
 -- | Discard the tail of a context, up to and including the first entry that
 -- satisfies a predicate.
+--
+-- Hmm. Instead of discarding, I think maybe I should instead treat this as
+-- like 'splitAt'/'partition', returning the discarded entries (they are needed
+-- for elaboration)
 discardTail :: Context -> (Entry -> Bool) -> Context
 discardTail Empty _ = Empty
 discardTail (g :>: e) p = if p e then g else discardTail g p
@@ -188,11 +192,11 @@ splice :: Focus -> Context -> Context
 splice (gl, _, gr) h = gl >:> h >:> gr
 
 -- | Turn @Γ[α']@, @α' = τ@ into @Γ[α := τ]@.
-solve :: EVar -> Mono -> Context -> Maybe Context
+solve :: EVar -> Mono -> Context -> Either String Context
 solve a' t g = case focus a' g of
-  Nothing -> Nothing
-  Just (_, FocusSolved _ _, _) -> error "duplicate solve"
-  Just (gl, FocusUnsolved b', gr) -> Just (unfocus (gl, FocusSolved b' t, gr))
+  Nothing -> Left ("missing evar: " ++ show a' ++ " not in " ++ pprintContext g)
+  Just (_, FocusSolved _ _, _) -> Left ("unreachable: duplicate solve of " ++ show a') -- error "duplicate solve"
+  Just (gl, FocusUnsolved b', gr) -> Right (unfocus (gl, FocusSolved b' t, gr))
 
 -- | Turn @Γ[α'][β']@ into @Γ[α'][β' = α']@
 reach :: Context -> EVar -> EVar -> Maybe Context
@@ -227,6 +231,11 @@ occurs a' (TyForall _ a) = occurs a' a -- bound variable is a UVar, and cannot b
 
 occursM :: EVar -> Type -> M ()
 occursM a' a = when (occurs a' a) $ throwError "occurs check failed"
+
+solveM :: EVar -> Mono -> Context -> M Context
+solveM a' t g = case solve a' t g of
+  Left err -> throwError err
+  Right g' -> pure g'
 
 -- | "Articulate" @Γ[α']@ by expanding an arrow type: @Γ[α2', α1', α' = α1' -> α2']@.
 -- I may need to generalize this to deal with other type constructors.
@@ -279,6 +288,12 @@ funCo (a1, a2) (b1, b2) f1 f2 = Coercion co
     fv = Var "f"
     xv = Var "x"
 
+-- A coercion is evidence of a subtyping relation. Semantically, it is a
+-- function from the subtype to the supertype.
+--
+-- For most cases, this is simply reflexive (the identity function), but
+-- polymorphic function subtyping may involve instantiating type variables
+-- and/or quantifying over them.
 data Coercion
   = ReflCo Type
   | Coercion Term'
@@ -362,7 +377,7 @@ instantiateL g a' (TyArr a1 a2) = do
 instantiateL g a' a = case isMonoType a of
   Just t -> do
     wfMono g t
-    g' <- maybe (throwError "solve failed") pure (solve a' t g)
+    g' <- solveM a' t g
     pure (g', ReflCo (fromMono t)) -- In g', a' := t. coercion is therfore reflexive
   Nothing -> error "unreachable: non-monotypes and monotypes both covered"
 
@@ -385,7 +400,7 @@ instantiateR g (TyArr a1 a2) a' = do
 instantiateR g a a' = case isMonoType a of
   Just t -> do
     wfMono g t
-    g' <- maybe (throwError "solve failed") pure (solve a' t g)
+    g' <- solveM a' t g
     pure (g', ReflCo (fromMono t))
   Nothing -> error "unreachable: non-monotypes and monotypes both covered"
 
@@ -473,7 +488,7 @@ wfMono _g _t = pure () -- fill this in.
 inferProgram :: Term -> Either String (Term', Type, Context)
 inferProgram e = runExcept $ flip evalStateT 0 $ runM $ infer Empty e
 
--- ((\f -> f ()) : (forall x. x -> x) -> ()) (\a -> a)
+-- ((\f -> f ()) : (forall x. x -> x) -> unit) (\a -> a)
 -- Should elaborate to
 -- (λ (f : forall x. x -> x) → f @unit ()) (Λ @(z : *) → λ (a : z) → a)
 -- (Currently does not, as it does not insert type applications or
@@ -491,6 +506,19 @@ demo = TmApp (TmAnn e1 t2) e2
     e2 = TmLam a (TmVar a)
     f = Var "f"; x = UVar "x"; a = Var "a"
 
+-- ((\f -> f ()) : (unit -> unit) -> unit) ((\a -> a) : forall x. x -> x)
+-- should elaborate to
+-- (λ (f : unit -> unit) → f ()) ((Λ @(x : *) → λ (a : x) → a) @unit)
+-- ... but it errors in 'solve'? Hmmm.
+-- tries to solve a marker |> #4, but why? rules that intro markers also intro evar.
+demo2 :: Term
+demo2 = TmApp e1 (TmAnn e2 t2)
+  where
+    e1 = TmLam fv (TmApp (TmVar fv) TmUnit)
+    e2 = TmLam av (TmVar av)
+    t2 = TyForall xv (TyArr (TyUVar xv) (TyUVar xv))
+    fv = Var "f"; av = Var "a"; xv = UVar "x"
+
 -- Debug purposes, mostly.
 main :: IO ()
 main = do
@@ -498,10 +526,10 @@ main = do
   -- - : forall a. forall b. a -> (a -> b) -> b
   -- (No generalization done, though)
   let e :: Term; e = (TmLam (Var "x") (TmLam (Var "f") (TmApp (TmVar (Var "f")) (TmVar (Var "x")))))
-  case inferProgram demo of
+  case inferProgram demo2 of
     Left err -> do
       putStrLn "error:"
-      print err
+      putStrLn err
     Right (e', t, d) -> do
       putStrLn "ok:"
       putStrLn $ pprintContext d ++ " |- " ++ pprintType 0 t
