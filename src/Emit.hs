@@ -228,6 +228,33 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes (mainL
         add (ClosureAlloc p l _ _) env' =
           Map.insert (LocalName (placeName p)) (lbl Map.! l) env'
 
+-- programRecordTypes :: Program -> Set RecordType
+-- Hmm. Existential types can be thought of as records with type fields.
+-- Out of scope for MVP, but could be interesting for the future.
+
+-- Hmm. Could use RecordTrie () to collect record types.
+-- RecordTrie has empty, singleton, union
+-- Once collected, use traverse to assign ids/type names
+-- While doing codegen, lookup record type in trie to determine name of type.
+-- (typeForSort requires extra parameter, though... that will require plumbing)
+
+
+-- Hmm. Two ideas:
+-- One: support named record types in Hoist as MVP. Anonymous (closed) records
+-- can later be implemented by giving them a name. (Even simple named records
+-- are still useful as a front-end feature: e.g. Parser.run)
+-- I should permit duplicate field names, by having 'e.l' work if the type of
+-- 'e' is a record type with a field 'l'.
+-- I don't really care about record updates, but I should still think about them.
+--
+-- Two: There is increasing amounts of complexity after Hoist but before proper codegen.
+-- I propose a new IR layer, tentatively called "Lower", whose purpose is to
+-- ensure that every type has a name, that calling conventions are explicit,
+-- etc. etc.
+-- (this would take care of gathering thunk types/closure types; monomorphising
+-- record types, annotating closure calls with the correct calling convention,
+-- etc.)
+
 
 type DataEnv = Map TyCon DataDecl
 
@@ -611,7 +638,7 @@ data DataDesc
 data CtorDesc
   = CtorDesc {
   -- Hmm. Need a ctorName field to name the struct.
-    ctorDiscriminant :: Int
+    ctorDiscriminant :: Int -- Instead of raw int, consider an enum for ctor tags?
   , ctorAllocate :: String
   , ctorDowncast :: String
   -- Hmm. I think I can compute thunkType from argCasts?
