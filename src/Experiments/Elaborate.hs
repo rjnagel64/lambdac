@@ -1,6 +1,7 @@
 {-# LANGUAGE StandaloneDeriving, DerivingStrategies, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, LambdaCase #-}
 -- {-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -Wincomplete-patterns #-}
 
 module Experiments.Elaborate where
 
@@ -143,6 +144,22 @@ substCtx g (TyEVar a') = case focus a' g of
 -- 'EVar' binders to worry about.
 substCtx g (TyForall aa a) = TyForall aa (substCtx g a)
 
+substEVarTerm :: EVar -> Mono -> Term' -> Term'
+substEVarTerm a' t (TmVar' x) = TmVar' x
+substEVarTerm a' t (TmLam' x t' e) = TmLam' x (substEVarType a' t t') (substEVarTerm a' t e)
+substEVarTerm a' t (TmApp' e1 e2) = TmApp' (substEVarTerm a' t e1) (substEVarTerm a' t e2)
+substEVarTerm a' t TmUnit' = TmUnit'
+substEVarTerm a' t (TmTLam' aa e) = TmTLam' aa (substEVarTerm a' t e)
+substEVarTerm a' t (TmTApp' e t') = TmTApp' (substEVarTerm a' t e) (substEVarType a' t t')
+
+substEVarType :: EVar -> Mono -> Type -> Type
+substEVarType a' t TyUnit = TyUnit
+substEVarType a' t (TyUVar aa) = TyUVar aa
+substEVarType a' t (TyEVar b') = if a' == b' then fromMono t else TyEVar b'
+substEVarType a' t (TyArr a b) = TyArr (substEVarType a' t a) (substEVarType a' t b)
+-- TyForall binds a UVar, which cannot capture an EVar.
+substEVarType a' t (TyForall aa a) = TyForall aa (substEVarType a' t a)
+
 -- | Discard the tail of a context, up to and including the first entry that
 -- satisfies a predicate.
 --
@@ -152,6 +169,16 @@ substCtx g (TyForall aa a) = TyForall aa (substCtx g a)
 discardTail :: Context -> (Entry -> Bool) -> Context
 discardTail Empty _ = Empty
 discardTail (g :>: e) p = if p e then g else discardTail g p
+
+-- TODO: Use applyEntry when discarding context entries.
+-- Problem: applyEntry also needs to work on Coercion, aargh.
+applyEntry :: Entry -> Term' -> Term'
+applyEntry (EntrySolved a' t) e = substEVarTerm a' t e
+-- error b/c ambiguous EVar? Generalize?
+applyEntry (EntryEVar a') e = error "applyEntry: unsolved EVar (ambiguous?)"
+applyEntry (EntryUVar aa) e = TmTLam' aa e
+applyEntry (EntryMarker a') e = e -- no-op, b/c marker is always accompanied by real entries.
+applyEntry (EntryVar x t) e = e -- no-op: we never need to insert term binders.
 
 discardVar :: Context -> Var -> Context
 discardVar g x = discardTail g $ \case
