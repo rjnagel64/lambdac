@@ -43,10 +43,8 @@ type EnvPtr = Id
 type Line = String
 
 -- Associate closures in the local environment with their calling conventions.
--- (Split into two parts, because of local declarations vs. declarations from
--- the closure env)
---
--- (Alternately, I could have 'Map Name ThunkType'. Hmm.)
+-- This uses 'Name' in order to describe both local closure allocations, and
+-- closures captured in the environment.
 data ThunkEnv = ThunkEnv (Map Name ThunkType)
 
 lookupThunkTy :: ThunkEnv -> Name -> ThunkType
@@ -302,6 +300,7 @@ emitThunkDecl t =
 foldThunk :: (Int -> Sort -> b) -> ThunkType -> [b]
 foldThunk consValue ty = go 0 (thunkArgs ty)
   where
+    -- Not quite mapWithIndex because we discard/ignore info arguments.
     go _ [] = []
     go i (ThunkValueArg s : ss) = consValue i s : go (i+1) ss
     go i (ThunkInfoArg : ss) = go i ss
@@ -358,13 +357,13 @@ emitThunkSuspend ns ty =
 emitDataDecl :: DataEnv -> DataDecl -> [Line]
 -- Hmm. Does this need the DataEnv?
 -- I think it might, if a data decl references a previous decl.
-emitDataDecl denv dd@(DataDecl _ params ctors) =
+emitDataDecl denv dd@(DataDecl tc params ctors) =
   let desc = dataDesc dd (map (AllocH . fst) params) in
-  emitDataStruct dd ++
+  emitDataStruct tc ++
   concatMap (emitCtorDecl desc) ctors
 
-emitDataStruct :: DataDecl -> [Line]
-emitDataStruct (DataDecl tc _ _) =
+emitDataStruct :: TyCon -> [Line]
+emitDataStruct tc =
   ["struct " ++ show tc ++ " {"
   ,"    struct alloc_header header;"
   ,"    uint32_t discriminant;"
@@ -413,14 +412,14 @@ emitCtorInfo desc (CtorDecl c args) =
     displayField (x, s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(ctor->" ++ show x ++ ", sb);"
 
 emitCtorAllocate :: DataDesc -> CtorDecl -> [Line]
-emitCtorAllocate desc cd@(CtorDecl c args) =
+emitCtorAllocate desc (CtorDecl c args) =
   let tc = dataName desc in
   let ctorId = tc ++ "_" ++ show c in
   ["struct " ++ tc ++ " *allocate_" ++ ctorId ++ "(" ++ commaSep params ++ ") {"
   ,"    struct " ++ ctorId ++ " *ctor = malloc(sizeof(struct " ++ ctorId ++ "));"
   ,"    ctor->header.discriminant = " ++ show (ctorDiscriminant (dataCtors desc Map.! c)) ++ ";"] ++
   map assignField args ++
-  ["    cons_new_alloc(" ++ asAlloc "ctor" ++ ", &" ++ ctorId ++ "_info);"
+  ["    cons_new_alloc(AS_ALLOC(ctor), &" ++ ctorId ++ "_info);"
   ,"    return " ++ dataUpcast desc ++ "(ctor);"
   ,"}"]
   where
@@ -450,6 +449,10 @@ emitClosureDecl denv cd@(CodeDecl d (envName, envd@(EnvDecl _ places)) params e)
       Map.insert (EnvName x) (teleThunkType tele) acc
     addPlace (Place _ _) acc = acc
 
+-- It would be nice if each closure didn't have to generate its own record type.
+-- This is part of what I hope to achieve with Lower.IR
+-- (Instead, Lower.IR.CodeDecl would contain a TyCon/TyConApp for the type of
+-- its environment.)
 emitClosureEnv :: ClosureNames -> EnvDecl -> [Line]
 emitClosureEnv ns envd =
   let ns' = closureEnvName ns in
