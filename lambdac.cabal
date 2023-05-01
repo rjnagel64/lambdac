@@ -49,6 +49,7 @@ library
       Hoist
       Hoist.IR
       Hoist.TypeCheck
+      Lower
       Emit
     default-extensions:
       LambdaCase
