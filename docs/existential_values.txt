@@ -1,5 +1,6 @@
 
 zero-cost existentials?
+=======================
 
 x : t'[t] |- pack <t, x> : ∃aa. t'[aa]
 

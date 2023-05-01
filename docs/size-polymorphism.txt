@@ -1,0 +1,43 @@
+
+
+random thought regarding KCC:
+
+polymorphism via size-passing:
+
+The kind of values is parametrized by a size: 'Type m' where m >= 0
+Polymorphism over size is implemented by passing a size parameter
+
+HKTs can be function of size:
+
+```
+struct Foo<X, Y> {
+  fst: X;
+  snd: Y;
+  thd: u32;
+}
+```
+
+This struct has kind `Foo : forall-size m n. (Type m, Type n) -> Type (m + n + 4)`.
+
+
+The identity function:
+
+```
+\ @(a : *) (x : a) (k : (a) -> !) -> k x
+```
+
+Elaborate size parameters: '*' denotes 'exists-size m. Type m'. Do the exists-to-forall thing.
+
+```
+\ (m : size) @(a : Type m) (x : a) (k : (a) -> !) -> k x
+```
+
+Could implement this as C function:
+
+```
+void f0_code(size_t m, void *x) {
+  // memcpy argument to output?
+  // Hmm. how am I returning outputs for this example, anyway?
+  ???
+}
+```

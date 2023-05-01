@@ -1,0 +1,77 @@
+
+
+Thought: primitive integers, non-primitive booleans, and pattern matching
+=========================================================================
+
+In the paper "Utilizing the Value-State Dependence Graph for Haskell", page 44
+mentions that having Haskell's Bool defined in the Prelude is inconvenient
+because Bool is also necessary for primops. I have also encountered this issue.
+
+The paper suggests that a more convenient alternative would have been to make
+booleans a primitive (and by implication, have the user-facing Bool be a
+wrapper around that primitive, like Int versus Int#)
+
+AIUI, the main reason why Bool is defined in Prelude is so that False and True
+are real constructors that can be used and pattern-matched on. I think there's
+a way to have the cake and eat it too: by looking at the Int type.
+
+
+foo :: Int -> String
+foo 17 = "yes"
+foo 32 = "no"
+foo _ = "maybe"
+
+
+This desugars to
+
+data Int = I# Int#
+
+foo :: Int -> String
+foo x = case x of
+  I# i -> caseInt i of
+    17 -> "yes"
+    32 -> "no"
+    __default -> "maybe"
+
+
+Pattern-matching on Int values is desugared to matching on Int# values.
+
+
+
+Similarly, I think we can do this for booleans:
+
+data Bool = B# Bool#
+
+'true' is syntactic sugar for 'B# true#', 'false' is syntactic sugar for 'B# false#'.
+
+Pattern matching on booleans is lowered to matching on 'bool#':
+
+case x of
+  True -> "yes"
+  False -> "no"
+
+becomes
+
+case x of
+  B# b -> caseBool b of
+    true# -> "yes"
+    false# -> "no"
+
+(Note that a default branch is not required, unlike for integers)
+
+
+'bool#' is represented at runtime as a primitive integer, with invariant that
+its value is only ever 0 (if 'false#') or 1 ('true#').
+
+Primops like 'prim_int64gt' have a signature like 'prim_int64gt : (int64#, int64#) -> bool#'.
+
+
+
+At this point, the only lingering issue is the matter of debug representation.
+(type_info still includes .display(), which by default would render as "B# 0"
+or "B# 1", but this is fairly straightforward to resolve -- just an annotation
+on Bool to specify that type_info is slightly different.)
+
+(AIUI, this works because information flows in the correct direction: instead
+of the runtime needing to know about specific user-defined data types, the user
+knows about certain runtime-provided primitive types. This is as it should be.)

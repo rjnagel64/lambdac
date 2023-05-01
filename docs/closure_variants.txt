@@ -1,0 +1,45 @@
+
+Closures with non-uniform environment representation:
+=====================================================
+
+-- Closure where the environment is a single boxed value
+-- This is the standard.
+type closure(S...) = { type envTy : *, env : envTy, code : code(envTy, S...) }
+
+apply (cl : closure(S...)) (args : S...) : !
+apply cl args... =
+  let <envTy, cl' : { env : envTy, code : code(envTy, S...) }> = unoack cl in
+  let env : envTy = cl'.env in
+  let fn : code(envTy, S...) = cl'.code in
+  fn(envp, args...)
+
+-- Closure where the environment is either two unboxed integers, or a boxed tuple
+-- Two variants, and an 'apply' function that discriminates to unpack the
+-- environment correctly.
+type closure2(S...)
+  = variant1 { env_x : int32#, env_y : int32#, code : code(int32#, int32#, S...) }
+  | variant2 { env_p : {0: unit, 1: bool}, code : code({0: unit, 1: bool}, S...) }
+
+apply (cl : closure2(S...)) (args: S...) : !
+apply cl args... = case cl of
+  -- (this unpacking syntax is not real -- it mixes existentials with record
+  -- fields with pattern-matching)
+  variant1 cl1 -> unpack cl1 as <ex, ey, fn> -> fn(ex, ey, args...)
+  variant2 cl2 -> unpack cl2 as <ep, fn> -> fn(ep, args...)
+
+
+This feels a *lot* like defunctionalization and the 'apply' method.
+I think the primary difference is that defunct has one constructor per lambda,
+while this has one constructor per environment shape (some lambdas are built
+using the same ctor)
+
+I think the primary use for this would be permitting unboxed values (kind =/=
+*) in the closure environment
+
+(This also feels a bit like that "Lambda Sets" thing. Lambda Sets are probably
+how you collect the set of variants you should use for a given closure type)
+(Of course, Lambda Sets still have yet to be published anywhere, so I can't be
+certain of that.)
+(A reference: https://www.rwx.com/blog/how-roc-compiles-closures)
+
+

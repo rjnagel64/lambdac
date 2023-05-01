@@ -187,3 +187,67 @@ def project_field(rec, l):
   let idx = lookup_field(rec, l, 0, rec.num_fields)
   return rec.fields[idx].val
 ```
+
+
+
+
+Record types with type fields: Nope.
+====================================
+
+I have considered merging existentials and record types, similar to how
+closures have both value and type arguments.
+
+This would let me write things like
+
+```
+type closure = { type envTy : *, env : envTy, code : code(envTy, argTys...) }
+```
+
+which could be compiled as
+
+```
+struct closure {
+  // envTy is erased
+  struct alloc_header *env; // env is uniform representation b/c value is polymorphic
+  void (*code)(struct alloc_header *env, argTy1, ... argTyN); // standard code pointer
+};
+```
+
+However, upon reflection, I do not think this is a good idea, for multiple reasons:
+
+* The grammar of types now may include field projections of type components from record types:
+  if `r : { type t : *, v : t }`, then `r.v : r.t`.
+  This is uncomfortably close to dependent types, even if my late-stage IRs
+  probably have enough structure to avoid full generality.
+  (It's also uncomfortably close to ML modules, which are a front-end feature,
+  not a "final stages of compilation" feature)
+
+* The possibility of projecting existential field types also raises questions
+  about validity. Is `{ type t : *, l : t }.t` a valid type?
+  Probably not! There's that whole thing about escaping skolems, and Kiselyov's
+  level generalization scheme, etc., etc.
+
+* Just as importantly, existentials are a data/positive/inductive type, whereas
+  records are a codata/negative/coinductive type. They are defined by their
+  projections, and constructed by providing a response to each projection.
+
+  Using field projections to extract fields of the existential is a similar
+  muddle as using algebraic data types to encode records in Haskell.
+
+Thus, here is my resolution on the matter:
+* Existential quantification and record types are distinct constructs, and
+  should not be conflated in the IR.
+* "records with type fields" and "multi-argument pack/unpack" should be
+  regarded as merely syntactic sugar for the obvious existential and record
+  operations.
+
+  For example, `unpack cl as <aa, envp, fn> -> fn(envp, args...)` is syntactic
+  sugar for:
+  ```
+  let <aa, p : {envp : aa, code : code(aa, argTy...)}> = unpack cl in
+  let envp = p.envp in
+  let fn = p.code in
+  fn(envp, args...)
+  ```
+
+
