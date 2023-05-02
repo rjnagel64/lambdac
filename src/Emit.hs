@@ -566,27 +566,26 @@ emitSuspend tenv envp cl xs =
 
 
 emitCase :: DataEnv -> TyConApp -> EnvPtr -> Name -> [(Ctor, Name)] -> [Line]
-emitCase denv kind envp x branches =
+emitCase denv tcapp envp x branches =
   ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch branches ++
   ["    default:"
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    desc = dataDescFor denv kind
+    desc = dataDescFor denv tcapp
 
     emitCaseBranch :: (Ctor, Name) -> [String]
     emitCaseBranch (ctor, k) =
       let
         ctordesc = dataCtors desc Map.! ctor
-        method = thunkSuspendName (namesForThunk (ctorThunkType ctordesc))
         ctorVal = ctorDowncast ctordesc ++ "(" ++ emitName envp x ++ ")"
         args = emitName envp k : map mkArg (ctorArgCasts ctordesc)
         mkArg (argName, Nothing) = ctorVal ++ "->" ++ argName
         mkArg (argName, Just argSort) = asSort argSort (ctorVal ++ "->" ++ argName)
       in
         ["    case " ++ show (ctorDiscriminant ctordesc) ++ ":"
-        ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
+        ,"        " ++ ctorSuspend ctordesc ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
 
 emitValueAlloc :: DataEnv -> EnvPtr -> Sort -> ValueH -> String
@@ -644,9 +643,7 @@ data CtorDesc
     ctorDiscriminant :: Int -- Instead of raw int, consider an enum for ctor tags?
   , ctorAllocate :: String
   , ctorDowncast :: String
-  -- Hmm. I think I can compute thunkType from argCasts?
-  -- Actually, no not quite. Both can be computed from a constructor's type telescope, though.
-  , ctorThunkType :: ThunkType
+  , ctorSuspend :: String
   , ctorArgCasts :: [(String, Maybe Sort)]
   }
 
@@ -669,7 +666,7 @@ dataDesc (DataDecl tc typarams ctors) tyargs =
       -- instead of 'make_list_cons')
       , ctorAllocate = "allocate_" ++ show tc ++ "_" ++ show c
       , ctorDowncast = "CAST_" ++ show tc ++ "_" ++ show c
-      , ctorThunkType = ThunkType thunkTy
+      , ctorSuspend = thunkSuspendName (namesForThunk (ThunkType thunkTy))
       , ctorArgCasts = argCasts
       })
       where
