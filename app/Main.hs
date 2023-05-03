@@ -8,7 +8,7 @@ import Options.Applicative
 import System.Process.Typed
 import System.FilePath
 
-import qualified Lexer as L
+import qualified Lexer as Lx
 import qualified Parser as P
 import qualified Source as S
 import qualified TypeCheck as T
@@ -18,6 +18,7 @@ import qualified CC as C
 import qualified CC.TypeCheck as CT
 import qualified Hoist as H
 import qualified Hoist.TypeCheck as HT
+import qualified Lower2 as L
 import qualified Emit as E
 
 -- Note: Returning multiple values from a function is passing multiple values
@@ -32,12 +33,12 @@ import qualified Emit as E
 parseFile :: FilePath -> IO S.Program
 parseFile fpath = do
   s <- readFile fpath
-  case L.lex fpath s of
+  case Lx.lex fpath s of
     Left msg -> putStrLn ("lexical error: " ++ msg) >> exitFailure
     Right toks -> case P.parseProgram toks of
       Left P.EOF -> putStrLn "unexpected EOF" >> exitFailure
       Left (P.ErrorAt l msg) ->
-        putStrLn ("parse error: " ++ L.displayLoc l ++ ": " ++ msg) >> exitFailure
+        putStrLn ("parse error: " ++ Lx.displayLoc l ++ ": " ++ msg) >> exitFailure
       Right prog -> pure prog
 
 data DriverArgs
@@ -123,7 +124,9 @@ main = do
       Right () -> do
         putStrLn "Hoist: typecheck OK"
 
-  let obj = unlines $ E.emitProgram srcH
+  let srcL = L.lowerProgram srcH
+
+  let obj = unlines $ E.emitProgram srcL
   when (driverDumpEmit args) $ do
     putStrLn $ "--- Code Generation ---"
     putStrLn obj
