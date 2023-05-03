@@ -216,7 +216,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes (mainL
     -- Closure invocations and case analysis suspend a closure, so the
     -- necessary thunk type must be recorded.
     termThunkTypes (_, env) (OpenH c _) = Set.singleton (env Map.! c)
-    termThunkTypes (_, env) (CaseH _ _ alts) = Set.fromList [env Map.! k | (_, k) <- alts]
+    termThunkTypes (_, env) (CaseH _ _ alts) = Set.fromList [env Map.! k | CaseAlt _ k <- alts]
     termThunkTypes (lbl, env) (LetValH _ _ e) = termThunkTypes (lbl, env) e
     termThunkTypes (lbl, env) (LetPrimH _ _ e) = termThunkTypes (lbl, env) e
     termThunkTypes (lbl, env) (LetBindH _ _ prim e) = termThunkTypes (lbl, env) e
@@ -410,7 +410,7 @@ emitCtorInfo desc (CtorDecl c args) =
     ctorNameString = show (show c)
     ctorNameLen = length (show c)
     traceField (x, s) = "    mark_gray(AS_ALLOC(ctor->" ++ show x ++ "));"
-    displayField (x, s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(ctor->" ++ show x ++ ", sb);"
+    displayField (x, s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(AS_ALLOC(ctor->" ++ show x ++ "), sb);"
 
 emitCtorAllocate :: DataDesc -> CtorDecl -> [Line]
 emitCtorAllocate desc (CtorDecl c args) =
@@ -566,7 +566,7 @@ emitSuspend tenv envp cl xs =
     makeArg _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
 
-emitCase :: DataEnv -> TyConApp -> EnvPtr -> Name -> [(Ctor, Name)] -> [Line]
+emitCase :: DataEnv -> TyConApp -> EnvPtr -> Name -> [CaseAlt] -> [Line]
 emitCase denv tcapp envp x branches =
   ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch branches ++
@@ -576,8 +576,8 @@ emitCase denv tcapp envp x branches =
   where
     desc = dataDescFor denv tcapp
 
-    emitCaseBranch :: (Ctor, Name) -> [String]
-    emitCaseBranch (ctor, k) =
+    emitCaseBranch :: CaseAlt -> [String]
+    emitCaseBranch (CaseAlt ctor k) =
       let
         ctordesc = dataCtors desc Map.! ctor
         ctorVal = ctorDowncast ctordesc ++ "(" ++ emitName envp x ++ ")"

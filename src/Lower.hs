@@ -3,6 +3,10 @@ module Lower
     ( lowerProgram
     ) where
 
+-- Aaargh. If I want to migrate Emit to use this, I probably need to start with
+-- this being a carbon-copy of Hoist.IR, and then incrementally refactor it.
+-- ugh.
+
 import qualified Hoist.IR as H
 
 import Control.Monad.Reader
@@ -29,6 +33,16 @@ data Term
   | LetProject (Name, Type) NameRef Projection Term
 
   | LetClosures [ClosureAlloc] Term
+
+-- Emit needs:
+-- * The ctor discriminant
+-- * The downcast from sum type to that specific ctor
+-- * The casts that need to be applied to each argument
+-- * What suspend method to use
+-- * A closure to suspend with the casted arguments.
+--
+-- The argument casts depend on the TyConApp of the scrutinee
+data Alt = Alt Ctor NameRef
 
 data Value
   = Int64Val Int64

@@ -37,6 +37,7 @@ module Lower2
     , TermH(..)
     , Projection(..)
     , ClosureArg(..)
+    , CaseAlt(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
     , ValueH(..)
@@ -205,8 +206,8 @@ lowerTyConApp H.CaseBool = pure CaseBool
 lowerTyConApp (H.CaseSum s t) = CaseSum <$> lowerSort s <*> lowerSort t
 lowerTyConApp (H.TyConApp tc ss) = TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss
 
-lowerCaseAlt :: (H.Ctor, H.Name) -> M (Ctor, Name)
-lowerCaseAlt (c, k) = (,) <$> lowerCtor c <*> lowerName k
+lowerCaseAlt :: (H.Ctor, H.Name) -> M CaseAlt
+lowerCaseAlt (c, k) = CaseAlt <$> lowerCtor c <*> lowerName k
 
 lowerSort :: H.Sort -> M Sort
 lowerSort (H.AllocH aa) = AllocH <$> lowerTyVar aa
@@ -265,6 +266,7 @@ data LowerEnv
     envNames :: Map H.Name Name
   , envTyVars :: Map H.TyVar TyVar
   , envTyCons :: Map H.TyCon TyCon
+  -- , envThunkTypes :: Map H.Name ThunkType
   }
 
 runM :: M a -> a
@@ -308,6 +310,10 @@ withTyVar aa@(H.TyVar i) kk k = do
   let extend env = env { envTyVars = Map.insert aa aa' (envTyVars env) }
   local extend $ k aa' kk'
 
+-- Hmm. Something to think about:
+-- This function implements lowering for a sequence of value bindings.
+-- I also need lowering for a group of value bindings (closure allocation)
+-- Likewise, ctor decls are basically unordered, and introduced as a group.
 withPlaces :: PlaceKind -> [H.Place] -> ([Place] -> M a) -> M a
 withPlaces _ [] k = k []
 withPlaces kind (p:ps) k = withPlace kind p $ \p' ->
@@ -506,7 +512,7 @@ data TermH
   -- 'call f (x, @int, z, $string_info)'
   | OpenH Name [ClosureArg]
   -- 'case x of { c1 -> k1 | c2 -> k2 | ... }'
-  | CaseH Name TyConApp [(Ctor, Name)]
+  | CaseH Name TyConApp [CaseAlt]
   -- 'letrec (f1 : closure(ss) = #f1 { env1 })+ in e'
   -- Closures may be mutually recursive, so they are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
@@ -514,6 +520,8 @@ data TermH
 data Projection = ProjectFst | ProjectSnd
 
 data ClosureArg = ValueArg Name | TypeArg Sort
+
+data CaseAlt = CaseAlt Ctor Name
 
 data ClosureAlloc
   = ClosureAlloc {
@@ -768,7 +776,7 @@ pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x 
 pprintTerm n (OpenH c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
-  let branches = intercalate " | " (map (\ (c, k) -> show c ++ " -> " ++ show k) ks) in
+  let branches = intercalate " | " (map (\ (CaseAlt c k) -> show c ++ " -> " ++ show k) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
