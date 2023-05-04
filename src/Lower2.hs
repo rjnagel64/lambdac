@@ -52,6 +52,11 @@ module Lower2
     , pprintProgram
     , pprintSort
     , pprintKind
+
+    , ThunkType(..)
+    , ThunkArg(..)
+    , teleThunkType
+    , thunkTypeCode
     ) where
 
 import qualified Data.Map as Map
@@ -59,6 +64,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
+import Data.Function (on)
 import Data.Int (Int64)
 import Data.List (intercalate)
 
@@ -128,7 +134,9 @@ lowerCodeLabel (H.CodeLabel l) = pure (CodeLabel l)
 
 lowerTerm :: H.TermH -> M TermH
 lowerTerm (H.HaltH s x) = HaltH <$> lowerSort s <*> lowerName x
-lowerTerm (H.OpenH f xs) = OpenH <$> lowerName f <*> traverse lowerClosureArg xs
+lowerTerm (H.OpenH f xs) = do
+  ty <- lookupThunkType f
+  OpenH ty <$> lowerName f <*> traverse lowerClosureArg xs
 lowerTerm (H.CaseH x tcapp ks) = do
   x' <- lowerName x
   tcapp' <- lowerTyConApp tcapp
@@ -266,13 +274,18 @@ data LowerEnv
     envNames :: Map H.Name Name
   , envTyVars :: Map H.TyVar TyVar
   , envTyCons :: Map H.TyCon TyCon
-  -- , envThunkTypes :: Map H.Name ThunkType
+  , envThunkTypes :: Map H.Name ThunkType
   }
 
 runM :: M a -> a
 runM = flip runReader emptyEnv . getM
   where
-    emptyEnv = LowerEnv { envNames = Map.empty, envTyVars = Map.empty, envTyCons = Map.empty }
+    emptyEnv = LowerEnv {
+        envNames = Map.empty
+      , envTyVars = Map.empty
+      , envTyCons = Map.empty
+      , envThunkTypes = Map.empty
+      }
 
 -- The type variables are in scope for the place bindings, for the
 -- [ClosureParam], and the function body.
@@ -290,6 +303,24 @@ withParams (H.PlaceParam p : ps) k =
 withParams (H.TypeParam aa kk : ps) k =
   withTyVar aa kk $ \aa' kk' -> withParams ps (\ps' -> k (TypeParam aa' kk':ps'))
 
+withClosures :: [H.ClosureAlloc] -> ([ClosureAlloc] -> M a) -> M a
+withClosures cs k = do
+  withPlaces LocalPlace (map H.closurePlace cs) $ \ps' -> do
+    cs' <- traverse lowerClosureAlloc (zip ps' cs)
+    k cs'
+
+lowerClosureAlloc :: (Place, H.ClosureAlloc) -> M ClosureAlloc
+lowerClosureAlloc (p', H.ClosureAlloc _p l envp enva) = do
+  l' <- lowerCodeLabel l
+  envp' <- lowerId envp
+  enva' <- lowerEnvAlloc enva
+  pure (ClosureAlloc p' l' envp' enva')
+
+lowerEnvAlloc :: H.EnvAlloc -> M EnvAlloc
+lowerEnvAlloc (H.EnvAlloc tys xs) =
+  EnvAlloc <$> traverse lowerSort tys <*> traverse (\ (l, x) -> (,) <$> lowerId l <*> lowerName x) xs
+
+
 data PlaceKind = LocalPlace | EnvPlace
 
 withPlace :: PlaceKind -> H.Place -> (Place -> M a) -> M a
@@ -300,7 +331,18 @@ withPlace kind (H.Place s x) k = do
   (occ, occ') <- case kind of
     LocalPlace -> pure (H.LocalName x, LocalName x')
     EnvPlace -> pure (H.EnvName x, EnvName x')
-  let extend env = env { envNames = Map.insert occ occ' (envNames env) }
+  -- Places that have a closure type are associated with a Thunk Type: the
+  -- calling convention used to invoke that closure.
+  let
+    extendThunk = case s' of
+      ClosureH tele -> Map.insert occ (teleThunkType tele)
+      _ -> id
+  let
+    extend env =
+      env {
+          envNames = Map.insert occ occ' (envNames env)
+        , envThunkTypes = extendThunk (envThunkTypes env)
+        }
   local extend $ k p'
 
 withTyVar :: H.TyVar -> H.Kind -> (TyVar -> Kind -> M a) -> M a
@@ -327,28 +369,66 @@ withTyVars ((aa, kk):tys) k =
     withTyVars tys $ \tys' ->
       k ((aa', kk'):tys')
 
-withClosures :: [H.ClosureAlloc] -> ([ClosureAlloc] -> M a) -> M a
-withClosures cs k = do
-  withPlaces LocalPlace (map H.closurePlace cs) $ \ps' -> do
-    cs' <- traverse lowerClosureAlloc (zip ps' cs)
-    k cs'
-
-lowerClosureAlloc :: (Place, H.ClosureAlloc) -> M ClosureAlloc
-lowerClosureAlloc (p', H.ClosureAlloc _p l envp enva) = do
-  l' <- lowerCodeLabel l
-  envp' <- lowerId envp
-  enva' <- lowerEnvAlloc enva
-  pure (ClosureAlloc p' l' envp' enva')
-
-lowerEnvAlloc :: H.EnvAlloc -> M EnvAlloc
-lowerEnvAlloc (H.EnvAlloc tys xs) =
-  EnvAlloc <$> traverse lowerSort tys <*> traverse (\ (l, x) -> (,) <$> lowerId l <*> lowerName x) xs
-
 withTyCon :: H.TyCon -> (TyCon -> M a) -> M a
 withTyCon tc@(H.TyCon x) k = do
   let tc' = TyCon x
   let extend env = env { envTyCons = Map.insert tc tc' (envTyCons env) }
   local extend $ k tc'
+
+lookupThunkType :: H.Name -> M ThunkType
+lookupThunkType x = do
+  env <- asks envThunkTypes
+  case Map.lookup x env of
+    Nothing -> error "calling convention missing for variable"
+    Just ty -> pure ty
+
+
+
+-- | A thunk type is a calling convention for closures: the set of arguments
+-- that must be provided to open it. This information is used to generate
+-- trampolined tail calls.
+--
+-- Because 'ThunkType' is mostly concerned with the call site, it does not have
+-- a binding structure. (Or does it?)
+data ThunkType = ThunkType { thunkArgs :: [ThunkArg] }
+
+data ThunkArg
+  = ThunkValueArg Sort
+  | ThunkTypeArg -- Arguably, I should include a kind here.
+
+instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
+instance Ord ThunkType where compare = compare `on` thunkTypeCode
+
+-- | Construct a thunk type from a closure telescope.
+teleThunkType :: ClosureTele -> ThunkType
+teleThunkType (ClosureTele ss) = ThunkType (map f ss)
+  where
+    f (ValueTele s) = ThunkValueArg s
+    f (TypeTele aa k) = ThunkTypeArg
+
+thunkTypeCode :: ThunkType -> String
+thunkTypeCode (ThunkType ts) = concatMap argcode ts
+  where
+    argcode ThunkTypeArg = "I"
+    argcode (ThunkValueArg s) = tycode s
+    tycode :: Sort -> String
+    tycode IntegerH = "V"
+    tycode BooleanH = "B"
+    tycode StringH = "T"
+    tycode UnitH = "U"
+    tycode TokenH = "K"
+    -- In C, polymorphic types are represented uniformly.
+    -- For example, 'list int64' and 'list (aa * bool)' are both represented
+    -- using a 'struct list_val *' value. Therefore, when encoding a thunk type
+    -- (that is, summarizing a closure's calling convention), we only need to
+    -- mention the outermost constructor.
+    tycode (ClosureH _) = "C"
+    tycode (AllocH _) = "A"
+    tycode (ProductH _ _) = "Q"
+    tycode (SumH _ _) = "S"
+    tycode (TyConH tc) = let n = show tc in show (length n) ++ n
+    tycode (TyAppH t _) = tycode t
+
 
 
 
@@ -509,8 +589,8 @@ data TermH
   | LetProjectH Place Name Projection TermH
   -- 'halt @bool x'
   | HaltH Sort Name
-  -- 'call f (x, @int, z, $string_info)'
-  | OpenH Name [ClosureArg]
+  -- 'call f (x, @int, z)', annotated with calling convention
+  | OpenH ThunkType Name [ClosureArg]
   -- 'case x of { c1 -> k1 | c2 -> k2 | ... }'
   | CaseH Name TyConApp [CaseAlt]
   -- 'letrec (f1 : closure(ss) = #f1 { env1 })+ in e'
@@ -773,7 +853,7 @@ pprintCtorDecl n (CtorDecl c args) =
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x ++ ";\n"
-pprintTerm n (OpenH c args) =
+pprintTerm n (OpenH _ty c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
   let branches = intercalate " | " (map (\ (CaseAlt c k) -> show c ++ " -> " ++ show k) ks) in

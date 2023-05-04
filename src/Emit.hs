@@ -87,51 +87,6 @@ namesForEnv (CodeLabel f) =
   }
 
 
--- | A thunk type is a calling convention for closures: the set of arguments
--- that must be provided to open it. This information is used to generate
--- trampolined tail calls.
---
--- Because 'ThunkType' is mostly concerned with the call site, it does not have
--- a binding structure. (Or does it?)
-data ThunkType = ThunkType { thunkArgs :: [ThunkArg] }
-
-data ThunkArg
-  = ThunkValueArg Sort
-  | ThunkTypeArg -- Arguably, I should include a kind here.
-
-instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
-instance Ord ThunkType where compare = compare `on` thunkTypeCode
-
--- | Construct a thunk type from a closure telescope.
-teleThunkType :: ClosureTele -> ThunkType
-teleThunkType (ClosureTele ss) = ThunkType (map f ss)
-  where
-    f (ValueTele s) = ThunkValueArg s
-    f (TypeTele aa k) = ThunkTypeArg
-
-thunkTypeCode :: ThunkType -> String
-thunkTypeCode (ThunkType ts) = concatMap argcode ts
-  where
-    argcode ThunkTypeArg = "I"
-    argcode (ThunkValueArg s) = tycode s
-    tycode :: Sort -> String
-    tycode IntegerH = "V"
-    tycode BooleanH = "B"
-    tycode StringH = "T"
-    tycode UnitH = "U"
-    tycode TokenH = "K"
-    -- In C, polymorphic types are represented uniformly.
-    -- For example, 'list int64' and 'list (aa * bool)' are both represented
-    -- using a 'struct list_val *' value. Therefore, when encoding a thunk type
-    -- (that is, summarizing a closure's calling convention), we only need to
-    -- mention the outermost constructor.
-    tycode (ClosureH _) = "C"
-    tycode (AllocH _) = "A"
-    tycode (ProductH _ _) = "Q"
-    tycode (SumH _ _) = "S"
-    tycode (TyConH tc) = let n = show tc in show (length n) ++ n
-    tycode (TyAppH t _) = tycode t
-
 data ThunkNames
   = ThunkNames {
     thunkTypeName :: String
@@ -215,7 +170,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes (mainL
     termThunkTypes (_, _) (HaltH _ _) = Set.empty
     -- Closure invocations and case analysis suspend a closure, so the
     -- necessary thunk type must be recorded.
-    termThunkTypes (_, env) (OpenH c _) = Set.singleton (env Map.! c)
+    termThunkTypes (_, env) (OpenH ty c _) = Set.singleton ty
     termThunkTypes (_, env) (CaseH _ _ alts) = Set.fromList [env Map.! k | CaseAlt _ k <- alts]
     termThunkTypes (lbl, env) (LetValH _ _ e) = termThunkTypes (lbl, env) e
     termThunkTypes (lbl, env) (LetPrimH _ _ e) = termThunkTypes (lbl, env) e
@@ -548,16 +503,15 @@ emitTerm denv tenv envp (AllocClosure cs e) =
   emitTerm denv tenv' envp e
 emitTerm _ _ envp (HaltH _ x) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ");"]
-emitTerm _ tenv envp (OpenH c args) =
-  [emitSuspend tenv envp c args]
+emitTerm _ tenv envp (OpenH ty c args) =
+  [emitSuspend ty envp c args]
 emitTerm denv _ envp (CaseH x kind ks) =
   emitCase denv kind envp x ks
 
-emitSuspend :: ThunkEnv -> EnvPtr -> Name -> [ClosureArg] -> Line
-emitSuspend tenv envp cl xs =
+emitSuspend :: ThunkType -> EnvPtr -> Name -> [ClosureArg] -> Line
+emitSuspend ty envp cl xs =
   "    " ++ method ++ "(" ++ commaSep args ++ ");"
   where
-    ty = lookupThunkTy tenv cl
     method = thunkSuspendName (namesForThunk ty)
     args = emitName envp cl : mapMaybe makeArg (zip (thunkArgs ty) xs)
 
