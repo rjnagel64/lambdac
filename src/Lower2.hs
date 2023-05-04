@@ -215,7 +215,7 @@ lowerTyConApp (H.CaseSum s t) = CaseSum <$> lowerSort s <*> lowerSort t
 lowerTyConApp (H.TyConApp tc ss) = TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss
 
 lowerCaseAlt :: (H.Ctor, H.Name) -> M CaseAlt
-lowerCaseAlt (c, k) = CaseAlt <$> lowerCtor c <*> lowerName k
+lowerCaseAlt (c, k) = CaseAlt <$> lowerCtor c <*> lookupThunkType k <*> lowerName k
 
 lowerSort :: H.Sort -> M Sort
 lowerSort (H.AllocH aa) = AllocH <$> lowerTyVar aa
@@ -601,7 +601,7 @@ data Projection = ProjectFst | ProjectSnd
 
 data ClosureArg = ValueArg Name | TypeArg Sort
 
-data CaseAlt = CaseAlt Ctor Name
+data CaseAlt = CaseAlt Ctor ThunkType Name
 
 data ClosureAlloc
   = ClosureAlloc {
@@ -856,7 +856,7 @@ pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x 
 pprintTerm n (OpenH _ty c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
-  let branches = intercalate " | " (map (\ (CaseAlt c k) -> show c ++ " -> " ++ show k) ks) in
+  let branches = intercalate " | " (map (\ (CaseAlt c _ty k) -> show c ++ " -> " ++ show k) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
