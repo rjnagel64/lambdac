@@ -97,7 +97,7 @@ data ThunkType = ThunkType { thunkArgs :: [ThunkArg] }
 
 data ThunkArg
   = ThunkValueArg Sort
-  | ThunkInfoArg
+  | ThunkTypeArg -- Arguably, I should include a kind here.
 
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
 instance Ord ThunkType where compare = compare `on` thunkTypeCode
@@ -107,12 +107,12 @@ teleThunkType :: ClosureTele -> ThunkType
 teleThunkType (ClosureTele ss) = ThunkType (map f ss)
   where
     f (ValueTele s) = ThunkValueArg s
-    f (TypeTele aa k) = ThunkInfoArg -- Hmm. type args aren't really info args, though.
+    f (TypeTele aa k) = ThunkTypeArg
 
 thunkTypeCode :: ThunkType -> String
 thunkTypeCode (ThunkType ts) = concatMap argcode ts
   where
-    argcode ThunkInfoArg = "I"
+    argcode ThunkTypeArg = "I"
     argcode (ThunkValueArg s) = tycode s
     tycode :: Sort -> String
     tycode IntegerH = "V"
@@ -304,7 +304,7 @@ foldThunk consValue ty = go 0 (thunkArgs ty)
     -- Not quite mapWithIndex because we discard/ignore info arguments.
     go _ [] = []
     go i (ThunkValueArg s : ss) = consValue i s : go (i+1) ss
-    go i (ThunkInfoArg : ss) = go i ss
+    go i (ThunkTypeArg : ss) = go i ss
 
 emitThunkArgs :: ThunkNames -> ThunkType -> [Line]
 emitThunkArgs ns ty =
@@ -561,7 +561,7 @@ emitSuspend tenv envp cl xs =
     method = thunkSuspendName (namesForThunk ty)
     args = emitName envp cl : mapMaybe makeArg (zip (thunkArgs ty) xs)
 
-    makeArg (ThunkInfoArg, TypeArg i) = Nothing
+    makeArg (ThunkTypeArg, TypeArg i) = Nothing
     makeArg (ThunkValueArg _, ValueArg y) = Just (emitName envp y)
     makeArg _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
