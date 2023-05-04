@@ -3,7 +3,6 @@ module Emit
     ( emitProgram
     ) where
 
-import Data.Function (on)
 import Data.List (intercalate, intersperse)
 import Data.Maybe (mapMaybe)
 import Data.Traversable (mapAccumL)
@@ -42,16 +41,6 @@ commaSep = intercalate ", "
 
 type EnvPtr = Id
 type Line = String
-
--- Associate closures in the local environment with their calling conventions.
--- This uses 'Name' in order to describe both local closure allocations, and
--- closures captured in the environment.
-data ThunkEnv = ThunkEnv (Map Name ThunkType)
-
-lookupThunkTy :: ThunkEnv -> Name -> ThunkType
-lookupThunkTy (ThunkEnv env) x = case Map.lookup x env of
-  Nothing -> error ("missing thunk type for name " ++ show x)
-  Just ty -> ty
 
 
 data ClosureNames
@@ -170,7 +159,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes (mainL
     termThunkTypes (_, _) (HaltH _ _) = Set.empty
     -- Closure invocations and case analysis suspend a closure, so the
     -- necessary thunk type must be recorded.
-    termThunkTypes (_, env) (OpenH ty c _) = Set.singleton ty
+    termThunkTypes (_, _) (OpenH ty _ _) = Set.singleton ty
     termThunkTypes (_, env) (CaseH _ _ alts) = Set.fromList [env Map.! k | CaseAlt _ k <- alts]
     termThunkTypes (lbl, env) (LetValH _ _ e) = termThunkTypes (lbl, env) e
     termThunkTypes (lbl, env) (LetPrimH _ _ e) = termThunkTypes (lbl, env) e
@@ -235,13 +224,10 @@ emitDecl denv (DeclData dd@(DataDecl tc _ _)) =
 emitEntryPoint :: DataEnv -> TermH -> [Line]
 emitEntryPoint denv e =
   ["void program_entry(void) {"] ++
-  emitTerm denv thunkEnv envp e ++
+  emitTerm denv envp e ++
   ["}"]
-  where
-    -- There is no environment pointer at the top level, because we are not in a closure.
-    envp = Id "NULL"
-    -- Likewise, there are no fields and no local variables in the environment.
-    thunkEnv = ThunkEnv Map.empty
+  -- There is no environment pointer at the top level, because we are not in a closure.
+  where envp = Id "NULL"
 
 
 -- Hmm. This should probably be more like a State ClosureSig than a Reader ClosureSig,
@@ -386,24 +372,12 @@ emitCtorAllocate desc (CtorDecl c args) =
 emitClosureDecl :: DataEnv -> CodeDecl -> [Line]
 emitClosureDecl denv cd@(CodeDecl d (envName, envd@(EnvDecl _ places)) params e) =
   emitClosureEnv cns envd ++
-  emitClosureCode denv thunkEnv cns envName params e ++
+  emitClosureCode denv cns envName params e ++
   emitClosureEnter tns cns ty
   where
     cns = namesForClosure d
     tns = namesForThunk ty
     ty = codeDeclType cd
-
-    -- The thunkEnv maps variables to their thunk type, so that the correct
-    -- suspend method can be picked in emitSuspend
-    thunkEnv = ThunkEnv (foldr addParam (foldr addPlace Map.empty places) params) 
-    addParam (PlaceParam (Place (ClosureH tele) x)) acc =
-      Map.insert (LocalName x) (teleThunkType tele) acc
-    addParam (PlaceParam _) acc = acc
-    addParam (TypeParam _ _) acc = acc
-
-    addPlace (Place (ClosureH tele) x) acc =
-      Map.insert (EnvName x) (teleThunkType tele) acc
-    addPlace (Place _ _) acc = acc
 
 -- It would be nice if each closure didn't have to generate its own record type.
 -- This is part of what I hope to achieve with Lower.IR
@@ -467,10 +441,10 @@ emitClosureEnter tns cns ty =
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.
-emitClosureCode :: DataEnv -> ThunkEnv -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
-emitClosureCode denv tenv ns envName xs e =
+emitClosureCode :: DataEnv -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
+emitClosureCode denv ns envName xs e =
   ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"] ++
-  emitTerm denv tenv envName e ++
+  emitTerm denv envName e ++
   ["}"]
   where
     paramList = commaSep (envParam : mapMaybe emitParam xs)
@@ -479,33 +453,32 @@ emitClosureCode denv tenv ns envName xs e =
     emitParam (PlaceParam p) = Just (emitPlace p)
 
 
-emitTerm :: DataEnv -> ThunkEnv -> EnvPtr -> TermH -> [Line]
-emitTerm denv tenv envp (LetValH x v e) =
+emitTerm :: DataEnv -> EnvPtr -> TermH -> [Line]
+emitTerm denv envp (LetValH x v e) =
   ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc denv envp (placeSort x) v ++ ";"] ++
-  emitTerm denv tenv envp e
-emitTerm denv tenv envp (LetProjectH x y ProjectFst e) =
+  emitTerm denv envp e
+emitTerm denv envp (LetProjectH x y ProjectFst e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->fst") ++ ";"] ++
-  emitTerm denv tenv envp e
-emitTerm denv tenv envp (LetProjectH x y ProjectSnd e) =
+  emitTerm denv envp e
+emitTerm denv envp (LetProjectH x y ProjectSnd e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->snd") ++ ";"] ++
-  emitTerm denv tenv envp e
-emitTerm denv tenv envp (LetPrimH x p e) =
+  emitTerm denv envp e
+emitTerm denv envp (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp envp p ++ ";"] ++
-  emitTerm denv tenv envp e
-emitTerm denv tenv envp (LetBindH p1 p2 prim e) =
+  emitTerm denv envp e
+emitTerm denv envp (LetBindH p1 p2 prim e) =
   ["    " ++ emitPlace p1 ++ ";"
   ,"    " ++ emitPlace p2 ++ ";"
   ,"    " ++ emitPrimIO envp prim p1 p2 ++ ";"] ++
-  emitTerm denv tenv envp e
-emitTerm denv tenv envp (AllocClosure cs e) =
+  emitTerm denv envp e
+emitTerm denv envp (AllocClosure cs e) =
   emitClosureGroup envp cs ++
-  let tenv' = extendThunkEnv tenv cs in
-  emitTerm denv tenv' envp e
-emitTerm _ _ envp (HaltH _ x) =
+  emitTerm denv envp e
+emitTerm _ envp (HaltH _ x) =
   ["    halt_with(" ++ asAlloc (emitName envp x) ++ ");"]
-emitTerm _ tenv envp (OpenH ty c args) =
+emitTerm _ envp (OpenH ty c args) =
   [emitSuspend ty envp c args]
-emitTerm denv _ envp (CaseH x kind ks) =
+emitTerm denv envp (CaseH x kind ks) =
   emitCase denv kind envp x ks
 
 emitSuspend :: ThunkType -> EnvPtr -> Name -> [ClosureArg] -> Line
@@ -706,15 +679,6 @@ emitClosureGroup envp closures =
   map allocClosure closures ++
   concatMap (patchEnv recNames) closures
   where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ <- closures]
-
-extendThunkEnv :: ThunkEnv -> [ClosureAlloc] -> ThunkEnv
-extendThunkEnv (ThunkEnv env) allocs =
-  ThunkEnv (foldr (uncurry Map.insert) env tys)
-  where
-    tys = map f allocs
-    f (ClosureAlloc p _ _ _) = case placeSort p of
-      ClosureH tele -> (LocalName (placeName p), teleThunkType tele)
-      _ -> error "closure alloc stored in non-closure place"
 
 allocEnv :: Set Id -> EnvPtr -> ClosureAlloc -> Line
 allocEnv recNames envp (ClosureAlloc _p d envPlace (EnvAlloc _ fields)) =
