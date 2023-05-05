@@ -110,7 +110,7 @@ lowerDataDecl :: H.DataDecl -> (DataDecl -> M a) -> M a
 lowerDataDecl (H.DataDecl tc tys cds) k = do
   withTyCon tc $ \tc' -> do
     dd' <- withTyVars tys $ \tys' -> do
-      cds' <- traverse (lowerCtorDecl tc') cds
+      cds' <- traverse (lowerCtorDecl tc') (zip [0..] cds)
       pure (DataDecl tc' tys' cds')
     k dd'
 
@@ -120,12 +120,12 @@ lowerDataDecl (H.DataDecl tc tys cds) k = do
 --     withCtorDecls tys cds $ \cds' -> do
 --       ; -- add typarams to ctor decls? (erased when emitting, but for typechecking?)
 
-lowerCtorDecl :: TyCon -> H.CtorDecl -> M CtorDecl
-lowerCtorDecl tc' (H.CtorDecl c xs) = do
+lowerCtorDecl :: TyCon -> (Int, H.CtorDecl) -> M CtorDecl
+lowerCtorDecl tc' (i, H.CtorDecl c xs) = do
   -- This is really more of a binder than an occurrence, but whatever.
   c' <- lowerCtor c
   xs' <- traverse (\ (l, s) -> (,) <$> lowerId l <*> lowerSort s) xs
-  pure (CtorDecl tc' c' xs')
+  pure (CtorDecl tc' c' i xs')
 
 lowerId :: H.Id -> M Id
 lowerId (H.Id x) = pure (Id x)
@@ -517,7 +517,7 @@ data CtorDecl
   -- Third, I require each ctor argument to have a name (for fields in the ctor's struct),
   -- which doesn't fit in a 'ClosureTele' (but maybe 'ClosureParam' would work?
   -- Isomorphic, but semantically distinct, so not really.)
-  = CtorDecl TyCon Ctor [(Id, Sort)]
+  = CtorDecl TyCon Ctor Int [(Id, Sort)]
 
 
 -- | A 'Sort' describes the runtime layout of a value. It is static information.
@@ -837,7 +837,7 @@ pprintDataDecl n (DataDecl tc params ctors) =
   where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
 
 pprintCtorDecl :: Int -> CtorDecl -> String
-pprintCtorDecl n (CtorDecl tc c args) =
+pprintCtorDecl n (CtorDecl tc c i args) =
   indent n (show tc ++ "::" ++ show c ++ "(" ++ intercalate ", " (map f args) ++ ");")
   where f (x, s) = show x ++ " : " ++ pprintSort s
 

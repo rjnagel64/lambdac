@@ -204,7 +204,7 @@ emitDecl denv (DeclCode cd) =
   (denv, emitClosureDecl denv cd)
 emitDecl denv (DeclData dd@(DataDecl tc _ _)) =
   let denv' = Map.insert tc dd denv in
-  (denv', emitDataDecl denv dd)
+  (denv', emitDataDecl dd)
 
 emitEntryPoint :: DataEnv -> TermH -> [Line]
 emitEntryPoint denv e =
@@ -281,13 +281,10 @@ emitThunkSuspend ns ty =
           "    args->" ++ arg ++ " = " ++ arg ++ ";"
 
 
-emitDataDecl :: DataEnv -> DataDecl -> [Line]
--- Hmm. Does this need the DataEnv?
--- I think it might, if a data decl references a previous decl.
-emitDataDecl denv dd@(DataDecl tc params ctors) =
-  let desc = dataDesc dd (map (AllocH . fst) params) in
+emitDataDecl :: DataDecl -> [Line]
+emitDataDecl (DataDecl tc params ctors) =
   emitDataStruct tc ++
-  concatMap (emitCtorDecl desc) ctors
+  concatMap emitCtorDecl ctors
 
 emitDataStruct :: TyCon -> [Line]
 emitDataStruct tc =
@@ -297,14 +294,14 @@ emitDataStruct tc =
   ,"};"
   ,"#define CAST_" ++ show tc ++ "(v) ((struct " ++ show tc ++ " *)(v))"]
 
-emitCtorDecl :: DataDesc -> CtorDecl -> [Line]
-emitCtorDecl desc cd =
+emitCtorDecl :: CtorDecl -> [Line]
+emitCtorDecl cd =
   emitCtorStruct cd ++
   emitCtorInfo cd ++
-  emitCtorAllocate desc cd
+  emitCtorAllocate cd
 
 emitCtorStruct :: CtorDecl -> [Line]
-emitCtorStruct (CtorDecl tc c args) =
+emitCtorStruct (CtorDecl tc c _i args) =
   let ctorId = show tc ++ "_" ++ show c in
   ["struct " ++ ctorId ++ " {"
   ,"    struct " ++ show tc ++ " header;"] ++
@@ -314,7 +311,7 @@ emitCtorStruct (CtorDecl tc c args) =
   where makeField (x, s) = "    " ++ emitPlace (Place s x) ++ ";"
 
 emitCtorInfo :: CtorDecl -> [Line]
-emitCtorInfo (CtorDecl tc c args) =
+emitCtorInfo (CtorDecl tc c _i args) =
   -- Hmm. May need DataNames and CtorNames
   let ctorId = show tc ++ "_" ++ show c in
   let ctorCast = "CAST_" ++ ctorId in
@@ -336,15 +333,15 @@ emitCtorInfo (CtorDecl tc c args) =
     traceField (x, s) = "    mark_gray(AS_ALLOC(ctor->" ++ show x ++ "));"
     displayField (x, s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(AS_ALLOC(ctor->" ++ show x ++ "), sb);"
 
-emitCtorAllocate :: DataDesc -> CtorDecl -> [Line]
-emitCtorAllocate desc (CtorDecl tc c args) =
+emitCtorAllocate :: CtorDecl -> [Line]
+emitCtorAllocate (CtorDecl tc c i args) =
   let ctorId = show tc ++ "_" ++ show c in
   ["struct " ++ show tc ++ " *allocate_" ++ ctorId ++ "(" ++ commaSep params ++ ") {"
   ,"    struct " ++ ctorId ++ " *ctor = malloc(sizeof(struct " ++ ctorId ++ "));"
-  ,"    ctor->header.discriminant = " ++ show (ctorDiscriminant (dataCtors desc Map.! c)) ++ ";"] ++
+  ,"    ctor->header.discriminant = " ++ show i ++ ";"] ++
   map assignField args ++
   ["    cons_new_alloc(AS_ALLOC(ctor), &" ++ ctorId ++ "_info);"
-  ,"    return " ++ dataUpcast desc ++ "(ctor);"
+  ,"    return CAST_" ++ show tc ++ "(ctor);"
   ,"}"]
   where
     params = [emitPlace (Place s x) | (x, s) <- args]
@@ -575,12 +572,11 @@ dataDesc (DataDecl tycon typarams ctors) tyargs =
   DataDesc {
     dataName = show tycon
   , dataUpcast = "CAST_" ++ show tycon
-  , dataCtors = Map.fromList $ zipWith ctorDesc [0..] ctors
+  , dataCtors = Map.fromList $ map ctorDesc ctors
   }
   where
     sub = listSubst (zip (map fst typarams) tyargs)
-    -- 'i' is the index of the ctor, and therefore the discriminant for this ctor.
-    ctorDesc i (CtorDecl tc c args) =
+    ctorDesc (CtorDecl tc c i args) =
       ( c
       , CtorDesc {
         ctorDiscriminant = i
@@ -612,8 +608,8 @@ boolDataDecl =
   -- Hrrm. Annoying.
   let tc = TyCon "vbool" in
   DataDecl tc []
-  [ CtorDecl tc (Ctor "false") []
-  , CtorDecl tc (Ctor "true") []
+  [ CtorDecl tc (Ctor "false") 0 []
+  , CtorDecl tc (Ctor "true") 1 []
   ]
 
 sumDataDecl :: DataDecl
@@ -622,8 +618,8 @@ sumDataDecl =
   let aa = TyVar (Id "a") in
   let bb = TyVar (Id "b") in
   DataDecl tc [(aa, Star), (bb, Star)]
-  [ CtorDecl tc (Ctor "inl") [(Id "payload", AllocH aa)]
-  , CtorDecl tc (Ctor "inr") [(Id "payload", AllocH bb)]
+  [ CtorDecl tc (Ctor "inl") 0 [(Id "payload", AllocH aa)]
+  , CtorDecl tc (Ctor "inr") 1 [(Id "payload", AllocH bb)]
   ]
 
 dataDescFor :: DataEnv -> TyConApp -> DataDesc
