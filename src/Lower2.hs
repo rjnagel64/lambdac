@@ -93,13 +93,21 @@ lowerDecls (H.DeclCode cd : ds) k = do
     k (DeclCode cd' : ds')
 
 lowerCodeDecl :: H.CodeDecl -> M CodeDecl
-lowerCodeDecl (H.CodeDecl (H.CodeLabel l) (envName, envTy) params body) = do
+lowerCodeDecl (H.CodeDecl (H.CodeLabel l) (envName, H.EnvDecl aas fields) params body) = do
   let l' = CodeLabel l
-  withEnvironment (envName, envTy) $ \ (envName', envTy') -> do
-    withParams params $ \params' -> do
-      body' <- lowerTerm body
-      pure (CodeDecl l' (envName', envTy') params' body')
+  envName' <- lowerId envName
+  withTyVars aas $ \aas' -> do
+    withPlaces EnvPlace fields $ \fields' -> do
+      withParams params $ \params' -> do
+        body' <- lowerTerm body
+        pure (CodeDecl l' aas' (envName', fields') params' body')
 
+-- scoping: data T aa+ = C1 tt1+ | ... | CN ttn+ in e
+-- is basically like:
+-- let T : k in
+-- let par C1{aa+} : tt1[T, aa+]+ -> T aa+; ...; CN{aa+} : ttn[T, aa+]+ -> T aa+ in
+-- e[T, C1, ..., CN]
+-- ( {aa+} is supposed to be a "pseudo-forall"-type thing?)
 lowerDataDecl :: H.DataDecl -> (DataDecl -> M a) -> M a
 lowerDataDecl (H.DataDecl tc tys cds) k = do
   withTyCon tc $ \tc' -> do
@@ -286,15 +294,6 @@ runM = flip runReader emptyEnv . getM
       , envTyCons = Map.empty
       , envThunkTypes = Map.empty
       }
-
--- The type variables are in scope for the place bindings, for the
--- [ClosureParam], and the function body.
-withEnvironment :: (H.Id, H.EnvDecl) -> ((Id, EnvDecl) -> M a) -> M a
-withEnvironment (envName, H.EnvDecl tys ps) k = do
-  envName' <- lowerId envName
-  withTyVars tys $ \tys' ->
-    withPlaces EnvPlace ps $ \ps' ->
-      k (envName', EnvDecl tys' ps')
 
 withParams :: [H.ClosureParam] -> ([ClosureParam] -> M a) -> M a
 withParams [] k = k []
@@ -490,13 +489,13 @@ data Decl
 
 
 data CodeDecl
-  = CodeDecl CodeLabel (Id, EnvDecl) [ClosureParam] TermH
+  = CodeDecl CodeLabel [(TyVar, Kind)] (Id, [Place]) [ClosureParam] TermH
 
 codeDeclName :: CodeDecl -> CodeLabel
-codeDeclName (CodeDecl c _ _ _) = c 
+codeDeclName (CodeDecl c _ _ _ _) = c 
 
 codeDeclTele :: CodeDecl -> ClosureTele
-codeDeclTele (CodeDecl _ _ params _) = ClosureTele (map f params)
+codeDeclTele (CodeDecl _ _ _ params _) = ClosureTele (map f params)
   where
     f (PlaceParam p) = ValueTele (placeSort p)
     f (TypeParam aa k) = TypeTele aa k
@@ -831,7 +830,7 @@ pprintDecls ds = concatMap pprintDecl ds
     pprintDecl (DeclData dd) = pprintDataDecl 0 dd
 
 pprintClosureDecl :: Int -> CodeDecl -> String
-pprintClosureDecl n (CodeDecl f (name, EnvDecl aas fs) params e) =
+pprintClosureDecl n (CodeDecl f aas (name, fs) params e) =
   indent n ("code " ++ show f ++ "[" ++ tyParams ++ "](" ++ envParam ++ "; " ++ valueParams ++ ") =\n") ++
   pprintTerm (n+2) e
   where
