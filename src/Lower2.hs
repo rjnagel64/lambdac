@@ -26,7 +26,6 @@ module Lower2
     , CodeDecl(..)
     , codeDeclName
     , codeDeclTele
-    , EnvDecl(..)
     , ClosureParam(..)
 
     , DataDecl(..)
@@ -39,7 +38,6 @@ module Lower2
     , ClosureArg(..)
     , CaseAlt(..)
     , ClosureAlloc(..)
-    , EnvAlloc(..)
     , ValueH(..)
     , CtorAppH(..)
     , PrimOp(..)
@@ -309,15 +307,12 @@ withClosures cs k = do
     k cs'
 
 lowerClosureAlloc :: (Place, H.ClosureAlloc) -> M ClosureAlloc
-lowerClosureAlloc (p', H.ClosureAlloc _p l envp enva) = do
+lowerClosureAlloc (p', H.ClosureAlloc _p l envp (H.EnvAlloc tys xs)) = do
   l' <- lowerCodeLabel l
   envp' <- lowerId envp
-  enva' <- lowerEnvAlloc enva
-  pure (ClosureAlloc p' l' envp' enva')
-
-lowerEnvAlloc :: H.EnvAlloc -> M EnvAlloc
-lowerEnvAlloc (H.EnvAlloc tys xs) =
-  EnvAlloc <$> traverse lowerSort tys <*> traverse (\ (l, x) -> (,) <$> lowerId l <*> lowerName x) xs
+  tys' <- traverse lowerSort tys
+  xs' <- traverse (\ (fld, x) -> (,) <$> lowerId fld <*> lowerName x) xs
+  pure (ClosureAlloc p' l' tys' envp' xs')
 
 
 data PlaceKind = LocalPlace | EnvPlace
@@ -500,8 +495,6 @@ codeDeclTele (CodeDecl _ _ _ params _) = ClosureTele (map f params)
     f (PlaceParam p) = ValueTele (placeSort p)
     f (TypeParam aa k) = TypeTele aa k
 
-data EnvDecl = EnvDecl [(TyVar, Kind)] [Place]
-
 data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
 
 
@@ -606,19 +599,11 @@ data ClosureAlloc
   = ClosureAlloc {
     closurePlace :: Place
   , closureDecl :: CodeLabel
+  , closureCodeInst :: [Sort]
   , closureEnvPlace :: Id
-  , closureEnv :: EnvAlloc
+  , closureEnvValues :: [(Id, Name)]
   }
 
--- Because a closure environment is basically an abstract record
--- '∃aa+.{ (l : s)+ }',
--- constructing a closure environment involves providing a sequence of type and
--- values for each field.
-data EnvAlloc
-  = EnvAlloc {
-    envAllocTypeArgs :: [Sort]
-  , envAllocValueArgs :: [(Id, Name)]
-  }
 
 data ValueH
   = IntH Int64
@@ -916,12 +901,8 @@ pprintParam (PlaceParam p) = pprintPlace p
 pprintParam (TypeParam aa k) = '@' : show aa ++ " : " ++ pprintKind k
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
-pprintClosureAlloc n (ClosureAlloc p d _envPlace env) =
-  indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ pprintEnvAlloc env ++ "\n"
-
-pprintEnvAlloc :: EnvAlloc -> String
-pprintEnvAlloc (EnvAlloc tyfields fields) =
-  "{" ++ intercalate ", " (map pprintSort tyfields ++ map pprintAllocArg fields) ++ "}"
+pprintClosureAlloc n (ClosureAlloc p d tys _envPlace fields) =
+  indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ intercalate " @" (map pprintSort tys) ++ " {" ++ intercalate ", " (map pprintAllocArg fields) ++ "}\n"
 
 pprintAllocArg :: (Id, Name) -> String
 pprintAllocArg (field, x) = show field ++ " = " ++ show x

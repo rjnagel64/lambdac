@@ -375,6 +375,8 @@ emitClosureEnv ns envd =
   emitEnvInfo ns' envd ++
   emitEnvAlloc ns' envd
 
+-- These need better names, to reflect the fact that an environment is
+-- basically just a record type.
 emitEnvDecl :: EnvNames -> [Place] -> [Line]
 emitEnvDecl ns fs =
   ["struct " ++ envTypeName ns ++ " {"
@@ -674,10 +676,10 @@ emitClosureGroup envp closures =
   map (allocEnv recNames envp) closures ++
   map allocClosure closures ++
   concatMap (patchEnv recNames) closures
-  where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ <- closures]
+  where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ _ <- closures]
 
 allocEnv :: Set Id -> EnvPtr -> ClosureAlloc -> Line
-allocEnv recNames envp (ClosureAlloc _p d envPlace (EnvAlloc _ fields)) =
+allocEnv recNames envp (ClosureAlloc _p d _inst envPlace fields) =
   "    struct " ++ envTypeName ns' ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
   where
     ns' = closureEnvName (namesForClosure d)
@@ -687,7 +689,7 @@ allocEnv recNames envp (ClosureAlloc _p d envPlace (EnvAlloc _ fields)) =
     emitAllocArg (f, x) = if Set.member f recNames then "NULL" else emitName envp x
 
 allocClosure :: ClosureAlloc -> Line
-allocClosure (ClosureAlloc p d envPlace _env) =
+allocClosure (ClosureAlloc p d _tys envPlace _env) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep [envArg, enterArg] ++ ");"
   where
     ns = namesForClosure d
@@ -695,7 +697,7 @@ allocClosure (ClosureAlloc p d envPlace _env) =
     enterArg = closureEnterName ns
 
 patchEnv :: Set Id -> ClosureAlloc -> [Line]
-patchEnv recNames (ClosureAlloc _ _ envPlace (EnvAlloc _ fields)) = concatMap patchField fields
+patchEnv recNames (ClosureAlloc _ _ _ envPlace fields) = concatMap patchField fields
   where
     patchField (f, LocalName x) =
       if Set.member f recNames then
