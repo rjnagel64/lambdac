@@ -299,26 +299,24 @@ emitDataStruct tc =
 
 emitCtorDecl :: DataDesc -> CtorDecl -> [Line]
 emitCtorDecl desc cd =
-  emitCtorStruct desc cd ++
-  emitCtorInfo desc cd ++
+  emitCtorStruct cd ++
+  emitCtorInfo cd ++
   emitCtorAllocate desc cd
 
-emitCtorStruct :: DataDesc -> CtorDecl -> [Line]
-emitCtorStruct desc (CtorDecl c args) =
-  let tc = dataName desc in
-  let ctorId = tc ++ "_" ++ show c in
+emitCtorStruct :: CtorDecl -> [Line]
+emitCtorStruct (CtorDecl tc c args) =
+  let ctorId = show tc ++ "_" ++ show c in
   ["struct " ++ ctorId ++ " {"
-  ,"    struct " ++ tc ++ " header;"] ++
+  ,"    struct " ++ show tc ++ " header;"] ++
   map makeField args ++
   ["};"
   ,"#define CAST_" ++ ctorId ++ "(v) ((struct " ++ ctorId ++ " *)(v))"]
   where makeField (x, s) = "    " ++ emitPlace (Place s x) ++ ";"
 
-emitCtorInfo :: DataDesc -> CtorDecl -> [Line]
-emitCtorInfo desc (CtorDecl c args) =
+emitCtorInfo :: CtorDecl -> [Line]
+emitCtorInfo (CtorDecl tc c args) =
   -- Hmm. May need DataNames and CtorNames
-  let tc = dataName desc in
-  let ctorId = tc ++ "_" ++ show c in
+  let ctorId = show tc ++ "_" ++ show c in
   let ctorCast = "CAST_" ++ ctorId in
   ["void trace_" ++ ctorId ++ "(struct alloc_header *alloc) {"
   ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ "(alloc);"] ++
@@ -339,10 +337,9 @@ emitCtorInfo desc (CtorDecl c args) =
     displayField (x, s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(AS_ALLOC(ctor->" ++ show x ++ "), sb);"
 
 emitCtorAllocate :: DataDesc -> CtorDecl -> [Line]
-emitCtorAllocate desc (CtorDecl c args) =
-  let tc = dataName desc in
-  let ctorId = tc ++ "_" ++ show c in
-  ["struct " ++ tc ++ " *allocate_" ++ ctorId ++ "(" ++ commaSep params ++ ") {"
+emitCtorAllocate desc (CtorDecl tc c args) =
+  let ctorId = show tc ++ "_" ++ show c in
+  ["struct " ++ show tc ++ " *allocate_" ++ ctorId ++ "(" ++ commaSep params ++ ") {"
   ,"    struct " ++ ctorId ++ " *ctor = malloc(sizeof(struct " ++ ctorId ++ "));"
   ,"    ctor->header.discriminant = " ++ show (ctorDiscriminant (dataCtors desc Map.! c)) ++ ";"] ++
   map assignField args ++
@@ -574,16 +571,16 @@ data CtorDesc
   }
 
 dataDesc :: DataDecl -> [Sort] -> DataDesc
-dataDesc (DataDecl tc typarams ctors) tyargs =
+dataDesc (DataDecl tycon typarams ctors) tyargs =
   DataDesc {
-    dataName = show tc
-  , dataUpcast = "CAST_" ++ show tc
+    dataName = show tycon
+  , dataUpcast = "CAST_" ++ show tycon
   , dataCtors = Map.fromList $ zipWith ctorDesc [0..] ctors
   }
   where
     sub = listSubst (zip (map fst typarams) tyargs)
     -- 'i' is the index of the ctor, and therefore the discriminant for this ctor.
-    ctorDesc i (CtorDecl c args) =
+    ctorDesc i (CtorDecl tc c args) =
       ( c
       , CtorDesc {
         ctorDiscriminant = i
@@ -613,18 +610,20 @@ boolDataDecl :: DataDecl
 boolDataDecl =
   -- 'bool' is reserved in C, so I cannot use 'bool' as a type constructor here.
   -- Hrrm. Annoying.
-  DataDecl (TyCon "vbool") []
-  [ CtorDecl (Ctor "false") []
-  , CtorDecl (Ctor "true") []
+  let tc = TyCon "vbool" in
+  DataDecl tc []
+  [ CtorDecl tc (Ctor "false") []
+  , CtorDecl tc (Ctor "true") []
   ]
 
 sumDataDecl :: DataDecl
 sumDataDecl =
+  let tc = TyCon "sum" in
   let aa = TyVar (Id "a") in
   let bb = TyVar (Id "b") in
-  DataDecl (TyCon "sum") [(aa, Star), (bb, Star)]
-  [ CtorDecl (Ctor "inl") [(Id "payload", AllocH aa)]
-  , CtorDecl (Ctor "inr") [(Id "payload", AllocH bb)]
+  DataDecl tc [(aa, Star), (bb, Star)]
+  [ CtorDecl tc (Ctor "inl") [(Id "payload", AllocH aa)]
+  , CtorDecl tc (Ctor "inr") [(Id "payload", AllocH bb)]
   ]
 
 dataDescFor :: DataEnv -> TyConApp -> DataDesc
