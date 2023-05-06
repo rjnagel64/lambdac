@@ -530,6 +530,7 @@ emitIntCase envp x branches =
 
 emitValueAlloc :: DataEnv -> EnvPtr -> Sort -> ValueH -> String
 emitValueAlloc _ _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
+emitValueAlloc _ _ _ (BoolH b) = if b then "allocate_vbool_true()" else "allocate_vbool_false()"
 emitValueAlloc _ _ _ (StringValH s) =
   "allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")"
 emitValueAlloc _ envp _ (PairH x y) =
@@ -545,8 +546,6 @@ emitCtorAlloc :: DataEnv -> EnvPtr -> TyConApp -> CtorAppH -> String
 emitCtorAlloc denv envp tcapp capp = method ++ "(" ++ commaSep args' ++ ")"
   where
     (tycon, ctorName, args) = case capp of
-      BoolH True -> (TyCon "vbool", Ctor "true", [])
-      BoolH False -> (TyCon "vbool", Ctor "false", [])
       InlH x -> (TyCon "sum", Ctor "inl", [x])
       InrH x -> (TyCon "sum", Ctor "inr", [x])
       CtorApp tc c xs -> (tc, c, xs)
@@ -615,16 +614,6 @@ dataDesc (DataDecl _tycon ctors) tyargs =
           Just s' -> (show fld, Just s')
         f (fld, s) = (show fld, Nothing)
 
-boolDataDecl :: DataDecl
-boolDataDecl =
-  -- 'bool' is reserved in C, so I cannot use 'bool' as a type constructor here.
-  -- Hrrm. Annoying.
-  let tc = TyCon "vbool" in
-  DataDecl tc
-  [ CtorDecl tc (Ctor "false") [] 0 []
-  , CtorDecl tc (Ctor "true") [] 1 []
-  ]
-
 sumDataDecl :: DataDecl
 sumDataDecl =
   let tc = TyCon "sum" in
@@ -637,7 +626,6 @@ sumDataDecl =
   ]
 
 dataDescFor :: DataEnv -> TyConApp -> DataDesc
-dataDescFor _ CaseBool = dataDesc boolDataDecl []
 dataDescFor _ (CaseSum t s) = dataDesc sumDataDecl [t, s]
 dataDescFor denv (TyConApp tc args) = dataDesc (denv Map.! tc) args
 

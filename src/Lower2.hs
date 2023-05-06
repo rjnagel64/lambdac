@@ -143,8 +143,10 @@ lowerTerm (H.CaseH x H.CaseBool ks) = do
     k' <- lowerName k
     pure (i, ty, k')
   pure (IntCaseH x' ks')
-lowerTerm (H.CaseH x tcapp ks) = do
-  CaseH <$> lowerName x <*> lowerTyConApp tcapp <*> traverse lowerCaseAlt ks
+lowerTerm (H.CaseH x (H.CaseSum t s) ks) = do
+  CaseH <$> lowerName x <*> (CaseSum <$> lowerSort t <*> lowerSort s) <*> traverse lowerCaseAlt ks
+lowerTerm (H.CaseH x (H.TyConApp tc ss) ks) = do
+  CaseH <$> lowerName x <*> (TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss) <*> traverse lowerCaseAlt ks
 lowerTerm (H.LetValH p v e) = do
   v' <- lowerValue v
   withPlace LocalPlace p $ \p' -> do
@@ -186,14 +188,15 @@ lowerValue (H.StringValH s) = pure (StringValH s)
 lowerValue (H.PairH x y) = PairH <$> lowerName x <*> lowerName y
 lowerValue H.NilH = pure NilH
 lowerValue H.WorldToken = pure WorldToken
-lowerValue (H.CtorAppH capp) = CtorAppH <$> lowerCtorApp capp
+lowerValue (H.CtorAppH capp) = lowerCtorApp capp
 
-lowerCtorApp :: H.CtorAppH -> M CtorAppH
+-- Slightly messy, because booleans are ctorapp in Hoist, but back to being Value in Lower2
+lowerCtorApp :: H.CtorAppH -> M ValueH
 lowerCtorApp (H.BoolH b) = pure (BoolH b)
-lowerCtorApp (H.InlH x) = InlH <$> lowerName x
-lowerCtorApp (H.InrH x) = InrH <$> lowerName x
+lowerCtorApp (H.InlH x) = (CtorAppH . InlH) <$> lowerName x
+lowerCtorApp (H.InrH x) = (CtorAppH . InrH) <$> lowerName x
 lowerCtorApp (H.CtorApp c xs) =
-  (\ (tc', c') xs' -> CtorApp tc' c' xs') <$> lowerCtor' c <*> traverse lowerName xs
+  (\ (tc', c') xs' -> CtorAppH $ CtorApp tc' c' xs') <$> lowerCtor' c <*> traverse lowerName xs
 
 lowerPrimOp :: H.PrimOp -> M PrimOp
 lowerPrimOp (H.PrimAddInt64 x y) = PrimAddInt64 <$> lowerName x <*> lowerName y
@@ -212,11 +215,6 @@ lowerPrimOp (H.PrimStrlen x) = PrimStrlen <$> lowerName x
 lowerIOPrimOp :: H.PrimIO -> M PrimIO
 lowerIOPrimOp (H.PrimGetLine x) = PrimGetLine <$> lowerName x
 lowerIOPrimOp (H.PrimPutLine x y) = PrimPutLine <$> lowerName x <*> lowerName y
-
-lowerTyConApp :: H.TyConApp -> M TyConApp
-lowerTyConApp H.CaseBool = pure CaseBool
-lowerTyConApp (H.CaseSum s t) = CaseSum <$> lowerSort s <*> lowerSort t
-lowerTyConApp (H.TyConApp tc ss) = TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss
 
 lowerCaseAlt :: (H.Ctor, H.Name) -> M CaseAlt
 lowerCaseAlt (c, k) = CaseAlt <$> lowerCtor c <*> lookupThunkType k <*> lowerName k
@@ -581,7 +579,6 @@ data Kind = Star | KArr Kind Kind
   deriving (Eq)
 
 asTyConApp :: Sort -> Maybe TyConApp
-asTyConApp BooleanH = Just CaseBool
 asTyConApp (SumH t s) = Just (CaseSum t s)
 asTyConApp (TyConH tc) = Just (TyConApp tc [])
 asTyConApp (TyAppH t s) = go t [s]
@@ -594,14 +591,12 @@ asTyConApp (TyAppH t s) = go t [s]
 asTyConApp _ = Nothing
 
 fromTyConApp :: TyConApp -> Sort
-fromTyConApp CaseBool = BooleanH
 fromTyConApp (CaseSum t s) = SumH t s
 fromTyConApp (TyConApp tc args) = foldl TyAppH (TyConH tc) args
 
 data TyConApp
-  = CaseBool
+  = TyConApp TyCon [Sort]
   | CaseSum Sort Sort
-  | TyConApp TyCon [Sort]
 
 
 
@@ -649,6 +644,7 @@ data ClosureAlloc
 
 data ValueH
   = IntH Int64
+  | BoolH Bool
   | StringValH String
   | PairH Name Name
   | NilH
@@ -656,10 +652,9 @@ data ValueH
   | CtorAppH CtorAppH
 
 data CtorAppH
-  = BoolH Bool
+  = CtorApp TyCon Ctor [Name]
   | InlH Name
   | InrH Name
-  | CtorApp TyCon Ctor [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -885,6 +880,9 @@ pprintTerm n (OpenH _ty c args) =
 pprintTerm n (CaseH x _kind ks) =
   let branches = intercalate " | " (map (\ (CaseAlt c _ty k) -> show c ++ " -> " ++ show k) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
+pprintTerm n (IntCaseH x ks) =
+  let branches = intercalate " | " (map (\ (i, _, k) -> show i ++ " -> " ++ show k) ks) in
+  indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetProjectH x y p e) =
@@ -908,12 +906,12 @@ pprintValue :: ValueH -> String
 pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue NilH = "()"
 pprintValue (IntH i) = show i
+pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (StringValH s) = show s
 pprintValue WorldToken = "WORLD#"
 pprintValue (CtorAppH capp) = pprintCtorApp capp
 
 pprintCtorApp :: CtorAppH -> String
-pprintCtorApp (BoolH b) = if b then "true" else "false"
 pprintCtorApp (InlH x) = "inl(" ++ show x ++ ")"
 pprintCtorApp (InrH y) = "inr(" ++ show y ++ ")"
 pprintCtorApp (CtorApp tc c xs) =
