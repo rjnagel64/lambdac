@@ -82,7 +82,7 @@ lowerProgram (H.Program ds e) = runM $ do
 lowerDecls :: [H.Decl] -> ([Decl] -> M a) -> M a
 lowerDecls [] k = k []
 lowerDecls (H.DeclData dd : ds) k = do
-  lowerDataDecl dd $ \dd' -> do
+  withDataDecl dd $ \dd' -> do
     lowerDecls ds $ \ds' -> do
       k (DeclData dd' : ds')
 lowerDecls (H.DeclCode cd : ds) k = do
@@ -100,46 +100,29 @@ lowerCodeDecl (H.CodeDecl (H.CodeLabel l) (envName, H.EnvDecl aas fields) params
         body' <- lowerTerm body
         pure (CodeDecl l' aas' (envName', fields') params' body')
 
--- scoping: data T aa+ = C1 tt1+ | ... | CN ttn+ in e
--- is basically like:
--- let T : k in
--- let par C1{aa+} : tt1[T, aa+]+ -> T aa+; ...; CN{aa+} : ttn[T, aa+]+ -> T aa+ in
--- e[T, C1, ..., CN]
--- ( {aa+} is supposed to be a "pseudo-forall"-type thing?)
-lowerDataDecl :: H.DataDecl -> (DataDecl -> M a) -> M a
-lowerDataDecl (H.DataDecl tc tys cds) k = do
+withDataDecl :: H.DataDecl -> (DataDecl -> M a) -> M a
+withDataDecl (H.DataDecl tc tys cds) k = do
   withTyCon tc $ \tc' -> do
-    dd' <- withTyVars tys $ \tys' -> do
-      cds' <- traverse (lowerCtorDecl tc') (zip [0..] cds)
-      pure (DataDecl tc' tys' cds')
-    k dd'
+    withCtorDecls tc' tys (zip [0..] cds) $ \cds' -> do
+      k (DataDecl tc' cds')
 
--- withDataDecl :: H.DataDecl -> (DataDecl -> M a) -> M a
--- withDataDecl (H.DataDecl tc tys cds) k = do
---   withTyCon tc $ \tc' -> do
---     withCtorDecls tys cds $ \cds' -> do
---       ; -- add typarams to ctor decls? (erased when emitting, but for typechecking?)
+withCtorDecls :: TyCon -> [(H.TyVar, H.Kind)] -> [(Int, H.CtorDecl)] -> ([CtorDecl] -> M a) -> M a
+withCtorDecls _ _ [] k = k []
+withCtorDecls tc' tys (cd : cds) k =
+  withCtorDecl tc' tys cd $ \cd' -> do
+    withCtorDecls tc' tys cds $ \cds' -> do
+      k (cd' : cds')
 
-lowerCtorDecl :: TyCon -> (Int, H.CtorDecl) -> M CtorDecl
-lowerCtorDecl tc' (i, H.CtorDecl c xs) = do
-  -- This is really more of a binder than an occurrence, but whatever.
-  c' <- lowerCtor c
-  xs' <- traverse (\ (l, s) -> (,) <$> lowerId l <*> lowerSort s) xs
-  pure (CtorDecl tc' c' i xs')
+withCtorDecl :: TyCon -> [(H.TyVar, H.Kind)] -> (Int, H.CtorDecl) -> (CtorDecl -> M a) -> M a
+withCtorDecl tc' tys (i, H.CtorDecl c xs) k = do
+  withCtor tc' c $ \c' -> do
+    cd <- withTyVars tys $ \tys' -> do
+      xs' <- traverse (\ (l, s) -> (,) <$> lowerId l <*> lowerSort s) xs
+      pure (CtorDecl tc' c' tys' i xs')
+    k cd
 
 lowerId :: H.Id -> M Id
 lowerId (H.Id x) = pure (Id x)
-
--- Hmm. lowerCtor and lowerTyCon should to context lookups, like lowerName and lowerTyVar.
-lowerCtor :: H.Ctor -> M Ctor
-lowerCtor (H.Ctor c) = pure (Ctor c)
-
-lowerTyCon :: H.TyCon -> M TyCon
-lowerTyCon tc = do
-  env <- asks envTyCons
-  case Map.lookup tc env of
-    Nothing -> error "tycon not in scope"
-    Just tc' -> pure tc'
 
 lowerCodeLabel :: H.CodeLabel -> M CodeLabel
 lowerCodeLabel (H.CodeLabel l) = pure (CodeLabel l)
@@ -275,6 +258,20 @@ lowerTyVar aa = do
     Nothing -> error "tyvar not in scope"
     Just aa' -> pure aa'
 
+lowerCtor :: H.Ctor -> M Ctor
+lowerCtor c = do
+  env <- asks envCtors
+  case Map.lookup c env of
+    Nothing -> error ("lowerCtor: ctor not in scope: " ++ show c)
+    Just (_tc', c') -> pure c'
+
+lowerTyCon :: H.TyCon -> M TyCon
+lowerTyCon tc = do
+  env <- asks envTyCons
+  case Map.lookup tc env of
+    Nothing -> error "tycon not in scope"
+    Just tc' -> pure tc'
+
 newtype M a = M { getM :: Reader LowerEnv a }
 deriving newtype instance Functor M
 deriving newtype instance Applicative M
@@ -286,6 +283,7 @@ data LowerEnv
     envNames :: Map H.Name Name
   , envTyVars :: Map H.TyVar TyVar
   , envTyCons :: Map H.TyCon TyCon
+  , envCtors :: Map H.Ctor (TyCon, Ctor)
   , envThunkTypes :: Map H.Name ThunkType
   }
 
@@ -296,8 +294,22 @@ runM = flip runReader emptyEnv . getM
         envNames = Map.empty
       , envTyVars = Map.empty
       , envTyCons = Map.empty
+      , envCtors = initCtors
       , envThunkTypes = Map.empty
       }
+    -- All conditionals are lowered to case-expressions, even analysis on
+    -- built-ins like bool and sum types.
+    -- All conditionals have branches labelled by ctors (though it should
+    -- probably be discriminants instead...)
+    -- Therefore, we need to pre-populate the ctor environment with some
+    -- built-in sum types.
+    -- Hopefully, I will be able to remove this in the future.
+    initCtors = Map.fromList
+      [ (H.Ctor "false", (TyCon "vbool", Ctor "false"))
+      , (H.Ctor "true", (TyCon "vbool", Ctor "true"))
+      , (H.Ctor "inl", (TyCon "sum", Ctor "inl"))
+      , (H.Ctor "inr", (TyCon "sum", Ctor "inr"))
+      ]
 
 withParams :: [H.ClosureParam] -> ([ClosureParam] -> M a) -> M a
 withParams [] k = k []
@@ -374,6 +386,12 @@ withTyCon tc@(H.TyCon x) k = do
   let tc' = TyCon x
   let extend env = env { envTyCons = Map.insert tc tc' (envTyCons env) }
   local extend $ k tc'
+
+withCtor :: TyCon -> H.Ctor -> (Ctor -> M a) -> M a
+withCtor tc' c@(H.Ctor x) k = do
+  let c' = Ctor x
+  let extend env = env { envCtors = Map.insert c (tc', c') (envCtors env) }
+  local extend $ k c'
 
 lookupThunkType :: H.Name -> M ThunkType
 lookupThunkType x = do
@@ -505,7 +523,7 @@ data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
 
 
 data DataDecl
-  = DataDecl TyCon [(TyVar, Kind)] [CtorDecl]
+  = DataDecl TyCon [CtorDecl]
 
 data CtorDecl
   -- Can't just use 'ClosureTele' here, because ctor applications actually return a value.
@@ -517,7 +535,7 @@ data CtorDecl
   -- Third, I require each ctor argument to have a name (for fields in the ctor's struct),
   -- which doesn't fit in a 'ClosureTele' (but maybe 'ClosureParam' would work?
   -- Isomorphic, but semantically distinct, so not really.)
-  = CtorDecl TyCon Ctor Int [(Id, Sort)]
+  = CtorDecl TyCon Ctor [(TyVar, Kind)] Int [(Id, Sort)]
 
 
 -- | A 'Sort' describes the runtime layout of a value. It is static information.
@@ -831,14 +849,14 @@ pprintClosureDecl n (CodeDecl f aas (name, fs) params e) =
     valueParams = intercalate ", " (map pprintParam params)
 
 pprintDataDecl :: Int -> DataDecl -> String
-pprintDataDecl n (DataDecl tc params ctors) =
-  indent n ("data " ++ show tc ++ intercalate " " (map f params) ++ " where\n") ++
+pprintDataDecl n (DataDecl tc ctors) =
+  indent n ("data " ++ show tc ++ " where\n") ++
   unlines (map (pprintCtorDecl (n+2)) ctors)
   where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
 
 pprintCtorDecl :: Int -> CtorDecl -> String
-pprintCtorDecl n (CtorDecl tc c i args) =
-  indent n (show tc ++ "::" ++ show c ++ "(" ++ intercalate ", " (map f args) ++ ");")
+pprintCtorDecl n (CtorDecl tc c tys i args) =
+  indent n (show tc ++ "::" ++ show c ++ "[" ++ intercalate ", " (map (\ (aa, k) -> "@" ++ show aa ++ " : " ++ pprintKind k) tys) ++ "](" ++ intercalate ", " (map f args) ++ ");")
   where f (x, s) = show x ++ " : " ++ pprintSort s
 
 pprintTerm :: Int -> TermH -> String

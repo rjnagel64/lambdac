@@ -202,7 +202,7 @@ prologue = ["#include \"rts.h\""]
 emitDecl :: DataEnv -> Decl -> (DataEnv, [Line])
 emitDecl denv (DeclCode cd) =
   (denv, emitClosureDecl denv cd)
-emitDecl denv (DeclData dd@(DataDecl tc _ _)) =
+emitDecl denv (DeclData dd@(DataDecl tc _)) =
   let denv' = Map.insert tc dd denv in
   (denv', emitDataDecl dd)
 
@@ -282,7 +282,7 @@ emitThunkSuspend ns ty =
 
 
 emitDataDecl :: DataDecl -> [Line]
-emitDataDecl (DataDecl tc params ctors) =
+emitDataDecl (DataDecl tc ctors) =
   emitDataStruct tc ++
   concatMap emitCtorDecl ctors
 
@@ -301,7 +301,7 @@ emitCtorDecl cd =
   emitCtorAllocate cd
 
 emitCtorStruct :: CtorDecl -> [Line]
-emitCtorStruct (CtorDecl tc c _i args) =
+emitCtorStruct (CtorDecl tc c _tys _i args) =
   let ctorId = show tc ++ "_" ++ show c in
   ["struct " ++ ctorId ++ " {"
   ,"    struct " ++ show tc ++ " header;"] ++
@@ -311,7 +311,7 @@ emitCtorStruct (CtorDecl tc c _i args) =
   where makeField (x, s) = "    " ++ emitPlace (Place s x) ++ ";"
 
 emitCtorInfo :: CtorDecl -> [Line]
-emitCtorInfo (CtorDecl tc c _i args) =
+emitCtorInfo (CtorDecl tc c _tys _i args) =
   -- Hmm. May need DataNames and CtorNames
   let ctorId = show tc ++ "_" ++ show c in
   let ctorCast = "CAST_" ++ ctorId in
@@ -334,7 +334,7 @@ emitCtorInfo (CtorDecl tc c _i args) =
     displayField (x, s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(AS_ALLOC(ctor->" ++ show x ++ "), sb);"
 
 emitCtorAllocate :: CtorDecl -> [Line]
-emitCtorAllocate (CtorDecl tc c i args) =
+emitCtorAllocate (CtorDecl tc c _tys i args) =
   let ctorId = show tc ++ "_" ++ show c in
   ["struct " ++ show tc ++ " *allocate_" ++ ctorId ++ "(" ++ commaSep params ++ ") {"
   ,"    struct " ++ ctorId ++ " *ctor = malloc(sizeof(struct " ++ ctorId ++ "));"
@@ -469,8 +469,8 @@ emitSuspend ty envp cl xs =
     method = thunkSuspendName (namesForThunk ty)
     args = emitName envp cl : mapMaybe makeArg (zip (thunkArgs ty) xs)
 
-    makeArg (ThunkTypeArg, TypeArg i) = Nothing
-    makeArg (ThunkValueArg _, ValueArg y) = Just (emitName envp y)
+    makeArg (ThunkTypeArg, TypeArg _) = Nothing
+    makeArg (ThunkValueArg _, ValueArg x) = Just (emitName envp x)
     makeArg _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
 
@@ -536,12 +536,9 @@ emitCtorAlloc denv envp kind capp = ctorAllocate ctordesc ++ "(" ++ commaSep arg
     makeArg x (_, Nothing) = emitName envp x
     makeArg x (_, Just _) = asAlloc (emitName envp x)
 
--- Hmm. Consider 'Id' instead of 'String' for these fields
 data DataDesc
   = DataDesc {
-    dataName :: String
-  , dataUpcast :: String
-  , dataCtors :: Map Ctor CtorDesc
+    dataCtors :: Map Ctor CtorDesc
   }
 
 -- Note: Only constructor arguments that are polymorphic need to have a cast
@@ -559,24 +556,20 @@ data DataDesc
 -- that '[aa := t]'
 data CtorDesc
   = CtorDesc {
-  -- Hmm. Need a ctorName field to name the struct.
     ctorDiscriminant :: Int -- Instead of raw int, consider an enum for ctor tags?
   , ctorAllocate :: String
   , ctorDowncast :: String
-  , ctorSuspend :: String
   , ctorArgCasts :: [(String, Maybe Sort)]
   }
 
 dataDesc :: DataDecl -> [Sort] -> DataDesc
-dataDesc (DataDecl tycon typarams ctors) tyargs =
+dataDesc (DataDecl _tycon ctors) tyargs =
   DataDesc {
-    dataName = show tycon
-  , dataUpcast = "CAST_" ++ show tycon
-  , dataCtors = Map.fromList $ map ctorDesc ctors
+    dataCtors = Map.fromList $ map ctorDesc ctors
   }
   where
-    sub = listSubst (zip (map fst typarams) tyargs)
-    ctorDesc (CtorDecl tc c i args) =
+    -- sub = listSubst (zip (map fst typarams) tyargs)
+    ctorDesc (CtorDecl tc c tys i args) =
       ( c
       , CtorDesc {
         ctorDiscriminant = i
@@ -585,11 +578,11 @@ dataDesc (DataDecl tycon typarams ctors) tyargs =
       -- instead of 'make_list_cons')
       , ctorAllocate = "allocate_" ++ show tc ++ "_" ++ show c
       , ctorDowncast = "CAST_" ++ show tc ++ "_" ++ show c
-      , ctorSuspend = thunkSuspendName (namesForThunk (ThunkType thunkTy))
       , ctorArgCasts = argCasts
       })
       where
-        (thunkTy, argCasts) = unzip (map f args)
+        sub = listSubst (zip (map fst tys) tyargs)
+        argCasts = map f args
         f (fld, AllocH aa) = case lookupSubst aa sub of
           -- All parameters of the data type should have corresponding arguments.
           -- All argument sorts should be well-formed w.r.t. those parameters, so
@@ -599,17 +592,17 @@ dataDesc (DataDecl tycon typarams ctors) tyargs =
           -- 'AllocH bb', where 'bb' is existentially bound. In that case, the
           -- argument should be cast to 'struct alloc_header *', I think.
           Nothing -> error "missing argument in tyconapp"
-          Just s' -> (ThunkValueArg s', (show fld, Just s'))
-        f (fld, s) = (ThunkValueArg s, (show fld, Nothing))
+          Just s' -> (show fld, Just s')
+        f (fld, s) = (show fld, Nothing)
 
 boolDataDecl :: DataDecl
 boolDataDecl =
   -- 'bool' is reserved in C, so I cannot use 'bool' as a type constructor here.
   -- Hrrm. Annoying.
   let tc = TyCon "vbool" in
-  DataDecl tc []
-  [ CtorDecl tc (Ctor "false") 0 []
-  , CtorDecl tc (Ctor "true") 1 []
+  DataDecl tc
+  [ CtorDecl tc (Ctor "false") [] 0 []
+  , CtorDecl tc (Ctor "true") [] 1 []
   ]
 
 sumDataDecl :: DataDecl
@@ -617,9 +610,10 @@ sumDataDecl =
   let tc = TyCon "sum" in
   let aa = TyVar (Id "a") in
   let bb = TyVar (Id "b") in
-  DataDecl tc [(aa, Star), (bb, Star)]
-  [ CtorDecl tc (Ctor "inl") 0 [(Id "payload", AllocH aa)]
-  , CtorDecl tc (Ctor "inr") 1 [(Id "payload", AllocH bb)]
+  let tys = [(aa, Star), (bb, Star)] in
+  DataDecl tc
+  [ CtorDecl tc (Ctor "inl") tys 0 [(Id "payload", AllocH aa)]
+  , CtorDecl tc (Ctor "inr") tys 1 [(Id "payload", AllocH bb)]
   ]
 
 dataDescFor :: DataEnv -> TyConApp -> DataDesc
