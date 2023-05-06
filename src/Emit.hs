@@ -13,8 +13,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
--- import Hoist.IR
-import Lower2
+import Lower
 
 -- TODO: Something smarter than string and list concatenation.
 -- builders? text? environment?

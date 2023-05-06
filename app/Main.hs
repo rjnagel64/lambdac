@@ -18,7 +18,7 @@ import qualified CC as C
 import qualified CC.TypeCheck as CT
 import qualified Hoist as H
 import qualified Hoist.TypeCheck as HT
-import qualified Lower2 as L
+import qualified Lower as L
 import qualified Emit as E
 
 -- Note: Returning multiple values from a function is passing multiple values

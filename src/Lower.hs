@@ -1,6 +1,6 @@
 
 -- | A module describing the structure and syntactic operations on the Hoist IR.
-module Lower2
+module Lower
     ( Id(..)
     , Name(..)
     , Place(..)
