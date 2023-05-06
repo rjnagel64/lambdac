@@ -28,6 +28,36 @@ struct int64_value *allocate_int64(int64_t x) {
     return v;
 }
 
+void trace_bool_value(struct alloc_header *alloc) {
+}
+
+void display_bool_value(struct alloc_header *alloc, struct string_buf *sb) {
+    struct vbool *v = CAST_vbool(alloc);
+    if (v->value) {
+        string_buf_push_slice(sb, "true", 4);
+    } else {
+        string_buf_push_slice(sb, "false", 5);
+    }
+}
+
+const type_info bool_value_info = { trace_bool_value, display_bool_value };
+
+struct vbool *allocate_vbool_true(void) {
+    struct vbool *v = malloc(sizeof(struct vbool));
+    v->value = 1;
+
+    cons_new_alloc(AS_ALLOC(v), &bool_value_info);
+    return v;
+}
+
+struct vbool *allocate_vbool_false(void) {
+    struct vbool *v = malloc(sizeof(struct vbool));
+    v->value = 0;
+
+    cons_new_alloc(AS_ALLOC(v), &bool_value_info);
+    return v;
+}
+
 void trace_closure(struct alloc_header *alloc) {
     struct closure *cl = CAST_CLOSURE(alloc);
     mark_gray(AS_ALLOC(cl->env));
@@ -90,36 +120,6 @@ struct sum *allocate_sum_inr(struct alloc_header *y) {
     v->payload = y;
 
     cons_new_alloc(AS_ALLOC(v), &sum_info);
-    return v;
-}
-
-void trace_bool_value(struct alloc_header *alloc) {
-}
-
-void display_bool_value(struct alloc_header *alloc, struct string_buf *sb) {
-    struct vbool *v = CAST_vbool(alloc);
-    if (v->discriminant) {
-        string_buf_push_slice(sb, "true", 4);
-    } else {
-        string_buf_push_slice(sb, "false", 5);
-    }
-}
-
-const type_info bool_value_info = { trace_bool_value, display_bool_value };
-
-struct vbool *allocate_vbool_true(void) {
-    struct vbool *v = malloc(sizeof(struct vbool));
-    v->discriminant = 1;
-
-    cons_new_alloc(AS_ALLOC(v), &bool_value_info);
-    return v;
-}
-
-struct vbool *allocate_vbool_false(void) {
-    struct vbool *v = malloc(sizeof(struct vbool));
-    v->discriminant = 0;
-
-    cons_new_alloc(AS_ALLOC(v), &bool_value_info);
     return v;
 }
 

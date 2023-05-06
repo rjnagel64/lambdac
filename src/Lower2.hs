@@ -65,6 +65,7 @@ import Data.Set (Set)
 import Data.Function (on)
 import Data.Int (Int64)
 import Data.List (intercalate)
+import Data.Traversable (for)
 
 import qualified Hoist.IR as H
 
@@ -131,6 +132,17 @@ lowerTerm :: H.TermH -> M TermH
 lowerTerm (H.HaltH s x) = HaltH <$> lowerSort s <*> lowerName x
 lowerTerm (H.OpenH f xs) =
   OpenH <$> lookupThunkType f <*> lowerName f <*> traverse lowerClosureArg xs
+lowerTerm (H.CaseH x H.CaseBool ks) = do
+  let desc = Map.fromList [(H.Ctor "false", 0), (H.Ctor "true", 1)]
+  x' <- lowerName x
+  ks' <- for ks $ \ (c, k) -> do
+    i <- case Map.lookup c desc of
+      Nothing -> error "bad branch in if-statement"
+      Just i -> pure i
+    ty <- lookupThunkType k
+    k' <- lowerName k
+    pure (i, ty, k')
+  pure (IntCaseH x' ks')
 lowerTerm (H.CaseH x tcapp ks) = do
   CaseH <$> lowerName x <*> lowerTyConApp tcapp <*> traverse lowerCaseAlt ks
 lowerTerm (H.LetValH p v e) = do
@@ -607,15 +619,17 @@ data TermH
   | LetBindH Place Place PrimIO TermH
   -- 'let x : int64 = y .fst in e'
   | LetProjectH Place Name Projection TermH
+  -- 'letrec (f1 : closure(ss) = #f1 { env1 })+ in e'
+  -- Closures may be mutually recursive, so they are allocated as a group.
+  | AllocClosure [ClosureAlloc] TermH
   -- 'halt @bool x'
   | HaltH Sort Name
   -- 'call f (x, @int, z)', annotated with calling convention
   | OpenH ThunkType Name [ClosureArg]
   -- 'case x of { c1 -> k1 | c2 -> k2 | ... }'
   | CaseH Name TyConApp [CaseAlt]
-  -- 'letrec (f1 : closure(ss) = #f1 { env1 })+ in e'
-  -- Closures may be mutually recursive, so they are allocated as a group.
-  | AllocClosure [ClosureAlloc] TermH
+  -- 'case x of { 17 -> k1 | 32 -> k2 | ... | default -> kd }'
+  | IntCaseH Name [(Int64, ThunkType, Name)] -- all thunktypes should be no-arg, ThunkType []
 
 data Projection = ProjectFst | ProjectSnd
 

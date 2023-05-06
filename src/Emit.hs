@@ -3,6 +3,7 @@ module Emit
     ( emitProgram
     ) where
 
+import Data.Int (Int64)
 import Data.List (intercalate, intersperse)
 import Data.Maybe (mapMaybe)
 import Data.Traversable (mapAccumL)
@@ -150,6 +151,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
     -- necessary thunk type must be recorded.
     termThunkTypes (OpenH ty _ _) = Set.singleton ty
     termThunkTypes (CaseH _ _ alts) = Set.fromList [ty | CaseAlt _ ty _ <- alts]
+    termThunkTypes (IntCaseH _ alts) = Set.fromList [ty | (_, ty, _) <- alts]
     termThunkTypes (LetValH _ _ e) = termThunkTypes e
     termThunkTypes (LetPrimH _ _ e) = termThunkTypes e
     termThunkTypes (LetBindH _ _ prim e) = termThunkTypes e -- can a primop record a thunk type?
@@ -461,6 +463,8 @@ emitTerm _ envp (OpenH ty c args) =
   [emitSuspend ty envp c args]
 emitTerm denv envp (CaseH x kind ks) =
   emitCase denv kind envp x ks
+emitTerm denv envp (IntCaseH x ks) =
+  emitIntCase envp x ks
 
 emitSuspend :: ThunkType -> EnvPtr -> Name -> [ClosureArg] -> Line
 emitSuspend ty envp cl xs =
@@ -506,6 +510,22 @@ emitCase denv tcapp envp x branches =
       in
         ["    case " ++ show (ctorDiscriminant ctordesc) ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
+        ,"        break;"]
+
+emitIntCase :: EnvPtr -> Name -> [(Int64, ThunkType, Name)] -> [Line]
+emitIntCase envp x branches =
+  ["    switch(" ++ emitName envp x ++ "->value) {"] ++
+  concatMap emitCaseBranch branches ++
+  ["    default:"
+  ,"        panic(\"invalid value for case analysis\");"
+  ,"    }"]
+  where
+    emitCaseBranch (i, ty, k) =
+      let
+        method = thunkSuspendName (namesForThunk ty)
+      in
+        ["    case " ++ show i ++ ":"
+        ,"        " ++ method ++ "(" ++ emitName envp k ++ ");"
         ,"        break;"]
 
 emitValueAlloc :: DataEnv -> EnvPtr -> Sort -> ValueH -> String

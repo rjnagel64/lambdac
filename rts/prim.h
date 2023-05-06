@@ -13,6 +13,18 @@ struct int64_value *allocate_int64(int64_t x);
 
 #define CAST_INT64(v) ((struct int64_value *)(v))
 
+struct vbool {
+    struct alloc_header header;
+    uint8_t value;
+};
+
+struct vbool *allocate_vbool_true(void);
+struct vbool *allocate_vbool_false(void);
+
+#define CAST_vbool(v) ((struct vbool *)(v))
+#define CAST_vbool_false(v) (v)
+#define CAST_vbool_true(v) (v)
+
 struct closure {
     struct alloc_header header;
     struct alloc_header *env;
@@ -38,18 +50,6 @@ struct sum *allocate_sum_inr(struct alloc_header *v);
 #define CAST_sum(v) ((struct sum *)(v))
 #define CAST_sum_inl(v) (v)
 #define CAST_sum_inr(v) (v)
-
-struct vbool {
-    struct alloc_header header;
-    uint8_t discriminant;
-};
-
-struct vbool *allocate_vbool_true(void);
-struct vbool *allocate_vbool_false(void);
-
-#define CAST_vbool(v) ((struct vbool *)(v))
-#define CAST_vbool_false(v) (v)
-#define CAST_vbool_true(v) (v)
 
 struct pair {
     struct alloc_header header;
