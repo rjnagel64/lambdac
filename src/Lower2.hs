@@ -594,6 +594,10 @@ data TyConApp
 
 
 
+-- TODO: Introduce a CaseIntH term, to switch on integer values
+-- This is basically what an if-statement should be, when booleans are
+-- considered as small integers.
+-- (Doing this would let me remove booleans as a special case from CaseH, etc.)
 data TermH
   -- 'let x : int = 17 in e'
   = LetValH Place ValueH TermH

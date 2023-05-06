@@ -529,7 +529,7 @@ emitCtorAlloc denv envp tcapp capp = method ++ "(" ++ commaSep args' ++ ")"
       BoolH False -> (TyCon "vbool", Ctor "false", [])
       InlH x -> (TyCon "sum", Ctor "inl", [x])
       InrH x -> (TyCon "sum", Ctor "inr", [x])
-      CtorApp tc c as -> (tc, c, as)
+      CtorApp tc c xs -> (tc, c, xs)
     method = "allocate_" ++ show tycon ++ "_" ++ show ctorName
     argCasts = ctorArgCasts . (Map.! ctorName) . dataCtors $ dataDescFor denv tcapp
     args' = zipWith makeArg args argCasts
