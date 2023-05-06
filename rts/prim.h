@@ -13,17 +13,14 @@ struct int64_value *allocate_int64(int64_t x);
 
 #define CAST_INT64(v) ((struct int64_value *)(v))
 
-struct vbool {
+struct bool_value {
     struct alloc_header header;
     uint8_t value;
 };
 
-struct vbool *allocate_vbool_true(void);
-struct vbool *allocate_vbool_false(void);
+struct bool_value *allocate_bool_value(uint8_t x);
 
-#define CAST_vbool(v) ((struct vbool *)(v))
-#define CAST_vbool_false(v) (v)
-#define CAST_vbool_true(v) (v)
+#define CAST_bool_value(v) ((struct bool_value *)(v))
 
 struct closure {
     struct alloc_header header;
@@ -117,12 +114,12 @@ struct int64_value *prim_mulint64(struct int64_value *x, struct int64_value *y);
 struct int64_value *prim_negint64(struct int64_value *x);
 
 // Primitive operators on integers: comparison
-struct vbool *prim_eqint64(struct int64_value *x, struct int64_value *y);
-struct vbool *prim_neint64(struct int64_value *x, struct int64_value *y);
-struct vbool *prim_ltint64(struct int64_value *x, struct int64_value *y);
-struct vbool *prim_leint64(struct int64_value *x, struct int64_value *y);
-struct vbool *prim_gtint64(struct int64_value *x, struct int64_value *y);
-struct vbool *prim_geint64(struct int64_value *x, struct int64_value *y);
+struct bool_value *prim_eqint64(struct int64_value *x, struct int64_value *y);
+struct bool_value *prim_neint64(struct int64_value *x, struct int64_value *y);
+struct bool_value *prim_ltint64(struct int64_value *x, struct int64_value *y);
+struct bool_value *prim_leint64(struct int64_value *x, struct int64_value *y);
+struct bool_value *prim_gtint64(struct int64_value *x, struct int64_value *y);
+struct bool_value *prim_geint64(struct int64_value *x, struct int64_value *y);
 
 // Primitive operators on strings
 struct string_value *prim_concatenate(struct string_value *x, struct string_value *y);

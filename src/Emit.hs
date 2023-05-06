@@ -104,7 +104,7 @@ typeForSort IntegerH = "struct int64_value *"
 typeForSort StringH = "struct string_value *"
 typeForSort (ProductH _ _) = "struct pair *"
 typeForSort UnitH = "struct unit *"
-typeForSort BooleanH = "struct vbool *"
+typeForSort BooleanH = "struct bool_value *"
 typeForSort TokenH = "struct token *"
 typeForSort (SumH _ _) = "struct sum *"
 typeForSort (TyConH tc) = "struct " ++ show tc ++ " *"
@@ -463,7 +463,7 @@ emitTerm _ envp (OpenH ty c args) =
   [emitSuspend ty envp c args]
 emitTerm denv envp (CaseH x kind ks) =
   emitCase denv kind envp x ks
-emitTerm denv envp (IntCaseH x ks) =
+emitTerm _ envp (IntCaseH x ks) =
   emitIntCase envp x ks
 
 emitSuspend :: ThunkType -> EnvPtr -> Name -> [ClosureArg] -> Line
@@ -530,7 +530,7 @@ emitIntCase envp x branches =
 
 emitValueAlloc :: DataEnv -> EnvPtr -> Sort -> ValueH -> String
 emitValueAlloc _ _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
-emitValueAlloc _ _ _ (BoolH b) = if b then "allocate_vbool_true()" else "allocate_vbool_false()"
+emitValueAlloc _ _ _ (BoolH b) = "allocate_bool_value(" ++ (if b then "1" else "0") ++ ")"
 emitValueAlloc _ _ _ (StringValH s) =
   "allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")"
 emitValueAlloc _ envp _ (PairH x y) =
