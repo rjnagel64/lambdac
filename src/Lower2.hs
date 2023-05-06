@@ -129,14 +129,10 @@ lowerCodeLabel (H.CodeLabel l) = pure (CodeLabel l)
 
 lowerTerm :: H.TermH -> M TermH
 lowerTerm (H.HaltH s x) = HaltH <$> lowerSort s <*> lowerName x
-lowerTerm (H.OpenH f xs) = do
-  ty <- lookupThunkType f
-  OpenH ty <$> lowerName f <*> traverse lowerClosureArg xs
+lowerTerm (H.OpenH f xs) =
+  OpenH <$> lookupThunkType f <*> lowerName f <*> traverse lowerClosureArg xs
 lowerTerm (H.CaseH x tcapp ks) = do
-  x' <- lowerName x
-  tcapp' <- lowerTyConApp tcapp
-  ks' <- traverse lowerCaseAlt ks
-  pure (CaseH x' tcapp' ks')
+  CaseH <$> lowerName x <*> lowerTyConApp tcapp <*> traverse lowerCaseAlt ks
 lowerTerm (H.LetValH p v e) = do
   v' <- lowerValue v
   withPlace LocalPlace p $ \p' -> do
@@ -852,12 +848,13 @@ pprintDataDecl :: Int -> DataDecl -> String
 pprintDataDecl n (DataDecl tc ctors) =
   indent n ("data " ++ show tc ++ " where\n") ++
   unlines (map (pprintCtorDecl (n+2)) ctors)
-  where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
 
 pprintCtorDecl :: Int -> CtorDecl -> String
 pprintCtorDecl n (CtorDecl tc c tys i args) =
-  indent n (show tc ++ "::" ++ show c ++ "[" ++ intercalate ", " (map (\ (aa, k) -> "@" ++ show aa ++ " : " ++ pprintKind k) tys) ++ "](" ++ intercalate ", " (map f args) ++ ");")
-  where f (x, s) = show x ++ " : " ++ pprintSort s
+  indent n (show tc ++ "::" ++ show c ++ "[" ++ intercalate ", " (map g tys) ++ "](" ++ intercalate ", " (map f args) ++ ");")
+  where
+    f (x, s) = show x ++ " : " ++ pprintSort s
+    g (aa, k) = "@" ++ show aa ++ " : " ++ pprintKind k
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x ++ ";\n"
