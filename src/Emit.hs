@@ -522,17 +522,17 @@ emitValueAlloc denv envp ty (CtorAppH capp) =
     Just kind -> emitCtorAlloc denv envp kind capp
 
 emitCtorAlloc :: DataEnv -> EnvPtr -> TyConApp -> CtorAppH -> String
-emitCtorAlloc denv envp kind capp = ctorAllocate ctordesc ++ "(" ++ commaSep args' ++ ")"
+emitCtorAlloc denv envp tcapp capp = method ++ "(" ++ commaSep args' ++ ")"
   where
-    desc = dataDescFor denv kind
-    ctordesc = dataCtors desc Map.! ctorName
-    (ctorName, args) = case capp of
-      BoolH True -> (Ctor "true", [])
-      BoolH False -> (Ctor "false", [])
-      InlH x -> (Ctor "inl", [x])
-      InrH x -> (Ctor "inr", [x])
-      CtorApp c as -> (c, as)
-    args' = zipWith makeArg args (ctorArgCasts ctordesc)
+    (tycon, ctorName, args) = case capp of
+      BoolH True -> (TyCon "vbool", Ctor "true", [])
+      BoolH False -> (TyCon "vbool", Ctor "false", [])
+      InlH x -> (TyCon "sum", Ctor "inl", [x])
+      InrH x -> (TyCon "sum", Ctor "inr", [x])
+      CtorApp tc c as -> (tc, c, as)
+    method = "allocate_" ++ show tycon ++ "_" ++ show ctorName
+    argCasts = ctorArgCasts . (Map.! ctorName) . dataCtors $ dataDescFor denv tcapp
+    args' = zipWith makeArg args argCasts
     makeArg x (_, Nothing) = emitName envp x
     makeArg x (_, Just _) = asAlloc (emitName envp x)
 

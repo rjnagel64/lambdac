@@ -180,7 +180,8 @@ lowerCtorApp :: H.CtorAppH -> M CtorAppH
 lowerCtorApp (H.BoolH b) = pure (BoolH b)
 lowerCtorApp (H.InlH x) = InlH <$> lowerName x
 lowerCtorApp (H.InrH x) = InrH <$> lowerName x
-lowerCtorApp (H.CtorApp c xs) = CtorApp <$> lowerCtor c <*> traverse lowerName xs
+lowerCtorApp (H.CtorApp c xs) =
+  (\ (tc', c') xs' -> CtorApp tc' c' xs') <$> lowerCtor' c <*> traverse lowerName xs
 
 lowerPrimOp :: H.PrimOp -> M PrimOp
 lowerPrimOp (H.PrimAddInt64 x y) = PrimAddInt64 <$> lowerName x <*> lowerName y
@@ -255,11 +256,14 @@ lowerTyVar aa = do
     Just aa' -> pure aa'
 
 lowerCtor :: H.Ctor -> M Ctor
-lowerCtor c = do
+lowerCtor = fmap snd . lowerCtor'
+
+lowerCtor' :: H.Ctor -> M (TyCon, Ctor)
+lowerCtor' c = do
   env <- asks envCtors
   case Map.lookup c env of
     Nothing -> error ("lowerCtor: ctor not in scope: " ++ show c)
-    Just (_tc', c') -> pure c'
+    Just (tc', c') -> pure (tc', c')
 
 lowerTyCon :: H.TyCon -> M TyCon
 lowerTyCon tc = do
@@ -637,7 +641,7 @@ data CtorAppH
   = BoolH Bool
   | InlH Name
   | InrH Name
-  | CtorApp Ctor [Name]
+  | CtorApp TyCon Ctor [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -894,7 +898,8 @@ pprintCtorApp :: CtorAppH -> String
 pprintCtorApp (BoolH b) = if b then "true" else "false"
 pprintCtorApp (InlH x) = "inl(" ++ show x ++ ")"
 pprintCtorApp (InrH y) = "inr(" ++ show y ++ ")"
-pprintCtorApp (CtorApp c xs) = show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
+pprintCtorApp (CtorApp tc c xs) =
+  show tc ++ "::" ++ show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
