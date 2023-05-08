@@ -1,8 +1,6 @@
 
 #include "prim.h"
 
-#include "alloc.h"
-
 #include <stdio.h> // sprintf for display_int64_value
 #include <string.h>
 

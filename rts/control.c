@@ -1,7 +1,5 @@
 
 #include "control.h"
-#include "alloc.h"
-#include "prim.h" // for closure_info
 
 static struct alloc_header *result_value = NULL;
 

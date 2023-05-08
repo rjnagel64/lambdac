@@ -4,7 +4,7 @@
 #include "alloc.h"
 #include "control.h"
 #include "panic.h"
-#include "string.h"
+#include "string_buf.h"
 
 // Provided by user.
 void program_entry(void);
