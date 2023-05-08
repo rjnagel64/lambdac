@@ -322,9 +322,7 @@ runM = flip runReader emptyEnv . getM
     -- built-in sum types.
     -- Hopefully, I will be able to remove this in the future.
     initCtors = Map.fromList
-      [ (H.Ctor "false", (TyCon "vbool", Ctor "false"))
-      , (H.Ctor "true", (TyCon "vbool", Ctor "true"))
-      , (H.Ctor "inl", (TyCon "sum", Ctor "inl"))
+      [ (H.Ctor "inl", (TyCon "sum", Ctor "inl"))
       , (H.Ctor "inr", (TyCon "sum", Ctor "inr"))
       ]
 
