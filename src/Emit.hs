@@ -39,7 +39,6 @@ import Lower
 commaSep :: [String] -> String
 commaSep = intercalate ", "
 
-type EnvPtr = Id
 type Line = String
 
 
@@ -210,10 +209,8 @@ emitDecl denv (DeclData dd@(DataDecl tc _)) =
 emitEntryPoint :: DataEnv -> TermH -> [Line]
 emitEntryPoint denv e =
   ["void program_entry(void) {"] ++
-  emitTerm denv envp e ++
+  emitTerm denv e ++
   ["}"]
-  -- There is no environment pointer at the top level, because we are not in a closure.
-  where envp = Id "NULL"
 
 
 -- Hmm. This should probably be more like a State ClosureSig than a Reader ClosureSig,
@@ -405,7 +402,7 @@ emitEnvInfo ns fs =
     envName = Id "env"
     envTy = "struct " ++ envTypeName ns ++ " *"
     traceField (Place _ x) =
-      let field = asAlloc (emitName envName (EnvName envName x)) in
+      let field = asAlloc (emitName (EnvName envName x)) in
       "    mark_gray(" ++ field ++ ");"
 
 emitClosureEnter :: ThunkNames -> ClosureNames -> ThunkType -> [Line]
@@ -426,7 +423,7 @@ emitClosureEnter tns cns ty =
 emitClosureCode :: DataEnv -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
 emitClosureCode denv ns envName xs e =
   ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"] ++
-  emitTerm denv envName e ++
+  emitTerm denv e ++
   ["}"]
   where
     paramList = commaSep (envParam : mapMaybe emitParam xs)
@@ -435,45 +432,45 @@ emitClosureCode denv ns envName xs e =
     emitParam (PlaceParam p) = Just (emitPlace p)
 
 
-emitTerm :: DataEnv -> EnvPtr -> TermH -> [Line]
-emitTerm denv envp (LetValH x v e) =
-  ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc denv envp (placeSort x) v ++ ";"] ++
-  emitTerm denv envp e
-emitTerm denv envp (LetProjectH x y ProjectFst e) =
-  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->fst") ++ ";"] ++
-  emitTerm denv envp e
-emitTerm denv envp (LetProjectH x y ProjectSnd e) =
-  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName envp y ++ "->snd") ++ ";"] ++
-  emitTerm denv envp e
-emitTerm denv envp (LetPrimH x p e) =
-  ["    " ++ emitPlace x ++ " = " ++ emitPrimOp envp p ++ ";"] ++
-  emitTerm denv envp e
-emitTerm denv envp (LetBindH p1 p2 prim e) =
+emitTerm :: DataEnv -> TermH -> [Line]
+emitTerm denv (LetValH x v e) =
+  ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc denv (placeSort x) v ++ ";"] ++
+  emitTerm denv e
+emitTerm denv (LetProjectH x y ProjectFst e) =
+  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName y ++ "->fst") ++ ";"] ++
+  emitTerm denv e
+emitTerm denv (LetProjectH x y ProjectSnd e) =
+  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName y ++ "->snd") ++ ";"] ++
+  emitTerm denv e
+emitTerm denv (LetPrimH x p e) =
+  ["    " ++ emitPlace x ++ " = " ++ emitPrimOp p ++ ";"] ++
+  emitTerm denv e
+emitTerm denv (LetBindH p1 p2 prim e) =
   ["    " ++ emitPlace p1 ++ ";"
   ,"    " ++ emitPlace p2 ++ ";"
-  ,"    " ++ emitPrimIO envp prim p1 p2 ++ ";"] ++
-  emitTerm denv envp e
-emitTerm denv envp (AllocClosure cs e) =
-  emitClosureGroup envp cs ++
-  emitTerm denv envp e
-emitTerm _ envp (HaltH _ x) =
-  ["    halt_with(" ++ asAlloc (emitName envp x) ++ ");"]
-emitTerm _ envp (OpenH ty c args) =
-  [emitSuspend ty envp c args]
-emitTerm denv envp (CaseH x kind ks) =
-  emitCase denv kind envp x ks
-emitTerm _ envp (IntCaseH x ks) =
-  emitIntCase envp x ks
+  ,"    " ++ emitPrimIO prim p1 p2 ++ ";"] ++
+  emitTerm denv e
+emitTerm denv (AllocClosure cs e) =
+  emitClosureGroup cs ++
+  emitTerm denv e
+emitTerm _ (HaltH _ x) =
+  ["    halt_with(" ++ asAlloc (emitName x) ++ ");"]
+emitTerm _ (OpenH ty c args) =
+  [emitSuspend ty c args]
+emitTerm denv (CaseH x kind ks) =
+  emitCase denv kind x ks
+emitTerm _ (IntCaseH x ks) =
+  emitIntCase x ks
 
-emitSuspend :: ThunkType -> EnvPtr -> Name -> [ClosureArg] -> Line
-emitSuspend ty envp cl xs =
+emitSuspend :: ThunkType -> Name -> [ClosureArg] -> Line
+emitSuspend ty cl xs =
   "    " ++ method ++ "(" ++ commaSep args ++ ");"
   where
     method = thunkSuspendName (namesForThunk ty)
-    args = emitName envp cl : mapMaybe makeArg (zip (thunkArgs ty) xs)
+    args = emitName cl : mapMaybe makeArg (zip (thunkArgs ty) xs)
 
     makeArg (ThunkTypeArg, TypeArg _) = Nothing
-    makeArg (ThunkValueArg _, ValueArg x) = Just (emitName envp x)
+    makeArg (ThunkValueArg _, ValueArg x) = Just (emitName x)
     makeArg _ = error "calling convention mismatch: type/value param paired with value/type arg"
 
 
@@ -487,9 +484,9 @@ emitSuspend ty envp cl xs =
 -- Maybe a compromise? suspend method and discriminant are fairly universal, so
 -- they can go into Lower2. Struct downcasts and argument casts are C-specific,
 -- so they can stay here.
-emitCase :: DataEnv -> TyConApp -> EnvPtr -> Name -> [CaseAlt] -> [Line]
-emitCase denv tcapp envp x branches =
-  ["    switch (" ++ emitName envp x ++ "->discriminant) {"] ++
+emitCase :: DataEnv -> TyConApp -> Name -> [CaseAlt] -> [Line]
+emitCase denv tcapp x branches =
+  ["    switch (" ++ emitName x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch branches ++
   ["    default:"
   ,"        panic(\"invalid discriminant\");"
@@ -501,9 +498,9 @@ emitCase denv tcapp envp x branches =
     emitCaseBranch (CaseAlt ctor ty k) =
       let
         ctordesc = dataCtors desc Map.! ctor
-        ctorVal = ctorDowncast ctordesc ++ "(" ++ emitName envp x ++ ")"
+        ctorVal = ctorDowncast ctordesc ++ "(" ++ emitName x ++ ")"
         method = thunkSuspendName (namesForThunk ty)
-        args = emitName envp k : map mkArg (ctorArgCasts ctordesc)
+        args = emitName k : map mkArg (ctorArgCasts ctordesc)
         mkArg (argName, Nothing) = ctorVal ++ "->" ++ argName
         mkArg (argName, Just argSort) = asSort argSort (ctorVal ++ "->" ++ argName)
       in
@@ -511,9 +508,9 @@ emitCase denv tcapp envp x branches =
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
 
-emitIntCase :: EnvPtr -> Name -> [(Int64, ThunkType, Name)] -> [Line]
-emitIntCase envp x branches =
-  ["    switch(" ++ emitName envp x ++ "->value) {"] ++
+emitIntCase :: Name -> [(Int64, ThunkType, Name)] -> [Line]
+emitIntCase x branches =
+  ["    switch(" ++ emitName x ++ "->value) {"] ++
   concatMap emitCaseBranch branches ++
   ["    default:"
   ,"        panic(\"invalid value for case analysis\");"
@@ -524,25 +521,25 @@ emitIntCase envp x branches =
         method = thunkSuspendName (namesForThunk ty)
       in
         ["    case " ++ show i ++ ":"
-        ,"        " ++ method ++ "(" ++ emitName envp k ++ ");"
+        ,"        " ++ method ++ "(" ++ emitName k ++ ");"
         ,"        break;"]
 
-emitValueAlloc :: DataEnv -> EnvPtr -> Sort -> ValueH -> String
-emitValueAlloc _ _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
-emitValueAlloc _ _ _ (BoolH b) = "allocate_bool_value(" ++ (if b then "1" else "0") ++ ")"
-emitValueAlloc _ _ _ (StringValH s) =
+emitValueAlloc :: DataEnv -> Sort -> ValueH -> String
+emitValueAlloc _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
+emitValueAlloc _ _ (BoolH b) = "allocate_bool_value(" ++ (if b then "1" else "0") ++ ")"
+emitValueAlloc _ _ (StringValH s) =
   "allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")"
-emitValueAlloc _ envp _ (PairH x y) =
-  "allocate_pair(" ++ asAlloc (emitName envp x) ++ ", " ++ asAlloc (emitName envp y) ++ ")"
-emitValueAlloc _ _ _ NilH = "allocate_unit()"
-emitValueAlloc _ _ _ WorldToken = "allocate_token()"
-emitValueAlloc denv envp ty (CtorAppH capp) =
+emitValueAlloc _ _ (PairH x y) =
+  "allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ asAlloc (emitName y) ++ ")"
+emitValueAlloc _ _ NilH = "allocate_unit()"
+emitValueAlloc _ _ WorldToken = "allocate_token()"
+emitValueAlloc denv ty (CtorAppH capp) =
   case asTyConApp ty of
     Nothing -> error "not a constructed type"
-    Just kind -> emitCtorAlloc denv envp kind capp
+    Just kind -> emitCtorAlloc denv kind capp
 
-emitCtorAlloc :: DataEnv -> EnvPtr -> TyConApp -> CtorAppH -> String
-emitCtorAlloc denv envp tcapp capp = method ++ "(" ++ commaSep args' ++ ")"
+emitCtorAlloc :: DataEnv -> TyConApp -> CtorAppH -> String
+emitCtorAlloc denv tcapp capp = method ++ "(" ++ commaSep args' ++ ")"
   where
     (tycon, ctorName, args) = case capp of
       InlH x -> (TyCon "sum", Ctor "inl", [x])
@@ -551,8 +548,8 @@ emitCtorAlloc denv envp tcapp capp = method ++ "(" ++ commaSep args' ++ ")"
     method = "allocate_" ++ show tycon ++ "_" ++ show ctorName
     argCasts = ctorArgCasts . (Map.! ctorName) . dataCtors $ dataDescFor denv tcapp
     args' = zipWith makeArg args argCasts
-    makeArg x (_, Nothing) = emitName envp x
-    makeArg x (_, Just _) = asAlloc (emitName envp x)
+    makeArg x (_, Nothing) = emitName x
+    makeArg x (_, Just _) = asAlloc (emitName x)
 
 data DataDesc
   = DataDesc {
@@ -628,36 +625,36 @@ dataDescFor :: DataEnv -> TyConApp -> DataDesc
 dataDescFor _ (CaseSum t s) = dataDesc sumDataDecl [t, s]
 dataDescFor denv (TyConApp tc args) = dataDesc (denv Map.! tc) args
 
-emitPrimOp :: EnvPtr -> PrimOp -> String
-emitPrimOp envp (PrimAddInt64 x y) = emitPrimCall envp "prim_addint64" [x, y]
-emitPrimOp envp (PrimSubInt64 x y) = emitPrimCall envp "prim_subint64" [x, y]
-emitPrimOp envp (PrimMulInt64 x y) = emitPrimCall envp "prim_mulint64" [x, y]
-emitPrimOp envp (PrimNegInt64 x) = emitPrimCall envp "prim_negint64" [x]
-emitPrimOp envp (PrimEqInt64 x y) = emitPrimCall envp "prim_eqint64" [x, y]
-emitPrimOp envp (PrimNeInt64 x y) = emitPrimCall envp "prim_neint64" [x, y]
-emitPrimOp envp (PrimLtInt64 x y) = emitPrimCall envp "prim_ltint64" [x, y]
-emitPrimOp envp (PrimLeInt64 x y) = emitPrimCall envp "prim_leint64" [x, y]
-emitPrimOp envp (PrimGtInt64 x y) = emitPrimCall envp "prim_gtint64" [x, y]
-emitPrimOp envp (PrimGeInt64 x y) = emitPrimCall envp "prim_geint64" [x, y]
-emitPrimOp envp (PrimConcatenate x y) = emitPrimCall envp "prim_concatenate" [x, y]
-emitPrimOp envp (PrimStrlen x) = emitPrimCall envp "prim_strlen" [x]
+emitPrimOp :: PrimOp -> String
+emitPrimOp (PrimAddInt64 x y) = emitPrimCall "prim_addint64" [x, y]
+emitPrimOp (PrimSubInt64 x y) = emitPrimCall "prim_subint64" [x, y]
+emitPrimOp (PrimMulInt64 x y) = emitPrimCall "prim_mulint64" [x, y]
+emitPrimOp (PrimNegInt64 x) = emitPrimCall "prim_negint64" [x]
+emitPrimOp (PrimEqInt64 x y) = emitPrimCall "prim_eqint64" [x, y]
+emitPrimOp (PrimNeInt64 x y) = emitPrimCall "prim_neint64" [x, y]
+emitPrimOp (PrimLtInt64 x y) = emitPrimCall "prim_ltint64" [x, y]
+emitPrimOp (PrimLeInt64 x y) = emitPrimCall "prim_leint64" [x, y]
+emitPrimOp (PrimGtInt64 x y) = emitPrimCall "prim_gtint64" [x, y]
+emitPrimOp (PrimGeInt64 x y) = emitPrimCall "prim_geint64" [x, y]
+emitPrimOp (PrimConcatenate x y) = emitPrimCall "prim_concatenate" [x, y]
+emitPrimOp (PrimStrlen x) = emitPrimCall "prim_strlen" [x]
 
-emitPrimIO :: EnvPtr -> PrimIO -> Place -> Place -> String
-emitPrimIO envp (PrimGetLine x) p1 p2 =
-  "prim_getLine(" ++ commaSep [emitName envp x, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
-emitPrimIO envp (PrimPutLine x y) p1 p2 = 
-  "prim_putLine(" ++ commaSep [emitName envp x, emitName envp y, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
+emitPrimIO :: PrimIO -> Place -> Place -> String
+emitPrimIO (PrimGetLine x) p1 p2 =
+  "prim_getLine(" ++ commaSep [emitName x, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
+emitPrimIO (PrimPutLine x y) p1 p2 = 
+  "prim_putLine(" ++ commaSep [emitName x, emitName y, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
 
-emitPrimCall :: EnvPtr -> String -> [Name] -> String
-emitPrimCall envp fn xs = emitBuiltinCall envp (Id fn) xs
+emitPrimCall :: String -> [Name] -> String
+emitPrimCall fn xs = emitBuiltinCall (Id fn) xs
 
 -- Hmm. I can't quite use this for emitValueAlloc, because I cannot specify
 -- primitives like unboxed integers or c string literals.
 --
 -- I also can't use this for emitValueAlloc because if the sort of a parameter
 -- is 'AllocH', I need to cast the argument with AS_ALLOC.
-emitBuiltinCall :: EnvPtr -> Id -> [Name] -> String
-emitBuiltinCall envp fn args = show fn ++ "(" ++ commaSep (map (emitName envp) args) ++ ")"
+emitBuiltinCall :: Id -> [Name] -> String
+emitBuiltinCall fn args = show fn ++ "(" ++ commaSep (map emitName args) ++ ")"
 
 -- | Allocate a group of (mutually recursive) closures.
 --
@@ -667,22 +664,22 @@ emitBuiltinCall envp fn args = show fn ++ "(" ++ commaSep (map (emitName envp) a
 -- - Second, the closures are allocated using the environments from step 1.
 -- - Third, the @NULL@s in the environments are patched to refer to the
 --   freshly-allocated closures.
-emitClosureGroup :: EnvPtr -> [ClosureAlloc] -> [Line]
-emitClosureGroup envp closures =
-  map (allocEnv recNames envp) closures ++
+emitClosureGroup :: [ClosureAlloc] -> [Line]
+emitClosureGroup closures =
+  map (allocEnv recNames) closures ++
   map allocClosure closures ++
   concatMap (patchEnv recNames) closures
   where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ _ <- closures]
 
-allocEnv :: Set Id -> EnvPtr -> ClosureAlloc -> Line
-allocEnv recNames envp (ClosureAlloc _p d _inst envPlace fields) =
+allocEnv :: Set Id -> ClosureAlloc -> Line
+allocEnv recNames (ClosureAlloc _p d _inst envPlace fields) =
   "    struct " ++ envTypeName ns' ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
   where
     ns' = closureEnvName (namesForClosure d)
 
     call = envAllocName ns' ++ "(" ++ commaSep args ++ ")"
     args = map emitAllocArg fields
-    emitAllocArg (f, x) = if Set.member f recNames then "NULL" else emitName envp x
+    emitAllocArg (f, x) = if Set.member f recNames then "NULL" else emitName x
 
 allocClosure :: ClosureAlloc -> Line
 allocClosure (ClosureAlloc p d _tys envPlace _env) =
@@ -707,7 +704,7 @@ patchEnv recNames (ClosureAlloc _ _ _ envPlace fields) = concatMap patchField fi
 emitPlace :: Place -> String
 emitPlace (Place s x) = typeForSort s ++ show x
 
-emitName :: EnvPtr -> Name -> String
-emitName _ (LocalName x) = show x
-emitName _ (EnvName envp x) = show envp ++ "->" ++ show x
+emitName :: Name -> String
+emitName (LocalName x) = show x
+emitName (EnvName envp x) = show envp ++ "->" ++ show x
 
