@@ -94,12 +94,17 @@ lowerDecls (H.DeclCode cd : ds) k = do
 lowerCodeDecl :: H.CodeDecl -> M CodeDecl
 lowerCodeDecl (H.CodeDecl (H.CodeLabel l) (envName, H.EnvDecl aas fields) params body) = do
   let l' = CodeLabel l
-  envName' <- lowerId envName
+  withEnvironment (envName, H.EnvDecl aas fields) $ \aas' envName' fields' -> do
+    withParams params $ \params' -> do
+      body' <- lowerTerm body
+      pure (CodeDecl l' aas' (envName', fields') params' body')
+
+withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [Place] -> M a) -> M a
+withEnvironment (envName, H.EnvDecl aas fields) k = do
   withTyVars aas $ \aas' -> do
-    withPlaces EnvPlace fields $ \fields' -> do
-      withParams params $ \params' -> do
-        body' <- lowerTerm body
-        pure (CodeDecl l' aas' (envName', fields') params' body')
+    withEnvPtr envName $ \envName' -> do
+      withPlaces EnvPlace fields $ \fields' -> do
+        k aas' envName' fields'
 
 withDataDecl :: H.DataDecl -> (DataDecl -> M a) -> M a
 withDataDecl (H.DataDecl tc tys cds) k = do
@@ -292,6 +297,7 @@ data LowerEnv
   = LowerEnv {
     envNames :: Map H.Name Name
   , envTyVars :: Map H.TyVar TyVar
+  , envEnvPtr :: Maybe Id
   , envTyCons :: Map H.TyCon TyCon
   , envCtors :: Map H.Ctor (TyCon, Ctor)
   , envThunkTypes :: Map H.Name ThunkType
@@ -303,6 +309,7 @@ runM = flip runReader emptyEnv . getM
     emptyEnv = LowerEnv {
         envNames = Map.empty
       , envTyVars = Map.empty
+      , envEnvPtr = Nothing
       , envTyCons = Map.empty
       , envCtors = initCtors
       , envThunkTypes = Map.empty
@@ -320,6 +327,12 @@ runM = flip runReader emptyEnv . getM
       , (H.Ctor "inl", (TyCon "sum", Ctor "inl"))
       , (H.Ctor "inr", (TyCon "sum", Ctor "inr"))
       ]
+
+withEnvPtr :: H.Id -> (Id -> M a) -> M a
+withEnvPtr (H.Id envName) k = do
+  let envName' = Id envName
+  let extend env = env { envEnvPtr = Just envName' }
+  local extend $ k envName'
 
 withParams :: [H.ClosureParam] -> ([ClosureParam] -> M a) -> M a
 withParams [] k = k []
@@ -352,7 +365,11 @@ withPlace kind (H.Place s x) k = do
   let p' = Place s' x'
   (occ, occ') <- case kind of
     LocalPlace -> pure (H.LocalName x, LocalName x')
-    EnvPlace -> pure (H.EnvName x, EnvName x')
+    EnvPlace -> do
+      envp <- asks envEnvPtr >>= \case
+        Nothing -> error "environment reference without environment pointer available"
+        Just envp -> pure envp
+      pure (H.EnvName x, EnvName envp x')
   -- Places that have a closure type are associated with a Thunk Type: the
   -- calling convention used to invoke that closure.
   let
@@ -469,12 +486,14 @@ instance Show Id where
 
 -- | A 'Name' refers to a 'Place'. It is either a 'Place' in the local
 -- scope, or in the environment scope.
-data Name = LocalName Id | EnvName Id
+--
+-- An 'EnvName' contains the environment pointer that it dereferences
+data Name = LocalName Id | EnvName Id Id
   deriving (Eq, Ord)
 
 instance Show Name where
   show (LocalName x) = show x
-  show (EnvName x) = "@." ++ show x
+  show (EnvName envp x) = show envp ++ "." ++ show x
 
 -- | A 'Place' is a location that can hold a value. It has an identifier and a
 -- sort that specifies what values can be stored there.

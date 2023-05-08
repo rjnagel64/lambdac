@@ -405,7 +405,7 @@ emitEnvInfo ns fs =
     envName = Id "env"
     envTy = "struct " ++ envTypeName ns ++ " *"
     traceField (Place _ x) =
-      let field = asAlloc (emitName envName (EnvName x)) in
+      let field = asAlloc (emitName envName (EnvName envName x)) in
       "    mark_gray(" ++ field ++ ");"
 
 emitClosureEnter :: ThunkNames -> ClosureNames -> ThunkType -> [Line]
@@ -702,12 +702,12 @@ patchEnv recNames (ClosureAlloc _ _ _ envPlace fields) = concatMap patchField fi
         []
     -- Patching recursive closures should only ever involve local names.
     -- Additionally, we do not have access to an environment pointer in this function.
-    patchField (_, EnvName _) = []
+    patchField (_, EnvName _ _) = []
 
 emitPlace :: Place -> String
 emitPlace (Place s x) = typeForSort s ++ show x
 
 emitName :: EnvPtr -> Name -> String
 emitName _ (LocalName x) = show x
-emitName envp (EnvName x) = show envp ++ "->" ++ show x
+emitName _ (EnvName envp x) = show envp ++ "->" ++ show x
 
