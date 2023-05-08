@@ -328,8 +328,8 @@ emitCtorInfo (CtorDecl tc c _tys _i args) =
   where
     ctorNameString = show (show c)
     ctorNameLen = length (show c)
-    traceField (x, s) = "    mark_gray(AS_ALLOC(ctor->" ++ show x ++ "));"
-    displayField (x, s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(AS_ALLOC(ctor->" ++ show x ++ "), sb);"
+    traceField (x, _s) = "    mark_gray(AS_ALLOC(ctor->" ++ show x ++ "));"
+    displayField (x, _s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(AS_ALLOC(ctor->" ++ show x ++ "), sb);"
 
 emitCtorAllocate :: CtorDecl -> [Line]
 emitCtorAllocate (CtorDecl tc c _tys i args) =
@@ -343,7 +343,7 @@ emitCtorAllocate (CtorDecl tc c _tys i args) =
   ,"}"]
   where
     params = [emitPlace (Place s x) | (x, s) <- args]
-    assignField (x, s) = "    ctor->" ++ show x ++ " = " ++ show x ++ ";"
+    assignField (x, _s) = "    ctor->" ++ show x ++ " = " ++ show x ++ ";"
 
 
 emitClosureDecl :: DataEnv -> CodeDecl -> [Line]
@@ -533,20 +533,25 @@ emitValueAlloc _ _ (PairH x y) =
   "allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ asAlloc (emitName y) ++ ")"
 emitValueAlloc _ _ NilH = "allocate_unit()"
 emitValueAlloc _ _ WorldToken = "allocate_token()"
+-- Problem: emitValueAlloc assumes that initializer for a value is just an expression.
+-- To initialize a record, I need to allocate it, then assign each field.
+-- emitValueAlloc _ _ (RecordH fields) =
+--   ["struct record *"]
 emitValueAlloc denv ty (CtorAppH capp) =
   case asTyConApp ty of
     Nothing -> error "not a constructed type"
-    Just kind -> emitCtorAlloc denv kind capp
+    Just tcapp -> emitCtorAlloc (dataDescFor denv tcapp) capp
 
-emitCtorAlloc :: DataEnv -> TyConApp -> CtorAppH -> String
-emitCtorAlloc denv tcapp capp = method ++ "(" ++ commaSep args' ++ ")"
+emitCtorAlloc :: DataDesc -> CtorAppH -> String
+emitCtorAlloc desc capp = method ++ "(" ++ commaSep args' ++ ")"
   where
     (tycon, ctorName, args) = case capp of
       InlH x -> (TyCon "sum", Ctor "inl", [x])
       InrH x -> (TyCon "sum", Ctor "inr", [x])
       CtorApp tc c xs -> (tc, c, xs)
     method = "allocate_" ++ show tycon ++ "_" ++ show ctorName
-    argCasts = ctorArgCasts . (Map.! ctorName) . dataCtors $ dataDescFor denv tcapp
+
+    argCasts = ctorArgCasts . (Map.! ctorName) . dataCtors $ desc
     args' = zipWith makeArg args argCasts
     makeArg x (_, Nothing) = emitName x
     makeArg x (_, Just _) = asAlloc (emitName x)
@@ -572,7 +577,6 @@ data DataDesc
 data CtorDesc
   = CtorDesc {
     ctorDiscriminant :: Int -- Instead of raw int, consider an enum for ctor tags?
-  , ctorAllocate :: String
   , ctorDowncast :: String
   , ctorArgCasts :: [(String, Maybe Sort)]
   }
@@ -588,10 +592,6 @@ dataDesc (DataDecl _tycon ctors) tyargs =
       ( c
       , CtorDesc {
         ctorDiscriminant = i
-      -- Hmm. If all ctors are distinct, I don't need to namespace with the tycon here.
-      -- (e.g., 'cons' only belongs to 'list', so I could call 'make_cons'
-      -- instead of 'make_list_cons')
-      , ctorAllocate = "allocate_" ++ show tc ++ "_" ++ show c
       , ctorDowncast = "CAST_" ++ show tc ++ "_" ++ show c
       , ctorArgCasts = argCasts
       })
@@ -608,7 +608,7 @@ dataDesc (DataDecl _tycon ctors) tyargs =
           -- argument should be cast to 'struct alloc_header *', I think.
           Nothing -> error "missing argument in tyconapp"
           Just s' -> (show fld, Just s')
-        f (fld, s) = (show fld, Nothing)
+        f (fld, _s) = (show fld, Nothing)
 
 sumDataDecl :: DataDecl
 sumDataDecl =
@@ -698,9 +698,27 @@ patchEnv recNames (ClosureAlloc _ _ _ envPlace fields) = concatMap patchField fi
       else
         []
     -- Patching recursive closures should only ever involve local names.
-    -- Additionally, we do not have access to an environment pointer in this function.
+    -- (An environment reference cannot possibly be part of this recursive bind
+    -- group, so we never need to patch a field whose value is obtained from an
+    -- EnvName)
     patchField (_, EnvName _ _) = []
 
+-- Define a local variable, by giving it a name+type, an initializer, and an
+-- optional list of field initializers.
+--
+-- (A higher-level API could/should be used instead of string-typing)
+defineLocal :: Place -> String -> [Line] -> [Line]
+defineLocal p initVal fields =
+  [emitPlace p ++ " = " ++ initVal ++ ";"] ++
+  fields
+
+-- Hmm. Consider breaking up into semantically distinct operations:
+-- (Would still be effectively identical code, though.
+-- (Could help future refactors by disentangling concepts, perhaps?)
+-- * declareParam place = <type> <ident>
+-- * declareField = <type> <ident> ;
+-- * declareLocal place = <type> <ident> ;
+-- * assignLocal place initializer = <type> <ident> = <init.exp>; <init.body>
 emitPlace :: Place -> String
 emitPlace (Place s x) = typeForSort s ++ show x
 
