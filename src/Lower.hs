@@ -121,7 +121,7 @@ withCtorDecls tc' tys (cd : cds) k =
 
 withCtorDecl :: TyCon -> [(H.TyVar, H.Kind)] -> (Int, H.CtorDecl) -> (CtorDecl -> M a) -> M a
 withCtorDecl tc' tys (i, H.CtorDecl c xs) k = do
-  withCtor tc' c $ \c' -> do
+  withCtor tc' i c $ \c' -> do
     cd <- withTyVars tys $ \tys' -> do
       xs' <- traverse (\ (l, s) -> (,) <$> lowerId l <*> lowerSort s) xs
       pure (CtorDecl tc' c' tys' i xs')
@@ -201,7 +201,7 @@ lowerCtorApp (H.BoolH b) = pure (BoolH b)
 lowerCtorApp (H.InlH x) = (CtorAppH . InlH) <$> lowerName x
 lowerCtorApp (H.InrH x) = (CtorAppH . InrH) <$> lowerName x
 lowerCtorApp (H.CtorApp c xs) =
-  (\ (tc', c') xs' -> CtorAppH $ CtorApp tc' c' xs') <$> lowerCtor' c <*> traverse lowerName xs
+  (\ (tc', c', i) xs' -> CtorAppH $ CtorApp tc' c' i xs') <$> lowerCtor c <*> traverse lowerName xs
 
 lowerPrimOp :: H.PrimOp -> M PrimOp
 lowerPrimOp (H.PrimAddInt64 x y) = PrimAddInt64 <$> lowerName x <*> lowerName y
@@ -222,7 +222,8 @@ lowerIOPrimOp (H.PrimGetLine x) = PrimGetLine <$> lowerName x
 lowerIOPrimOp (H.PrimPutLine x y) = PrimPutLine <$> lowerName x <*> lowerName y
 
 lowerCaseAlt :: (H.Ctor, H.Name) -> M CaseAlt
-lowerCaseAlt (c, k) = CaseAlt <$> lowerCtor c <*> lookupThunkType k <*> lowerName k
+lowerCaseAlt (c, k) =
+  (\ (tc', c', i) ty k' -> CaseAlt tc' c' i ty k') <$> lowerCtor c <*> lookupThunkType k <*> lowerName k
 
 lowerSort :: H.Sort -> M Sort
 lowerSort (H.AllocH aa) = AllocH <$> lowerTyVar aa
@@ -270,15 +271,12 @@ lowerTyVar aa = do
     Nothing -> error "tyvar not in scope"
     Just aa' -> pure aa'
 
-lowerCtor :: H.Ctor -> M Ctor
-lowerCtor = fmap snd . lowerCtor'
-
-lowerCtor' :: H.Ctor -> M (TyCon, Ctor)
-lowerCtor' c = do
+lowerCtor :: H.Ctor -> M (TyCon, Ctor, Int)
+lowerCtor c = do
   env <- asks envCtors
   case Map.lookup c env of
     Nothing -> error ("lowerCtor: ctor not in scope: " ++ show c)
-    Just (tc', c') -> pure (tc', c')
+    Just (tc', c', i) -> pure (tc', c', i)
 
 lowerTyCon :: H.TyCon -> M TyCon
 lowerTyCon tc = do
@@ -299,7 +297,7 @@ data LowerEnv
   , envTyVars :: Map H.TyVar TyVar
   , envEnvPtr :: Maybe Id
   , envTyCons :: Map H.TyCon TyCon
-  , envCtors :: Map H.Ctor (TyCon, Ctor)
+  , envCtors :: Map H.Ctor (TyCon, Ctor, Int)
   , envThunkTypes :: Map H.Name ThunkType
   }
 
@@ -322,8 +320,8 @@ runM = flip runReader emptyEnv . getM
     -- built-in sum types.
     -- Hopefully, I will be able to remove this in the future.
     initCtors = Map.fromList
-      [ (H.Ctor "inl", (TyCon "sum", Ctor "inl"))
-      , (H.Ctor "inr", (TyCon "sum", Ctor "inr"))
+      [ (H.Ctor "inl", (TyCon "sum", Ctor "inl", 0))
+      , (H.Ctor "inr", (TyCon "sum", Ctor "inr", 1))
       ]
 
 withEnvPtr :: H.Id -> (Id -> M a) -> M a
@@ -412,10 +410,10 @@ withTyCon tc@(H.TyCon x) k = do
   let extend env = env { envTyCons = Map.insert tc tc' (envTyCons env) }
   local extend $ k tc'
 
-withCtor :: TyCon -> H.Ctor -> (Ctor -> M a) -> M a
-withCtor tc' c@(H.Ctor x) k = do
+withCtor :: TyCon -> Int -> H.Ctor -> (Ctor -> M a) -> M a
+withCtor tc' i c@(H.Ctor x) k = do
   let c' = Ctor x
-  let extend env = env { envCtors = Map.insert c (tc', c') (envCtors env) }
+  let extend env = env { envCtors = Map.insert c (tc', c', i) (envCtors env) }
   local extend $ k c'
 
 lookupThunkType :: H.Name -> M ThunkType
@@ -647,7 +645,7 @@ data Projection = ProjectFst | ProjectSnd
 
 data ClosureArg = ValueArg Name | TypeArg Sort
 
-data CaseAlt = CaseAlt Ctor ThunkType Name
+data CaseAlt = CaseAlt TyCon Ctor Int ThunkType Name
 
 data ClosureAlloc
   = ClosureAlloc {
@@ -670,7 +668,7 @@ data ValueH
   | CtorAppH CtorAppH
 
 data CtorAppH
-  = CtorApp TyCon Ctor [Name]
+  = CtorApp TyCon Ctor Int [Name]
   | InlH Name
   | InrH Name
 
@@ -896,7 +894,7 @@ pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x 
 pprintTerm n (OpenH _ty c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
-  let branches = intercalate " | " (map (\ (CaseAlt c _ty k) -> show c ++ " -> " ++ show k) ks) in
+  let branches = intercalate " | " (map (\ (CaseAlt tc c _i _ty k) -> show tc ++ "::" ++ show c ++ " -> " ++ show k) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
 pprintTerm n (IntCaseH x ks) =
   let branches = intercalate " | " (map (\ (i, _, k) -> show i ++ " -> " ++ show k) ks) in
@@ -932,7 +930,7 @@ pprintValue (CtorAppH capp) = pprintCtorApp capp
 pprintCtorApp :: CtorAppH -> String
 pprintCtorApp (InlH x) = "inl(" ++ show x ++ ")"
 pprintCtorApp (InrH y) = "inr(" ++ show y ++ ")"
-pprintCtorApp (CtorApp tc c xs) =
+pprintCtorApp (CtorApp tc c _i xs) =
   show tc ++ "::" ++ show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String

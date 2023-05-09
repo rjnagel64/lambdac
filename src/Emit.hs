@@ -148,7 +148,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
     -- Closure invocations and case analysis suspend a closure, so the
     -- necessary thunk type must be recorded.
     termThunkTypes (OpenH ty _ _) = Set.singleton ty
-    termThunkTypes (CaseH _ _ alts) = Set.fromList [ty | CaseAlt _ ty _ <- alts]
+    termThunkTypes (CaseH _ _ alts) = Set.fromList [ty | CaseAlt _ _ _ ty _ <- alts]
     termThunkTypes (IntCaseH _ alts) = Set.fromList [ty | (_, ty, _) <- alts]
     termThunkTypes (LetValH _ _ e) = termThunkTypes e
     termThunkTypes (LetPrimH _ _ e) = termThunkTypes e
@@ -457,8 +457,9 @@ emitTerm _ (HaltH _ x) =
   ["    halt_with(" ++ asAlloc (emitName x) ++ ");"]
 emitTerm _ (OpenH ty c args) =
   [emitSuspend ty c args]
-emitTerm denv (CaseH x kind ks) =
-  emitCase denv kind x ks
+emitTerm denv (CaseH x tcapp ks) =
+  let desc = dataDescFor denv tcapp in
+  emitCase desc x ks
 emitTerm _ (IntCaseH x ks) =
   emitIntCase x ks
 
@@ -484,27 +485,25 @@ emitSuspend ty cl xs =
 -- Maybe a compromise? suspend method and discriminant are fairly universal, so
 -- they can go into Lower2. Struct downcasts and argument casts are C-specific,
 -- so they can stay here.
-emitCase :: DataEnv -> TyConApp -> Name -> [CaseAlt] -> [Line]
-emitCase denv tcapp x branches =
+emitCase :: DataDesc -> Name -> [CaseAlt] -> [Line]
+emitCase desc x branches =
   ["    switch (" ++ emitName x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch branches ++
   ["    default:"
   ,"        panic(\"invalid discriminant\");"
   ,"    }"]
   where
-    desc = dataDescFor denv tcapp
-
     emitCaseBranch :: CaseAlt -> [String]
-    emitCaseBranch (CaseAlt ctor ty k) =
+    emitCaseBranch (CaseAlt tc ctor i ty k) =
       let
-        ctordesc = dataCtors desc Map.! ctor
-        ctorVal = ctorDowncast ctordesc ++ "(" ++ emitName x ++ ")"
+        argCasts = ctorArgCasts (dataCtors desc Map.! ctor)
+        ctorVal = "CAST_" ++ show tc ++ "_" ++ show ctor ++ "(" ++ emitName x ++ ")"
         method = thunkSuspendName (namesForThunk ty)
-        args = emitName k : map mkArg (ctorArgCasts ctordesc)
+        args = emitName k : map mkArg argCasts
         mkArg (argName, Nothing) = ctorVal ++ "->" ++ argName
         mkArg (argName, Just argSort) = asSort argSort (ctorVal ++ "->" ++ argName)
       in
-        ["    case " ++ show (ctorDiscriminant ctordesc) ++ ":"
+        ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
 
@@ -548,10 +547,10 @@ emitCtorAlloc desc capp = method ++ "(" ++ commaSep args' ++ ")"
     (tycon, ctorName, args) = case capp of
       InlH x -> (TyCon "sum", Ctor "inl", [x])
       InrH x -> (TyCon "sum", Ctor "inr", [x])
-      CtorApp tc c xs -> (tc, c, xs)
+      CtorApp tc c _i xs -> (tc, c, xs)
     method = "allocate_" ++ show tycon ++ "_" ++ show ctorName
 
-    argCasts = ctorArgCasts . (Map.! ctorName) . dataCtors $ desc
+    argCasts = ctorArgCasts (dataCtors desc Map.! ctorName)
     args' = zipWith makeArg args argCasts
     makeArg x (_, Nothing) = emitName x
     makeArg x (_, Just _) = asAlloc (emitName x)
@@ -575,11 +574,7 @@ data DataDesc
 -- aa', then that field should be cast to 't', where the case kind specifies
 -- that '[aa := t]'
 data CtorDesc
-  = CtorDesc {
-    ctorDiscriminant :: Int -- Instead of raw int, consider an enum for ctor tags?
-  , ctorDowncast :: String
-  , ctorArgCasts :: [(String, Maybe Sort)]
-  }
+  = CtorDesc { ctorArgCasts :: [(String, Maybe Sort)] }
 
 dataDesc :: DataDecl -> [Sort] -> DataDesc
 dataDesc (DataDecl _tycon ctors) tyargs =
@@ -587,14 +582,8 @@ dataDesc (DataDecl _tycon ctors) tyargs =
     dataCtors = Map.fromList $ map ctorDesc ctors
   }
   where
-    -- sub = listSubst (zip (map fst typarams) tyargs)
     ctorDesc (CtorDecl tc c tys i args) =
-      ( c
-      , CtorDesc {
-        ctorDiscriminant = i
-      , ctorDowncast = "CAST_" ++ show tc ++ "_" ++ show c
-      , ctorArgCasts = argCasts
-      })
+      (c, CtorDesc { ctorArgCasts = argCasts })
       where
         sub = listSubst (zip (map fst tys) tyargs)
         argCasts = map f args
