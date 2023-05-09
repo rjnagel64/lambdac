@@ -433,7 +433,8 @@ emitClosureCode denv ns envName xs e =
 
 emitTerm :: DataEnv -> TermH -> [Line]
 emitTerm denv (LetValH x v e) =
-  ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc denv (placeSort x) v ++ ";"] ++
+  emitValueDefinition denv x v ++
+  -- ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc denv (placeSort x) v ++ ";"] ++
   emitTerm denv e
 emitTerm denv (LetProjectH x y ProjectFst e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName y ++ "->fst") ++ ";"] ++
@@ -522,23 +523,30 @@ emitIntCase x branches =
         ,"        " ++ method ++ "(" ++ emitName k ++ ");"
         ,"        break;"]
 
-emitValueAlloc :: DataEnv -> Sort -> ValueH -> String
-emitValueAlloc _ _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
-emitValueAlloc _ _ (BoolH b) = "allocate_bool_value(" ++ (if b then "1" else "0") ++ ")"
-emitValueAlloc _ _ (StringValH s) =
-  "allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")"
-emitValueAlloc _ _ (PairH x y) =
-  "allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ asAlloc (emitName y) ++ ")"
-emitValueAlloc _ _ NilH = "allocate_unit()"
-emitValueAlloc _ _ WorldToken = "allocate_token()"
--- Problem: emitValueAlloc assumes that initializer for a value is just an expression.
--- To initialize a record, I need to allocate it, then assign each field.
--- emitValueAlloc _ _ (RecordH fields) =
---   ["struct record *"]
-emitValueAlloc denv ty (CtorAppH capp) =
-  case asTyConApp ty of
+emitValueDefinition :: DataEnv -> Place -> ValueH -> [Line]
+emitValueDefinition _ p (IntH i) =
+  defineLocal p ("allocate_int64(" ++ show i ++ ")") []
+emitValueDefinition _ p (BoolH b) =
+  defineLocal p (if b then "allocate_bool_value(1)" else "allocate_bool_value(0)") []
+emitValueDefinition _ p (StringValH s) =
+  defineLocal p ("allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")") []
+emitValueDefinition _ p (PairH x y) =
+  defineLocal p ("allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ asAlloc (emitName y) ++ ")") []
+emitValueDefinition _ p NilH =
+  defineLocal p "allocate_unit()" []
+emitValueDefinition _ p WorldToken =
+  defineLocal p "allocate_token()" []
+emitValueDefinition denv p (CtorAppH capp) =
+  case asTyConApp (placeSort p) of
     Nothing -> error "not a constructed type"
-    Just tcapp -> emitCtorAlloc (dataDescFor denv tcapp) capp
+    Just tcapp ->
+      let desc = dataDescFor denv tcapp in
+      defineLocal p (emitCtorAlloc desc capp) []
+-- emitValueDefinition p (RecordH fields) =
+--   defineLocal p ("allocate_record(" ++ show (length fields) ++ ")") fields'
+--   where
+--     fields' = map assignField fields
+--     assignField (f, x) = "    " ++ show (placeName p) ++ "->" ++ show f ++ " = " ++ emitName x ++ ";"
 
 emitCtorAlloc :: DataDesc -> CtorAppH -> String
 emitCtorAlloc desc capp = method ++ "(" ++ commaSep args' ++ ")"
