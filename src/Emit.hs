@@ -148,7 +148,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
     -- Closure invocations and case analysis suspend a closure, so the
     -- necessary thunk type must be recorded.
     termThunkTypes (OpenH ty _ _) = Set.singleton ty
-    termThunkTypes (CaseH _ _ alts) = Set.fromList [ty | CaseAlt _ _ _ ty _ <- alts]
+    termThunkTypes (CaseH _ _ alts) = Set.fromList [ty | CaseAlt _ ty _ <- alts]
     termThunkTypes (IntCaseH _ alts) = Set.fromList [ty | (_, ty, _) <- alts]
     termThunkTypes (LetValH _ _ e) = termThunkTypes e
     termThunkTypes (LetPrimH _ _ e) = termThunkTypes e
@@ -299,7 +299,7 @@ emitCtorDecl cd =
   emitCtorAllocate cd
 
 emitCtorStruct :: CtorDecl -> [Line]
-emitCtorStruct (CtorDecl tc c _tys _i args) =
+emitCtorStruct (CtorDecl (Ctor tc c _i) _tys args) =
   let ctorId = show tc ++ "_" ++ show c in
   ["struct " ++ ctorId ++ " {"
   ,"    struct " ++ show tc ++ " header;"] ++
@@ -309,7 +309,7 @@ emitCtorStruct (CtorDecl tc c _tys _i args) =
   where makeField (x, s) = "    " ++ emitPlace (Place s x) ++ ";"
 
 emitCtorInfo :: CtorDecl -> [Line]
-emitCtorInfo (CtorDecl tc c _tys _i args) =
+emitCtorInfo (CtorDecl (Ctor tc c _i) _tys args) =
   -- Hmm. May need DataNames and CtorNames
   let ctorId = show tc ++ "_" ++ show c in
   let ctorCast = "CAST_" ++ ctorId in
@@ -319,20 +319,19 @@ emitCtorInfo (CtorDecl tc c _tys _i args) =
   ["}"
   ,"void display_" ++ ctorId ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
   ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ "(alloc);"
-  ,"    string_buf_push_slice(sb, " ++ ctorNameString ++ ", " ++ show ctorNameLen ++ ");"
+  ,"    string_buf_push_slice(sb, " ++ show cname ++ ", " ++ show (length cname) ++ ");"
   ,"    string_buf_push_slice(sb, \"(\", 1);"] ++
   intersperse "string_buf_push_slice(sb, \", \", 2);" (map displayField args) ++
   ["    string_buf_push_slice(sb, \")\", 1);"
   ,"}"
   ,"const type_info " ++ ctorId ++ "_info = { trace_" ++ ctorId ++ ", display_" ++ ctorId ++ " };"]
   where
-    ctorNameString = show (show c)
-    ctorNameLen = length (show c)
+    cname = show c
     traceField (x, _s) = "    mark_gray(AS_ALLOC(ctor->" ++ show x ++ "));"
     displayField (x, _s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(AS_ALLOC(ctor->" ++ show x ++ "), sb);"
 
 emitCtorAllocate :: CtorDecl -> [Line]
-emitCtorAllocate (CtorDecl tc c _tys i args) =
+emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
   let ctorId = show tc ++ "_" ++ show c in
   ["struct " ++ show tc ++ " *allocate_" ++ ctorId ++ "(" ++ commaSep params ++ ") {"
   ,"    struct " ++ ctorId ++ " *ctor = malloc(sizeof(struct " ++ ctorId ++ "));"
@@ -494,9 +493,9 @@ emitCase desc x branches =
   ,"    }"]
   where
     emitCaseBranch :: CaseAlt -> [String]
-    emitCaseBranch (CaseAlt tc ctor i ty k) =
+    emitCaseBranch (CaseAlt c@(Ctor tc ctor i) ty k) =
       let
-        argCasts = ctorArgCasts (dataCtors desc Map.! ctor)
+        argCasts = ctorArgCasts (dataCtors desc Map.! c)
         ctorVal = "CAST_" ++ show tc ++ "_" ++ show ctor ++ "(" ++ emitName x ++ ")"
         method = thunkSuspendName (namesForThunk ty)
         args = emitName k : map mkArg argCasts
@@ -544,13 +543,13 @@ emitValueAlloc denv ty (CtorAppH capp) =
 emitCtorAlloc :: DataDesc -> CtorAppH -> String
 emitCtorAlloc desc capp = method ++ "(" ++ commaSep args' ++ ")"
   where
-    (tycon, ctorName, args) = case capp of
-      InlH x -> (TyCon "sum", Ctor "inl", [x])
-      InrH x -> (TyCon "sum", Ctor "inr", [x])
-      CtorApp tc c _i xs -> (tc, c, xs)
-    method = "allocate_" ++ show tycon ++ "_" ++ show ctorName
+    (c, args) = case capp of
+      InlH x -> (Ctor (TyCon "sum") (Id "inl") 0, [x])
+      InrH x -> (Ctor (TyCon "sum") (Id "inr") 1, [x])
+      CtorApp ctor xs -> (ctor, xs)
+    method = "allocate_" ++ show (ctorTyCon c) ++ "_" ++ show (ctorName c)
 
-    argCasts = ctorArgCasts (dataCtors desc Map.! ctorName)
+    argCasts = ctorArgCasts (dataCtors desc Map.! c)
     args' = zipWith makeArg args argCasts
     makeArg x (_, Nothing) = emitName x
     makeArg x (_, Just _) = asAlloc (emitName x)
@@ -582,7 +581,7 @@ dataDesc (DataDecl _tycon ctors) tyargs =
     dataCtors = Map.fromList $ map ctorDesc ctors
   }
   where
-    ctorDesc (CtorDecl tc c tys i args) =
+    ctorDesc (CtorDecl c tys args) =
       (c, CtorDesc { ctorArgCasts = argCasts })
       where
         sub = listSubst (zip (map fst tys) tyargs)
@@ -606,8 +605,8 @@ sumDataDecl =
   let bb = TyVar (Id "b") in
   let tys = [(aa, Star), (bb, Star)] in
   DataDecl tc
-  [ CtorDecl tc (Ctor "inl") tys 0 [(Id "payload", AllocH aa)]
-  , CtorDecl tc (Ctor "inr") tys 1 [(Id "payload", AllocH bb)]
+  [ CtorDecl (Ctor tc (Id "inl") 0) tys [(Id "payload", AllocH aa)]
+  , CtorDecl (Ctor tc (Id "inr") 1) tys [(Id "payload", AllocH bb)]
   ]
 
 dataDescFor :: DataEnv -> TyConApp -> DataDesc
