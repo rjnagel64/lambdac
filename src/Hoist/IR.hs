@@ -161,6 +161,7 @@ data Sort
   | ProductH Sort Sort
   | SumH Sort Sort
   | ClosureH ClosureTele
+  | RecordH [(Id, Sort)]
   | TyConH TyCon
   | TyAppH Sort Sort
   | TokenH
@@ -254,6 +255,7 @@ data ValueH
   | PairH Name Name
   | NilH
   | WorldToken
+  | RecordValH [(Id, Name)]
   | CtorAppH CtorAppH
 
 data CtorAppH
@@ -564,6 +566,9 @@ pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (SumH t s) = "sum " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (TyAppH t s) = pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
+pprintSort (RecordH []) = "{}"
+pprintSort (RecordH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
+  where pprintField (f, t) = show f ++ " : " ++ pprintSort t
 pprintSort (AllocH aa) = show aa
 pprintSort (TyConH tc) = show tc
 

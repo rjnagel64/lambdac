@@ -357,6 +357,8 @@ checkValue (StringValH _) StringH = pure ()
 checkValue (StringValH _) _ = throwError BadValue
 checkValue WorldToken TokenH = pure ()
 checkValue WorldToken _ = throwError BadValue
+checkValue (RecordValH fieldVals) (RecordH fieldTys) = checkFieldTys fieldVals fieldTys
+checkValue (RecordValH _) _ = throwError BadValue
 checkValue (CtorAppH capp) s = case asTyConApp s of
   Nothing -> throwError BadCtorApp
   Just tcapp -> checkCtorApp capp tcapp

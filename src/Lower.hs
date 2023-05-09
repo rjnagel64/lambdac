@@ -193,6 +193,8 @@ lowerValue (H.StringValH s) = pure (StringValH s)
 lowerValue (H.PairH x y) = PairH <$> lowerName x <*> lowerName y
 lowerValue H.NilH = pure NilH
 lowerValue H.WorldToken = pure WorldToken
+lowerValue (H.RecordValH fields) = RecordH <$> traverse lowerField fields
+  where lowerField (f, x) = (,) <$> lowerId f <*> lowerName x
 lowerValue (H.CtorAppH capp) = lowerCtorApp capp
 
 -- Slightly messy, because booleans are ctorapp in Hoist, but back to being Value in Lower
@@ -234,6 +236,8 @@ lowerSort H.StringH = pure StringH
 lowerSort (H.ProductH t s) = ProductH <$> lowerSort t <*> lowerSort s
 lowerSort (H.SumH t s) = SumH <$> lowerSort t <*> lowerSort s
 lowerSort (H.ClosureH tele) = ClosureH <$> lowerClosureTele tele
+lowerSort (H.RecordH fields) = TyRecordH <$> traverse lowerField fields
+  where lowerField (f, t) = (,) <$> lowerId f <*> lowerSort t
 lowerSort (H.TyConH tc) = TyConH <$> lowerTyCon tc
 lowerSort (H.TyAppH t s) = TyAppH <$> lowerSort t <*> lowerSort s
 lowerSort H.TokenH = pure TokenH
@@ -573,6 +577,7 @@ data Sort
   | ProductH Sort Sort
   | SumH Sort Sort
   | ClosureH ClosureTele
+  | TyRecordH [(Id, Sort)]
   | TyConH TyCon
   | TyAppH Sort Sort
   | TokenH
@@ -926,6 +931,9 @@ pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (StringValH s) = show s
 pprintValue WorldToken = "WORLD#"
+pprintValue (RecordH []) = "{}"
+pprintValue (RecordH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
+  where pprintField (f, x) = show f ++ " = " ++ show x
 pprintValue (CtorAppH capp) = pprintCtorApp capp
 
 pprintCtorApp :: CtorAppH -> String
