@@ -5,5 +5,6 @@
 #include "prim.h"
 #include "control.h"
 #include "panic.h"
+#include "simple_record.h"
 
 #endif

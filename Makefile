@@ -9,7 +9,7 @@ RTSFLAGS = -O2
 # would be helpful for alternating between ASAN and optimized program runs.
 # I'm not quite sure how to write concise 'make' rules for that, without lots of duplication.
 rts/librts.a: rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/string_buf.o rts/simple_record.o rts/main.o
-	ar -crs rts/librts.a rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/string_buf.o rts/main.o
+	ar -crs rts/librts.a rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/string_buf.o rts/simple_record.o rts/main.o
 
 rts/alloc.o: rts/alloc.c rts/alloc.h rts/panic.h rts/string_buf.h
 	clang $(RTSFLAGS) -c rts/alloc.c -o rts/alloc.o

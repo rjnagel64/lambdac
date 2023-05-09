@@ -134,6 +134,7 @@ io_test("hello")
 io_test("echo")
 io_test("bind_pure")
 standard_test("hash", "(508950784, 508950784)")
+standard_test("simple_proj", "true")
 
 def run_tests(test_filter):
     runner = TestRunner()

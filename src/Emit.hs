@@ -113,7 +113,7 @@ asSort (AllocH _) x = asAlloc x
 asSort IntegerH x = "CAST_INT64(" ++ x ++ ")"
 asSort (ClosureH _) x = "CAST_CLOSURE(" ++ x ++ ")"
 asSort StringH x = "CAST_STRING(" ++ x ++ ")"
-asSort BooleanH x = "CAST_bool(" ++ x ++ ")"
+asSort BooleanH x = "CAST_bool_value(" ++ x ++ ")"
 asSort (ProductH _ _) x = "CAST_PAIR(" ++ x ++ ")"
 asSort (SumH _ _) x = "CAST_sum(" ++ x ++ ")"
 asSort UnitH x = "CAST_UNIT(" ++ x ++ ")"
@@ -546,7 +546,7 @@ emitValueDefinition _ p (RecordH fields) =
     assignField (i, (Id label, x)) =
       let lval = show (placeName p) ++ "->fields[" ++ show i ++ "]" in
       ["    " ++ lval ++ ".label = allocate_string(" ++ show label ++ ", " ++ show (length label) ++ ");"
-      ,"    " ++ lval ++ ".value = " ++ emitName x ++ ";"]
+      ,"    " ++ lval ++ ".value = " ++ asAlloc (emitName x) ++ ";"]
 emitValueDefinition denv p (CtorAppH capp) =
   case asTyConApp (placeSort p) of
     Nothing -> error "not a constructed type"

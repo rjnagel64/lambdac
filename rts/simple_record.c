@@ -41,6 +41,7 @@ const type_info record_info = { trace_record, display_record };
 
 struct record *allocate_record(size_t num_fields) {
     struct record *rec = malloc(sizeof(struct record) + num_fields * sizeof(struct record_field));
+    rec->num_fields = num_fields;
     // Ensure memory is initialized, even if null.
     // The GC currently ignores NULL fields, so it's fine for a GC to occur
     // before the record is fully initialized.

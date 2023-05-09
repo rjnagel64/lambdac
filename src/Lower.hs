@@ -195,7 +195,7 @@ lowerValue H.NilH = pure NilH
 lowerValue H.WorldToken = pure WorldToken
 lowerValue (H.CtorAppH capp) = lowerCtorApp capp
 
--- Slightly messy, because booleans are ctorapp in Hoist, but back to being Value in Lower2
+-- Slightly messy, because booleans are ctorapp in Hoist, but back to being Value in Lower
 lowerCtorApp :: H.CtorAppH -> M ValueH
 lowerCtorApp (H.BoolH b) = pure (BoolH b)
 lowerCtorApp (H.InlH x) = (CtorAppH . InlH) <$> lowerName x
@@ -906,6 +906,7 @@ pprintTerm n (LetProjectH x y p e) =
   where
     proj ProjectFst = "fst"
     proj ProjectSnd = "snd"
+    proj (ProjectField f) = show f
 pprintTerm n (LetPrimH x p e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintPrim p ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetBindH p1 p2 prim e) =
