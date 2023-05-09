@@ -434,13 +434,15 @@ emitClosureCode denv ns envName xs e =
 emitTerm :: DataEnv -> TermH -> [Line]
 emitTerm denv (LetValH x v e) =
   emitValueDefinition denv x v ++
-  -- ["    " ++ emitPlace x ++ " = " ++ emitValueAlloc denv (placeSort x) v ++ ";"] ++
   emitTerm denv e
 emitTerm denv (LetProjectH x y ProjectFst e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName y ++ "->fst") ++ ";"] ++
   emitTerm denv e
 emitTerm denv (LetProjectH x y ProjectSnd e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName y ++ "->snd") ++ ";"] ++
+  emitTerm denv e
+emitTerm denv (LetProjectH x y (ProjectField (Id f)) e) =
+  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_field(" ++ emitName y ++ ", " ++ show f ++ ", " ++ show (length f) ++ ")") ++ ";"] ++
   emitTerm denv e
 emitTerm denv (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp p ++ ";"] ++
@@ -536,17 +538,21 @@ emitValueDefinition _ p NilH =
   defineLocal p "allocate_unit()" []
 emitValueDefinition _ p WorldToken =
   defineLocal p "allocate_token()" []
+emitValueDefinition _ p (RecordH fields) =
+  defineLocal p ("allocate_record(" ++ show (length fields) ++ ")") fields'
+  where
+    fields' = concatMap assignField (zip [0..] fields)
+    assignField :: (Int, (Id, Name)) -> [Line]
+    assignField (i, (Id label, x)) =
+      let lval = show (placeName p) ++ "->fields[" ++ show i ++ "]" in
+      ["    " ++ lval ++ ".label = allocate_string(" ++ show label ++ ", " ++ show (length label) ++ ");"
+      ,"    " ++ lval ++ ".value = " ++ emitName x ++ ";"]
 emitValueDefinition denv p (CtorAppH capp) =
   case asTyConApp (placeSort p) of
     Nothing -> error "not a constructed type"
     Just tcapp ->
       let desc = dataDescFor denv tcapp in
       defineLocal p (emitCtorAlloc desc capp) []
--- emitValueDefinition p (RecordH fields) =
---   defineLocal p ("allocate_record(" ++ show (length fields) ++ ")") fields'
---   where
---     fields' = map assignField fields
---     assignField (f, x) = "    " ++ show (placeName p) ++ "->" ++ show f ++ " = " ++ emitName x ++ ";"
 
 emitCtorAlloc :: DataDesc -> CtorAppH -> String
 emitCtorAlloc desc capp = method ++ "(" ++ commaSep args' ++ ")"

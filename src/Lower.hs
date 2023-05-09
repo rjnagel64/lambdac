@@ -641,7 +641,7 @@ data TermH
   -- 'case x of { 17 -> k1 | 32 -> k2 | ... | default -> kd }'
   | IntCaseH Name [(Int64, ThunkType, Name)] -- all thunktypes should be no-arg, ThunkType []
 
-data Projection = ProjectFst | ProjectSnd
+data Projection = ProjectFst | ProjectSnd | ProjectField Id
 
 data ClosureArg = ValueArg Name | TypeArg Sort
 
@@ -664,7 +664,7 @@ data ValueH
   | PairH Name Name
   | NilH
   | WorldToken
-  -- | RecordH [(Id, Name)]
+  | RecordH [(Id, Name)]
   | CtorAppH CtorAppH
 
 data CtorAppH
