@@ -16,6 +16,7 @@ module CPS.IR
     , TyVar(..)
     , TyCon(..)
     , Ctor(..)
+    , FieldLabel(..)
 
     , FunDef(..)
     , funDefName
@@ -80,6 +81,12 @@ instance Show TyCon where
   show (TyCon tc) = tc
 instance Show Ctor where
   show (Ctor c) = c
+
+newtype FieldLabel = FieldLabel String
+  deriving Eq
+
+instance Show FieldLabel where
+  show (FieldLabel f) = f
 
 
 -- TODO: Remove annotation parameter from CPS.IR
@@ -178,6 +185,7 @@ data ValueK
   = NilK
   | WorldTokenK
   | PairK TmVar TmVar
+  | RecordValK [(FieldLabel, TmVar)]
   | InlK TmVar
   | InrK TmVar
   | IntValK Int
@@ -220,6 +228,8 @@ data TypeK
   | StringK
   -- σ × τ
   | ProdK TypeK TypeK
+  -- { (l : τ)+ }
+  | RecordK [(FieldLabel, TypeK)]
   -- σ + τ
   | SumK TypeK TypeK
   -- (τ+) => ((σ+) -> !)+
@@ -294,6 +304,9 @@ eqTypeK' _ StringK StringK = True
 eqTypeK' _ StringK _ = False
 eqTypeK' sc (ProdK t1 s1) (ProdK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
 eqTypeK' _ (ProdK _ _) _ = False
+eqTypeK' sc (RecordK fs1) (RecordK fs2) = allEqual f fs1 fs2
+  where f (f1, t1) (f2, t2) = f1 == f2 && eqTypeK' sc t1 t2
+eqTypeK' _ (RecordK _) _ = False
 eqTypeK' sc (SumK t1 s1) (SumK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
 eqTypeK' _ (SumK _ _) _ = False
 eqTypeK' sc (TyAppK t1 s1) (TyAppK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
@@ -342,6 +355,7 @@ typeFV (TyVarOccK aa) = Set.singleton aa
 typeFV (AllK aas ss) = Set.unions (map coTypeFV ss) Set.\\ Set.fromList (map fst aas)
 typeFV (FunK ts ss) = Set.unions (map typeFV ts) <> Set.unions (map coTypeFV ss)
 typeFV (ProdK t s) = typeFV t <> typeFV s
+typeFV (RecordK fields) = foldMap (typeFV . snd) fields
 typeFV (SumK t s) = typeFV t <> typeFV s
 typeFV (TyAppK t s) = typeFV t <> typeFV s
 typeFV UnitK = Set.empty
@@ -366,6 +380,7 @@ substTypeK sub (AllK aas ss) =
   AllK aas' (map (substCoTypeK sub') ss)
 substTypeK sub (FunK ts ss) = FunK (map (substTypeK sub) ts) (map (substCoTypeK sub) ss)
 substTypeK sub (ProdK t s) = ProdK (substTypeK sub t) (substTypeK sub s)
+substTypeK sub (RecordK fields) = RecordK (map (\ (f, t) -> (f, substTypeK sub t)) fields)
 substTypeK sub (SumK t s) = SumK (substTypeK sub t) (substTypeK sub s)
 substTypeK sub (TyAppK t s) = TyAppK (substTypeK sub t) (substTypeK sub s)
 substTypeK _ UnitK = UnitK
@@ -467,6 +482,9 @@ pprintValue :: ValueK -> String
 pprintValue NilK = "()"
 pprintValue WorldTokenK = "WORLD#"
 pprintValue (PairK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (RecordValK []) = "{}"
+pprintValue (RecordValK xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
+  where pprintField (f, x) = show f ++ " = " ++ show x
 pprintValue (IntValK i) = show i
 pprintValue (BoolValK b) = if b then "true" else "false"
 pprintValue (InlK x) = "inl " ++ show x
@@ -528,6 +546,9 @@ pprintTmParams xs = "(" ++ intercalate ", " (map f xs) ++ ")"
 
 pprintType :: TypeK -> String
 pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s
+pprintType (RecordK []) = "{}"
+pprintType (RecordK xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
+  where pprintField (f, t) = show f ++ " : " ++ pprintType t
 pprintType (SumK t s) = pprintAType t ++ " + " ++ pprintAType s
 pprintType (FunK ts ss) =
   "(" ++ intercalate ", " tmParams ++ ") -> (" ++ intercalate ", " coParams ++ ")"
@@ -553,6 +574,9 @@ pprintAType UnitK = "unit"
 pprintAType TokenK = "unit"
 pprintAType BoolK = "bool"
 pprintAType StringK = "string"
+pprintAType (RecordK []) = "{}"
+pprintAType (RecordK xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
+  where pprintField (f, t) = show f ++ " : " ++ pprintType t
 pprintAType t = "(" ++ pprintType t ++ ")"
 
 pprintCoType :: CoTypeK -> String

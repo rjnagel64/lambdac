@@ -55,6 +55,8 @@ sortOf C.Unit = UnitH
 sortOf C.Token = TokenH
 sortOf C.String = StringH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
+sortOf (C.Record fields) = RecordH (map sortOfField fields)
+  where sortOfField (C.FieldLabel f, t) = (Id f, sortOf t)
 sortOf (C.Sum t s) = SumH (sortOf t) (sortOf s)
 sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
   where
@@ -269,6 +271,9 @@ hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
 hoistValue (C.BoolC b) = pure (CtorAppH (BoolH b))
 hoistValue (C.PairC x y) =
   PairH <$> hoistVarOcc x <*> hoistVarOcc y
+hoistValue (C.RecordC fields) =
+  RecordValH <$> traverse hoistField fields
+  where hoistField (C.FieldLabel f, x) = (,) <$> pure (Id f) <*> hoistVarOcc x
 hoistValue C.NilC = pure NilH
 hoistValue C.WorldTokenC = pure WorldToken
 hoistValue (C.InlC x) = (CtorAppH . InlH) <$> hoistVarOcc x

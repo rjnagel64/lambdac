@@ -9,6 +9,7 @@ module CC.IR
   , TyVar(..)
   , TyCon(..)
   , Ctor(..)
+  , FieldLabel(..)
 
   , TermC(..)
   , ValueC(..)
@@ -105,6 +106,8 @@ data Ctor = Ctor String
 instance Show Ctor where
   show (Ctor c) = c
 
+newtype FieldLabel = FieldLabel String
+
 -- | 'Sort' is really just the CC equivalent of a type.
 -- (The different name exists mostly for historical reasons)
 data Sort
@@ -114,6 +117,7 @@ data Sort
   | Sum Sort Sort
   | String
   | Pair Sort Sort
+  | Record [(FieldLabel, Sort)]
   | Unit
   | Boolean
   | TyConOcc TyCon
@@ -230,6 +234,7 @@ data EnvDef
 
 data ValueC
   = PairC Name Name
+  | RecordC [(FieldLabel, Name)]
   | NilC
   | WorldTokenC
   | InlC Name

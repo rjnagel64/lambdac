@@ -172,6 +172,8 @@ cconvType K.BoolK = pure Boolean
 cconvType K.StringK = pure String
 cconvType (K.SumK t1 t2) = Sum <$> cconvType t1 <*> cconvType t2
 cconvType (K.ProdK t1 t2) = Pair <$> cconvType t1 <*> cconvType t2
+cconvType (K.RecordK fields) = Record <$> traverse cconvField fields
+  where cconvField (f, t) = (,) <$> cconvFieldLabel f <*> cconvType t
 cconvType (K.FunK ts ss) = f <$> traverse cconvType ts <*> traverse cconvCoType ss
   where f ts' ss' = Closure (map ValueTele ts' ++ map ValueTele ss')
 cconvType (K.TyConOccK (K.TyCon tc)) = pure (TyConOcc (TyCon tc))
@@ -310,6 +312,7 @@ makeClosureEnv flds = do
     ftv _ (TyConOcc _) = Set.empty
     ftv ctx (Sum t1 t2) = ftv ctx t1 <> ftv ctx t2
     ftv ctx (Pair t1 t2) = ftv ctx t1 <> ftv ctx t2
+    ftv ctx (Record fields) = foldMap (ftv ctx . snd) fields
     ftv ctx (TyApp t1 t2) = ftv ctx t1 <> ftv ctx t2
 
 
@@ -379,5 +382,8 @@ cconvTyVar aa = do
     Nothing -> error ("type variable not in scope: " ++ show aa)
     Just (aa', k) -> writer (aa', singleTyOcc aa' k)
 
+
+cconvFieldLabel :: K.FieldLabel -> ConvM FieldLabel
+cconvFieldLabel (K.FieldLabel f) = pure (FieldLabel f)
 
 

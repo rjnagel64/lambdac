@@ -320,6 +320,7 @@ checkCtorApp c args tcapp@(TyConApp tc _) = do
   case Map.lookup c ctors of
     Nothing -> throwError (InvalidCtor c tc)
     Just argTys -> checkCtorArgs args argTys
+checkCtorApp _ _ _ = error "ctor application can only construct a TyCon, not bool or t + s"
 
 instantiateTyConApp :: TyConApp -> TC (Map Ctor [TypeK])
 instantiateTyConApp (TyConApp tc tys) = do
@@ -379,6 +380,8 @@ inferType (FunK ts ss) =
   traverse_ (\s -> checkCoType s StarK) ss *>
   pure StarK
 inferType (ProdK t s) = checkType t StarK *> checkType s StarK *> pure StarK
+-- Hmm. Check that field labels are unique?
+inferType (RecordK fields) = traverse_ (\ (f, t) -> checkType t StarK) fields *> pure StarK
 inferType (SumK t s) = checkType t StarK *> checkType s StarK *> pure StarK
 inferType UnitK = pure StarK
 inferType IntK = pure StarK
