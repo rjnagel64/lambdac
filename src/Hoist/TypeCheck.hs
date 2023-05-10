@@ -263,6 +263,9 @@ checkTerm (LetProjectH p x proj e) = do
   case (s, proj) of
     (ProductH s' _, ProjectFst) -> equalSorts (placeSort p) s'
     (ProductH _ t', ProjectSnd) -> equalSorts (placeSort p) t'
+    (RecordH fs, ProjectField f) -> case lookup f fs of
+      Nothing -> throwError (BadProjection s proj)
+      Just s' -> equalSorts (placeSort p) s'
     (_, _) -> throwError (BadProjection s proj)
   withPlace p $ checkTerm e
 checkTerm (HaltH s x) = do

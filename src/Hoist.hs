@@ -56,7 +56,7 @@ sortOf C.Token = TokenH
 sortOf C.String = StringH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.Record fields) = RecordH (map sortOfField fields)
-  where sortOfField (C.FieldLabel f, t) = (FieldLabel f, sortOf t)
+  where sortOfField (f, t) = (hoistFieldLabel f, sortOf t)
 sortOf (C.Sum t s) = SumH (sortOf t) (sortOf s)
 sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
   where
@@ -167,6 +167,11 @@ hoist (C.LetSndC (x, s) y e) = do
   y' <- hoistVarOcc y
   (x', e') <- withPlace x s $ hoist e
   pure (LetProjectH x' y' ProjectSnd e')
+hoist (C.LetFieldC (x, s) y f e) = do
+  y' <- hoistVarOcc y
+  let f' = hoistFieldLabel f
+  (x', e') <- withPlace x s $ hoist e
+  pure (LetProjectH x' y' (ProjectField f') e')
 hoist (C.LetArithC (x, s) op e) = do
   op' <- hoistArith op
   (x', e') <- withPlace x s $ hoist e
@@ -273,7 +278,7 @@ hoistValue (C.PairC x y) =
   PairH <$> hoistVarOcc x <*> hoistVarOcc y
 hoistValue (C.RecordC fields) =
   RecordValH <$> traverse hoistField fields
-  where hoistField (C.FieldLabel f, x) = (,) <$> pure (FieldLabel f) <*> hoistVarOcc x
+  where hoistField (f, x) = (,) <$> pure (hoistFieldLabel f) <*> hoistVarOcc x
 hoistValue C.NilC = pure NilH
 hoistValue C.WorldTokenC = pure WorldToken
 hoistValue (C.InlC x) = (CtorAppH . InlH) <$> hoistVarOcc x
@@ -361,6 +366,9 @@ hoistVarOccSort x = do
     Nothing -> case Map.lookup x fs of
       Just (Place s x') -> pure (EnvName x', s)
       Nothing -> error ("var not in scope: " ++ show x)
+
+hoistFieldLabel :: C.FieldLabel -> FieldLabel
+hoistFieldLabel (C.FieldLabel f) = FieldLabel f
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.

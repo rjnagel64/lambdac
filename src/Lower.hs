@@ -191,6 +191,7 @@ lowerClosureArg (H.TypeArg s) = TypeArg <$> lowerSort s
 lowerProjection :: H.Projection -> M Projection
 lowerProjection H.ProjectFst = pure ProjectFst
 lowerProjection H.ProjectSnd = pure ProjectSnd
+lowerProjection (H.ProjectField f) = ProjectField <$> lowerFieldLabel f
 
 lowerValue :: H.ValueH -> M ValueH
 lowerValue (H.IntH i) = pure (IntH i)
@@ -654,7 +655,7 @@ data TermH
   -- 'case x of { 17 -> k1 | 32 -> k2 | ... | default -> kd }'
   | IntCaseH Name [(Int64, ThunkType, Name)] -- all thunktypes should be no-arg, ThunkType []
 
-data Projection = ProjectFst | ProjectSnd | ProjectField Id
+data Projection = ProjectFst | ProjectSnd | ProjectField FieldLabel
 
 data ClosureArg = ValueArg Name | TypeArg Sort
 

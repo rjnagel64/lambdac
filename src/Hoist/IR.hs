@@ -235,7 +235,7 @@ data TermH
   -- Closures may be mutually recursive, so they are allocated as a group.
   | AllocClosure [ClosureAlloc] TermH
 
-data Projection = ProjectFst | ProjectSnd
+data Projection = ProjectFst | ProjectSnd | ProjectField FieldLabel
 
 data ClosureArg = ValueArg Name | TypeArg Sort
 
@@ -510,6 +510,7 @@ pprintTerm n (LetProjectH x y p e) =
   where
     proj ProjectFst = "fst"
     proj ProjectSnd = "snd"
+    proj (ProjectField f) = show f
 pprintTerm n (LetPrimH x p e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintPrim p ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetBindH p1 p2 prim e) =

@@ -443,7 +443,7 @@ emitTerm denv (LetProjectH x y ProjectFst e) =
 emitTerm denv (LetProjectH x y ProjectSnd e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName y ++ "->snd") ++ ";"] ++
   emitTerm denv e
-emitTerm denv (LetProjectH x y (ProjectField (Id f)) e) =
+emitTerm denv (LetProjectH x y (ProjectField (FieldLabel f)) e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_field(" ++ emitName y ++ ", " ++ show f ++ ", " ++ show (length f) ++ ")") ++ ";"] ++
   emitTerm denv e
 emitTerm denv (LetPrimH x p e) =

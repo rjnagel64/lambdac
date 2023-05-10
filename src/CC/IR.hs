@@ -149,6 +149,7 @@ data TermC
   = LetValC (Name, Sort) ValueC TermC -- let x = v in e, allocation
   | LetFstC (Name, Sort) Name TermC -- let x = fst y in e, projection
   | LetSndC (Name, Sort) Name TermC
+  | LetFieldC (Name, Sort) Name FieldLabel TermC -- let x = y#field in e, projection
   | LetArithC (Name, Sort) ArithC TermC
   | LetCompareC (Name, Sort) CmpC TermC
   | LetBindC (Name, Sort) (Name, Sort) PrimIO TermC
@@ -282,6 +283,8 @@ pprintTerm n (LetFstC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetFieldC x y f e) =
+  indent n ("let " ++ pprintPlace x ++ " = " ++ show y ++ "#" ++ show f ++ ";\n") ++ pprintTerm n e
 pprintTerm n (CaseC x _ ks) =
   let branches = intercalate " | " (map show ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
