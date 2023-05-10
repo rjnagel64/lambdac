@@ -52,6 +52,7 @@ data TCError
   | ArgumentCountMismatch
   | WrongClosureArg
   | LabelMismatch Id Id
+  | FieldLabelMismatch FieldLabel FieldLabel
 
   | NameNotInScope Id
   | TyVarNotInScope TyVar
@@ -80,6 +81,11 @@ instance Show TCError where
     ]
   show ArgumentCountMismatch = "incorrect number of arguments to something"
   show (LabelMismatch expected actual) = unlines
+    [ "incorrect field label:"
+    , "expected label: " ++ show expected
+    , "actual label:   " ++ show actual
+    ]
+  show (FieldLabelMismatch expected actual) = unlines
     [ "incorrect field label:"
     , "expected label: " ++ show expected
     , "actual label:   " ++ show actual
@@ -306,6 +312,23 @@ checkFieldTys ((f', x) : fields) ((f, s) : fieldTys) = do
   checkFieldTys fields fieldTys
 checkFieldTys _ _ = throwError ArgumentCountMismatch
 
+-- Note: checkRecordValue is nearly identical to checkFieldTys. The only
+-- difference is that one uses FieldLabel, but the other uses Id.
+--
+-- An environment type is *almost* like a record type, but not quite.
+-- Specifically, all fields of an environment are statically known, but record
+-- values currently have to look up their field offsets at runtime.
+-- I hope to mitigate this in the future by making record values more
+-- efficient, but I can't yet.
+checkRecordValue :: [(FieldLabel, Name)] -> [(FieldLabel, Sort)] -> TC ()
+checkRecordValue [] [] = pure ()
+checkRecordValue ((f', x) : fields) ((f, s) : fieldTys) = do
+  when (f /= f') $
+    throwError (FieldLabelMismatch f f')
+  checkName x s
+  checkRecordValue fields fieldTys
+checkRecordValue _ _ = throwError ArgumentCountMismatch
+
 -- | Check that an argument list matches a parameter telescope,
 -- @Σ; Γ |- E : S@.
 checkCallArgs :: [TeleEntry] -> [ClosureArg] -> TC ()
@@ -357,7 +380,7 @@ checkValue (StringValH _) StringH = pure ()
 checkValue (StringValH _) _ = throwError BadValue
 checkValue WorldToken TokenH = pure ()
 checkValue WorldToken _ = throwError BadValue
-checkValue (RecordValH fieldVals) (RecordH fieldTys) = checkFieldTys fieldVals fieldTys
+checkValue (RecordValH fieldVals) (RecordH fieldTys) = checkRecordValue fieldVals fieldTys
 checkValue (RecordValH _) _ = throwError BadValue
 checkValue (CtorAppH capp) s = case asTyConApp s of
   Nothing -> throwError BadCtorApp

@@ -6,6 +6,7 @@ module Hoist.IR
     , Place(..)
     , TyVar(..)
     , CodeLabel(..)
+    , FieldLabel(..)
 
     , Sort(..)
     , ClosureTele(..)
@@ -110,6 +111,12 @@ newtype Ctor = Ctor String
 instance Show Ctor where
   show (Ctor c) = c
 
+newtype FieldLabel = FieldLabel String
+  deriving (Eq)
+
+instance Show FieldLabel where
+  show (FieldLabel f) = f
+
 
 
 data Program = Program [Decl] TermH
@@ -162,7 +169,7 @@ data Sort
   | ProductH Sort Sort
   | SumH Sort Sort
   | ClosureH ClosureTele
-  | RecordH [(Id, Sort)]
+  | RecordH [(FieldLabel, Sort)]
   | TyConH TyCon
   | TyAppH Sort Sort
   | TokenH
@@ -256,7 +263,7 @@ data ValueH
   | PairH Name Name
   | NilH
   | WorldToken
-  | RecordValH [(Id, Name)]
+  | RecordValH [(FieldLabel, Name)]
   | CtorAppH CtorAppH
 
 data CtorAppH

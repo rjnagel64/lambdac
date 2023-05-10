@@ -6,6 +6,7 @@ module Lower
     , Place(..)
     , TyVar(..)
     , CodeLabel(..)
+    , FieldLabel(..)
 
     , Sort(..)
     , ClosureTele(..)
@@ -134,6 +135,9 @@ lowerId (H.Id x) = pure (Id x)
 lowerCodeLabel :: H.CodeLabel -> M CodeLabel
 lowerCodeLabel (H.CodeLabel l) = pure (CodeLabel l)
 
+lowerFieldLabel :: H.FieldLabel -> M FieldLabel
+lowerFieldLabel (H.FieldLabel f) = pure (FieldLabel f)
+
 lowerTerm :: H.TermH -> M TermH
 lowerTerm (H.HaltH s x) = HaltH <$> lowerSort s <*> lowerName x
 lowerTerm (H.OpenH f xs) =
@@ -195,7 +199,7 @@ lowerValue (H.PairH x y) = PairH <$> lowerName x <*> lowerName y
 lowerValue H.NilH = pure NilH
 lowerValue H.WorldToken = pure WorldToken
 lowerValue (H.RecordValH fields) = RecordH <$> traverse lowerField fields
-  where lowerField (f, x) = (,) <$> lowerId f <*> lowerName x
+  where lowerField (f, x) = (,) <$> lowerFieldLabel f <*> lowerName x
 lowerValue (H.CtorAppH capp) = lowerCtorApp capp
 
 -- Slightly messy, because booleans are ctorapp in Hoist, but back to being Value in Lower
@@ -238,7 +242,7 @@ lowerSort (H.ProductH t s) = ProductH <$> lowerSort t <*> lowerSort s
 lowerSort (H.SumH t s) = SumH <$> lowerSort t <*> lowerSort s
 lowerSort (H.ClosureH tele) = ClosureH <$> lowerClosureTele tele
 lowerSort (H.RecordH fields) = TyRecordH <$> traverse lowerField fields
-  where lowerField (f, t) = (,) <$> lowerId f <*> lowerSort t
+  where lowerField (f, t) = (,) <$> lowerFieldLabel f <*> lowerSort t
 lowerSort (H.TyConH tc) = TyConH <$> lowerTyCon tc
 lowerSort (H.TyAppH t s) = TyAppH <$> lowerSort t <*> lowerSort s
 lowerSort H.TokenH = pure TokenH
@@ -529,6 +533,12 @@ data Ctor = Ctor { ctorTyCon :: TyCon, ctorName :: Id, ctorDiscriminant :: Int }
 instance Show Ctor where
   show (Ctor tc c _) = show tc ++ "::" ++ show c
 
+newtype FieldLabel = FieldLabel String
+  deriving (Eq)
+
+instance Show FieldLabel where
+  show (FieldLabel f) = f
+
 
 
 data Program = Program [Decl] TermH
@@ -579,7 +589,7 @@ data Sort
   | ProductH Sort Sort
   | SumH Sort Sort
   | ClosureH ClosureTele
-  | TyRecordH [(Id, Sort)]
+  | TyRecordH [(FieldLabel, Sort)]
   | TyConH TyCon
   | TyAppH Sort Sort
   | TokenH
@@ -623,10 +633,6 @@ data TyConApp
 
 
 
--- TODO: Introduce a CaseIntH term, to switch on integer values
--- This is basically what an if-statement should be, when booleans are
--- considered as small integers.
--- (Doing this would let me remove booleans as a special case from CaseH, etc.)
 data TermH
   -- 'let x : int = 17 in e'
   = LetValH Place ValueH TermH
@@ -671,7 +677,7 @@ data ValueH
   | PairH Name Name
   | NilH
   | WorldToken
-  | RecordH [(Id, Name)]
+  | RecordH [(FieldLabel, Name)]
   | CtorAppH CtorAppH
 
 data CtorAppH

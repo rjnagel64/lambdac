@@ -544,8 +544,8 @@ emitValueDefinition _ p (RecordH fields) =
   defineLocal p ("allocate_record(" ++ show (length fields) ++ ")") fields'
   where
     fields' = concatMap assignField (zip [0..] fields)
-    assignField :: (Int, (Id, Name)) -> [Line]
-    assignField (i, (Id label, x)) =
+    assignField :: (Int, (FieldLabel, Name)) -> [Line]
+    assignField (i, (FieldLabel label, x)) =
       let lval = show (placeName p) ++ "->fields[" ++ show i ++ "]" in
       ["    " ++ lval ++ ".label = allocate_string(" ++ show label ++ ", " ++ show (length label) ++ ");"
       ,"    " ++ lval ++ ".value = " ++ asAlloc (emitName x) ++ ";"]
