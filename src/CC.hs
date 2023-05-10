@@ -236,6 +236,7 @@ cconv (K.CaseK x kind ks) = do
     pure (LetContC kbinds term)
 cconv (K.LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
+cconv (K.LetFieldK x t y f e) = withTm (x, t) $ \b -> LetFieldC b <$> cconvTmVar y <*> cconvFieldLabel f <*> cconv e
 cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e
 cconv (K.LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
 cconv (K.LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e

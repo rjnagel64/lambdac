@@ -116,6 +116,8 @@ data Term
   | TmFst Term
   -- snd e
   | TmSnd Term
+  -- e #field
+  | TmFieldProj Term FieldLabel
   -- { l1 = e1, ..., ln = en }
   | TmRecord [(FieldLabel, Term)]
   -- let x:t = e1 in e2

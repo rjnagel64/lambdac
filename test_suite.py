@@ -136,6 +136,7 @@ io_test("bind_pure")
 standard_test("hash", "(508950784, 508950784)")
 standard_test("simple_proj", "true")
 standard_test("record_val", "{ test = 17, it = false, works = \"yay!\" }")
+standard_test("record_proj", "true")
 
 def run_tests(test_filter):
     runner = TestRunner()

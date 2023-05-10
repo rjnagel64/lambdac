@@ -31,6 +31,7 @@ import Source
   '>=' { L _ TokGe }
   '>' { L _ TokRAngle }
   '@' { L _ TokAt }
+  '#' { L _ TokHash }
   '*' { L _ TokStar }
   '+' { L _ TokPlus }
   '-' { L _ TokMinus }
@@ -147,6 +148,7 @@ Term :: { Term }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
+     | Term '#' ID { TmFieldProj $1 (fieldLabel $3) }
      | 'pure' ATerm { TmPure $2 }
      | 'putLine' ATerm { TmPutLine $2 }
      | 'runIO' ATerm { TmRunIO $2 }

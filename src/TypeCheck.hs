@@ -198,6 +198,12 @@ infer (TmSnd e) = do
   infer e >>= \case
     TyProd _t1 t2 -> pure t2
     t -> throwError (CannotProject t)
+infer (TmFieldProj e f) = do
+  infer e >>= \case
+    t@(TyRecord fs) -> case lookup f fs of
+      Nothing -> throwError (CannotProject t)
+      Just t' -> pure t'
+    t -> throwError (CannotProject t)
 
 infer (TmArith e1 _ e2) = do
   check e1 TyInt

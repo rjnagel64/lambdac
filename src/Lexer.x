@@ -54,6 +54,7 @@ tokens :-
   -- Symbols
   "->" { simpleToken TokArrow }
   "@" { simpleToken TokAt }
+  "#" { simpleToken TokHash }
   "<-" { simpleToken TokBind }
   "^" { simpleToken TokCaret }
   ":" { simpleToken TokColon }
@@ -110,6 +111,7 @@ data Token
   | TokDot
   | TokEquals
   | TokGe
+  | TokHash
   | TokLambda
   | TokLAngle
   | TokLBrace

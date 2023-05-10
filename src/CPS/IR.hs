@@ -121,6 +121,8 @@ data TermK
   | LetFstK TmVar TypeK TmVar TermK
   -- let x:t = snd y in e
   | LetSndK TmVar TypeK TmVar TermK
+  -- let x:t = y#field in e
+  | LetFieldK TmVar TypeK TmVar FieldLabel TermK
   -- let z = x `op` y in e
   | LetArithK TmVar ArithK TermK
   -- let z = x `cmp` y in e 
@@ -466,6 +468,8 @@ pprintTerm n (LetFstK x t y e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndK x t y e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetFieldK x t y f e) =
+  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ show y ++ "#" ++ show f ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetArithK x op e) =
   indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareK x cmp e) =

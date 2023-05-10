@@ -17,6 +17,7 @@ struct record {
     size_t num_fields;
     struct record_field fields[];
 };
+#define CAST_RECORD(v) ((struct record *)(v))
 
 struct record *allocate_record(size_t num_fields);
 

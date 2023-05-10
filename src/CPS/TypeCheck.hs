@@ -238,6 +238,13 @@ check (LetSndK x s y e) = do
     ProdK _t s' -> equalTypes s s'
     t' -> throwError (BadProjection t')
   withTmVars [(x, s)] $ check e
+check (LetFieldK x s y f e) = do
+  lookupTmVar y >>= \case
+    t'@(RecordK fs) -> case lookup f fs of
+      Nothing -> throwError (BadProjection t')
+      Just s' -> equalTypes s s'
+    t' -> throwError (BadProjection t')
+  withTmVars [(x, s)] $ check e
 check (LetConcatK x y z e) = do
   checkTmVar y StringK
   checkTmVar z StringK

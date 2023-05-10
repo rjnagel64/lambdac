@@ -220,6 +220,18 @@ cps (S.TmSnd e) k =
       tb' <- cpsType tb
       let res = LetSndK x tb' z e'
       pure (res, t')
+cps (S.TmFieldProj e f) k =
+  cps e $ MetaCont $ \z t -> do
+    tf <- case t of
+      S.TyRecord fs -> case lookup f fs of
+        Nothing -> error "type error"
+        Just tf -> pure tf
+      _ -> error "type error"
+    freshTm "x" $ \x -> do
+      (e', t') <- applyCont k x tf
+      tf' <- cpsType tf
+      let res = LetFieldK x tf' z (cpsFieldLabel f) e'
+      pure (res, t')
 cps (S.TmArith e1 op e2) k =
   cps e1 $ MetaCont $ \x _t1 -> do
     cps e2 $ MetaCont $ \y _t2 -> do
