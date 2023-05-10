@@ -8,6 +8,7 @@ module Source
   , Type(..)
   , TyVar(..)
   , Kind(..)
+  , FieldLabel(..)
 
   , TyConApp(..)
   , asTyConApp
@@ -78,6 +79,9 @@ data Ctor = Ctor String
 instance Show Ctor where
   show (Ctor c) = c
 
+newtype FieldLabel = FieldLabel String
+  deriving (Eq)
+
 
 data Program = Program [DataDecl] Term
 
@@ -106,6 +110,8 @@ data Term
   | TmFst Term
   -- snd e
   | TmSnd Term
+  -- { l1 = e1, ..., ln = en }
+  | TmRecord [(FieldLabel, Term)]
   -- let x:t = e1 in e2
   | TmLet TmVar Type Term Term
   -- let rec fs+ in e
@@ -173,6 +179,7 @@ data TmFun
 data Type
   = TySum Type Type
   | TyProd Type Type
+  | TyRecord [(FieldLabel, Type)]
   | TyArr Type Type
   | TyUnit
   | TyInt

@@ -72,6 +72,8 @@ cpsType S.TyString = pure StringK
 cpsType S.TyBool = pure BoolK
 cpsType (S.TySum a b) = SumK <$> cpsType a <*> cpsType b
 cpsType (S.TyProd a b) = ProdK <$> cpsType a <*> cpsType b
+cpsType (S.TyRecord fields) = RecordK <$> traverse cpsFieldType fields
+  where cpsFieldType (S.FieldLabel f, t) = (,) <$> pure (FieldLabel f) <*> cpsType t
 cpsType (S.TyArr a b) = (\a' b' -> FunK [a'] [b']) <$> cpsType a <*> cpsCoType b
 cpsType (S.TyConOcc (S.TyCon tc)) = pure (TyConOccK (TyCon tc))
 cpsType (S.TyApp a b) = TyAppK <$> cpsType a <*> cpsType b
@@ -254,6 +256,15 @@ cps (S.TmPair e1 e2) k =
         ty' <- cpsType ty
         let res = LetValK x ty' (PairK v1 v2) e'
         pure (res, t')
+cps (S.TmRecord fields) k =
+  cpsRecord fields [] k
+  -- cpsFields fields $ \fields' fieldTys -> do
+  --   freshTm "x" $ \x -> do
+  --     let ty = S.TyRecord fieldTys
+  --     (e', t') <- applyCont k x ty
+  --     ty' <- cpsType ty
+  --     let res = LetValK x ty' (RecordValK fields') e'
+  --     pure (res, t')
 cps (S.TmLet x t e1 e2) k = do
   -- [[let x:t = e1 in e2]] k
   -- -->
@@ -379,6 +390,23 @@ cps (S.TmIf e s et ef) k = do
   cpsCase e k s alts
 cps (S.TmCase e s alts) k =
   cpsCase e k s alts
+
+cpsRecord :: [(S.FieldLabel, S.Term)] -> [(S.FieldLabel, S.Type, TmVar)] -> Cont -> CPS (TermK, S.Type)
+cpsRecord [] ss k =
+  freshTm "x" $ \x -> do
+    let fs = reverse ss
+    let ty = S.TyRecord [(f, t) | (f, t, _) <- fs]
+    (e, t) <- applyCont k x ty
+    ty' <- cpsType ty
+    let fields = [(cpsFieldLabel f, v) | (f, _, v) <- fs]
+    let e' = LetValK x ty' (RecordValK fields) e
+    pure (e', t)
+cpsRecord ((f, e) : fs) ss k =
+  cps e $ MetaCont $ \v t ->
+    cpsRecord fs ((f, t, v) : ss) k
+
+cpsFieldLabel :: S.FieldLabel -> FieldLabel
+cpsFieldLabel (S.FieldLabel f) = FieldLabel f
 
 -- Note: CPS translation of let-expressions:
 --

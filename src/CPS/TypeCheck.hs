@@ -24,6 +24,7 @@ data TypeError
   | TyNotInScope TyVar
   | TyConNotInScope TyCon
   | TypeMismatch TypeK TypeK
+  | LabelMismatch FieldLabel FieldLabel
   | CoTypeMismatch CoTypeK CoTypeK
   | KindMismatch KindK KindK
   | BadCaseAnalysis TmVar TypeK
@@ -55,6 +56,11 @@ instance Show TypeError where
     [ "kind mismatch:"
     , "expected kind: " ++ pprintKind expected
     , "actual kind:   " ++ pprintKind actual
+    ]
+  show (LabelMismatch expected actual) = unlines
+    [ "field mismatch:"
+    , "expected label: " ++ show expected
+    , "actual label:   " ++ show actual
     ]
   show (BadCaseAnalysis x s) = "cannot analyze cases for " ++ show x ++ " of type " ++ pprintType s
   show BadCaseLabels = "too many/too few/wrong constructors in case branches"
@@ -292,6 +298,7 @@ checkValue NilK UnitK = pure ()
 checkValue (PairK x y) (ProdK t s) = do
   checkTmVar x t
   checkTmVar y s
+checkValue (RecordValK fs) (RecordK fs') = checkFields fs fs'
 checkValue (InlK x) (SumK t _s) = do
   checkTmVar x t
 checkValue (InrK y) (SumK _t s) = do
@@ -304,6 +311,15 @@ checkValue v@(CtorAppK c xs) t = case asTyConApp t of
   Just tcapp -> checkCtorApp c xs tcapp
 checkValue WorldTokenK TokenK = pure ()
 checkValue v t = throwError (BadValue v t)
+
+checkFields :: [(FieldLabel, TmVar)] -> [(FieldLabel, TypeK)] -> TC ()
+checkFields [] [] = pure ()
+checkFields ((f, x):fs) ((f', t):fs') = do
+  when (f' /= f) $
+    throwError (LabelMismatch f' f)
+  checkTmVar x t
+  checkFields fs fs'
+checkFields _ _ = throwError ArityMismatch
 
 checkPrimIO :: PrimIO -> TC TypeK
 checkPrimIO (PrimGetLine s) = do

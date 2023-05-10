@@ -180,6 +180,7 @@ ATerm :: { Term }
      : '(' Term ')' { $2 }
      | '(' ')' { TmNil }
      | '(' Term ',' Term ')' { TmPair $2 $4 }
+     | '{' FieldVals '}' { TmRecord (DL.toList $2) }
      | ID { TmVarOcc (var $1) }
      | '%' ID { TmCtorOcc (ctor $2) }
      | INT { TmInt (int $1) }
@@ -187,6 +188,17 @@ ATerm :: { Term }
      | 'true' { TmBool True }
      | 'false' { TmBool False }
      | 'getLine' { TmGetLine }
+
+FieldVals :: { DList (FieldLabel, Term) }
+	  : {- empty -} { DL.empty }
+	  | FieldValsNE { $1 }
+
+FieldValsNE :: { DList (FieldLabel, Term) }
+	    : FieldVal { DL.singleton $1 }
+	    | FieldValsNE ',' FieldVal { DL.snoc $1 $3 }
+
+FieldVal :: { (FieldLabel, Term) }
+	 : ID '=' Term { (fieldLabel $1, $3) }
 
 VarBind :: { (TmVar, Type) }
         : '(' ID ':' Type ')' { (var $2, $4) }
@@ -221,6 +233,7 @@ AppType :: { Type }
 
 AType :: { Type }
       : '(' Type ')' { $2 }
+      | '{' FieldTys '}' { TyRecord (DL.toList $2) }
       | 'unit' { TyUnit }
       | 'int' { TyInt }
       | 'bool' { TyBool }
@@ -232,6 +245,18 @@ AType :: { Type }
       -- variables 'a 'b 'c as in ML.
       | ID { TyVarOcc (tvar $1) }
       | '%' ID { TyConOcc (tcon $2) }
+
+FieldTys :: { DList (FieldLabel, Type) }
+	 : {- empty -} { DL.empty }
+	 | FieldTysNE { $1 }
+
+FieldTysNE :: { DList (FieldLabel, Type) }
+	   : FieldTy { DL.singleton $1 }
+	   | FieldTysNE ',' FieldTy { DL.snoc $1 $3 }
+
+FieldTy :: { (FieldLabel, Type) }
+	: ID ':' Type { (fieldLabel $1, $3) }
+
 
 Kind :: { Kind }
      : '*' { KiStar }
@@ -262,6 +287,9 @@ tcon (L _ (TokID s)) = TyCon s
 
 ctor :: L Token -> Ctor
 ctor (L _ (TokID s)) = Ctor s
+
+fieldLabel :: L Token -> FieldLabel
+fieldLabel (L _ (TokID s)) = FieldLabel s
 
 int :: L Token -> Int
 int (L _ (TokINT s)) = read s

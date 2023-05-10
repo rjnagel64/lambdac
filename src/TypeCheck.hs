@@ -187,6 +187,7 @@ infer (TmInr a b e) = do
 
 infer TmNil = pure TyUnit
 infer (TmPair e1 e2) = TyProd <$> infer e1 <*> infer e2
+infer (TmRecord fs) = TyRecord <$> traverse (\ (f, e) -> (,) <$> pure f <*> infer e) fs
 infer (TmFst e) = do
   infer e >>= \case
     TyProd t1 _t2 -> pure t1

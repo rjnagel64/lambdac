@@ -320,6 +320,8 @@ cconvValue :: K.ValueK -> ConvM ValueC
 cconvValue K.NilK = pure NilC
 cconvValue K.WorldTokenK = pure WorldTokenC
 cconvValue (K.PairK x y) = PairC <$> cconvTmVar x <*> cconvTmVar y
+cconvValue (K.RecordValK fs) = RecordC <$> traverse cconvField fs
+  where cconvField (f, x) = (,) <$> cconvFieldLabel f <*> cconvTmVar x
 cconvValue (K.IntValK i) = pure (IntC i)
 cconvValue (K.BoolValK b) = pure (BoolC b)
 cconvValue (K.InlK x) = InlC <$> cconvTmVar x

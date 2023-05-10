@@ -108,6 +108,9 @@ instance Show Ctor where
 
 newtype FieldLabel = FieldLabel String
 
+instance Show FieldLabel where
+  show (FieldLabel f) = f
+
 -- | 'Sort' is really just the CC equivalent of a type.
 -- (The different name exists mostly for historical reasons)
 data Sort
@@ -299,6 +302,9 @@ pprintSort String = "string"
 pprintSort Boolean = "bool"
 pprintSort (Sum s t) = "sum " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort (Pair s t) = "pair " ++ pprintSort s ++ " " ++ pprintSort t
+pprintSort (Record []) = "{}"
+pprintSort (Record fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
+  where pprintField (f, t) = show f ++ " : " ++ pprintSort t
 pprintSort Unit = "unit"
 pprintSort Token = "token#"
 pprintSort (TyConOcc tc) = show tc
@@ -320,6 +326,9 @@ pprintValue :: ValueC -> String
 pprintValue NilC = "()"
 pprintValue WorldTokenC = "WORLD#"
 pprintValue (PairC x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (RecordC []) = "{}"
+pprintValue (RecordC fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
+  where pprintField (f, x) = show f ++ " = " ++ show x
 pprintValue (IntC i) = show i
 pprintValue (BoolC b) = if b then "true" else "false"
 pprintValue (InlC x) = "inl " ++ show x

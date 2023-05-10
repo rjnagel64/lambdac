@@ -366,6 +366,12 @@ equalSort _ TokenH TokenH = True
 equalSort _ TokenH _ = False
 equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
 equalSort _ (ProductH _ _) _ = False
+equalSort ae (RecordH fs1) (RecordH fs2) = go fs1 fs2
+  where
+    go [] [] = True
+    go ((f1, t1):fs1') ((f2, t2):fs2') = f1 == f2 && equalSort ae t1 t2 && go fs1' fs2'
+    go _ _ = False
+equalSort _ (RecordH _) _ = False
 equalSort ae (SumH s1 s2) (SumH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
 equalSort _ (SumH _ _) _ = False
 equalSort ae (TyAppH s1 s2) (TyAppH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
@@ -508,6 +514,9 @@ pprintClosureArg (ValueArg x) = show x
 
 pprintValue :: ValueH -> String
 pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (RecordValH []) = "{}"
+pprintValue (RecordValH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
+  where pprintField (f, x) = show f ++ " = " ++ show x
 pprintValue NilH = "()"
 pprintValue (IntH i) = show i
 pprintValue (StringValH s) = show s

@@ -437,6 +437,7 @@ inferSort BooleanH = pure Star
 inferSort StringH = pure Star
 inferSort TokenH = pure Star
 inferSort (ProductH t s) = checkSort t Star *> checkSort s Star *> pure Star
+inferSort (RecordH fs) = traverse_ (\ (f, t) -> checkSort t Star) fs *> pure Star
 inferSort (SumH t s) = checkSort t Star *> checkSort s Star *> pure Star
 inferSort (ClosureH tele) = checkTele tele *> pure Star
 
