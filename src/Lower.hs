@@ -62,6 +62,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
+import Data.Bifunctor
 import Data.Function (on)
 import Data.Int (Int64)
 import Data.List (intercalate)
@@ -470,6 +471,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     tycode (ClosureH _) = "C"
     tycode (AllocH _) = "A"
     tycode (ProductH _ _) = "Q"
+    tycode (TyRecordH _) = "R"
     tycode (SumH _ _) = "S"
     tycode (TyConH tc) = let n = show tc in show (length n) ++ n
     tycode (TyAppH t _) = tycode t
@@ -525,7 +527,7 @@ data Ctor = Ctor { ctorTyCon :: TyCon, ctorName :: Id, ctorDiscriminant :: Int }
   deriving (Eq, Ord)
 
 instance Show Ctor where
-  show (Ctor tc c i) = show tc ++ "::" ++ show c
+  show (Ctor tc c _) = show tc ++ "::" ++ show c
 
 
 
@@ -732,6 +734,7 @@ ftv BooleanH = mempty
 ftv StringH = mempty
 ftv TokenH = mempty
 ftv (ProductH t s) = ftv t <> ftv s
+ftv (TyRecordH fs) = foldMap (ftv . snd) fs
 ftv (SumH t s) = ftv t <> ftv s
 ftv (TyAppH t s) = ftv t <> ftv s
 ftv (ClosureH tele) = ftvTele tele
@@ -779,6 +782,12 @@ equalSort _ TokenH TokenH = True
 equalSort _ TokenH _ = False
 equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
 equalSort _ (ProductH _ _) _ = False
+equalSort ae (TyRecordH fs1) (TyRecordH fs2) = go fs1 fs2
+  where
+    go [] [] = True
+    go ((f1, t1):fs1') ((f2, t2):fs2') = f1 == f2 && equalSort ae t1 t2 && go fs1' fs2'
+    go _ _ = False
+equalSort _ (TyRecordH _) _ = False
 equalSort ae (SumH s1 s2) (SumH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
 equalSort _ (SumH _ _) _ = False
 equalSort ae (TyAppH s1 s2) (TyAppH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
@@ -845,6 +854,7 @@ substSort _ UnitH = UnitH
 substSort _ StringH = StringH
 substSort _ TokenH = TokenH
 substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
+substSort sub (TyRecordH fs) = TyRecordH (map (second (substSort sub)) fs)
 substSort sub (SumH s t) = SumH (substSort sub s) (substSort sub t)
 substSort sub (TyAppH s t) = TyAppH (substSort sub s) (substSort sub t)
 substSort sub (ClosureH tele) = ClosureH (substTele sub tele)
@@ -981,6 +991,9 @@ pprintSort UnitH = "unit"
 pprintSort StringH = "string"
 pprintSort TokenH = "token#"
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
+pprintSort (TyRecordH []) = "{}"
+pprintSort (TyRecordH fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
+  where pprintField (f, t) = show f ++ " : " ++ pprintSort t
 pprintSort (SumH t s) = "sum " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (TyAppH t s) = pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"

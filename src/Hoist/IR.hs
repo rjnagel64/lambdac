@@ -57,6 +57,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
+import Data.Bifunctor
 import Data.Int (Int64)
 import Data.List (intercalate)
 
@@ -319,6 +320,7 @@ ftv BooleanH = mempty
 ftv StringH = mempty
 ftv TokenH = mempty
 ftv (ProductH t s) = ftv t <> ftv s
+ftv (RecordH fs) = foldMap (ftv . snd) fs
 ftv (SumH t s) = ftv t <> ftv s
 ftv (TyAppH t s) = ftv t <> ftv s
 ftv (ClosureH tele) = ftvTele tele
@@ -438,6 +440,7 @@ substSort _ UnitH = UnitH
 substSort _ StringH = StringH
 substSort _ TokenH = TokenH
 substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
+substSort sub (RecordH fs) = RecordH (map (second (substSort sub)) fs)
 substSort sub (SumH s t) = SumH (substSort sub s) (substSort sub t)
 substSort sub (TyAppH s t) = TyAppH (substSort sub s) (substSort sub t)
 substSort sub (ClosureH tele) = ClosureH (substTele sub tele)

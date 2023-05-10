@@ -25,6 +25,7 @@ data TCError
   -- Mismatch between expected and actual
   | TypeMismatch Type Type -- expected, actual
   | KindMismatch Kind Kind -- expected, actual
+  | ArityMismatch
 
   -- Cannot eliminate subject in this manner
   | CannotProject Type
@@ -49,6 +50,7 @@ instance Show TCError where
     ,"expected: " ++ pprintKind expected
     ,"actual:   " ++ pprintKind actual
     ]
+  show ArityMismatch = "wrong number of parameters or arguments"
   show (NotInScope x) = "variable not in scope: " ++ show x
   show (CtorNotInScope c) = "constructor not in scope: " ++ show c
   show (TyNotInScope aa) = "type variable not in scope: " ++ show aa
@@ -270,6 +272,7 @@ instantiateTyConApp tcapp = case tcapp of
 checkBinds :: [(TmVar, Type)] -> [Type] -> TC ()
 checkBinds [] [] = pure ()
 checkBinds ((x, t) : binds) (t' : tys) = equalTypes t t' *> checkBinds binds tys
+checkBinds _ _ = throwError ArityMismatch
 
 -- | Check that a term has the specified type.
 check :: Term -> Type -> TC ()
@@ -296,6 +299,8 @@ inferType TyString = pure KiStar
 inferType TyBool = pure KiStar
 inferType (TySum t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 inferType (TyProd t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
+inferType (TyRecord fs) = traverse_ (\ (f, t) -> checkType t KiStar) fs *> pure KiStar
+inferType (TyIO t) = checkType t KiStar *> pure KiStar
 inferType (TyArr t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 
 -- | Check that a type has the specified kind.

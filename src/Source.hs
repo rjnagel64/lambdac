@@ -36,6 +36,9 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
+import Data.Bifunctor
+import Data.List (intercalate)
+
 -- In the future, it may be worthwhile to do 'Source'-level optimizations.
 -- At the very least, arity raising/uncurrying is much easier here.
 -- (On a related note, maybe support multiple arguments/parameters here, with
@@ -81,6 +84,9 @@ instance Show Ctor where
 
 newtype FieldLabel = FieldLabel String
   deriving (Eq)
+
+instance Show FieldLabel where
+  show (FieldLabel f) = f
 
 
 data Program = Program [DataDecl] Term
@@ -254,6 +260,12 @@ eqType _ TyString TyString = True
 eqType _ TyString _ = False
 eqType ae (TyProd t1 t2) (TyProd t3 t4) = eqType ae t1 t3 && eqType ae t2 t4
 eqType _ (TyProd _ _) _ = False
+eqType ae (TyRecord fs1) (TyRecord fs2) = go fs1 fs2
+  where
+    go [] [] = True
+    go ((f1, t1):fs1') ((f2, t2):fs2') = f1 == f2 && eqType ae t1 t2 && go fs1' fs2'
+    go _ _ = False
+eqType _ (TyRecord _) _ = False
 eqType ae (TySum t1 t2) (TySum t3 t4) = eqType ae t1 t3 && eqType ae t2 t4
 eqType _ (TySum _ _) _ = False
 eqType ae (TyArr arg1 ret1) (TyArr arg2 ret2) =
@@ -307,6 +319,7 @@ substType _ TyBool = TyBool
 substType _ TyInt = TyInt
 substType _ TyString = TyString
 substType sub (TyProd t1 t2) = TyProd (substType sub t1) (substType sub t2)
+substType sub (TyRecord fs) = TyRecord (map (second (substType sub)) fs)
 substType sub (TySum t1 t2) = TySum (substType sub t1) (substType sub t2)
 substType sub (TyArr t1 t2) = TyArr (substType sub t1) (substType sub t2)
 substType sub (TyApp t1 t2) = TyApp (substType sub t1) (substType sub t2)
@@ -319,6 +332,7 @@ ftv (TyVarOcc aa) = Set.singleton aa
 ftv (TyAll bb _ t) = Set.delete bb (ftv t)
 ftv (TySum t1 t2) = ftv t1 <> ftv t2
 ftv (TyProd t1 t2) = ftv t1 <> ftv t2
+ftv (TyRecord fs) = foldMap (ftv . snd) fs
 ftv (TyArr t1 t2) = ftv t1 <> ftv t2
 ftv TyUnit = Set.empty
 ftv TyBool = Set.empty
@@ -334,6 +348,9 @@ pprintType _ TyUnit = "unit"
 pprintType _ TyBool = "bool"
 pprintType _ TyInt = "int"
 pprintType _ TyString = "string"
+pprintType _ (TyRecord []) = "{}"
+pprintType _ (TyRecord fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
+  where pprintField (f, t) = show f ++ " : " ++ pprintType 0 t
 -- infixr 4 ->
 pprintType p (TyArr t1 t2) = parensIf (p > 4) $ pprintType 5 t1 ++ " -> " ++ pprintType 4 t2
 -- infix 5 *
