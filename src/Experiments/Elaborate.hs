@@ -48,6 +48,7 @@ import Control.Monad.Except
 data Var = Var String
   deriving Eq
 
+-- Programs with implicit type information
 data Term
   = TmVar Var
   | TmUnit
@@ -70,6 +71,7 @@ data Type
   | TyArr Type Type
 
 
+-- Elaborated programs
 data Term'
   = TmVar' Var
   | TmUnit'
@@ -139,9 +141,8 @@ substCtx g (TyEVar a') = case focus a' g of
   Nothing -> error "evar not in substitution"
   Just (_, FocusUnsolved _, _) -> TyEVar a'
   Just (_, FocusSolved _ t, _) -> substCtx g (fromMono t)
--- This is surprising, that no scope management needs to be done.
--- I guess it's because the substitution is only on 'EVar's, and there are no
--- 'EVar' binders to worry about.
+-- A context only substitutes 'EVar's, so a 'UVar' binder like 'TyForall'
+-- cannot interfere with the substitution. It passes through unmodified.
 substCtx g (TyForall aa a) = TyForall aa (substCtx g a)
 
 substEVarTerm :: EVar -> Mono -> Term' -> Term'
@@ -169,6 +170,29 @@ substEVarType a' t (TyForall aa a) = TyForall aa (substEVarType a' t a)
 discardTail :: Context -> (Entry -> Bool) -> Context
 discardTail Empty _ = Empty
 discardTail (g :>: e) p = if p e then g else discardTail g p
+
+splitTail :: Context -> (Entry -> Bool) -> (Context, Context)
+splitTail Empty _ = (Empty, Empty)
+splitTail (g :>: e) p = if p e then (g, Empty :>: e) else let (g', d) = splitTail g p in (g', d :>: e)
+
+discardContext :: Context -> Term' -> Term'
+discardContext Empty e = e
+discardContext (g :>: EntryUVar aa) e = discardContext g (TmTLam' aa e)
+-- If an EVar is not solved by the time it goes out of scope, that means that
+-- it was ambgiuous.
+-- We could throw an error here, or we could try to generalize and introduce a forall.
+discardContext (g :>: EntryEVar a') e = error "discardContext: unsolved EVar (ambiguous?)"
+discardContext (g :>: EntrySolved a' t) e = discardContext g (substEVarTerm a' t e)
+discardContext (g :>: EntryMarker a') e = discardContext g e
+discardContext (g :>: EntryVar x t) e = discardContext g e
+
+-- discardContextCo :: Context -> Coercion -> Coercion
+-- discardContextCo Empty f = f
+-- discardContextCo (g :>: EntryUVar aa) f = abstCo f _ aa
+-- discardContextCo (g :>: EntryEVar a') f = error "discardContextCo: unsolved EVar (ambiguous?)"
+-- discardContextCo (g :>: EntrySolved a' t) f = discardContextCo g (substEVarCo a' t f)
+-- discardContextCo (g :>: EntryMarker a') f = discardContextCo g f
+-- discardContextCo (g :>: EntryVar x t) f = discardContextCo g f
 
 -- TODO: Use applyEntry when discarding context entries.
 -- Problem: applyEntry also needs to work on Coercion, aargh.
@@ -230,7 +254,7 @@ reach :: Context -> EVar -> EVar -> Maybe Context
 reach g a' b' = case focus b' g of
   Nothing -> Nothing
   Just (_, FocusSolved _ _, _) -> error "reach: duplicate solve"
-  Just (g', FocusUnsolved _, gr) -> Just (g' :>: EntrySolved b' (MonoEVar a') >:> gr)
+  Just (gl, FocusUnsolved _, gr) -> Just (gl :>: EntrySolved b' (MonoEVar a') >:> gr)
 
 
 newtype M a = M { runM :: StateT Int (Except String) a }
@@ -240,6 +264,9 @@ deriving newtype instance Applicative M
 deriving newtype instance Monad M
 deriving newtype instance MonadState Int M
 deriving newtype instance MonadError String M
+
+liftMaybe :: String -> Maybe a -> M a
+liftMaybe msg m = maybe (throwError msg) pure m
 
 newEVar :: M EVar
 newEVar = do
@@ -270,7 +297,7 @@ articulate :: Context -> EVar -> M (EVar, EVar, Context)
 articulate g a' = do
   a1' <- newEVar
   a2' <- newEVar
-  f <- maybe (throwError "focus failed") pure (focus a' g)
+  f <- liftMaybe "focus failed" (focus a' g)
   let ty = (MonoArr (MonoEVar a1') (MonoEVar a2'))
   let h = (Empty :>: EntryEVar a2' :>: EntryEVar a1' :>: EntrySolved a' ty)
   let g' = splice f h
@@ -294,14 +321,42 @@ lookupEVar (_ :>: EntrySolved b' t) a'
 lookupEVar (g :>: _) a' = lookupEVar g a'
 
 
+-- A coercion is evidence of a subtyping relation. Semantically, it is a
+-- function from the subtype to the supertype.
+--
+-- For most cases, this is simply reflexive (the identity function), but
+-- polymorphic function subtyping may involve instantiating type variables
+-- and/or quantifying over them.
+--
+-- Hmm. consider other constructors, e.g. for instantiating a polymorphic type
+-- (forall x. t) <: t[x := s]
+-- Would lead to tree-structure representing composition?
+data Coercion
+  = ReflCo Type
+  | Coercion Term'
+  -- | InstCo Coercion UVar EVar
+
+-- if coercionType f = (a, b) then Γ |- f : A -> B for some mystery context Γ.
+-- coercionType :: Coercion -> (Type, Type)
+
+appCo :: Coercion -> Term' -> Term'
+-- reflexive coercions are identity, and can be eliminated at compile time.
+appCo (ReflCo _) e' = e'
+appCo (Coercion f) e' = TmApp' f e'
+
 -- Evidence term for reflexive coercion
-reflCo :: Type -> Term'
-reflCo a = TmLam' (Var "x") a (TmVar' (Var "x"))
+-- reflCo a = λ (x : a). x
+reflCo :: Type -> Coercion
+reflCo a = ReflCo a
+-- reflCo a = Coercion co
+--   where
+--     co = TmLam' vx a (TmVar' vx)
+--     vx = Var "x"
 
 -- Construct a coercion between two function types.
 -- Contravariant input, covariant output.
 -- General form: in : b1 -> a1; out : a2 -> b2.
--- λ (f : a1 -> a2). λx. out (f (in x))
+-- λ (f : a1 -> a2). λ (x : b1). out (f (in x))
 funCo :: (Type, Type) -> (Type, Type) -> Coercion -> Coercion -> Coercion
 -- both are reflexive, erased. this coercion is then λf.λx.f x
 -- This eta-reduces to identity, which is reflCo.
@@ -310,31 +365,20 @@ funCo (a1, a2) (b1, b2) (ReflCo t1) (ReflCo t2) = ReflCo (TyArr b1 b2)
 funCo (a1, a2) (b1, b2) f1 f2 = Coercion co
   where
     co = TmLam' fv (TyArr a1 a2) (TmLam' xv b1 body)
-    body = appCo f1 (TmApp' (TmVar' fv) (appCo f2 (TmVar' xv)))
-    -- body = TmApp' f1 (TmApp' (TmVar' fv) (TmApp' f2 (TmVar' xv)))
-    fv = Var "f"
-    xv = Var "x"
+    body = appCo f1 (TmApp' (TmVar' vf) (appCo f2 (TmVar' vx)))
+    -- body = TmApp' f1 (TmApp' (TmVar' vf) (TmApp' f2 (TmVar' vx)))
+    vf = Var "f"
+    vx = Var "x"
 
--- A coercion is evidence of a subtyping relation. Semantically, it is a
--- function from the subtype to the supertype.
---
--- For most cases, this is simply reflexive (the identity function), but
--- polymorphic function subtyping may involve instantiating type variables
--- and/or quantifying over them.
-data Coercion
-  = ReflCo Type
-  | Coercion Term'
-
-appCo :: Coercion -> Term' -> Term'
--- reflexive coercions are identity, and can be eliminated at compile time.
-appCo (ReflCo _) e' = e'
-appCo (Coercion f) e' = TmApp' f e'
-
+-- abstCo f A bb = λ (x: A). Λbb. f x
 abstCo :: Coercion -> Type -> UVar -> Coercion
-abstCo co a bb = Coercion (TmLam' (Var "x") a (TmTLam' bb (appCo co (TmVar' (Var "x")))))
+abstCo co a bb = Coercion (TmLam' vx a (TmTLam' bb (appCo co (TmVar' vx))))
+  where vx = Var "x"
 
+-- instCo f b a = λ (x : b). f (x @a)
 instCo :: Coercion -> Type -> Type -> Coercion
-instCo co b a = Coercion (TmLam' (Var "x") b (appCo co (TmTApp' (TmVar' (Var "x")) a)))
+instCo co b a = Coercion (TmLam' vx b (appCo co (TmTApp' (TmVar' vx) a)))
+  where vx = Var "x"
 
 -- '(d, f) <- subtype g a b' shows that in context 'g', 'a' is a subtype of
 -- 'b'.
@@ -344,7 +388,7 @@ instCo co b a = Coercion (TmLam' (Var "x") b (appCo co (TmTApp' (TmVar' (Var "x"
 -- Hmmmmm. At the end of the day, every coercion is reflexive. Coercions are
 -- therefore redundant. And very messy. They bloat the output.
 -- I should try to avoid emitting them, where possible.
--- (Okay, maybe there's something about polymorphic subtyping that is
+-- (Okay, there's something about polymorphic subtyping that is
 -- not-quite-identity, but still.)
 subtype :: Context -> Type -> Type -> M (Context, Coercion)
 -- Reflexive cases
@@ -389,7 +433,7 @@ subtype _ (TyArr _ _) (TyUVar _) = throwError "function type is not a subtype of
 -- "instantiateL g a' b" shows that a' is a subtype of b.
 instantiateL :: Context -> EVar -> Type -> M (Context, Coercion)
 instantiateL g a' (TyEVar b') = do
-  g' <- maybe (throwError "reach failed") pure (reach g a' b')
+  g' <- liftMaybe "reach failed" (reach g a' b')
   pure (g', ReflCo (TyEVar b'))
 instantiateL g a' (TyForall bb b) = do
   (dh, f) <- instantiateL (g :>: EntryUVar bb) a' b
@@ -405,13 +449,13 @@ instantiateL g a' a = case isMonoType a of
   Just t -> do
     wfMono g t
     g' <- solveM a' t g
-    pure (g', ReflCo (fromMono t)) -- In g', a' := t. coercion is therfore reflexive
+    pure (g', ReflCo (fromMono t)) -- In g', a' := t. coercion is therefore reflexive
   Nothing -> error "unreachable: non-monotypes and monotypes both covered"
 
 -- "instantiateR g b a'" shows that b is a subtype of a'
 instantiateR :: Context -> Type -> EVar -> M (Context, Coercion)
 instantiateR g (TyEVar b') a' = do
-  g' <- maybe (throwError "reach failed") pure (reach g a' b')
+  g' <- liftMaybe "reach failed" (reach g a' b')
   pure (g', ReflCo (TyEVar b'))
 instantiateR g (TyForall bb b) a' = do
   b' <- newEVar
