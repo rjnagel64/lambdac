@@ -466,6 +466,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     tycode IntegerH = "V"
     tycode BooleanH = "B"
     tycode StringH = "T"
+    tycode CharH = "H"
     tycode UnitH = "U"
     tycode TokenH = "K"
     -- In C, polymorphic types are represented uniformly.
@@ -587,6 +588,7 @@ data Sort
   | BooleanH
   | UnitH
   | StringH
+  | CharH
   | ProductH Sort Sort
   | SumH Sort Sort
   | ClosureH ClosureTele
@@ -675,6 +677,7 @@ data ValueH
   = IntH Int64
   | BoolH Bool
   | StringValH String
+  | CharValH Char
   | PairH Name Name
   | NilH
   | WorldToken
@@ -697,8 +700,10 @@ data PrimOp
   | PrimLeInt64 Name Name
   | PrimGtInt64 Name Name
   | PrimGeInt64 Name Name
+  | PrimEqChar Name Name
   | PrimConcatenate Name Name
   | PrimStrlen Name
+  | PrimIndexStr Name Name
 
 data PrimIO
   = PrimGetLine Name
@@ -739,6 +744,7 @@ ftv UnitH = mempty
 ftv IntegerH = mempty
 ftv BooleanH = mempty
 ftv StringH = mempty
+ftv CharH = mempty
 ftv TokenH = mempty
 ftv (ProductH t s) = ftv t <> ftv s
 ftv (TyRecordH fs) = foldMap (ftv . snd) fs
@@ -785,6 +791,8 @@ equalSort _ UnitH UnitH = True
 equalSort _ UnitH _ = False
 equalSort _ StringH StringH = True
 equalSort _ StringH _ = False
+equalSort _ CharH CharH = True
+equalSort _ CharH _ = False
 equalSort _ TokenH TokenH = True
 equalSort _ TokenH _ = False
 equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
@@ -859,6 +867,7 @@ substSort _ IntegerH = IntegerH
 substSort _ BooleanH = BooleanH
 substSort _ UnitH = UnitH
 substSort _ StringH = StringH
+substSort _ CharH = CharH
 substSort _ TokenH = TokenH
 substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
 substSort sub (TyRecordH fs) = TyRecordH (map (second (substSort sub)) fs)
@@ -947,6 +956,7 @@ pprintValue NilH = "()"
 pprintValue (IntH i) = show i
 pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (StringValH s) = show s
+pprintValue (CharValH c) = show c
 pprintValue WorldToken = "WORLD#"
 pprintValue (RecordH []) = "{}"
 pprintValue (RecordH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
@@ -970,8 +980,10 @@ pprintPrim (PrimLtInt64 x y) = "prim_ltint64(" ++ show x ++ ", " ++ show y ++ ")
 pprintPrim (PrimLeInt64 x y) = "prim_leint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimGtInt64 x y) = "prim_gtint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimEqChar x y) = "prim_eqchar(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimConcatenate x y) = "prim_concatenate(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimStrlen x) = "prim_strlen(" ++ show x ++ ")"
+pprintPrim (PrimIndexStr x y) = "prim_strindex(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintPrimIO :: PrimIO -> String
 pprintPrimIO (PrimGetLine x) = "prim_getLine(" ++ show x ++ ")"
@@ -996,6 +1008,7 @@ pprintSort IntegerH = "int"
 pprintSort BooleanH = "bool"
 pprintSort UnitH = "unit"
 pprintSort StringH = "string"
+pprintSort CharH = "char"
 pprintSort TokenH = "token#"
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (TyRecordH []) = "{}"

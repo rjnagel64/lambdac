@@ -20,7 +20,16 @@ struct bool_value {
 
 struct bool_value *allocate_bool_value(uint8_t x);
 
-#define CAST_bool_value(v) ((struct bool_value *)(v))
+#define CAST_BOOL(v) ((struct bool_value *)(v))
+
+struct char_value {
+    struct alloc_header header;
+    uint32_t value;
+};
+
+struct char_value *allocate_char(uint32_t x);
+
+#define CAST_CHAR(v) ((struct char_value *)(v))
 
 struct closure {
     struct alloc_header header;
@@ -121,9 +130,12 @@ struct bool_value *prim_leint64(struct int64_value *x, struct int64_value *y);
 struct bool_value *prim_gtint64(struct int64_value *x, struct int64_value *y);
 struct bool_value *prim_geint64(struct int64_value *x, struct int64_value *y);
 
+struct bool_value *prim_eqchar(struct char_value *x, struct char_value *y);
+
 // Primitive operators on strings
 struct string_value *prim_concatenate(struct string_value *x, struct string_value *y);
 struct int64_value *prim_strlen(struct string_value *x);
+struct char_value *prim_strindex(struct string_value *x, struct int64_value *idx);
 
 // IO primitives
 // Note: I/O primitives desparately need better error handling strategies.

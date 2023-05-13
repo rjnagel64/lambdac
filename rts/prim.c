@@ -1,6 +1,8 @@
 
 #include "prim.h"
 
+#include "panic.h"
+
 #include <stdio.h> // sprintf for display_int64_value
 #include <string.h>
 
@@ -30,7 +32,7 @@ void trace_bool_value(struct alloc_header *alloc) {
 }
 
 void display_bool_value(struct alloc_header *alloc, struct string_buf *sb) {
-    struct bool_value *v = CAST_bool_value(alloc);
+    struct bool_value *v = CAST_BOOL(alloc);
     if (v->value) {
         string_buf_push_slice(sb, "true", 4);
     } else {
@@ -45,6 +47,36 @@ struct bool_value *allocate_bool_value(uint8_t x) {
     v->value = x;
 
     cons_new_alloc(AS_ALLOC(v), &bool_value_info);
+    return v;
+}
+
+void trace_char_value(struct alloc_header *alloc) {
+}
+
+void display_char_value(struct alloc_header *alloc, struct string_buf *sb) {
+    // Oh no, unicode. char_value's payload is a unicode code point, 32 bits.
+    // (Like rust 'char')
+    //
+    // ...
+    // I'm just going to assume that all characters are ASCII, so I can just
+    // mask off the lowest byte.
+    // Doing this properly would probably involve encoding the codepoint into a
+    // few UTF-8 bytes, then pushing those bytes onto the string_buf
+    struct char_value *v = CAST_CHAR(alloc);
+    char value[1]; // maximum 7 bytes?
+    value[0] = (char)(v->value & 0x7F);
+    string_buf_push_slice(sb, "'", 1);
+    string_buf_push_slice(sb, value, 1);
+    string_buf_push_slice(sb, "'", 1);
+}
+
+const type_info char_value_info = { trace_int64_value, display_int64_value };
+
+struct char_value *allocate_char(uint32_t x) {
+    struct char_value *v = malloc(sizeof(struct char_value));
+    v->value = (uintptr_t)x;
+
+    cons_new_alloc(AS_ALLOC(v), &char_value_info);
     return v;
 }
 
@@ -235,6 +267,10 @@ struct bool_value *prim_geint64(struct int64_value *x, struct int64_value *y) {
     return allocate_bool_value(x->value >= y->value);
 }
 
+struct bool_value *prim_eqchar(struct char_value *x, struct char_value *y) {
+    return allocate_bool_value(x->value == y->value);
+}
+
 struct string_value *prim_concatenate(struct string_value *x, struct string_value *y) {
     struct string_buf *sb = string_buf_with_capacity(x->len + y->len);
     string_buf_push_slice(sb, x->contents, x->len);
@@ -246,6 +282,15 @@ struct string_value *prim_concatenate(struct string_value *x, struct string_valu
 
 struct int64_value *prim_strlen(struct string_value *x) {
     return allocate_int64(x->len);
+}
+
+struct char_value *prim_strindex(struct string_value *x, struct int64_value *idx) {
+    int64_t i = idx->value;
+    if (i < 0 || i >= x->len) {
+        panic("runtime error: string index out of bounds");
+    }
+    char c = x->contents[i];
+    return allocate_char((uint32_t)c);
 }
 
 void prim_getLine(struct token *x, struct token **out_x, struct string_value **out_y) {

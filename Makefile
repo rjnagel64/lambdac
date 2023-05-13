@@ -14,7 +14,7 @@ rts/librts.a: rts/alloc.o rts/prim.o rts/control.o rts/panic.o rts/string_buf.o 
 rts/alloc.o: rts/alloc.c rts/alloc.h rts/panic.h rts/string_buf.h
 	clang $(RTSFLAGS) -c rts/alloc.c -o rts/alloc.o
 
-rts/prim.o: rts/prim.c rts/prim.h rts/alloc.h
+rts/prim.o: rts/prim.c rts/prim.h rts/alloc.h rts/panic.h
 	clang $(RTSFLAGS) -c rts/prim.c -o rts/prim.o
 
 rts/control.o: rts/control.c rts/control.h rts/alloc.h
