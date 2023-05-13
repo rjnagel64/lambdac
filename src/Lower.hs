@@ -196,6 +196,7 @@ lowerProjection (H.ProjectField f) = ProjectField <$> lowerFieldLabel f
 lowerValue :: H.ValueH -> M ValueH
 lowerValue (H.IntH i) = pure (IntH i)
 lowerValue (H.StringValH s) = pure (StringValH s)
+lowerValue (H.CharValH c) = pure (CharValH c)
 lowerValue (H.PairH x y) = PairH <$> lowerName x <*> lowerName y
 lowerValue H.NilH = pure NilH
 lowerValue H.WorldToken = pure WorldToken
@@ -239,6 +240,7 @@ lowerSort H.IntegerH = pure IntegerH
 lowerSort H.BooleanH = pure BooleanH
 lowerSort H.UnitH = pure UnitH
 lowerSort H.StringH = pure StringH
+lowerSort H.CharH = pure CharH
 lowerSort (H.ProductH t s) = ProductH <$> lowerSort t <*> lowerSort s
 lowerSort (H.SumH t s) = SumH <$> lowerSort t <*> lowerSort s
 lowerSort (H.ClosureH tele) = ClosureH <$> lowerClosureTele tele

@@ -166,6 +166,7 @@ data Sort
   | BooleanH
   | UnitH
   | StringH
+  | CharH
   | ProductH Sort Sort
   | SumH Sort Sort
   | ClosureH ClosureTele
@@ -260,6 +261,7 @@ data EnvAlloc
 data ValueH
   = IntH Int64
   | StringValH String
+  | CharValH Char
   | PairH Name Name
   | NilH
   | WorldToken
@@ -325,6 +327,7 @@ ftv UnitH = mempty
 ftv IntegerH = mempty
 ftv BooleanH = mempty
 ftv StringH = mempty
+ftv CharH = mempty
 ftv TokenH = mempty
 ftv (ProductH t s) = ftv t <> ftv s
 ftv (RecordH fs) = foldMap (ftv . snd) fs
@@ -371,6 +374,8 @@ equalSort _ UnitH UnitH = True
 equalSort _ UnitH _ = False
 equalSort _ StringH StringH = True
 equalSort _ StringH _ = False
+equalSort _ CharH CharH = True
+equalSort _ CharH _ = False
 equalSort _ TokenH TokenH = True
 equalSort _ TokenH _ = False
 equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
@@ -445,6 +450,7 @@ substSort _ IntegerH = IntegerH
 substSort _ BooleanH = BooleanH
 substSort _ UnitH = UnitH
 substSort _ StringH = StringH
+substSort _ CharH = CharH
 substSort _ TokenH = TokenH
 substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
 substSort sub (RecordH fs) = RecordH (map (second (substSort sub)) fs)
@@ -531,6 +537,7 @@ pprintValue (RecordValH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ "
 pprintValue NilH = "()"
 pprintValue (IntH i) = show i
 pprintValue (StringValH s) = show s
+pprintValue (CharValH c) = show c
 pprintValue WorldToken = "WORLD#"
 pprintValue (CtorAppH capp) = pprintCtorApp capp
 
@@ -581,6 +588,7 @@ pprintSort IntegerH = "int"
 pprintSort BooleanH = "bool"
 pprintSort UnitH = "unit"
 pprintSort StringH = "string"
+pprintSort CharH = "char"
 pprintSort TokenH = "token#"
 pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (SumH t s) = "sum " ++ pprintSort t ++ " " ++ pprintSort s
