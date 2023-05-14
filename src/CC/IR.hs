@@ -15,6 +15,7 @@ module CC.IR
   , ValueC(..)
   , ArithC(..)
   , CmpC(..)
+  , StringOpC(..)
   , PrimIO(..)
   , Argument(..)
   , CaseKind(..)
@@ -152,8 +153,8 @@ data TermC
   | LetFieldC (Name, Sort) Name FieldLabel TermC -- let x = y#field in e, projection
   | LetArithC (Name, Sort) ArithC TermC
   | LetCompareC (Name, Sort) CmpC TermC
+  | LetStringOpC (Name, Sort) StringOpC TermC
   | LetBindC (Name, Sort) (Name, Sort) PrimIO TermC
-  | LetConcatC (Name, Sort) Name Name TermC -- let x = y ++ z in e, concatenation
   | LetFunC [FunClosureDef] TermC
   | LetContC [(Name, ContClosureDef)] TermC
   -- Invoke a closure by providing values for the remaining arguments.
@@ -182,6 +183,11 @@ data CmpC
   | LeC Name Name
   | GtC Name Name
   | GeC Name Name
+  | EqCharC Name Name
+
+data StringOpC
+  = ConcatC Name Name -- y ^ z, concatenation
+  | IndexC Name Name -- char_at_index x i, indexing
 
 data PrimIO
   = GetLineC Name
@@ -292,8 +298,8 @@ pprintTerm n (LetArithC x op e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareC x cmp e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetConcatC x y z e) =
-  indent n ("let " ++ pprintPlace x ++ " = " ++ show y ++ " ++ " ++ show z ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetStringOpC x op e) =
+  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintStringOp op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetBindC x y prim e) =
   indent n ("let " ++ pprintPlace x ++ ", " ++ pprintPlace y ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
 
@@ -352,6 +358,11 @@ pprintCompare (LtC x y) = show x ++ " < " ++ show y
 pprintCompare (LeC x y) = show x ++ " <= " ++ show y
 pprintCompare (GtC x y) = show x ++ " > " ++ show y
 pprintCompare (GeC x y) = show x ++ " >= " ++ show y
+pprintCompare (EqCharC x y) = show x ++ " == " ++ show y
+
+pprintStringOp :: StringOpC -> String
+pprintStringOp (ConcatC x y) = show x ++ " ^ " ++ show y
+pprintStringOp (IndexC x y) = show x ++ ".char_at_index " ++ show y
 
 pprintPrimIO :: PrimIO -> String
 pprintPrimIO (GetLineC x) = "getLine " ++ show x

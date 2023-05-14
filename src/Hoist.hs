@@ -180,8 +180,8 @@ hoist (C.LetCompareC (x, s) op e) = do
   op' <- hoistCmp op
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' op' e')
-hoist (C.LetConcatC (x, s) y z e) = do
-  op' <- PrimConcatenate <$> hoistVarOcc y <*> hoistVarOcc z
+hoist (C.LetStringOpC (x, s) op e) = do
+  op' <- hoistStringOp op
   (x', e') <- withPlace x s $ hoist e
   pure (LetPrimH x' op' e')
 hoist (C.LetBindC (x1, s1) (x2, s2) prim e) = do
@@ -299,6 +299,11 @@ hoistCmp (C.LtC x y) = PrimLtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (C.LeC x y) = PrimLeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (C.GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistCmp (C.GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp (C.EqCharC x y) = PrimEqChar <$> hoistVarOcc x <*> hoistVarOcc y
+
+hoistStringOp :: C.StringOpC -> HoistM PrimOp
+hoistStringOp (C.ConcatC x y) = PrimConcatenate <$> hoistVarOcc x <*> hoistVarOcc y
+hoistStringOp (C.IndexC x y) = PrimIndexStr <$> hoistVarOcc x <*> hoistVarOcc y
 
 hoistPrimIO :: C.PrimIO -> HoistM PrimIO
 hoistPrimIO (C.GetLineC x) = PrimGetLine <$> hoistVarOcc x

@@ -241,7 +241,8 @@ cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*>
 cconv (K.LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
 cconv (K.LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
 cconv (K.LetConcatK x y z e) =
-  withTm (x, K.StringK) $ \b -> LetConcatC b <$> cconvTmVar y <*> cconvTmVar z <*> cconv e
+  withTm (x, K.StringK) $ \b ->
+    LetStringOpC b <$> (ConcatC <$> cconvTmVar y <*> cconvTmVar z) <*> cconv e
 cconv (K.LetBindK x y prim e) = do
   (prim', ansTy) <- cconvPrimIO prim
   withTm (x, K.TokenK) $ \b1 -> withTm (y, ansTy) $ \b2 ->
