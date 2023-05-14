@@ -285,8 +285,10 @@ data PrimOp
   | PrimLeInt64 Name Name
   | PrimGtInt64 Name Name
   | PrimGeInt64 Name Name
+  | PrimEqChar Name Name
   | PrimConcatenate Name Name
   | PrimStrlen Name
+  | PrimIndexStr Name Name
 
 data PrimIO
   = PrimGetLine Name
@@ -558,8 +560,10 @@ pprintPrim (PrimLtInt64 x y) = "prim_ltint64(" ++ show x ++ ", " ++ show y ++ ")
 pprintPrim (PrimLeInt64 x y) = "prim_leint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimGtInt64 x y) = "prim_gtint64(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimGeInt64 x y) = "prim_geint64(" ++ show x ++ ", " ++ show y ++ ")"
+pprintPrim (PrimEqChar x y) = "prim_eqchar(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimConcatenate x y) = "prim_concatenate(" ++ show x ++ ", " ++ show y ++ ")"
 pprintPrim (PrimStrlen x) = "prim_strlen(" ++ show x ++ ")"
+pprintPrim (PrimIndexStr x y) = "prim_strindex(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintPrimIO :: PrimIO -> String
 pprintPrimIO (PrimGetLine x) = "prim_getLine(" ++ show x ++ ")"

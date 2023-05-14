@@ -361,8 +361,10 @@ checkPrimOp (PrimLtInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> 
 checkPrimOp (PrimLeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
 checkPrimOp (PrimGtInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
 checkPrimOp (PrimGeInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure BooleanH
+checkPrimOp (PrimEqChar x y) = checkName x CharH *> checkName y CharH *> pure BooleanH
 checkPrimOp (PrimConcatenate x y) = checkName x StringH *> checkName y StringH *> pure StringH
 checkPrimOp (PrimStrlen x) = checkName x StringH *> pure IntegerH
+checkPrimOp (PrimIndexStr x y) = checkName x StringH *> checkName y IntegerH *> pure CharH
 
 -- | Check an I/O primitive operation, and compute its return sort.
 checkPrimIO :: PrimIO -> TC Sort
