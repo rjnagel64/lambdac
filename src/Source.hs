@@ -146,6 +146,8 @@ data Term
   | TmTApp Term Type
   -- "foo"
   | TmString String
+  -- 'x'
+  | TmChar Char
   -- s1 ^ s2
   | TmConcat Term Term
   -- c
@@ -195,6 +197,7 @@ data Type
   | TyVarOcc TyVar
   | TyAll TyVar Kind Type
   | TyString
+  | TyChar
   | TyConOcc TyCon
   | TyApp Type Type
   | TyIO Type
@@ -260,6 +263,8 @@ eqType _ TyInt TyInt = True
 eqType _ TyInt _ = False
 eqType _ TyString TyString = True
 eqType _ TyString _ = False
+eqType _ TyChar TyChar = True
+eqType _ TyChar _ = False
 eqType ae (TyProd t1 t2) (TyProd t3 t4) = eqType ae t1 t3 && eqType ae t2 t4
 eqType _ (TyProd _ _) _ = False
 eqType ae (TyRecord fs1) (TyRecord fs2) = go fs1 fs2
@@ -320,6 +325,7 @@ substType _ TyUnit = TyUnit
 substType _ TyBool = TyBool
 substType _ TyInt = TyInt
 substType _ TyString = TyString
+substType _ TyChar = TyChar
 substType sub (TyProd t1 t2) = TyProd (substType sub t1) (substType sub t2)
 substType sub (TyRecord fs) = TyRecord (map (second (substType sub)) fs)
 substType sub (TySum t1 t2) = TySum (substType sub t1) (substType sub t2)
@@ -340,6 +346,7 @@ ftv TyUnit = Set.empty
 ftv TyBool = Set.empty
 ftv TyInt = Set.empty
 ftv TyString = Set.empty
+ftv TyChar = Set.empty
 ftv (TyConOcc _) = Set.empty
 ftv (TyApp t1 t2) = ftv t1 <> ftv t2
 ftv (TyIO t1) = ftv t1
@@ -350,6 +357,7 @@ pprintType _ TyUnit = "unit"
 pprintType _ TyBool = "bool"
 pprintType _ TyInt = "int"
 pprintType _ TyString = "string"
+pprintType _ TyChar = "char"
 pprintType _ (TyRecord []) = "{}"
 pprintType _ (TyRecord fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
   where pprintField (f, t) = show f ++ " : " ++ pprintType 0 t

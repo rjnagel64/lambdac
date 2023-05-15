@@ -69,6 +69,7 @@ cpsType (S.TyAll aa k t) = freshenTyVarBinds [(aa, k)] $ \bs -> (\t' -> AllK bs 
 cpsType S.TyUnit = pure UnitK
 cpsType S.TyInt = pure IntK
 cpsType S.TyString = pure StringK
+cpsType S.TyChar = pure CharK
 cpsType S.TyBool = pure BoolK
 cpsType (S.TySum a b) = SumK <$> cpsType a <*> cpsType b
 cpsType (S.TyProd a b) = ProdK <$> cpsType a <*> cpsType b
@@ -164,6 +165,7 @@ cps S.TmNil k = cpsValue NilK S.TyUnit k
 cps (S.TmInt i) k = cpsValue (IntValK i) S.TyInt k
 cps (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool k
 cps (S.TmString s) k = cpsValue (StringValK s) S.TyString k
+cps (S.TmChar c) k = cpsValue (CharValK c) S.TyChar k
 cps (S.TmLam x argTy e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do

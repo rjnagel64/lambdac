@@ -159,6 +159,7 @@ infer (TmRecFun fs e) = do
 infer (TmBool _) = pure TyBool
 infer (TmInt _) = pure TyInt
 infer (TmString _) = pure TyString
+infer (TmChar _) = pure TyChar
 
 infer (TmLam x t e) = do
   t' <- withVars [(x, t)] $ infer e
@@ -302,6 +303,7 @@ inferType (TyApp t s) = do
 inferType TyUnit = pure KiStar
 inferType TyInt = pure KiStar
 inferType TyString = pure KiStar
+inferType TyChar = pure KiStar
 inferType TyBool = pure KiStar
 inferType (TySum t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 inferType (TyProd t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
