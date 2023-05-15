@@ -170,6 +170,7 @@ cconvType K.TokenK = pure Token
 cconvType K.IntK = pure Integer
 cconvType K.BoolK = pure Boolean
 cconvType K.StringK = pure String
+cconvType K.CharK = pure Character
 cconvType (K.SumK t1 t2) = Sum <$> cconvType t1 <*> cconvType t2
 cconvType (K.ProdK t1 t2) = Pair <$> cconvType t1 <*> cconvType t2
 cconvType (K.RecordK fields) = Record <$> traverse cconvField fields
@@ -234,15 +235,15 @@ cconv (K.CaseK x kind ks) = do
     pure term
   else
     pure (LetContC kbinds term)
+-- Hmm. Technically, this is incorrect scoping.
+-- x : T should not be in scope when translating the arguments to the operation.
 cconv (K.LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
 cconv (K.LetFieldK x t y f e) = withTm (x, t) $ \b -> LetFieldC b <$> cconvTmVar y <*> cconvFieldLabel f <*> cconv e
 cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e
 cconv (K.LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
-cconv (K.LetCompareK x cmp e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp cmp <*> cconv e
-cconv (K.LetConcatK x y z e) =
-  withTm (x, K.StringK) $ \b ->
-    LetStringOpC b <$> (ConcatC <$> cconvTmVar y <*> cconvTmVar z) <*> cconv e
+cconv (K.LetCompareK x op e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp op <*> cconv e
+cconv (K.LetStringOpK x t op e) = withTm (x, t) $ \b -> LetStringOpC b <$> cconvStringOp op <*> cconv e
 cconv (K.LetBindK x y prim e) = do
   (prim', ansTy) <- cconvPrimIO prim
   withTm (x, K.TokenK) $ \b1 -> withTm (y, ansTy) $ \b2 ->
@@ -310,6 +311,7 @@ makeClosureEnv flds = do
     ftv _ Unit = Set.empty
     ftv _ Boolean = Set.empty
     ftv _ String = Set.empty
+    ftv _ Character = Set.empty
     ftv _ Token = Set.empty
     ftv _ (TyConOcc _) = Set.empty
     ftv ctx (Sum t1 t2) = ftv ctx t1 <> ftv ctx t2
@@ -329,6 +331,7 @@ cconvValue (K.BoolValK b) = pure (BoolC b)
 cconvValue (K.InlK x) = InlC <$> cconvTmVar x
 cconvValue (K.InrK y) = InrC <$> cconvTmVar y
 cconvValue (K.StringValK s) = pure (StringC s)
+cconvValue (K.CharValK s) = pure (CharC s)
 cconvValue (K.CtorAppK (K.Ctor c) args) = CtorAppC (Ctor c) <$> traverse cconvTmVar args
 
 cconvArith :: K.ArithK -> ConvM ArithC
@@ -344,6 +347,11 @@ cconvCmp (K.CmpLtK x y) = LtC <$> cconvTmVar x <*> cconvTmVar y
 cconvCmp (K.CmpLeK x y) = LeC <$> cconvTmVar x <*> cconvTmVar y
 cconvCmp (K.CmpGtK x y) = GtC <$> cconvTmVar x <*> cconvTmVar y
 cconvCmp (K.CmpGeK x y) = GeC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpEqCharK x y) = EqCharC <$> cconvTmVar x <*> cconvTmVar y
+
+cconvStringOp :: K.StringOpK -> ConvM StringOpC
+cconvStringOp (K.ConcatK x y) = ConcatC <$> cconvTmVar x <*> cconvTmVar y
+cconvStringOp (K.IndexK x y) = IndexC <$> cconvTmVar x <*> cconvTmVar y
 
 cconvPrimIO :: K.PrimIO -> ConvM (PrimIO, K.TypeK)
 cconvPrimIO (K.PrimGetLine x) =

@@ -7,6 +7,7 @@ module CPS.IR
     , TermK(..)
     , ArithK(..)
     , CmpK(..)
+    , StringOpK(..)
     , ValueK(..)
     , CoValueK(..)
     , PrimIO(..)
@@ -127,8 +128,7 @@ data TermK
   | LetArithK TmVar ArithK TermK
   -- let z = x `cmp` y in e 
   | LetCompareK TmVar CmpK TermK
-  -- let z = x ++ y in e
-  | LetConcatK TmVar TmVar TmVar TermK
+  | LetStringOpK TmVar TypeK StringOpK TermK
   -- let s, x <- io_op in e
   | LetBindK TmVar TmVar PrimIO TermK
 
@@ -193,6 +193,7 @@ data ValueK
   | IntValK Int
   | BoolValK Bool
   | StringValK String
+  | CharValK Char
   | CtorAppK Ctor [TmVar]
 
 data CoValueK
@@ -212,6 +213,13 @@ data CmpK
   | CmpLeK TmVar TmVar
   | CmpGtK TmVar TmVar
   | CmpGeK TmVar TmVar
+  | CmpEqCharK TmVar TmVar
+
+data StringOpK
+  -- x ^ y, concatenation
+  = ConcatK TmVar TmVar
+  -- char_at_idx x i
+  | IndexK TmVar TmVar
 
 data PrimIO
   = PrimGetLine TmVar
@@ -228,6 +236,8 @@ data TypeK
   | BoolK
   -- string
   | StringK
+  -- char
+  | CharK
   -- σ × τ
   | ProdK TypeK TypeK
   -- { (l : τ)+ }
@@ -304,6 +314,8 @@ eqTypeK' _ BoolK BoolK = True
 eqTypeK' _ BoolK _ = False
 eqTypeK' _ StringK StringK = True
 eqTypeK' _ StringK _ = False
+eqTypeK' _ CharK CharK = True
+eqTypeK' _ CharK _ = False
 eqTypeK' sc (ProdK t1 s1) (ProdK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
 eqTypeK' _ (ProdK _ _) _ = False
 eqTypeK' sc (RecordK fs1) (RecordK fs2) = allEqual f fs1 fs2
@@ -365,6 +377,7 @@ typeFV TokenK = Set.empty
 typeFV IntK = Set.empty
 typeFV BoolK = Set.empty
 typeFV StringK = Set.empty
+typeFV CharK = Set.empty
 typeFV (TyConOccK _) = Set.empty
 
 -- | Compute the free type variables of a co-type.
@@ -390,6 +403,7 @@ substTypeK _ TokenK = TokenK
 substTypeK _ IntK = IntK
 substTypeK _ BoolK = BoolK
 substTypeK _ StringK = StringK
+substTypeK _ CharK = CharK
 substTypeK _ (TyConOccK tc) = TyConOccK tc
 
 -- | Apply a substitution to a co-type.
@@ -472,10 +486,10 @@ pprintTerm n (LetFieldK x t y f e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ show y ++ "#" ++ show f ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetArithK x op e) =
   indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetCompareK x cmp e) =
-  indent n ("let " ++ show x ++ " = " ++ pprintCompare cmp ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetConcatK x y z e) =
-  indent n ("let " ++ show x ++ " = " ++ show y ++ " ++ " ++ show z ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetCompareK x op e) =
+  indent n ("let " ++ show x ++ " = " ++ pprintCompare op ++ ";\n") ++ pprintTerm n e
+pprintTerm n (LetStringOpK x t op e) =
+  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintStringOp op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetBindK x y prim e) =
   indent n ("let " ++ show x ++ ", " ++ show y ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
 
@@ -494,6 +508,7 @@ pprintValue (BoolValK b) = if b then "true" else "false"
 pprintValue (InlK x) = "inl " ++ show x
 pprintValue (InrK y) = "inr " ++ show y
 pprintValue (StringValK s) = show s
+pprintValue (CharValK s) = show s
 pprintValue (CtorAppK c args) = show c ++ "(" ++ intercalate ", " (map show args) ++ ")"
 
 pprintCoValue :: CoValueK -> String
@@ -513,6 +528,11 @@ pprintCompare (CmpLtK x y) = show x ++ " < " ++ show y
 pprintCompare (CmpLeK x y) = show x ++ " <= " ++ show y
 pprintCompare (CmpGtK x y) = show x ++ " > " ++ show y
 pprintCompare (CmpGeK x y) = show x ++ " >= " ++ show y
+pprintCompare (CmpEqCharK x y) = show x ++ " == " ++ show y
+
+pprintStringOp :: StringOpK -> String
+pprintStringOp (ConcatK x y) = show x ++ " ^ " ++ show y
+pprintStringOp (IndexK x y) = show x ++ ".char_at_idx " ++ show y
 
 pprintPrimIO :: PrimIO -> String
 pprintPrimIO (PrimGetLine x) = "getLine " ++ show x
@@ -564,6 +584,7 @@ pprintType UnitK = "unit"
 pprintType TokenK = "token"
 pprintType BoolK = "bool"
 pprintType StringK = "string"
+pprintType CharK = "char"
 pprintType (TyVarOccK aa) = show aa
 pprintType (AllK aas ss) =
   "forall (" ++ intercalate ", " (map f aas) ++ "). (" ++ intercalate ", " (map pprintCoType ss) ++ ") -> 0"

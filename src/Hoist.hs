@@ -54,6 +54,7 @@ sortOf C.Boolean = BooleanH
 sortOf C.Unit = UnitH
 sortOf C.Token = TokenH
 sortOf C.String = StringH
+sortOf C.Character = CharH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.Record fields) = RecordH (map sortOfField fields)
   where sortOfField (f, t) = (hoistFieldLabel f, sortOf t)
@@ -284,6 +285,7 @@ hoistValue C.WorldTokenC = pure WorldToken
 hoistValue (C.InlC x) = (CtorAppH . InlH) <$> hoistVarOcc x
 hoistValue (C.InrC x) = (CtorAppH . InrH) <$> hoistVarOcc x
 hoistValue (C.StringC s) = pure (StringValH s)
+hoistValue (C.CharC c) = pure (CharValH c)
 hoistValue (C.CtorAppC (C.Ctor c) args) = (CtorAppH . CtorApp (Ctor c)) <$> traverse hoistVarOcc args
 
 hoistArith :: C.ArithC -> HoistM PrimOp

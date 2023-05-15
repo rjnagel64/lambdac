@@ -257,7 +257,7 @@ cps (S.TmConcat e1 e2) k =
     cps e2 $ MetaCont $ \v2 _t2 -> do
       freshTm "x" $ \x -> do
         (e', t') <- applyCont k x S.TyString
-        let res = LetConcatK x v1 v2 e'
+        let res = LetStringOpK x StringK (ConcatK v1 v2) e'
         pure (res, t')
 cps (S.TmPair e1 e2) k =
   cps e1 $ MetaCont $ \v1 t1 ->

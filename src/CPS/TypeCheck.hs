@@ -228,6 +228,10 @@ check (LetArithK z op e) = do
 check (LetCompareK z op e) = do
   checkCompare op
   withTmVars [(z, BoolK)] $ check e
+check (LetStringOpK z t op e) = do
+  t' <- checkStringOp op
+  equalTypes t t'
+  withTmVars [(z, t)] $ check e
 check (LetFstK x t y e) = do
   lookupTmVar y >>= \case
     ProdK t' _s -> equalTypes t t'
@@ -245,10 +249,6 @@ check (LetFieldK x s y f e) = do
       Just s' -> equalTypes s s'
     t' -> throwError (BadProjection t')
   withTmVars [(x, s)] $ check e
-check (LetConcatK x y z e) = do
-  checkTmVar y StringK
-  checkTmVar z StringK
-  withTmVars [(x, StringK)] $ check e
 check (LetBindK s x prim e) = do
   t <- checkPrimIO prim
   withTmVars [(s, TokenK), (x, t)] $ check e
@@ -294,6 +294,11 @@ checkCompare (CmpLtK x y) = checkIntBinOp x y
 checkCompare (CmpLeK x y) = checkIntBinOp x y
 checkCompare (CmpGtK x y) = checkIntBinOp x y
 checkCompare (CmpGeK x y) = checkIntBinOp x y
+checkCompare (CmpEqCharK x y) = checkTmVar x CharK *> checkTmVar y CharK
+
+checkStringOp :: StringOpK -> TC TypeK
+checkStringOp (ConcatK x y) = checkTmVar x StringK *> checkTmVar y StringK *> pure StringK
+checkStringOp (IndexK x y) = checkTmVar x StringK *> checkTmVar y IntK *> pure CharK
 
 checkIntBinOp :: TmVar -> TmVar -> TC ()
 checkIntBinOp x y = do
@@ -313,6 +318,7 @@ checkValue (InrK y) (SumK _t s) = do
 checkValue (IntValK _) IntK = pure ()
 checkValue (BoolValK _) BoolK = pure ()
 checkValue (StringValK _) StringK = pure ()
+checkValue (CharValK _) CharK = pure ()
 checkValue v@(CtorAppK c xs) t = case asTyConApp t of
   Nothing -> throwError (BadValue v t)
   Just tcapp -> checkCtorApp c xs tcapp
@@ -410,6 +416,7 @@ inferType UnitK = pure StarK
 inferType IntK = pure StarK
 inferType BoolK = pure StarK
 inferType StringK = pure StarK
+inferType CharK = pure StarK
 inferType (TyAppK t s) =
   inferType t >>= \case
     KArrK k1 k2 -> checkType s k1 *> pure k2

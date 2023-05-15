@@ -120,6 +120,7 @@ data Sort
   | Alloc TyVar
   | Sum Sort Sort
   | String
+  | Character
   | Pair Sort Sort
   | Record [(FieldLabel, Sort)]
   | Unit
@@ -252,6 +253,7 @@ data ValueC
   | IntC Int
   | BoolC Bool
   | StringC String
+  | CharC Char
   | CtorAppC Ctor [Name]
 
 
@@ -308,6 +310,7 @@ pprintSort (Closure ss) = "(" ++ intercalate ", " (map pprintTele ss) ++ ") -> !
 pprintSort Integer = "int"
 pprintSort (Alloc aa) = "alloc(" ++ show aa ++ ")"
 pprintSort String = "string"
+pprintSort Character = "char"
 pprintSort Boolean = "bool"
 pprintSort (Sum s t) = "sum " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort (Pair s t) = "pair " ++ pprintSort s ++ " " ++ pprintSort t
@@ -343,6 +346,7 @@ pprintValue (BoolC b) = if b then "true" else "false"
 pprintValue (InlC x) = "inl " ++ show x
 pprintValue (InrC y) = "inr " ++ show y
 pprintValue (StringC s) = show s
+pprintValue (CharC c) = show c
 pprintValue (CtorAppC c xs) = show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
 
 pprintArith :: ArithC -> String
