@@ -62,12 +62,23 @@ void display_char_value(struct alloc_header *alloc, struct string_buf *sb) {
     // mask off the lowest byte.
     // Doing this properly would probably involve encoding the codepoint into a
     // few UTF-8 bytes, then pushing those bytes onto the string_buf
+    
     struct char_value *v = CAST_CHAR(alloc);
-    char value[1]; // maximum 7 bytes?
-    value[0] = (char)(v->value & 0x7F);
-    string_buf_push_slice(sb, "'", 1);
-    string_buf_push_slice(sb, value, 1);
-    string_buf_push_slice(sb, "'", 1);
+    if (v->value == '\n') {
+        string_buf_push_slice(sb, "'\\n'", 4);
+    } else if (v->value == '\t') {
+        string_buf_push_slice(sb, "'\\t'", 4);
+    } else if (v->value == '\\') {
+        string_buf_push_slice(sb, "'\\\\'", 4);
+    } else if (v->value == '\'') {
+        string_buf_push_slice(sb, "'\\''", 4);
+    } else {
+        char value[1]; // maximum 7 bytes?
+        value[0] = (char)(v->value & 0x7F);
+        string_buf_push_slice(sb, "'", 1);
+        string_buf_push_slice(sb, value, 1);
+        string_buf_push_slice(sb, "'", 1);
+    }
 }
 
 const type_info char_value_info = { trace_char_value, display_char_value };

@@ -138,6 +138,7 @@ standard_test("simple_proj", "true")
 standard_test("record_val", "{ test = 17, it = false, works = \"yay!\" }")
 standard_test("record_proj", "true")
 standard_test("charliteral", "' '")
+standard_test("escapechar", "(('\\n', '\\t'), ('\\\\', '\\''))")
 
 def run_tests(test_filter):
     runner = TestRunner()

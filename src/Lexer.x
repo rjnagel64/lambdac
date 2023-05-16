@@ -20,8 +20,7 @@ $digit = [0-9]
 -- I can add \u{XXXX} later.
 -- $printable is built-in to Alex, it covers any character with code point
 -- between 32 and 0x10fff.
-$escapechar = [n t \\ \' \"]
-@charliteral = $printable | "\\" $escapechar
+@charliteral = [\\] "n" | [\\] "t" | [\\] [\\] | [\\] "'" | ($printable # [\\])
 
 
 tokens :-

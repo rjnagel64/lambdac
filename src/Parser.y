@@ -310,5 +310,9 @@ string (L _ (TokSTRING s)) = read s -- remove initial/final quote and process es
 char :: L Token -> Char
 char (L _ (TokCHAR s)) = case s of
   '\'':c:'\'':[] -> c
+  '\'':'\\':'n':'\'':[] -> '\n'
+  '\'':'\\':'t':'\'':[] -> '\t'
+  '\'':'\\':'\\':'\'':[] -> '\\'
+  '\'':'\\':'\'':'\'':[] -> '\''
   _ -> error "bad character" -- I need to handle escapes here too
 }
