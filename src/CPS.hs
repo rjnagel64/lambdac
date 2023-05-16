@@ -58,6 +58,7 @@ makeCompare S.TmCmpLt x y = CmpLtK x y
 makeCompare S.TmCmpLe x y = CmpLeK x y
 makeCompare S.TmCmpGt x y = CmpGtK x y
 makeCompare S.TmCmpGe x y = CmpGeK x y
+makeCompare S.TmCmpEqChar x y = CmpEqCharK x y
 
 cpsType :: S.Type -> CPS TypeK
 cpsType (S.TyVarOcc aa) = do
@@ -255,11 +256,18 @@ cps (S.TmCmp e1 cmp e2) k =
         let res = LetCompareK z (makeCompare cmp x y) e'
         pure (res, t')
 cps (S.TmConcat e1 e2) k =
-  cps e1 $ MetaCont $ \v1 _t1 ->
+  cps e1 $ MetaCont $ \v1 _t1 -> do
     cps e2 $ MetaCont $ \v2 _t2 -> do
       freshTm "x" $ \x -> do
         (e', t') <- applyCont k x S.TyString
         let res = LetStringOpK x StringK (ConcatK v1 v2) e'
+        pure (res, t')
+cps (S.TmIndexStr e1 e2) k =
+  cps e1 $ MetaCont $ \v1 _t1 -> do
+    cps e2 $ MetaCont $ \v2 _t2 -> do
+      freshTm "x" $ \x -> do
+        (e', t') <- applyCont k x S.TyChar
+        let res = LetStringOpK x CharK (IndexK v1 v2) e'
         pure (res, t')
 cps (S.TmPair e1 e2) k =
   cps e1 $ MetaCont $ \v1 t1 ->

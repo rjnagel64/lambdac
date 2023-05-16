@@ -159,6 +159,7 @@ infer (TmRecFun fs e) = do
 infer (TmBool _) = pure TyBool
 infer (TmInt _) = pure TyInt
 infer (TmString _) = pure TyString
+infer (TmIndexStr e1 e2) = check e1 TyString *> check e2 TyInt *> pure TyChar
 infer (TmChar _) = pure TyChar
 
 infer (TmLam x t e) = do
@@ -213,6 +214,7 @@ infer (TmArith e1 _ e2) = do
 infer (TmNegate e) = do
   check e TyInt
   pure TyInt
+infer (TmCmp e1 TmCmpEqChar e2) = check e1 TyChar *> check e2 TyChar *> pure TyBool
 infer (TmCmp e1 _ e2) = do
   check e1 TyInt
   check e2 TyInt

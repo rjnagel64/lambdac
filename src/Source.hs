@@ -150,6 +150,8 @@ data Term
   | TmChar Char
   -- s1 ^ s2
   | TmConcat Term Term
+  -- char_at_idx x i
+  | TmIndexStr Term Term
   -- c
   | TmCtorOcc Ctor
   -- case e return s of { (c_i (x:t)+ -> e_i')+ }
@@ -177,6 +179,7 @@ data TmCmp
   | TmCmpLe
   | TmCmpGt
   | TmCmpGe
+  | TmCmpEqChar
 
 -- | Named function definitions are one way of doing recursion.
 -- (On the other hand, let-rec expressions.)
