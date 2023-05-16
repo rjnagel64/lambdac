@@ -47,8 +47,10 @@ import Source
   'bool' { L _ TokBool }
   'case' { L _ TokCase }
   'char' { L _ TokChar }
+  'char_at_idx#' { L _ TokCharAtIndex }
   'data' { L _ TokData }
   'else' { L _ TokElse }
+  'eq_char#' { L _ TokEqChar }
   'false' { L _ TokFalse }
   'forall' { L _ TokForall }
   'fst' { L _ TokFst }
@@ -154,6 +156,8 @@ Term :: { Term }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
+     | 'eq_char#' ATerm ATerm { TmCmp $2 TmCmpEqChar $3 }
+     | 'char_at_idx#' ATerm ATerm { TmIndexStr $2 $3 }
      | Term '.' ID { TmFieldProj $1 (fieldLabel $3) }
      | 'pure' ATerm { TmPure $2 }
      | 'putLine' ATerm { TmPutLine $2 }

@@ -32,8 +32,10 @@ tokens :-
   "bool" { simpleToken TokBool }
   "case" { simpleToken TokCase }
   "char" { simpleToken TokChar }
+  "char_at_idx#" { simpleToken TokCharAtIndex }
   "data" { simpleToken TokData }
   "else" { simpleToken TokElse }
+  "eq_char#" { simpleToken TokEqChar }
   "false" { simpleToken TokFalse }
   "forall" { simpleToken TokForall }
   "fst" { simpleToken TokFst }
@@ -141,8 +143,10 @@ data Token
   | TokBool
   | TokCase
   | TokChar
+  | TokCharAtIndex
   | TokData
   | TokElse
+  | TokEqChar
   | TokFalse
   | TokForall
   | TokFst
