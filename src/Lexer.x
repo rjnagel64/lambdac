@@ -10,7 +10,7 @@ import Prelude hiding (lex)
 %wrapper "monadUserState"
 
 $idstart = [a-z A-Z _]
-$idcont = [a-z A-Z _ 0-9]
+$idcont = [a-z A-Z _ \# 0-9]
 $digit = [0-9]
 
 -- Hmm. character literals invoke questions about the range of allowed
@@ -66,7 +66,6 @@ tokens :-
   -- Symbols
   "->" { simpleToken TokArrow }
   "@" { simpleToken TokAt }
-  "#" { simpleToken TokHash }
   "<-" { simpleToken TokBind }
   "^" { simpleToken TokCaret }
   ":" { simpleToken TokColon }
@@ -124,7 +123,6 @@ data Token
   | TokDot
   | TokEquals
   | TokGe
-  | TokHash
   | TokLambda
   | TokLAngle
   | TokLBrace
