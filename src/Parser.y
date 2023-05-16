@@ -45,36 +45,38 @@ import Source
   ')' { L _ TokRParen }
   '{' { L _ TokLBrace }
   '}' { L _ TokRBrace }
-  'fun' { L _ TokFun }
+  'bool' { L _ TokBool }
   'case' { L _ TokCase }
-  'of' { L _ TokOf }
-  'return' { L _ TokReturn }
-  'let' { L _ TokLet }
-  'letrec' { L _ TokLetRec }
+  'char' { L _ TokChar }
+  'data' { L _ TokData }
+  'else' { L _ TokElse }
+  'false' { L _ TokFalse }
+  'forall' { L _ TokForall }
+  'fst' { L _ TokFst }
+  'fun' { L _ TokFun }
+  'getLine' { L _ TokGetLine }
+  'if' { L _ TokIf }
   'in' { L _ TokIn }
   'inl' { L _ TokInl }
   'inr' { L _ TokInr }
-  'fst' { L _ TokFst }
-  'snd' { L _ TokSnd }
-  'true' { L _ TokTrue }
-  'false' { L _ TokFalse }
-  'if' { L _ TokIf }
-  'then' { L _ TokThen }
-  'else' { L _ TokElse }
-  'unit' { L _ TokUnit }
   'int' { L _ TokInt }
-  'bool' { L _ TokBool }
-  'string' { L _ TokString }
-  'forall' { L _ TokForall }
-  'data' { L _ TokData }
+  'let' { L _ TokLet }
+  'letrec' { L _ TokLetRec }
+  'of' { L _ TokOf }
   'pure' { L _ TokPure }
-  'getLine' { L _ TokGetLine }
   'putLine' { L _ TokPutLine }
+  'return' { L _ TokReturn }
   'runIO' { L _ TokRunIO }
+  'snd' { L _ TokSnd }
+  'string' { L _ TokString }
+  'then' { L _ TokThen }
+  'true' { L _ TokTrue }
+  'unit' { L _ TokUnit }
 
   ID { L _ (TokID _) }
   INT { L _ (TokINT _) }
   STRING { L _ (TokSTRING _) }
+  CHAR { L _ (TokCHAR _) }
 
 -- Precedence goes here, low to high
 -- Actually, I beginning to wish that I could have different precedence
@@ -120,6 +122,10 @@ CtorArgs :: { DList Type }
 	 | CtorArgs ',' Type { DL.snoc $1 $3 }
 
 
+-- Okay, the precedence levels here have gotten very messy. I need to go back
+-- and clean these up.
+-- (In particular, the mix of explicit precedence levels with fixity directives
+-- is kind of weird.)
 Term :: { Term }
      : AppTerm { $1 }
      | '\\' '(' ID ':' Type ')' '->' Term { TmLam (var $3) $5 $8 }
@@ -154,6 +160,25 @@ Term :: { Term }
      | 'runIO' ATerm { TmRunIO $2 }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
 
+AppTerm :: { Term }
+        : ATerm { $1 }
+        | AppTerm ATerm { TmApp $1 $2 }
+        | AppTerm '@' AType { TmTApp $1 $3 }
+
+ATerm :: { Term }
+     : '(' Term ')' { $2 }
+     | '(' ')' { TmNil }
+     | '(' Term ',' Term ')' { TmPair $2 $4 }
+     | '{' FieldVals '}' { TmRecord (DL.toList $2) }
+     | ID { TmVarOcc (var $1) }
+     | '%' ID { TmCtorOcc (ctor $2) }
+     | INT { TmInt (int $1) }
+     | STRING { TmString (string $1) }
+     | CHAR { TmChar (char $1) }
+     | 'true' { TmBool True }
+     | 'false' { TmBool False }
+     | 'getLine' { TmGetLine }
+
 Alts :: { DList (Ctor, [(TmVar, Type)], Term) }
      : {- empty -} { DL.empty }
      | Alt { DL.singleton $1 }
@@ -172,24 +197,6 @@ Alt :: { (Ctor, [(TmVar, Type)], Term) }
 VarBinds :: { DList (TmVar, Type) }
 	 : VarBind { DL.singleton $1 }
 	 | VarBinds VarBind { DL.snoc $1 $2 }
-
-AppTerm :: { Term }
-        : ATerm { $1 }
-        | AppTerm ATerm { TmApp $1 $2 }
-        | AppTerm '@' AType { TmTApp $1 $3 }
-
-ATerm :: { Term }
-     : '(' Term ')' { $2 }
-     | '(' ')' { TmNil }
-     | '(' Term ',' Term ')' { TmPair $2 $4 }
-     | '{' FieldVals '}' { TmRecord (DL.toList $2) }
-     | ID { TmVarOcc (var $1) }
-     | '%' ID { TmCtorOcc (ctor $2) }
-     | INT { TmInt (int $1) }
-     | STRING { TmString (string $1) }
-     | 'true' { TmBool True }
-     | 'false' { TmBool False }
-     | 'getLine' { TmGetLine }
 
 FieldVals :: { DList (FieldLabel, Term) }
 	  : {- empty -} { DL.empty }
@@ -240,6 +247,7 @@ AType :: { Type }
       | 'int' { TyInt }
       | 'bool' { TyBool }
       | 'string' { TyString }
+      | 'char' { TyChar }
       -- As in terms, I need to distinguish (type) variable occurrences from
       -- (type) constructors.
       -- For now, I prefix (type) constructors with a sigil.
@@ -298,4 +306,9 @@ int (L _ (TokINT s)) = read s
 
 string :: L Token -> String
 string (L _ (TokSTRING s)) = read s -- remove initial/final quote and process escapes.
+
+char :: L Token -> Char
+char (L _ (TokCHAR s)) = case s of
+  '\'':c:'\'':[] -> c
+  _ -> error "bad character" -- I need to handle escapes here too
 }

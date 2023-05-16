@@ -70,7 +70,7 @@ void display_char_value(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push_slice(sb, "'", 1);
 }
 
-const type_info char_value_info = { trace_int64_value, display_int64_value };
+const type_info char_value_info = { trace_char_value, display_char_value };
 
 struct char_value *allocate_char(uint32_t x) {
     struct char_value *v = malloc(sizeof(struct char_value));

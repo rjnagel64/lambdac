@@ -13,6 +13,17 @@ $idstart = [a-z A-Z _]
 $idcont = [a-z A-Z _ 0-9]
 $digit = [0-9]
 
+-- Hmm. character literals invoke questions about the range of allowed
+-- characters, and the encoding used by strings.
+-- At runtime, a char is a 32-bit unicode code point.
+-- In the source, I'm just going to permit ASCII literals + escapes now, maybe
+-- I can add \u{XXXX} later.
+-- $printable is built-in to Alex, it covers any character with code point
+-- between 32 and 0x10fff.
+$escapechar = [n t \\ \' \"]
+@charliteral = $printable | "\\" $escapechar
+
+
 tokens :-
   -- Comments and whitespace are ignored
   $white+ { skip }
@@ -21,6 +32,7 @@ tokens :-
   -- Keywords (must occur before identifiers)
   "bool" { simpleToken TokBool }
   "case" { simpleToken TokCase }
+  "char" { simpleToken TokChar }
   "data" { simpleToken TokData }
   "else" { simpleToken TokElse }
   "false" { simpleToken TokFalse }
@@ -50,6 +62,7 @@ tokens :-
   $idstart $idcont* { tokenWithString TokID }
   $digit+ { tokenWithString TokINT }
   \" [^\"]* \" { tokenWithString TokSTRING }
+  "'" @charliteral "'" { tokenWithString TokCHAR }
 
   -- Symbols
   "->" { simpleToken TokArrow }
@@ -100,6 +113,7 @@ data Token
   | TokID String
   | TokINT String
   | TokSTRING String
+  | TokCHAR String
   -- Symbols (order: alphabetical by name)
   | TokArrow
   | TokAt
@@ -129,6 +143,7 @@ data Token
   -- Keywords (order: alphabetical by name)
   | TokBool
   | TokCase
+  | TokChar
   | TokData
   | TokElse
   | TokFalse

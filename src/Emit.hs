@@ -536,6 +536,8 @@ emitValueDefinition _ p (BoolH b) =
   defineLocal p (if b then "allocate_bool_value(1)" else "allocate_bool_value(0)") []
 emitValueDefinition _ p (StringValH s) =
   defineLocal p ("allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")") []
+emitValueDefinition _ p (CharValH c) =
+  defineLocal p ("allocate_char(" ++ show c ++ ")") []
 emitValueDefinition _ p (PairH x y) =
   defineLocal p ("allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ asAlloc (emitName y) ++ ")") []
 emitValueDefinition _ p NilH =
