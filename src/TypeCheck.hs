@@ -151,10 +151,6 @@ infer (TmLetRec bs e) = do
   let binds = [(x, t) | (x, t, _) <- bs]
   withVars binds $ traverse_ (\ (_, t, e') -> check e' t) bs
   withVars binds $ infer e
-infer (TmRecFun fs e) = do
-  let binds = [(f, TyArr t s) | TmFun f _ t s _ <- fs]
-  withVars binds $ traverse_ checkFun fs
-  withVars binds $ infer e
 
 infer (TmBool _) = pure TyBool
 infer (TmInt _) = pure TyInt
@@ -283,12 +279,6 @@ checkBinds _ _ = throwError ArityMismatch
 -- | Check that a term has the specified type.
 check :: Term -> Type -> TC ()
 check e t = infer e >>= equalTypes t
-
-checkFun :: TmFun -> TC ()
-checkFun (TmFun _f x t s e) = do
-  withVars [(x, t)] $ check e s
-checkFun (TmTFun _f aa ki t e) = do
-  withTyVars [(aa, ki)] $ check e t
 
 -- | Compute the kind of a type.
 inferType :: Type -> TC Kind

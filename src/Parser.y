@@ -54,7 +54,6 @@ import Source
   'false' { L _ TokFalse }
   'forall' { L _ TokForall }
   'fst' { L _ TokFst }
-  'fun' { L _ TokFun }
   'getLine' { L _ TokGetLine }
   'if' { L _ TokIf }
   'in' { L _ TokIn }
@@ -134,7 +133,6 @@ Term :: { Term }
      | '\\' '@' ID '->' Term { TmTLam (tvar $3) KiStar $5 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
      | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (var $2) $4 $6 $8 }
-     | 'let' FunBinds 'in' Term { TmRecFun (DL.toList $2) $4 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (DL.toList $2) $4 }
      | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
        { TmCaseSum $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
@@ -217,13 +215,6 @@ FieldVal :: { (FieldLabel, Term) }
 
 VarBind :: { (TmVar, Type) }
         : '(' ID ':' Type ')' { (var $2, $4) }
-
-FunBinds :: { DList TmFun }
-         : FunBind { DL.singleton $1 }
-         | FunBinds FunBind { DL.snoc $1 $2 }
-
-FunBind :: { TmFun }
-        : 'fun' ID '(' ID ':' Type ')' ':' Type '=' Term ';' { TmFun (var $2) (var $4) $6 $9 $11 }
 
 RecBinds :: { DList (TmVar, Type, Term) }
          : RecBind { DL.singleton $1 }

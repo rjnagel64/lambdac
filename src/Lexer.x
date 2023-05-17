@@ -39,7 +39,6 @@ tokens :-
   "false" { simpleToken TokFalse }
   "forall" { simpleToken TokForall }
   "fst" { simpleToken TokFst }
-  "fun" { simpleToken TokFun }
   "getLine" { simpleToken TokGetLine }
   "if" { simpleToken TokIf }
   "in" { simpleToken TokIn }
@@ -150,7 +149,6 @@ data Token
   | TokFalse
   | TokForall
   | TokFst
-  | TokFun
   | TokGetLine
   | TokIf
   | TokIn

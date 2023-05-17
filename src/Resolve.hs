@@ -82,7 +82,6 @@ resolveTerm (TmBind x t e1 e2) = do
     e2' <- resolveTerm e2
     pure (S.TmBind x' t' e1' e2')
 -- resolveTerm (TmLetRec bs e) = _
--- resolveTerm (TmRecFun funs e) = _
 resolveTerm (TmCase e s alts) = do
   e' <- resolveTerm e
   s' <- resolveType s
@@ -274,8 +273,6 @@ data Term
   | TmRecord [(FieldLabel, Term)]
   -- let x:t = e1 in e2
   | TmLet TmVar Type Term Term
-  -- let rec fs+ in e
-  | TmRecFun [TmFun] Term
   -- let rec (x:t = e)+ in e'
   | TmLetRec [(TmVar, Type, Term)] Term
   -- ()

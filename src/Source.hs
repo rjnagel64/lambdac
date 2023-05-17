@@ -127,8 +127,6 @@ data Term
   | TmRecord [(FieldLabel, Term)]
   -- let x:t = e1 in e2
   | TmLet TmVar Type Term Term
-  -- let rec fs+ in e
-  | TmRecFun [TmFun] Term
   -- let rec (x:t = e)+ in e'
   | TmLetRec [(TmVar, Type, Term)] Term
   -- ()

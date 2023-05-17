@@ -296,12 +296,6 @@ cps (S.TmLet x t e1 e2) k = do
   freshCo "j" $ \j -> do
     (e1', _t1') <- cps e1 (ObjCont j)
     pure (LetContK [(j, cont)] e1', t2')
-cps (S.TmRecFun fs e) k =
-  freshenFunBinds fs $ do
-    fs' <- traverse cpsFun fs
-    (e', t') <- cps e k
-    let res = LetFunAbsK fs' e'
-    pure (res, t')
 cps (S.TmLetRec fs e) k =
   freshenRecBinds fs $ \fs' -> do
     fs'' <- traverse cpsFun fs'
@@ -686,24 +680,6 @@ freshenTyVarBinds bs k = do
   let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' ctx (insertMany bs' tys) cs
   bs'' <- traverse (\ (_, (aa', ki)) -> (,) aa' <$> cpsKind ki) bs'
   local extend (k bs'')
-
--- | Rename a sequence of function bindings and bring them in to scope.
-freshenFunBinds :: [S.TmFun] -> CPS a -> CPS a
-freshenFunBinds fs m = do
-  scope <- asks cpsEnvScope
-  let
-    pick :: Map String Int -> S.TmFun -> (Map String Int, (S.TmVar, (TmVar, S.Type)))
-    pick sc (S.TmFun (S.TmVar f) _x argTy retTy _e) =
-      let i = fromMaybe 0 (Map.lookup f scope) in
-      let f' = TmVar f i in
-      (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyArr argTy retTy)))
-    pick sc (S.TmTFun (S.TmVar f) aa ki retTy _e) =
-      let i = fromMaybe 0 (Map.lookup f scope) in
-      let f' = TmVar f i in
-      (Map.insert f (i+1) sc, (S.TmVar f, (f', S.TyAll aa ki retTy)))
-    (sc', binds) = mapAccumL pick scope fs
-  let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' (insertMany binds ctx) tys cs
-  local extend m
 
 freshenRecBinds :: [(S.TmVar, S.Type, S.Term)] -> ([S.TmFun] -> CPS a) -> CPS a
 freshenRecBinds fs k = do
