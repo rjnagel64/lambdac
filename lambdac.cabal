@@ -36,6 +36,7 @@ library
       Experiments.Inline
       Lexer
       Parser
+      Resolve
       Source
       TypeCheck
       CPS

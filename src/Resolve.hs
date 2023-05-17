@@ -1,36 +1,11 @@
 
-module Source
-  ( Term(..)
-  , TmArith(..)
-  , TmCmp(..)
-  , TmStringOp(..)
-  , TmVar(..)
-  , TmFun(..)
-  , Type(..)
-  , TyVar(..)
-  , Kind(..)
-  , FieldLabel(..)
+module Resolve (resolveProgram) where
 
-  , TyConApp(..)
-  , asTyConApp
-  , fromTyConApp
-
-  , eqType
-  , Subst
-  , singleSubst
-  , makeSubst
-  , substType
-  , ftv
-
-  , TyCon(..)
-  , Ctor(..)
-  , Program(..)
-  , DataDecl(..)
-  , CtorDecl(..)
-
-  , pprintType
-  , pprintKind
-  ) where
+-- * duplicate syntax of Source IR
+-- * define no-op name-resolution pass to Source
+-- * rewire driver to pass through Resolve
+-- * Start refactoring Resolve IR to take ID for all identifiers, resolve based
+--   on usage.
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -39,25 +14,197 @@ import Data.Set (Set)
 
 import Data.Bifunctor
 import Data.List (intercalate)
+import Data.Traversable (for)
 
--- In the future, it may be worthwhile to do 'Source'-level optimizations.
--- At the very least, arity raising/uncurrying is much easier here.
--- (On a related note, maybe support multiple arguments/parameters here, with
--- requirement of exact arity matching. Parser still generates curried
--- functions and applications, but Source and CPS support the uncurried
--- versions as well.)
---
--- Idea for arity/eta-expansion: that thing with different arrow types for
--- eta-safe and eta-unsafe functions. (and different lambda and application)
--- CPS for an eta-safe function could gather eta-safe lambdas/apps
--- (The parser still only generates eta-unsafe things, annotation pass to
--- convert where possible)
--- (See 'Making a Faster Curry with Extensional Types')
--- (See also 'Kinds are Calling Conventions')
+import qualified Source as S
 
--- TODO: Move Source and TypeCheck to Source.IR and Source.TypeCheck
--- Also, once I have a name resolution and/or elaboration pass, it may make
--- more sense to call this Core instead of Source.
+import Control.Monad.Reader
+
+
+resolveProgram :: Program -> S.Program
+resolveProgram (Program ds e) = runM $ do
+  withDataDecls ds $ \ds' -> do
+    e' <- resolveTerm e
+    pure (S.Program ds' e')
+
+withDataDecls :: [DataDecl] -> ([S.DataDecl] -> M a) -> M a
+withDataDecls ds cont = cont []
+
+resolveTerm :: Term -> M S.Term
+resolveTerm (TmVarOcc x) = do
+  env <- asks ctxVars
+  case Map.lookup x env of
+    Nothing -> error "var not in scope"
+    Just x' -> pure (S.TmVarOcc x')
+resolveTerm (TmCtorOcc c) = S.TmCtorOcc <$> resolveCtorOcc c
+resolveTerm TmNil = pure S.TmNil
+resolveTerm TmGetLine = pure S.TmGetLine
+resolveTerm (TmInt i) = pure (S.TmInt i)
+resolveTerm (TmBool b) = pure (S.TmBool b)
+resolveTerm (TmString s) = pure (S.TmString s)
+resolveTerm (TmChar c) = pure (S.TmChar c)
+resolveTerm (TmPure e) = S.TmPure <$> resolveTerm e
+resolveTerm (TmPutLine e) = S.TmPutLine <$> resolveTerm e
+resolveTerm (TmRunIO e) = S.TmRunIO <$> resolveTerm e
+resolveTerm (TmInl t s e) = S.TmInl <$> resolveType t <*> resolveType s <*> resolveTerm e
+resolveTerm (TmInr t s e) = S.TmInr <$> resolveType t <*> resolveType s <*> resolveTerm e
+resolveTerm (TmFst e) = S.TmFst <$> resolveTerm e
+resolveTerm (TmSnd e) = S.TmSnd <$> resolveTerm e
+resolveTerm (TmFieldProj e l) = S.TmFieldProj <$> resolveTerm e <*> resolveFieldLabel l
+resolveTerm (TmPair e1 e2) = S.TmPair <$> resolveTerm e1 <*> resolveTerm e2
+resolveTerm (TmRecord fs) = S.TmRecord <$> traverse resolveField fs
+  where resolveField (l, e) = (,) <$> resolveFieldLabel l <*> resolveTerm e
+resolveTerm (TmArith e1 op e2) =
+  S.TmArith <$> resolveTerm e1 <*> resolveArith op <*> resolveTerm e2
+resolveTerm (TmNegate e) = S.TmNegate <$> resolveTerm e
+resolveTerm (TmCmp e1 op e2) =
+  S.TmCmp <$> resolveTerm e1 <*> resolveCmp op <*> resolveTerm e2
+resolveTerm (TmStringOp e1 op e2) =
+  S.TmStringOp <$> resolveTerm e1 <*> resolveStringOp op <*> resolveTerm e2
+resolveTerm (TmApp e1 e2) = S.TmApp <$> resolveTerm e1 <*> resolveTerm e2
+resolveTerm (TmTApp e t) = S.TmTApp <$> resolveTerm e <*> resolveType t
+resolveTerm (TmLam x t e) = do
+  withTmVar x t $ \x' t' -> do
+    e' <- resolveTerm e
+    pure (S.TmLam x' t' e')
+resolveTerm (TmTLam a k e) = do
+  withTyVar a k $ \a' k' -> do
+    e' <- resolveTerm e
+    pure (S.TmTLam a' k' e')
+resolveTerm (TmLet x t e1 e2) = do
+  e1' <- resolveTerm e1
+  withTmVar x t $ \x' t' -> do
+    e2' <- resolveTerm e2
+    pure (S.TmLet x' t' e1' e2')
+resolveTerm (TmBind x t e1 e2) = do
+  e1' <- resolveTerm e1
+  withTmVar x t $ \x' t' -> do
+    e2' <- resolveTerm e2
+    pure (S.TmBind x' t' e1' e2')
+-- resolveTerm (TmLetRec bs e) = _
+-- resolveTerm (TmRecFun funs e) = _
+resolveTerm (TmCase e s alts) = do
+  e' <- resolveTerm e
+  s' <- resolveType s
+  alts' <- for alts $ \ (c, xs, rhs) -> do
+    c' <- resolveCtorOcc c
+    withTmVars xs $ \xs' -> do
+      rhs' <- resolveTerm rhs
+      pure (c', xs', rhs')
+  pure (S.TmCase e' s' alts')
+resolveTerm (TmCaseSum e s (xl, tl, el) (xr, tr, er)) = do
+  e' <- resolveTerm e
+  s' <- resolveType s
+  altl <- withTmVar xl tl $ \xl' tl' -> do
+    el' <- resolveTerm el
+    pure (xl', tl', el')
+  altr <- withTmVar xr tr $ \xr' tr' -> do
+    er' <- resolveTerm er
+    pure (xr', tr', er')
+  pure (S.TmCaseSum e' s' altl altr)
+
+resolveType :: Type -> M S.Type
+resolveType (TyVarOcc a) = do
+  env <- asks ctxTyVars
+  case Map.lookup a env of
+    Nothing -> error "tyvar not in scope"
+    Just a' -> pure (S.TyVarOcc a')
+resolveType (TyConOcc tc) = do
+  env <- asks ctxTyCons
+  case Map.lookup tc env of
+    Nothing -> error "tycon not in scope"
+    Just tc' -> pure (S.TyConOcc tc')
+resolveType TyUnit = pure S.TyUnit
+resolveType TyInt = pure S.TyInt
+resolveType TyBool = pure S.TyBool
+resolveType TyString = pure S.TyString
+resolveType TyChar = pure S.TyChar
+resolveType (TySum t s) = S.TySum <$> resolveType t <*> resolveType s
+resolveType (TyProd t s) = S.TyProd <$> resolveType t <*> resolveType s
+resolveType (TyArr t s) = S.TyArr <$> resolveType t <*> resolveType s
+resolveType (TyIO t) = S.TyIO <$> resolveType t
+resolveType (TyRecord fs) = S.TyRecord <$> traverse resolveField fs
+  where resolveField (l, t) = (,) <$> resolveFieldLabel l <*> resolveType t
+resolveType (TyAll a k t) = do
+  withTyVar a k $ \a' k' -> do
+    t' <- resolveType t
+    pure (S.TyAll a' k' t')
+
+resolveKind :: Kind -> M S.Kind
+resolveKind KiStar = pure S.KiStar
+resolveKind (KiArr k1 k2) = S.KiArr <$> resolveKind k1 <*> resolveKind k2
+
+resolveArith :: TmArith -> M S.TmArith
+resolveArith TmArithAdd = pure S.TmArithAdd
+resolveArith TmArithSub = pure S.TmArithSub
+resolveArith TmArithMul = pure S.TmArithMul
+
+resolveCmp :: TmCmp -> M S.TmCmp
+resolveCmp TmCmpEq = pure S.TmCmpEq
+resolveCmp TmCmpNe = pure S.TmCmpNe
+resolveCmp TmCmpLt = pure S.TmCmpLt
+resolveCmp TmCmpLe = pure S.TmCmpLe
+resolveCmp TmCmpGt = pure S.TmCmpGt
+resolveCmp TmCmpGe = pure S.TmCmpGe
+resolveCmp TmCmpEqChar = pure S.TmCmpEqChar
+
+resolveStringOp :: TmStringOp -> M S.TmStringOp
+resolveStringOp TmConcat = pure S.TmConcat
+resolveStringOp TmIndexStr = pure S.TmIndexStr
+
+resolveFieldLabel :: FieldLabel -> M S.FieldLabel
+resolveFieldLabel (FieldLabel l) = pure (S.FieldLabel l)
+
+resolveCtorOcc :: Ctor -> M S.Ctor
+resolveCtorOcc c = do
+  env <- asks ctxCons
+  case Map.lookup c env of
+    Nothing -> error "ctor not in scope"
+    Just c' -> pure c'
+
+withTmVar :: TmVar -> Type -> (S.TmVar -> S.Type -> M a) -> M a
+withTmVar x@(TmVar ident) t cont = do
+  let x' = S.TmVar ident
+  t' <- resolveType t
+  let extend env = env { ctxVars = Map.insert x x' (ctxVars env) }
+  local extend $ cont x' t'
+
+withTmVars :: [(TmVar, Type)] -> ([(S.TmVar, S.Type)] -> M a) -> M a
+withTmVars [] cont = cont []
+withTmVars ((x, t):xs) cont = withTmVar x t $ \x' t' -> withTmVars xs $ \xs' -> cont ((x', t'):xs')
+
+withTyVar :: TyVar -> Kind -> (S.TyVar -> S.Kind -> M a) -> M a
+withTyVar a@(TyVar ident) k cont = do
+  let a' = S.TyVar ident
+  k' <- resolveKind k
+  let extend env = env { ctxTyVars = Map.insert a a' (ctxTyVars env) }
+  local extend $ cont a' k'
+
+newtype M a = M { getM :: Reader Context a }
+
+deriving instance Functor M
+deriving instance Applicative M
+deriving instance Monad M
+deriving instance MonadReader Context M
+
+data Context
+  = Context {
+    ctxVars :: Map TmVar S.TmVar
+  , ctxCons :: Map Ctor S.Ctor
+  , ctxTyVars :: Map TyVar S.TyVar
+  , ctxTyCons :: Map TyCon S.TyCon
+  }
+
+runM :: M a -> a
+runM = flip runReader emptyContext . getM
+  where
+    emptyContext = Context {
+        ctxVars = Map.empty
+      , ctxCons = Map.empty
+      , ctxTyVars = Map.empty
+      , ctxTyCons = Map.empty
+      }
+
 
 -- | Term variables stand for values.
 newtype TmVar = TmVar String
@@ -397,4 +544,5 @@ pprintKind (KiArr k1 k2) = "(" ++ pprintKind k1 ++ ") -> " ++ pprintKind k2
 parensIf :: Bool -> String -> String
 parensIf True x = "(" ++ x ++ ")"
 parensIf False x = x
+
 
