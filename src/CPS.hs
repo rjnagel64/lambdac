@@ -60,6 +60,10 @@ makeCompare S.TmCmpGt x y = CmpGtK x y
 makeCompare S.TmCmpGe x y = CmpGeK x y
 makeCompare S.TmCmpEqChar x y = CmpEqCharK x y
 
+makeStringOp :: S.TmStringOp -> TmVar -> TmVar -> (StringOpK, S.Type)
+makeStringOp S.TmConcat x y = (ConcatK x y, S.TyString)
+makeStringOp S.TmIndexStr x y = (IndexK x y, S.TyChar)
+
 cpsType :: S.Type -> CPS TypeK
 cpsType (S.TyVarOcc aa) = do
   env <- asks cpsEnvTyCtx
@@ -255,19 +259,14 @@ cps (S.TmCmp e1 cmp e2) k =
         (e', t') <- applyCont k z S.TyBool
         let res = LetCompareK z (makeCompare cmp x y) e'
         pure (res, t')
-cps (S.TmConcat e1 e2) k =
+cps (S.TmStringOp e1 op e2) k =
   cps e1 $ MetaCont $ \v1 _t1 -> do
     cps e2 $ MetaCont $ \v2 _t2 -> do
       freshTm "x" $ \x -> do
-        (e', t') <- applyCont k x S.TyString
-        let res = LetStringOpK x StringK (ConcatK v1 v2) e'
-        pure (res, t')
-cps (S.TmIndexStr e1 e2) k =
-  cps e1 $ MetaCont $ \v1 _t1 -> do
-    cps e2 $ MetaCont $ \v2 _t2 -> do
-      freshTm "x" $ \x -> do
-        (e', t') <- applyCont k x S.TyChar
-        let res = LetStringOpK x CharK (IndexK v1 v2) e'
+        let (op', ty) = makeStringOp op v1 v2
+        (e', t') <- applyCont k x ty
+        ty' <- cpsType ty
+        let res = LetStringOpK x ty' op' e'
         pure (res, t')
 cps (S.TmPair e1 e2) k =
   cps e1 $ MetaCont $ \v1 t1 ->

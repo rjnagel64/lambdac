@@ -159,7 +159,6 @@ infer (TmRecFun fs e) = do
 infer (TmBool _) = pure TyBool
 infer (TmInt _) = pure TyInt
 infer (TmString _) = pure TyString
-infer (TmIndexStr e1 e2) = check e1 TyString *> check e2 TyInt *> pure TyChar
 infer (TmChar _) = pure TyChar
 
 infer (TmLam x t e) = do
@@ -219,10 +218,8 @@ infer (TmCmp e1 _ e2) = do
   check e1 TyInt
   check e2 TyInt
   pure TyBool
-infer (TmConcat e1 e2) = do
-  check e1 TyString
-  check e2 TyString
-  pure TyString
+infer (TmStringOp e1 TmConcat e2) = check e1 TyString *> check e2 TyString *> pure TyString
+infer (TmStringOp e1 TmIndexStr e2) = check e1 TyString *> check e2 TyInt *> pure TyChar
 
 infer (TmIf ec s et ef) = do
   let alts = [(Ctor "false", [], ef), (Ctor "true", [], et)]

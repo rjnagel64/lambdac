@@ -3,6 +3,7 @@ module Source
   ( Term(..)
   , TmArith(..)
   , TmCmp(..)
+  , TmStringOp(..)
   , TmVar(..)
   , TmFun(..)
   , Type(..)
@@ -53,6 +54,8 @@ import Data.List (intercalate)
 -- convert where possible)
 -- (See 'Making a Faster Curry with Extensional Types')
 -- (See also 'Kinds are Calling Conventions')
+
+-- TODO: Move Source and TypeCheck to Source.IR and Source.TypeCheck
 
 -- | Term variables stand for values.
 newtype TmVar = TmVar String
@@ -148,10 +151,8 @@ data Term
   | TmString String
   -- 'x'
   | TmChar Char
-  -- s1 ^ s2
-  | TmConcat Term Term
-  -- char_at_idx x i
-  | TmIndexStr Term Term
+  -- e1 `stringOp` e2
+  | TmStringOp Term TmStringOp Term
   -- c
   | TmCtorOcc Ctor
   -- case e return s of { (c_i (x:t)+ -> e_i')+ }
@@ -180,6 +181,12 @@ data TmCmp
   | TmCmpGt
   | TmCmpGe
   | TmCmpEqChar
+
+data TmStringOp
+  -- s1 ^ s2
+  = TmConcat
+  -- char_at_idx x i
+  | TmIndexStr
 
 -- | Named function definitions are one way of doing recursion.
 -- (On the other hand, let-rec expressions.)

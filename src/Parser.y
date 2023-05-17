@@ -150,19 +150,21 @@ Term :: { Term }
      | Term '<=' Term { TmCmp $1 TmCmpLe $3 }
      | Term '>' Term { TmCmp $1 TmCmpGt $3 }
      | Term '>=' Term { TmCmp $1 TmCmpGe $3 }
-     | Term '^' Term { TmConcat $1 $3 }
+     | Term '^' Term { TmStringOp $1 TmConcat $3 }
 
+     | Term '.' ID { TmFieldProj $1 (fieldLabel $3) }
+     | '-' ATerm %prec UMINUS { TmNegate $2 }
+
+     -- These are basically AppTerm:s, aren't they?
      | 'inl' '@' AType '@' AType ATerm { TmInl $3 $5 $6 }
      | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
      | 'eq_char#' ATerm ATerm { TmCmp $2 TmCmpEqChar $3 }
-     | 'char_at_idx#' ATerm ATerm { TmIndexStr $2 $3 }
-     | Term '.' ID { TmFieldProj $1 (fieldLabel $3) }
+     | 'char_at_idx#' ATerm ATerm { TmStringOp $2 TmIndexStr $3 }
      | 'pure' ATerm { TmPure $2 }
      | 'putLine' ATerm { TmPutLine $2 }
      | 'runIO' ATerm { TmRunIO $2 }
-     | '-' ATerm %prec UMINUS { TmNegate $2 }
 
 AppTerm :: { Term }
         : ATerm { $1 }
