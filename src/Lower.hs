@@ -109,20 +109,20 @@ withEnvironment (envName, H.EnvDecl aas fields) k = do
         k aas' envName' fields'
 
 withDataDecl :: H.DataDecl -> (DataDecl -> M a) -> M a
-withDataDecl (H.DataDecl tc tys cds) k = do
+withDataDecl (H.DataDecl tc ki cds) k = do
   withTyCon tc $ \tc' -> do
-    withCtorDecls tc' tys (zip [0..] cds) $ \cds' -> do
+    withCtorDecls tc' (zip [0..] cds) $ \cds' -> do
       k (DataDecl tc' cds')
 
-withCtorDecls :: TyCon -> [(H.TyVar, H.Kind)] -> [(Int, H.CtorDecl)] -> ([CtorDecl] -> M a) -> M a
-withCtorDecls _ _ [] k = k []
-withCtorDecls tc' tys (cd : cds) k =
-  withCtorDecl tc' tys cd $ \cd' -> do
-    withCtorDecls tc' tys cds $ \cds' -> do
+withCtorDecls :: TyCon -> [(Int, H.CtorDecl)] -> ([CtorDecl] -> M a) -> M a
+withCtorDecls _ [] k = k []
+withCtorDecls tc' (cd : cds) k =
+  withCtorDecl tc' cd $ \cd' -> do
+    withCtorDecls tc' cds $ \cds' -> do
       k (cd' : cds')
 
-withCtorDecl :: TyCon -> [(H.TyVar, H.Kind)] -> (Int, H.CtorDecl) -> (CtorDecl -> M a) -> M a
-withCtorDecl tc' tys (i, H.CtorDecl c xs) k = do
+withCtorDecl :: TyCon -> (Int, H.CtorDecl) -> (CtorDecl -> M a) -> M a
+withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
   withCtor tc' i c $ \c' -> do
     cd <- withTyVars tys $ \tys' -> do
       xs' <- traverse (\ (l, s) -> (,) <$> lowerId l <*> lowerSort s) xs

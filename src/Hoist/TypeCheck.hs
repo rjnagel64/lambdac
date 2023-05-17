@@ -208,17 +208,17 @@ checkEntryPoint :: TermH -> TC ()
 checkEntryPoint e = checkTerm e
 
 dataDeclKind :: DataDecl -> Kind
-dataDeclKind (DataDecl _ params _) = foldr (\ (_, k1) k2 -> KArr k1 k2) Star params
+dataDeclKind (DataDecl _ k _) = k
 
 checkDataDecl :: DataDecl -> TC ()
-checkDataDecl dd@(DataDecl tc params ctors) = do
+checkDataDecl dd@(DataDecl tc _kind ctors) = do
   modify (\ (Signature clos tcs) -> Signature clos (Map.insert tc dd tcs))
-  withTyVars params $ traverse_ checkCtorDecl ctors
+  traverse_ checkCtorDecl ctors
 
 checkCtorDecl :: CtorDecl -> TC ()
-checkCtorDecl (CtorDecl _c args) = do
+checkCtorDecl (CtorDecl _c tys args) = do
   checkUniqueLabels (map fst args)
-  traverse_ (\ (_x, s) -> checkSort s Star) args
+  withTyVars tys $ traverse_ (\ (_x, s) -> checkSort s Star) args
 
 -- | Type-check a top-level code declaration and add it to the signature.
 checkCodeDecl :: CodeDecl -> TC ()
@@ -448,9 +448,10 @@ instantiateTyConApp CaseBool =
 instantiateTyConApp (CaseSum t s) =
   pure $ Map.fromList [(Ctor "inl", [ValueTele t]), (Ctor "inr", [ValueTele s])]
 instantiateTyConApp (TyConApp tc tys) = do
-  DataDecl _ params ctors <- lookupTyCon tc
-  sub <- parameterSubst params tys
-  let cs = Map.fromList [(c, map (ValueTele . substSort sub . snd) argTys) | CtorDecl c argTys <- ctors]
+  DataDecl _ _ ctors <- lookupTyCon tc
+  cs <- fmap Map.fromList $ for ctors $ \ (CtorDecl c typarams argTys) -> do
+    sub <- parameterSubst typarams tys
+    pure (c, map (ValueTele . substSort sub . snd) argTys)
   pure cs
 
 -- | Check that a sort is well-formed w.r.t. the context

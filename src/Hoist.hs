@@ -123,13 +123,14 @@ runHoist =
 
 hoistDataDecls :: [C.DataDecl] -> [DataDecl]
 hoistDataDecls [] = []
-hoistDataDecls (C.DataDecl (C.TyCon tc) params ctors : ds) = DataDecl (TyCon tc) params' ctors' : hoistDataDecls ds
+hoistDataDecls (C.DataDecl (C.TyCon tc) params ctors : ds) = DataDecl (TyCon tc) kind ctors' : hoistDataDecls ds
   where
+    kind = foldr (\ (_, k1) k2 -> KArr (kindOf k1) k2) Star params
     params' = map (\ (aa, k) -> (asTyVar aa, kindOf k)) params
-    ctors' = map hoistCtorDecl ctors
+    ctors' = map (hoistCtorDecl params') ctors
 
-hoistCtorDecl :: C.CtorDecl -> CtorDecl
-hoistCtorDecl (C.CtorDecl (C.Ctor c) args) = CtorDecl (Ctor c) (zipWith f [0..] args)
+hoistCtorDecl :: [(TyVar, Kind)] -> C.CtorDecl -> CtorDecl
+hoistCtorDecl params' (C.CtorDecl (C.Ctor c) args) = CtorDecl (Ctor c) params' (zipWith f [0..] args)
   where
     f :: Int -> C.Sort -> (Id, Sort)
     f i s = (Id ("arg" ++ show i), sortOf s)

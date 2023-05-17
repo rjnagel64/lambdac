@@ -144,7 +144,7 @@ data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
 
 
 data DataDecl
-  = DataDecl TyCon [(TyVar, Kind)] [CtorDecl]
+  = DataDecl TyCon Kind [CtorDecl]
 
 data CtorDecl
   -- Can't just use 'ClosureTele' here, because ctor applications actually return a value.
@@ -156,7 +156,7 @@ data CtorDecl
   -- Third, I require each ctor argument to have a name (for fields in the ctor's struct),
   -- which doesn't fit in a 'ClosureTele' (but maybe 'ClosureParam' would work?
   -- Isomorphic, but semantically distinct, so not really.)
-  = CtorDecl Ctor [(Id, Sort)]
+  = CtorDecl Ctor [(TyVar, Kind)] [(Id, Sort)]
 
 
 -- | A 'Sort' describes the runtime layout of a value. It is static information.
@@ -494,15 +494,16 @@ pprintClosureDecl n (CodeDecl f (name, EnvDecl aas fs) params e) =
     valueParams = intercalate ", " (map pprintParam params)
 
 pprintDataDecl :: Int -> DataDecl -> String
-pprintDataDecl n (DataDecl tc params ctors) =
-  indent n ("data " ++ show tc ++ intercalate " " (map f params) ++ " where\n") ++
+pprintDataDecl n (DataDecl tc k ctors) =
+  indent n ("data " ++ show tc ++ " : " ++ pprintKind k ++ " where\n") ++
   unlines (map (pprintCtorDecl (n+2)) ctors)
-  where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
 
 pprintCtorDecl :: Int -> CtorDecl -> String
-pprintCtorDecl n (CtorDecl c args) =
-  indent n (show c ++ "(" ++ intercalate ", " (map f args) ++ ");")
-  where f (x, s) = show x ++ " : " ++ pprintSort s
+pprintCtorDecl n (CtorDecl c tys args) =
+  indent n (show c ++ "(" ++ intercalate ", " (map g tys ++ map f args) ++ ");")
+  where
+    g (aa, k) = "@" ++ show aa ++ " : " ++ pprintKind k
+    f (x, s) = show x ++ " : " ++ pprintSort s
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x ++ ";\n"

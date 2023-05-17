@@ -90,8 +90,6 @@ instance Show FieldLabel where
   show (FieldLabel f) = f
 
 
--- TODO: Remove annotation parameter from CPS.IR
--- I'm not using it for anything, it's being a burden.
 data Program = Program [DataDecl] TermK
 
 data DataDecl = DataDecl TyCon [(TyVar, KindK)] [CtorDecl]
