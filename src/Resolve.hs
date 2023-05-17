@@ -21,6 +21,11 @@ import qualified Source as S
 import Control.Monad.Reader
 
 
+-- | Utility function for inserting many items at once.
+insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
+insertMany xs m = foldr (uncurry Map.insert) m xs
+
+
 resolveProgram :: Program -> S.Program
 resolveProgram (Program ds e) = runM $ do
   withDataDecls ds $ \ds' -> do
@@ -28,7 +33,37 @@ resolveProgram (Program ds e) = runM $ do
     pure (S.Program ds' e')
 
 withDataDecls :: [DataDecl] -> ([S.DataDecl] -> M a) -> M a
-withDataDecls ds cont = cont []
+withDataDecls [] cont = cont []
+withDataDecls (d:ds) cont = withDataDecl d $ \d' -> withDataDecls ds $ \ds' -> cont (d':ds')
+
+withDataDecl :: DataDecl -> (S.DataDecl -> M a) -> M a
+withDataDecl (DataDecl tc as ctors) cont = do
+  let k = foldr KiArr KiStar (map snd as)
+  withTyCon tc k $ \tc' k' -> do
+    -- bring group of ctors into scope, in parallel
+    withCtors as ctors $ \ctors' -> do
+      -- kind of hacky. It would be better for Source and subsequent IRs to be
+      -- like GADTs, with the data decl having a kind signature, but the tyvars
+      -- being confined to each constructor.
+      as' <- traverse (\ (TyVar a, k) -> (,) <$> pure (S.TyVar a) <*> resolveKind k) as
+      cont (S.DataDecl tc' as' ctors')
+
+-- bring a set of constructors into scope, in parallel.
+withCtors :: [(TyVar, Kind)] -> [CtorDecl] -> ([S.CtorDecl] -> M a) -> M a
+withCtors as ctors cont = do
+  assertDistinct [c | CtorDecl c _ <- ctors]
+
+  (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl c@(Ctor ident) args) -> do
+    let c' = S.Ctor ident
+    withTyVars as $ \as' -> do
+      args' <- traverse resolveType args
+      pure ((c, c'), S.CtorDecl c' args') -- I should include the as' in the new ctor decl
+
+  let extend env = env { ctxCons = insertMany binds (ctxCons env) }
+  local extend $ cont ctors'
+
+assertDistinct :: [Ctor] -> M ()
+assertDistinct cs = pure () -- TODO: detect duplicates
 
 resolveTerm :: Term -> M S.Term
 resolveTerm (TmVarOcc x) = do
@@ -178,6 +213,17 @@ withTyVar a@(TyVar ident) k cont = do
   k' <- resolveKind k
   let extend env = env { ctxTyVars = Map.insert a a' (ctxTyVars env) }
   local extend $ cont a' k'
+
+withTyVars :: [(TyVar, Kind)] -> ([(S.TyVar, S.Kind)] -> M a) -> M a
+withTyVars [] cont = cont []
+withTyVars ((a, k):as) cont = withTyVar a k $ \a' k' -> withTyVars as $ \as' -> cont ((a', k'):as')
+
+withTyCon :: TyCon -> Kind -> (S.TyCon -> S.Kind -> M a) -> M a
+withTyCon tc@(TyCon ident) k cont = do
+  let tc' = S.TyCon ident
+  k' <- resolveKind k
+  let extend env = env { ctxTyCons = Map.insert tc tc' (ctxTyCons env) }
+  local extend $ cont tc' k'
 
 newtype M a = M { getM :: Reader Context a }
 
