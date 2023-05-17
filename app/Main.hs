@@ -10,6 +10,7 @@ import System.FilePath
 
 import qualified Lexer as Lx
 import qualified Parser as P
+import qualified Resolve as R
 import qualified Source as S
 import qualified TypeCheck as T
 import qualified CPS as K
@@ -30,7 +31,7 @@ import qualified Emit as E
 -- than I previously comprehended. It may be worthwhile to do that sort of
 -- analysis on Source instead.
 
-parseFile :: FilePath -> IO S.Program
+parseFile :: FilePath -> IO R.Program
 parseFile fpath = do
   s <- readFile fpath
   case Lx.lex fpath s of
@@ -77,7 +78,8 @@ main :: IO ()
 main = do
   args <- execParser opts
 
-  srcS <- parseFile (driverFile args)
+  srcR <- parseFile (driverFile args)
+  let srcS = R.resolveProgram srcR
   case T.checkProgram srcS of
     Left err -> do
       putStrLn "type error:"

@@ -9,7 +9,8 @@ import Lexer
 import qualified Data.DList as DL
 import Data.DList (DList)
 
-import Source
+-- import Source
+import Resolve
 }
 
 %name parseTerm Term

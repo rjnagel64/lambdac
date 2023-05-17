@@ -1,5 +1,37 @@
 
-module Resolve (resolveProgram) where
+module Resolve
+  ( resolveProgram
+  , Term(..)
+  , TmArith(..)
+  , TmCmp(..)
+  , TmStringOp(..)
+  , TmVar(..)
+  , TmFun(..)
+  , Type(..)
+  , TyVar(..)
+  , Kind(..)
+  , FieldLabel(..)
+
+  , TyConApp(..)
+  , asTyConApp
+  , fromTyConApp
+
+  , eqType
+  , Subst
+  , singleSubst
+  , makeSubst
+  , substType
+  , ftv
+
+  , TyCon(..)
+  , Ctor(..)
+  , Program(..)
+  , DataDecl(..)
+  , CtorDecl(..)
+
+  , pprintType
+  , pprintKind
+  ) where
 
 -- * duplicate syntax of Source IR
 -- * define no-op name-resolution pass to Source
@@ -51,7 +83,7 @@ withDataDecl (DataDecl tc as ctors) cont = do
 -- bring a set of constructors into scope, in parallel.
 withCtors :: [(TyVar, Kind)] -> [CtorDecl] -> ([S.CtorDecl] -> M a) -> M a
 withCtors as ctors cont = do
-  assertDistinct [c | CtorDecl c _ <- ctors]
+  assertDistinctCtors [c | CtorDecl c _ <- ctors]
 
   (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl c@(Ctor ident) args) -> do
     let c' = S.Ctor ident
@@ -62,8 +94,27 @@ withCtors as ctors cont = do
   let extend env = env { ctxCons = insertMany binds (ctxCons env) }
   local extend $ cont ctors'
 
-assertDistinct :: [Ctor] -> M ()
-assertDistinct cs = pure () -- TODO: detect duplicates
+assertDistinctCtors :: [Ctor] -> M ()
+assertDistinctCtors cs = pure () -- TODO: detect duplicates
+
+withRecBinds :: [(TmVar, Type, Term)] -> ([(S.TmVar, S.Type, S.Term)] -> M a) -> M a
+withRecBinds xs cont = do
+  assertDistinctTmVars [x | (x, _, _) <- xs]
+
+  (binds, ys) <- fmap unzip . for xs $ \ (x@(TmVar ident), t, e) -> do
+    let x' = S.TmVar ident
+    t' <- resolveType t
+    pure ((x, x'), (x', t', e))
+
+  let extend env = env { ctxVars = insertMany binds (ctxVars env) }
+  local extend $ do
+    xs' <- for ys $ \ (x', t', e) -> do
+      e' <- resolveTerm e
+      pure (x', t', e')
+    cont xs'
+
+assertDistinctTmVars :: [TmVar] -> M ()
+assertDistinctTmVars xs = pure () -- TODO: detect duplicates
 
 resolveTerm :: Term -> M S.Term
 resolveTerm (TmVarOcc x) = do
@@ -116,7 +167,10 @@ resolveTerm (TmBind x t e1 e2) = do
   withTmVar x t $ \x' t' -> do
     e2' <- resolveTerm e2
     pure (S.TmBind x' t' e1' e2')
--- resolveTerm (TmLetRec bs e) = _
+resolveTerm (TmLetRec xs e) = do
+  withRecBinds xs $ \xs' -> do
+    e' <- resolveTerm e
+    pure (S.TmLetRec xs' e')
 resolveTerm (TmCase e s alts) = do
   e' <- resolveTerm e
   s' <- resolveType s
@@ -126,6 +180,12 @@ resolveTerm (TmCase e s alts) = do
       rhs' <- resolveTerm rhs
       pure (c', xs', rhs')
   pure (S.TmCase e' s' alts')
+resolveTerm (TmIf ec s et ef) = do
+  ec' <- resolveTerm ec
+  s' <- resolveType s
+  et' <- resolveTerm et
+  ef' <- resolveTerm ef
+  pure (S.TmIf ec' s' et' ef')
 resolveTerm (TmCaseSum e s (xl, tl, el) (xr, tr, er)) = do
   e' <- resolveTerm e
   s' <- resolveType s
@@ -156,6 +216,7 @@ resolveType TyChar = pure S.TyChar
 resolveType (TySum t s) = S.TySum <$> resolveType t <*> resolveType s
 resolveType (TyProd t s) = S.TyProd <$> resolveType t <*> resolveType s
 resolveType (TyArr t s) = S.TyArr <$> resolveType t <*> resolveType s
+resolveType (TyApp t s) = S.TyApp <$> resolveType t <*> resolveType s
 resolveType (TyIO t) = S.TyIO <$> resolveType t
 resolveType (TyRecord fs) = S.TyRecord <$> traverse resolveField fs
   where resolveField (l, t) = (,) <$> resolveFieldLabel l <*> resolveType t
@@ -224,6 +285,7 @@ withTyCon tc@(TyCon ident) k cont = do
   k' <- resolveKind k
   let extend env = env { ctxTyCons = Map.insert tc tc' (ctxTyCons env) }
   local extend $ cont tc' k'
+
 
 newtype M a = M { getM :: Reader Context a }
 
