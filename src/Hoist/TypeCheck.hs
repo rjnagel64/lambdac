@@ -29,7 +29,7 @@ deriving newtype instance MonadState Signature TC
 data Signature
   = Signature {
     sigClosures :: Map CodeLabel ClosureDeclType
-  , sigTyCons :: Map TyCon DataDecl
+  , sigTyCons :: Map TyCon (Kind, [CtorDecl])
   }
 
 -- | Represents the type of a closure, a code pointer with environment
@@ -131,7 +131,7 @@ lookupTyVar aa = do
     Nothing -> do
       throwError $ TyVarNotInScope aa
 
-lookupTyCon :: TyCon -> TC DataDecl
+lookupTyCon :: TyCon -> TC (Kind, [CtorDecl])
 lookupTyCon tc = do
   ctx <- gets sigTyCons
   case Map.lookup tc ctx of
@@ -207,12 +207,9 @@ checkDecl (DeclCode cd) = checkCodeDecl cd
 checkEntryPoint :: TermH -> TC ()
 checkEntryPoint e = checkTerm e
 
-dataDeclKind :: DataDecl -> Kind
-dataDeclKind (DataDecl _ k _) = k
-
 checkDataDecl :: DataDecl -> TC ()
-checkDataDecl dd@(DataDecl tc _kind ctors) = do
-  modify (\ (Signature clos tcs) -> Signature clos (Map.insert tc dd tcs))
+checkDataDecl (DataDecl tc kind ctors) = do
+  modify (\ (Signature clos tcs) -> Signature clos (Map.insert tc (kind, ctors) tcs))
   traverse_ checkCtorDecl ctors
 
 checkCtorDecl :: CtorDecl -> TC ()
@@ -448,7 +445,7 @@ instantiateTyConApp CaseBool =
 instantiateTyConApp (CaseSum t s) =
   pure $ Map.fromList [(Ctor "inl", [ValueTele t]), (Ctor "inr", [ValueTele s])]
 instantiateTyConApp (TyConApp tc tys) = do
-  DataDecl _ _ ctors <- lookupTyCon tc
+  ctors <- snd <$> lookupTyCon tc
   cs <- fmap Map.fromList $ for ctors $ \ (CtorDecl c typarams argTys) -> do
     sub <- parameterSubst typarams tys
     pure (c, map (ValueTele . substSort sub . snd) argTys)
@@ -457,7 +454,7 @@ instantiateTyConApp (TyConApp tc tys) = do
 -- | Check that a sort is well-formed w.r.t. the context
 inferSort :: Sort -> TC Kind
 inferSort (AllocH aa) = lookupTyVar aa
-inferSort (TyConH tc) = dataDeclKind <$> lookupTyCon tc
+inferSort (TyConH tc) = fst <$> lookupTyCon tc
 inferSort (TyAppH t s) = do
   inferSort t >>= \case
     KArr k1 k2 -> checkSort s k1 *> pure k2
