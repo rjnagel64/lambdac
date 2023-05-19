@@ -7,11 +7,9 @@ module Resolve
   , TmStringOp(..)
   , ID(..)
   , Type(..)
-  , TyVar(..)
   , Kind(..)
   , FieldLabel(..)
 
-  , TyCon(..)
   , Program(..)
   , DataDecl(..)
   , CtorDecl(..)
@@ -54,11 +52,11 @@ withDataDecl (DataDecl tc as ctors) cont = do
       -- kind of hacky. It would be better for Source and subsequent IRs to be
       -- like GADTs, with the data decl having a kind signature, but the tyvars
       -- being confined to each constructor.
-      as' <- traverse (\ (TyVar a, k) -> (,) <$> pure (S.TyVar a) <*> resolveKind k) as
+      as' <- traverse (\ (ID a, k) -> (,) <$> pure (S.TyVar a) <*> resolveKind k) as
       cont (S.DataDecl tc' as' ctors')
 
 -- bring a set of constructors into scope, in parallel.
-withCtors :: [(TyVar, Kind)] -> [CtorDecl] -> ([S.CtorDecl] -> M a) -> M a
+withCtors :: [(ID, Kind)] -> [CtorDecl] -> ([S.CtorDecl] -> M a) -> M a
 withCtors as ctors cont = do
   assertDistinctIDs [c | CtorDecl c _ <- ctors]
 
@@ -169,7 +167,7 @@ resolveType :: Type -> M S.Type
 resolveType (TyNameOcc (ID x)) = do
   tyVars <- asks ctxTyVars
   tyCons <- asks ctxTyCons
-  case (Map.lookup (TyVar x) tyVars, Map.lookup (TyCon x) tyCons) of
+  case (Map.lookup (ID x) tyVars, Map.lookup (ID x) tyCons) of
     (Nothing, Nothing) -> error ("name not in scope: " ++ x)
     (Just x', Nothing) -> pure (S.TyVarOcc x')
     (Nothing, Just x') -> pure (S.TyConOcc x')
@@ -226,19 +224,19 @@ withTmVars :: [(ID, Type)] -> ([(S.TmVar, S.Type)] -> M a) -> M a
 withTmVars [] cont = cont []
 withTmVars ((x, t):xs) cont = withTmVar x t $ \x' t' -> withTmVars xs $ \xs' -> cont ((x', t'):xs')
 
-withTyVar :: TyVar -> Kind -> (S.TyVar -> S.Kind -> M a) -> M a
-withTyVar a@(TyVar ident) k cont = do
+withTyVar :: ID -> Kind -> (S.TyVar -> S.Kind -> M a) -> M a
+withTyVar a@(ID ident) k cont = do
   let a' = S.TyVar ident
   k' <- resolveKind k
   let extend env = env { ctxTyVars = Map.insert a a' (ctxTyVars env) }
   local extend $ cont a' k'
 
-withTyVars :: [(TyVar, Kind)] -> ([(S.TyVar, S.Kind)] -> M a) -> M a
+withTyVars :: [(ID, Kind)] -> ([(S.TyVar, S.Kind)] -> M a) -> M a
 withTyVars [] cont = cont []
 withTyVars ((a, k):as) cont = withTyVar a k $ \a' k' -> withTyVars as $ \as' -> cont ((a', k'):as')
 
-withTyCon :: TyCon -> Kind -> (S.TyCon -> S.Kind -> M a) -> M a
-withTyCon tc@(TyCon ident) k cont = do
+withTyCon :: ID -> Kind -> (S.TyCon -> S.Kind -> M a) -> M a
+withTyCon tc@(ID ident) k cont = do
   let tc' = S.TyCon ident
   k' <- resolveKind k
   let extend env = env { ctxTyCons = Map.insert tc tc' (ctxTyCons env) }
@@ -256,8 +254,8 @@ data Context
   = Context {
     ctxVars :: Map ID S.TmVar
   , ctxCons :: Map ID S.Ctor
-  , ctxTyVars :: Map TyVar S.TyVar
-  , ctxTyCons :: Map TyCon S.TyCon
+  , ctxTyVars :: Map ID S.TyVar
+  , ctxTyCons :: Map ID S.TyCon
   }
 
 runM :: M a -> a
@@ -278,23 +276,6 @@ newtype ID = ID String
 instance Show ID where
   show (ID x) = x
 
--- TODO: Remove TmVar, TyVar, Ctor, TyCon from Resolve. They should only be in Source
-
--- | Type variables stand for types.
-data TyVar
-  = TyVar String
-  deriving (Eq, Ord)
-
-instance Show TyVar where
-  show (TyVar x) = x
-
-
-data TyCon = TyCon String
-  deriving (Eq, Ord)
-
-instance Show TyCon where
-  show (TyCon tc) = tc
-
 newtype FieldLabel = FieldLabel String
   deriving (Eq)
 
@@ -305,7 +286,7 @@ instance Show FieldLabel where
 data Program = Program [DataDecl] Term
 
 
-data DataDecl = DataDecl TyCon [(TyVar, Kind)] [CtorDecl]
+data DataDecl = DataDecl ID [(ID, Kind)] [CtorDecl]
 
 data CtorDecl = CtorDecl ID [Type]
 
@@ -346,7 +327,7 @@ data Term
   -- e1 `cmp` e2
   | TmCmp Term TmCmp Term
   -- \ @(a : k) -> e
-  | TmTLam TyVar Kind Term
+  | TmTLam ID Kind Term
   -- e @s
   | TmTApp Term Type
   -- "foo"
@@ -400,7 +381,7 @@ data Type
   | TyRecord [(FieldLabel, Type)]
   | TyIO Type
   | TyNameOcc ID
-  | TyAll TyVar Kind Type
+  | TyAll ID Kind Type
 
 data Kind
   = KiStar

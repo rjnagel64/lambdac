@@ -101,10 +101,10 @@ DataDecls :: { DList DataDecl }
 	  | DataDecls DataDecl { DL.snoc $1 $2 }
 
 DataDecl :: { DataDecl }
-	 : 'data' ID '=' '{' CtorDecls '}' { DataDecl (tcon $2) [] (DL.toList $5) }
-	 | 'data' ID TyBinds '=' '{' CtorDecls '}' { DataDecl (tcon $2) (DL.toList $3) (DL.toList $6) }
+	 : 'data' ID '=' '{' CtorDecls '}' { DataDecl (ident $2) [] (DL.toList $5) }
+	 | 'data' ID TyBinds '=' '{' CtorDecls '}' { DataDecl (ident $2) (DL.toList $3) (DL.toList $6) }
 
-TyBinds :: { DList (TyVar, Kind) }
+TyBinds :: { DList (ID, Kind) }
 	: TyBind { DL.singleton $1 }
 	| TyBinds TyBind { DL.snoc $1 $2 }
 
@@ -113,8 +113,8 @@ CtorDecls :: { DList CtorDecl }
 	  | CtorDecls ';' CtorDecl { DL.snoc $1 $3 }
 
 CtorDecl :: { CtorDecl }
-	 : ID '(' CtorArgs ')' { CtorDecl (ctor $1) (DL.toList $3) }
-	 | ID '(' ')' { CtorDecl (ctor $1) [] }
+	 : ID '(' CtorArgs ')' { CtorDecl (ident $1) (DL.toList $3) }
+	 | ID '(' ')' { CtorDecl (ident $1) [] }
 
 CtorArgs :: { DList Type }
 	 : Type { DL.singleton $1 }
@@ -128,7 +128,7 @@ CtorArgs :: { DList Type }
 Term :: { Term }
      : AppTerm { $1 }
      | '\\' '(' ID ':' Type ')' '->' Term { TmLam (ident $3) $5 $8 }
-     | '\\' '@' ID '->' Term { TmTLam (tvar $3) KiStar $5 }
+     | '\\' '@' ID '->' Term { TmTLam (ident $3) KiStar $5 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (ident $2) $4 $6 $8 }
      | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (ident $2) $4 $6 $8 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (DL.toList $2) $4 }
@@ -188,8 +188,8 @@ Alt :: { (ID, [(ID, Type)], Term) }
     -- and then trying to parse '(' as the RHS.
     --
     -- Therefore, the rule is manually split to avoid such nonsense.
-    : ID '->' Term { (ctor $1, [], $3) }
-    | ID VarBinds '->' Term { (ctor $1, DL.toList $2, $4) }
+    : ID '->' Term { (ident $1, [], $3) }
+    | ID VarBinds '->' Term { (ident $1, DL.toList $2, $4) }
 
 VarBinds :: { DList (ID, Type) }
 	 : VarBind { DL.singleton $1 }
@@ -223,7 +223,7 @@ Type :: { Type }
      -- I'm not quite sure I like that. In particular, ((x, y), z) : a * b * c
      -- but I would prefer ((x, y), z): (a * b) * c
      | Type '*' Type { TyProd $1 $3 }
-     | 'forall' ID '.' Type { TyAll (tvar $2) KiStar $4 }
+     | 'forall' ID '.' Type { TyAll (ident $2) KiStar $4 }
 
 AppType :: { Type }
         : AType { $1 }
@@ -254,8 +254,8 @@ FieldTy :: { (FieldLabel, Type) }
 Kind :: { Kind }
      : '*' { KiStar }
 
-TyBind :: { (TyVar, Kind) }
-       : '(' ID ':' Kind ')' { (tvar $2, $4) }
+TyBind :: { (ID, Kind) }
+       : '(' ID ':' Kind ')' { (ident $2, $4) }
 
 {
 data ParseError = EOF | ErrorAt Loc String
@@ -271,15 +271,6 @@ parseError ts@(L l token:_) = Left $
 
 ident :: L Token -> ID
 ident (L _ (TokID s)) = ID s
-
-ctor :: L Token -> ID
-ctor = ident
-
-tvar :: L Token -> TyVar
-tvar (L _ (TokID s)) = TyVar s
-
-tcon :: L Token -> TyCon
-tcon (L _ (TokID s)) = TyCon s
 
 fieldLabel :: L Token -> FieldLabel
 fieldLabel (L _ (TokID s)) = FieldLabel s
