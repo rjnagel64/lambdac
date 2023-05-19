@@ -27,6 +27,9 @@ import Control.Monad.Reader
 import qualified Data.Map as Map
 import Data.Map (Map)
 
+-- import Prelude hiding (liftA2)
+import Control.Applicative (liftA2, liftA) -- wat. why is this not already in scope.
+
 
 -- | Utility function for inserting many items at once.
 insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
@@ -52,7 +55,7 @@ withDataDecl (DataDecl tc as ctors) cont = do
       -- kind of hacky. It would be better for Source and subsequent IRs to be
       -- like GADTs, with the data decl having a kind signature, but the tyvars
       -- being confined to each constructor.
-      as' <- traverse (\ (ID a, k) -> (,) <$> pure (S.TyVar a) <*> resolveKind k) as
+      as' <- traverse (\ (ID a, k) -> (,) <$> pure (S.TyVar a) <*> fmap fromResolved (resolveKind k)) as
       cont (S.DataDecl tc' as' ctors')
 
 -- bring a set of constructors into scope, in parallel.
@@ -63,7 +66,7 @@ withCtors as ctors cont = do
   (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl c@(ID ident) args) -> do
     let c' = S.Ctor ident
     withTyVars as $ \as' -> do
-      args' <- traverse resolveType args
+      args' <- traverse (fmap fromResolved . resolveType) args
       pure ((c, c'), S.CtorDecl c' args') -- I should include the as' in the new ctor decl
 
   let extend env = env { ctxCons = insertMany binds (ctxCons env) }
@@ -78,7 +81,7 @@ withRecBinds xs cont = do
 
   (binds, ys) <- fmap unzip . for xs $ \ (x@(ID ident), t, e) -> do
     let x' = S.TmVar ident
-    t' <- resolveType t
+    t' <- fromResolved <$> resolveType t
     pure ((x, x'), (x', t', e))
 
   let extend env = env { ctxVars = insertMany binds (ctxVars env) }
@@ -109,19 +112,19 @@ resolveTerm (TmPutLine e) = S.TmPutLine <$> resolveTerm e
 resolveTerm (TmRunIO e) = S.TmRunIO <$> resolveTerm e
 resolveTerm (TmFst e) = S.TmFst <$> resolveTerm e
 resolveTerm (TmSnd e) = S.TmSnd <$> resolveTerm e
-resolveTerm (TmFieldProj e l) = S.TmFieldProj <$> resolveTerm e <*> resolveFieldLabel l
+resolveTerm (TmFieldProj e l) = S.TmFieldProj <$> resolveTerm e <*> (fromResolved <$> resolveFieldLabel l)
 resolveTerm (TmPair e1 e2) = S.TmPair <$> resolveTerm e1 <*> resolveTerm e2
 resolveTerm (TmRecord fs) = S.TmRecord <$> traverse resolveField fs
-  where resolveField (l, e) = (,) <$> resolveFieldLabel l <*> resolveTerm e
+  where resolveField (l, e) = (,) <$> (fromResolved <$> resolveFieldLabel l) <*> resolveTerm e
 resolveTerm (TmArith e1 op e2) =
-  S.TmArith <$> resolveTerm e1 <*> resolveArith op <*> resolveTerm e2
+  S.TmArith <$> resolveTerm e1 <*> (fromResolved <$> resolveArith op) <*> resolveTerm e2
 resolveTerm (TmNegate e) = S.TmNegate <$> resolveTerm e
 resolveTerm (TmCmp e1 op e2) =
-  S.TmCmp <$> resolveTerm e1 <*> resolveCmp op <*> resolveTerm e2
+  S.TmCmp <$> resolveTerm e1 <*> (fromResolved <$> resolveCmp op) <*> resolveTerm e2
 resolveTerm (TmStringOp e1 op e2) =
-  S.TmStringOp <$> resolveTerm e1 <*> resolveStringOp op <*> resolveTerm e2
+  S.TmStringOp <$> resolveTerm e1 <*> (fromResolved <$> resolveStringOp op) <*> resolveTerm e2
 resolveTerm (TmApp e1 e2) = S.TmApp <$> resolveTerm e1 <*> resolveTerm e2
-resolveTerm (TmTApp e t) = S.TmTApp <$> resolveTerm e <*> resolveType t
+resolveTerm (TmTApp e t) = S.TmTApp <$> resolveTerm e <*> (fromResolved <$> resolveType t)
 resolveTerm (TmLam x t e) = do
   withTmVar x t $ \x' t' -> do
     e' <- resolveTerm e
@@ -146,7 +149,7 @@ resolveTerm (TmLetRec xs e) = do
     pure (S.TmLetRec xs' e')
 resolveTerm (TmCase e s alts) = do
   e' <- resolveTerm e
-  s' <- resolveType s
+  s' <- fromResolved <$> resolveType s
   alts' <- for alts $ \ (ID c, xs, rhs) -> do
     envCtors <- asks ctxCons
     c' <- case Map.lookup (ID c) envCtors of
@@ -158,65 +161,68 @@ resolveTerm (TmCase e s alts) = do
   pure (S.TmCase e' s' alts')
 resolveTerm (TmIf ec s et ef) = do
   ec' <- resolveTerm ec
-  s' <- resolveType s
+  s' <- fromResolved <$> resolveType s
   et' <- resolveTerm et
   ef' <- resolveTerm ef
   pure (S.TmIf ec' s' et' ef')
 
-resolveType :: Type -> M S.Type
+resolveType :: Type -> M (Resolved S.Type)
 resolveType (TyNameOcc (ID x)) = do
   tyVars <- asks ctxTyVars
   tyCons <- asks ctxTyCons
   case (Map.lookup (ID x) tyVars, Map.lookup (ID x) tyCons) of
-    (Nothing, Nothing) -> error ("name not in scope: " ++ x)
-    (Just x', Nothing) -> pure (S.TyVarOcc x')
-    (Nothing, Just x') -> pure (S.TyConOcc x')
-    (Just _, Just _) -> error ("abiguous name (could be tyvar or tycon") 
-resolveType TyUnit = pure S.TyUnit
-resolveType TyInt = pure S.TyInt
-resolveType TyBool = pure S.TyBool
-resolveType TyString = pure S.TyString
-resolveType TyChar = pure S.TyChar
-resolveType (TyProd t s) = S.TyProd <$> resolveType t <*> resolveType s
-resolveType (TyArr t s) = S.TyArr <$> resolveType t <*> resolveType s
-resolveType (TyApp t s) = S.TyApp <$> resolveType t <*> resolveType s
-resolveType (TyIO t) = S.TyIO <$> resolveType t
-resolveType (TyRecord fs) = S.TyRecord <$> traverse resolveField fs
-  where resolveField (l, t) = (,) <$> resolveFieldLabel l <*> resolveType t
+    (Nothing, Nothing) -> pure (Error [NameNotInScope (ID x)]) -- error ("name not in scope: " ++ x)
+    (Just x', Nothing) -> pure (Resolved (S.TyVarOcc x'))
+    (Nothing, Just x') -> pure (Resolved (S.TyConOcc x'))
+    (Just _, Just _) -> pure (Error [AmbiguousName (ID x)]) -- error ("abiguous name (could be tyvar or tycon") 
+resolveType TyUnit = pure (Resolved S.TyUnit)
+resolveType TyInt = pure (Resolved S.TyInt)
+resolveType TyBool = pure (Resolved S.TyBool)
+resolveType TyString = pure (Resolved S.TyString)
+resolveType TyChar = pure (Resolved S.TyChar)
+resolveType (TyProd t s) = liftA2 S.TyProd <$> resolveType t <*> resolveType s
+resolveType (TyArr t s) = liftA2 S.TyArr <$> resolveType t <*> resolveType s
+resolveType (TyApp t s) = liftA2 S.TyApp <$> resolveType t <*> resolveType s
+resolveType (TyIO t) = liftA S.TyIO <$> resolveType t
+-- Kind of messy (especially sequenceA?). Not sure how to simplify.
+resolveType (TyRecord fs) = (liftA S.TyRecord . sequenceA) <$> traverse resolveField fs
+  where
+    resolveField :: (FieldLabel, Type) -> M (Resolved (S.FieldLabel, S.Type))
+    resolveField (l, t) = liftA2 (,) <$> resolveFieldLabel l <*> resolveType t
 resolveType (TyAll a k t) = do
   withTyVar a k $ \a' k' -> do
     t' <- resolveType t
-    pure (S.TyAll a' k' t')
+    pure (S.TyAll a' <$> Resolved k' <*> t')
 
-resolveKind :: Kind -> M S.Kind
-resolveKind KiStar = pure S.KiStar
-resolveKind (KiArr k1 k2) = S.KiArr <$> resolveKind k1 <*> resolveKind k2
+resolveKind :: Kind -> M (Resolved S.Kind)
+resolveKind KiStar = pure (Resolved S.KiStar)
+resolveKind (KiArr k1 k2) = liftA2 S.KiArr <$> resolveKind k1 <*> resolveKind k2
 
-resolveArith :: TmArith -> M S.TmArith
-resolveArith TmArithAdd = pure S.TmArithAdd
-resolveArith TmArithSub = pure S.TmArithSub
-resolveArith TmArithMul = pure S.TmArithMul
+resolveArith :: TmArith -> M (Resolved S.TmArith)
+resolveArith TmArithAdd = pure (Resolved S.TmArithAdd)
+resolveArith TmArithSub = pure (Resolved S.TmArithSub)
+resolveArith TmArithMul = pure (Resolved S.TmArithMul)
 
-resolveCmp :: TmCmp -> M S.TmCmp
-resolveCmp TmCmpEq = pure S.TmCmpEq
-resolveCmp TmCmpNe = pure S.TmCmpNe
-resolveCmp TmCmpLt = pure S.TmCmpLt
-resolveCmp TmCmpLe = pure S.TmCmpLe
-resolveCmp TmCmpGt = pure S.TmCmpGt
-resolveCmp TmCmpGe = pure S.TmCmpGe
-resolveCmp TmCmpEqChar = pure S.TmCmpEqChar
+resolveCmp :: TmCmp -> M (Resolved S.TmCmp)
+resolveCmp TmCmpEq = pure (Resolved S.TmCmpEq)
+resolveCmp TmCmpNe = pure (Resolved S.TmCmpNe)
+resolveCmp TmCmpLt = pure (Resolved S.TmCmpLt)
+resolveCmp TmCmpLe = pure (Resolved S.TmCmpLe)
+resolveCmp TmCmpGt = pure (Resolved S.TmCmpGt)
+resolveCmp TmCmpGe = pure (Resolved S.TmCmpGe)
+resolveCmp TmCmpEqChar = pure (Resolved S.TmCmpEqChar)
 
-resolveStringOp :: TmStringOp -> M S.TmStringOp
-resolveStringOp TmConcat = pure S.TmConcat
-resolveStringOp TmIndexStr = pure S.TmIndexStr
+resolveStringOp :: TmStringOp -> M (Resolved S.TmStringOp)
+resolveStringOp TmConcat = pure (Resolved S.TmConcat)
+resolveStringOp TmIndexStr = pure (Resolved S.TmIndexStr)
 
-resolveFieldLabel :: FieldLabel -> M S.FieldLabel
-resolveFieldLabel (FieldLabel l) = pure (S.FieldLabel l)
+resolveFieldLabel :: FieldLabel -> M (Resolved S.FieldLabel)
+resolveFieldLabel (FieldLabel l) = pure (Resolved (S.FieldLabel l))
 
 withTmVar :: ID -> Type -> (S.TmVar -> S.Type -> M a) -> M a
 withTmVar x@(ID ident) t cont = do
   let x' = S.TmVar ident
-  t' <- resolveType t
+  t' <- fromResolved <$> resolveType t
   let extend env = env { ctxVars = Map.insert x x' (ctxVars env) }
   local extend $ cont x' t'
 
@@ -227,7 +233,7 @@ withTmVars ((x, t):xs) cont = withTmVar x t $ \x' t' -> withTmVars xs $ \xs' -> 
 withTyVar :: ID -> Kind -> (S.TyVar -> S.Kind -> M a) -> M a
 withTyVar a@(ID ident) k cont = do
   let a' = S.TyVar ident
-  k' <- resolveKind k
+  k' <- fromResolved <$> resolveKind k
   let extend env = env { ctxTyVars = Map.insert a a' (ctxTyVars env) }
   local extend $ cont a' k'
 
@@ -238,7 +244,7 @@ withTyVars ((a, k):as) cont = withTyVar a k $ \a' k' -> withTyVars as $ \as' -> 
 withTyCon :: ID -> Kind -> (S.TyCon -> S.Kind -> M a) -> M a
 withTyCon tc@(ID ident) k cont = do
   let tc' = S.TyCon ident
-  k' <- resolveKind k
+  k' <- fromResolved <$> resolveKind k
   let extend env = env { ctxTyCons = Map.insert tc tc' (ctxTyCons env) }
   local extend $ cont tc' k'
 
@@ -267,6 +273,35 @@ runM = flip runReader emptyContext . getM
       , ctxTyVars = Map.empty
       , ctxTyCons = Map.empty
       }
+
+
+data Resolved a
+  = Resolved a
+  | Error [ResolveError]
+
+data ResolveError
+  = NameNotInScope ID
+  | AmbiguousName ID -- list of what categories it could be?
+
+instance Functor Resolved where
+  fmap f (Resolved a) = Resolved (f a)
+  fmap _ (Error es) = Error es
+
+instance Applicative Resolved where
+  pure = Resolved
+
+  Resolved f <*> Resolved x = Resolved (f x)
+  Resolved _ <*> Error es = Error es
+  Error es <*> Resolved _ = Error es
+  Error es1 <*> Error es2 = Error (es1 <> es2)
+
+fromResolved :: Resolved a -> a
+fromResolved (Resolved a) = a
+fromResolved (Error es) = error msg
+  where
+    msg = unlines ("name resolution error(s):" : map pprErr es)
+    pprErr (NameNotInScope x) = " * name not in scope: " ++ show x
+    pprErr (AmbiguousName x) =  " * ambiguous name: " ++ show x
 
 
 -- | A generic identifier, that will be resolved to an appropriate type by this pass.
