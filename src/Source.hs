@@ -197,19 +197,19 @@ data TmFun
   | TmTFun TmVar TyVar Kind Type Term
 
 data Type
-  = TySum Type Type
-  | TyProd Type Type
-  | TyRecord [(FieldLabel, Type)]
-  | TyArr Type Type
-  | TyUnit
+  = TyUnit
   | TyInt
   | TyBool
-  | TyVarOcc TyVar
-  | TyAll TyVar Kind Type
   | TyString
   | TyChar
+  | TyVarOcc TyVar
   | TyConOcc TyCon
+  | TyAll TyVar Kind Type
+  | TySum Type Type
+  | TyProd Type Type
+  | TyArr Type Type
   | TyApp Type Type
+  | TyRecord [(FieldLabel, Type)]
   | TyIO Type
 
 instance Eq Type where
