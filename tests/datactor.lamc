@@ -1,5 +1,4 @@
 
 data foo = { mkfoo(int) }
--- Because of lexical ambiguity between tycon and tyvar, tycon must be prefixed with %
-let x : %foo = mkfoo 17 in
+let x : foo = mkfoo 17 in
 ()

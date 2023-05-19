@@ -1,14 +1,14 @@
 data list (a : *) = {
   nil();
-  cons(a, %list a)
+  cons(a, list a)
 }
-let foldr : forall a. forall b. (a -> b -> b) -> b -> %list a -> b =
+let foldr : forall a. forall b. (a -> b -> b) -> b -> list a -> b =
   \ @a -> \ @b ->
   \ (f : a -> b -> b) -> \ (z : b) ->
-  letrec go : %list a -> b =
-    \ (xs : %list a) -> case xs return b of {
+  letrec go : list a -> b =
+    \ (xs : list a) -> case xs return b of {
       nil -> z;
-      cons (y : a) (ys : %list a) -> f y (go ys)
+      cons (y : a) (ys : list a) -> f y (go ys)
     };
   in
   go

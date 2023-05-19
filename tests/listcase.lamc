@@ -1,8 +1,8 @@
 data list (a : *) = {
   nil();
-  cons(a, %list a)
+  cons(a, list a)
 }
 case (cons @int 17 (nil @int)) return int of {
   nil -> 132;
-  cons (y : int) (ys : %list int) -> y + y
+  cons (y : int) (ys : list int) -> y + y
 }

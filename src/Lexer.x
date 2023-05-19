@@ -80,7 +80,6 @@ tokens :-
   "(" { simpleToken TokLParen }
   "-" { simpleToken TokMinus }
   "!=" { simpleToken TokNEquals }
-  "%" { simpleToken TokPercent }
   "+" { simpleToken TokPlus }
   "}" { simpleToken TokRBrace }
   ")" { simpleToken TokRParen }
@@ -129,7 +128,6 @@ data Token
   | TokLParen
   | TokMinus
   | TokNEquals
-  | TokPercent
   | TokPlus
   | TokRBrace
   | TokRParen

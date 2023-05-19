@@ -36,7 +36,6 @@ import Resolve
   '+' { L _ TokPlus }
   '-' { L _ TokMinus }
   '^' { L _ TokCaret }
-  '%' { L _ TokPercent }
   ';' { L _ TokSemi }
   ':' { L _ TokColon }
   '.' { L _ TokDot }
@@ -133,8 +132,6 @@ Term :: { Term }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
      | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (var $2) $4 $6 $8 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (DL.toList $2) $4 }
-     -- | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
-     --   { TmCaseSum $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
      | 'case' Term 'return' Type 'of' '{' Alts '}' { TmCase $2 $4 (DL.toList $7) }
 
@@ -153,8 +150,6 @@ Term :: { Term }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
 
      -- These are basically AppTerm:s, aren't they?
-     -- | 'inl' '@' AType '@' AType ATerm { TmInl $3 $5 $6 }
-     -- | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
      | 'eq_char#' ATerm ATerm { TmCmp $2 TmCmpEqChar $3 }
@@ -242,13 +237,7 @@ AType :: { Type }
       | 'bool' { TyBool }
       | 'string' { TyString }
       | 'char' { TyChar }
-      -- As in terms, I need to distinguish (type) variable occurrences from
-      -- (type) constructors.
-      -- For now, I prefix (type) constructors with a sigil.
-      -- Alternately, I could include a name resolution pass, or make type
-      -- variables 'a 'b 'c as in ML.
-      | ID { TyVarOcc (tvar $1) }
-      | '%' ID { TyConOcc (tcon $2) }
+      | ID { TyNameOcc (ident $1) }
 
 FieldTys :: { DList (FieldLabel, Type) }
 	 : {- empty -} { DL.empty }

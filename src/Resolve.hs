@@ -13,13 +13,6 @@ module Resolve
   , Kind(..)
   , FieldLabel(..)
 
-  , eqType
-  , Subst
-  , singleSubst
-  , makeSubst
-  , substType
-  , ftv
-
   , TyCon(..)
   , Ctor(..)
   , Program(..)
@@ -30,18 +23,14 @@ module Resolve
   , pprintKind
   ) where
 
-import qualified Data.Map as Map
-import Data.Map (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
-
-import Data.Bifunctor
 import Data.List (intercalate)
 import Data.Traversable (for)
 
 import qualified Source.IR as S
 
 import Control.Monad.Reader
+import qualified Data.Map as Map
+import Data.Map (Map)
 
 
 -- | Utility function for inserting many items at once.
@@ -180,16 +169,14 @@ resolveTerm (TmIf ec s et ef) = do
   pure (S.TmIf ec' s' et' ef')
 
 resolveType :: Type -> M S.Type
-resolveType (TyVarOcc a) = do
-  env <- asks ctxTyVars
-  case Map.lookup a env of
-    Nothing -> error ("tyvar not in scope: " ++ show a)
-    Just a' -> pure (S.TyVarOcc a')
-resolveType (TyConOcc tc) = do
-  env <- asks ctxTyCons
-  case Map.lookup tc env of
-    Nothing -> error "tycon not in scope"
-    Just tc' -> pure (S.TyConOcc tc')
+resolveType (TyNameOcc (ID x)) = do
+  tyVars <- asks ctxTyVars
+  tyCons <- asks ctxTyCons
+  case (Map.lookup (TyVar x) tyVars, Map.lookup (TyCon x) tyCons) of
+    (Nothing, Nothing) -> error ("name not in scope: " ++ x)
+    (Just x', Nothing) -> pure (S.TyVarOcc x')
+    (Nothing, Just x') -> pure (S.TyConOcc x')
+    (Just _, Just _) -> error ("abiguous name (could be tyvar or tycon") 
 resolveType TyUnit = pure S.TyUnit
 resolveType TyInt = pure S.TyInt
 resolveType TyBool = pure S.TyBool
@@ -297,6 +284,8 @@ runM = flip runReader emptyContext . getM
 -- | A generic identifier, that will be resolved to an appropriate type by this pass.
 newtype ID = ID String
 
+instance Show ID where
+  show (ID x) = x
 
 -- | Term variables stand for values.
 newtype TmVar = TmVar String
@@ -428,22 +417,18 @@ data TmFun
   | TmTFun TmVar TyVar Kind Type Term
 
 data Type
-  = TyProd Type Type
-  | TyRecord [(FieldLabel, Type)]
-  | TyArr Type Type
-  | TyUnit
+  = TyUnit
   | TyInt
   | TyBool
-  | TyVarOcc TyVar
-  | TyAll TyVar Kind Type
   | TyString
   | TyChar
-  | TyConOcc TyCon
+  | TyProd Type Type
+  | TyArr Type Type
   | TyApp Type Type
+  | TyRecord [(FieldLabel, Type)]
   | TyIO Type
-
-instance Eq Type where
-  (==) = eqType emptyAE
+  | TyNameOcc ID
+  | TyAll TyVar Kind Type
 
 data Kind
   = KiStar
@@ -451,120 +436,6 @@ data Kind
   deriving (Eq)
 
 
-data AE = AE Int (Map TyVar Int) (Map TyVar Int)
-
-emptyAE :: AE
-emptyAE = AE 0 Map.empty Map.empty
-
-lookupAE :: AE -> TyVar -> TyVar -> Bool
-lookupAE (AE _ fw bw) x y = case (Map.lookup x fw, Map.lookup y bw) of
-  -- Both bound: should be bound at the same level
-  (Just xl, Just yl) -> xl == yl
-  -- Both free: require exact equality
-  (Nothing, Nothing) -> x == y
-  -- Cannot be equal if one free but the other is bound
-  _ -> False
-
-bindAE :: TyVar -> TyVar -> AE -> AE
-bindAE x y (AE l fw bw) = AE (l+1) (Map.insert x l fw) (Map.insert y l bw)
-
--- | Alpha-equality of two types
-eqType :: AE -> Type -> Type -> Bool
-eqType ae (TyVarOcc x) (TyVarOcc y) = lookupAE ae x y
-eqType _ (TyVarOcc _) _ = False
-eqType _ (TyConOcc c1) (TyConOcc c2) = c1 == c2
-eqType _ (TyConOcc _) _ = False
-eqType _ TyUnit TyUnit = True
-eqType _ TyUnit _ = False
-eqType _ TyBool TyBool = True
-eqType _ TyBool _ = False
-eqType _ TyInt TyInt = True
-eqType _ TyInt _ = False
-eqType _ TyString TyString = True
-eqType _ TyString _ = False
-eqType _ TyChar TyChar = True
-eqType _ TyChar _ = False
-eqType ae (TyProd t1 t2) (TyProd t3 t4) = eqType ae t1 t3 && eqType ae t2 t4
-eqType _ (TyProd _ _) _ = False
-eqType ae (TyRecord fs1) (TyRecord fs2) = go fs1 fs2
-  where
-    go [] [] = True
-    go ((f1, t1):fs1') ((f2, t2):fs2') = f1 == f2 && eqType ae t1 t2 && go fs1' fs2'
-    go _ _ = False
-eqType _ (TyRecord _) _ = False
-eqType ae (TyArr arg1 ret1) (TyArr arg2 ret2) =
-  eqType ae arg1 arg2 && eqType ae ret1 ret2
-eqType _ (TyArr _ _) _ = False
-eqType ae (TyApp arg1 ret1) (TyApp arg2 ret2) =
-  eqType ae arg1 arg2 && eqType ae ret1 ret2
-eqType _ (TyApp _ _) _ = False
-eqType ae (TyIO arg1) (TyIO arg2) =
-  eqType ae arg1 arg2
-eqType _ (TyIO _) _ = False
-eqType ae (TyAll x k1 t) (TyAll y k2 s) = k1 == k2 && eqType (bindAE x y ae) t s
-eqType _ (TyAll _ _ _) _ = False
-
-
-data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Type }
-
--- | Construct a singleton substitution, @[aa := t]@.
-singleSubst :: TyVar -> Type -> Subst
-singleSubst aa t = Subst { substScope = ftv t, substMapping = Map.singleton aa t }
-
-makeSubst :: [(TyVar, Type)] -> Subst
-makeSubst binds = Subst { substScope = foldMap (ftv . snd) binds, substMapping = Map.fromList binds }
-
-substBind :: Subst -> TyVar -> (Subst, TyVar)
-substBind (Subst sc sub) aa =
-  if Set.notMember aa sc then
-    (Subst (Set.insert aa sc) (Map.delete aa sub), aa)
-  else
-    go (0 :: Int)
-  where
-    go i =
-      let TyVar aa' = aa in
-      let bb = TyVar (aa' ++ show i) in
-      if Set.notMember bb sc then
-        (Subst (Set.insert bb sc) (Map.insert aa (TyVarOcc bb) sub), bb)
-      else
-        go (i+1)
-
-substTyVar :: Subst -> TyVar -> Type
-substTyVar sub aa = case Map.lookup aa (substMapping sub) of
-  Nothing -> TyVarOcc aa
-  Just t -> t
-
--- | Apply a substitution to a type, @substType sub t' === t'[sub]@.
-substType :: Subst -> Type -> Type
-substType sub (TyVarOcc bb) = substTyVar sub bb
-substType sub (TyAll aa ki t) = let (sub', aa') = substBind sub aa in TyAll aa' ki (substType sub' t)
-substType _ TyUnit = TyUnit
-substType _ TyBool = TyBool
-substType _ TyInt = TyInt
-substType _ TyString = TyString
-substType _ TyChar = TyChar
-substType sub (TyProd t1 t2) = TyProd (substType sub t1) (substType sub t2)
-substType sub (TyRecord fs) = TyRecord (map (second (substType sub)) fs)
-substType sub (TyArr t1 t2) = TyArr (substType sub t1) (substType sub t2)
-substType sub (TyApp t1 t2) = TyApp (substType sub t1) (substType sub t2)
-substType sub (TyIO t1) = TyIO (substType sub t1)
-substType _ (TyConOcc tc) = TyConOcc tc
-
--- | Compute the free type variables of a type
-ftv :: Type -> Set TyVar
-ftv (TyVarOcc aa) = Set.singleton aa
-ftv (TyAll bb _ t) = Set.delete bb (ftv t)
-ftv (TyProd t1 t2) = ftv t1 <> ftv t2
-ftv (TyRecord fs) = foldMap (ftv . snd) fs
-ftv (TyArr t1 t2) = ftv t1 <> ftv t2
-ftv TyUnit = Set.empty
-ftv TyBool = Set.empty
-ftv TyInt = Set.empty
-ftv TyString = Set.empty
-ftv TyChar = Set.empty
-ftv (TyConOcc _) = Set.empty
-ftv (TyApp t1 t2) = ftv t1 <> ftv t2
-ftv (TyIO t1) = ftv t1
 
 -- something something showsPrec
 pprintType :: Int -> Type -> String
@@ -583,8 +454,7 @@ pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ ppr
 -- infixl 10 __
 pprintType p (TyApp t1 t2) = parensIf (p > 10) $ pprintType 10 t1 ++ " " ++ pprintType 11 t2
 pprintType p (TyIO t1) = parensIf (p > 10) $ "IO " ++ pprintType 11 t1
-pprintType _ (TyVarOcc x) = show x
-pprintType _ (TyConOcc c) = show c
+pprintType _ (TyNameOcc x) = show x
 pprintType p (TyAll x ki t) =
   parensIf (p > 0) $ "forall (" ++ show x ++ " : " ++ pprintKind ki ++ "). " ++ pprintType 0 t
 

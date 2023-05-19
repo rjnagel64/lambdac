@@ -1,12 +1,12 @@
 data list (a : *) = {
   nil();
-  cons(a, %list a)
+  cons(a, list a)
 }
-letrec foldr : forall a. forall b. (a -> b -> b) -> b -> %list a -> b =
-  \ @a -> \ @b -> \ (f : a -> b -> b) -> \ (z : b) -> \ (xs : %list a) ->
+letrec foldr : forall a. forall b. (a -> b -> b) -> b -> list a -> b =
+  \ @a -> \ @b -> \ (f : a -> b -> b) -> \ (z : b) -> \ (xs : list a) ->
   case xs return b of {
     nil -> z;
-    cons (y : a) (ys : %list a) -> f y (foldr @a @b f z ys)
+    cons (y : a) (ys : list a) -> f y (foldr @a @b f z ys)
   };
 in
 let max : int -> int -> int =

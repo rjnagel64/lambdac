@@ -4,8 +4,8 @@ data sum (a : *) (b : *) = {
   inr(b)
 }
 
-let either : forall a. forall b. forall c. (a -> c) -> (b -> c) -> %sum a b -> c =
-  \ @a -> \ @b -> \ @c -> \ (f : a -> c) -> \ (g : b -> c) -> \ (e : %sum a b) ->
+let either : forall a. forall b. forall c. (a -> c) -> (b -> c) -> sum a b -> c =
+  \ @a -> \ @b -> \ @c -> \ (f : a -> c) -> \ (g : b -> c) -> \ (e : sum a b) ->
     case e return c of {
       inl (x : a) -> f x;
       inr (y : b) -> g y
