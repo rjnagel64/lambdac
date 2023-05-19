@@ -187,8 +187,6 @@ simplify env (LetContK ks e) =
 simplifyVal :: SimplEnv -> ValueK -> (ValueK, Census)
 simplifyVal env (PairK y z) =
   let y' = rename env y; z' = rename env z in (PairK y' z', recordList [y', z'])
-simplifyVal env (InlK y) = let y' = rename env y in (InlK y', recordOne y')
-simplifyVal env (InrK z) = let z' = rename env z in (InrK z', recordOne z')
 simplifyVal _ NilK = (NilK, mempty)
 simplifyVal _ (IntValK i) = (IntValK i, mempty)
 simplifyVal _ (BoolValK b) = (BoolValK b, mempty)
@@ -215,13 +213,6 @@ simplifyContDef env (k, ContDef xs e) =
 
 -- | Perform beta-reduction for a case expression
 simplifyCase :: SimplEnv -> TmVar -> TyConApp -> [(Ctor, CoValueK)] -> (TermK, Census)
-simplifyCase env x (CaseSum ta tb) [(c1, CoVarK k1), (c2, CoVarK k2)] =
-  case lookupValue x env of
-    (_, Just (InlK y)) -> (JumpK k1 [y], recordOne y)
-    (_, Just (InrK z)) -> (JumpK k2 [z], recordOne z)
-    (_, Just _) -> error "simplifyCase: env contained invalid value for sum type"
-    (x', Nothing) -> (CaseK x' (CaseSum ta tb) [(c1, CoVarK k1), (c2, CoVarK k2)], recordOne x')
-simplifyCase _ _ (CaseSum _ _) _ = error "simplifyCase: incorrect number of branches for sum type"
 simplifyCase env x CaseBool [(c1, CoVarK k1), (c2, CoVarK k2)] =
   case lookupValue x env of
     (_, Just (BoolValK True)) -> (JumpK k1 [], mempty)

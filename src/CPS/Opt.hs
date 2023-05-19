@@ -118,9 +118,7 @@ inlineK (CaseK x t [(c1, CoVarK k1), (c2, CoVarK k2)]) = do
   x' <- appTmSub x
   env <- ask
   case Map.lookup x' (inlineValDefs env) of
-    Just (InlK y) -> inlineK (JumpK k1 [y])
-    Just (InrK y) -> inlineK (JumpK k2 [y])
-    Just _ -> error "case on non-inj value"
+    Just _ -> error "case on non-adt value"
     Nothing -> pure (CaseK x' t [(c1, CoVarK k1), (c2, CoVarK k2)])
 inlineK (LetFstK x t y e) = do
   y' <- appTmSub y

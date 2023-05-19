@@ -171,7 +171,6 @@ cconvType K.IntK = pure Integer
 cconvType K.BoolK = pure Boolean
 cconvType K.StringK = pure String
 cconvType K.CharK = pure Character
-cconvType (K.SumK t1 t2) = Sum <$> cconvType t1 <*> cconvType t2
 cconvType (K.ProdK t1 t2) = Pair <$> cconvType t1 <*> cconvType t2
 cconvType (K.RecordK fields) = Record <$> traverse cconvField fields
   where cconvField (f, t) = (,) <$> cconvFieldLabel f <*> cconvType t
@@ -193,7 +192,6 @@ cconvKind (K.KArrK k1 k2) = KArr <$> cconvKind k1 <*> cconvKind k2
 cconvTyConApp :: K.TyConApp -> ConvM CaseKind
 cconvTyConApp (K.TyConApp (K.TyCon tc) args) = TyConApp (TyCon tc) <$> traverse cconvType args
 cconvTyConApp K.CaseBool = pure CaseBool
-cconvTyConApp (K.CaseSum t s) = CaseSum <$> cconvType t <*> cconvType s
 
 cconv :: K.TermK -> ConvM TermC
 cconv (K.HaltK x) = HaltC <$> cconvTmVar x
@@ -328,8 +326,6 @@ cconvValue (K.RecordValK fs) = RecordC <$> traverse cconvField fs
   where cconvField (f, x) = (,) <$> cconvFieldLabel f <*> cconvTmVar x
 cconvValue (K.IntValK i) = pure (IntC i)
 cconvValue (K.BoolValK b) = pure (BoolC b)
-cconvValue (K.InlK x) = InlC <$> cconvTmVar x
-cconvValue (K.InrK y) = InrC <$> cconvTmVar y
 cconvValue (K.StringValK s) = pure (StringC s)
 cconvValue (K.CharValK s) = pure (CharC s)
 cconvValue (K.CtorAppK (K.Ctor c) args) = CtorAppC (Ctor c) <$> traverse cconvTmVar args

@@ -262,9 +262,6 @@ checkCase :: TmVar -> TyConApp -> [(Ctor, CoValueK)] -> TC ()
 checkCase x CaseBool ks =
   checkTmVar x BoolK *>
   checkBranches ks (Map.fromList [(Ctor "false", []), (Ctor "true", [])])
-checkCase x (CaseSum t1 t2) ks =
-  checkTmVar x (SumK t1 t2) *>
-  checkBranches ks (Map.fromList [(Ctor "inl", [t1]), (Ctor "inr", [t2])])
 checkCase x tcapp ks = do
   checkTmVar x (fromTyConApp tcapp)
   branchTys <- instantiateTyConApp tcapp
@@ -311,10 +308,6 @@ checkValue (PairK x y) (ProdK t s) = do
   checkTmVar x t
   checkTmVar y s
 checkValue (RecordValK fs) (RecordK fs') = checkFields fs fs'
-checkValue (InlK x) (SumK t _s) = do
-  checkTmVar x t
-checkValue (InrK y) (SumK _t s) = do
-  checkTmVar y s
 checkValue (IntValK _) IntK = pure ()
 checkValue (BoolValK _) BoolK = pure ()
 checkValue (StringValK _) StringK = pure ()
@@ -411,7 +404,6 @@ inferType (FunK ts ss) =
 inferType (ProdK t s) = checkType t StarK *> checkType s StarK *> pure StarK
 -- Hmm. Check that field labels are unique?
 inferType (RecordK fields) = traverse_ (\ (f, t) -> checkType t StarK) fields *> pure StarK
-inferType (SumK t s) = checkType t StarK *> checkType s StarK *> pure StarK
 inferType UnitK = pure StarK
 inferType IntK = pure StarK
 inferType BoolK = pure StarK
