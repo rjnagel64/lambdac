@@ -7,7 +7,6 @@ module Resolve
   , TmStringOp(..)
   , ID(..)
   , TmVar(..)
-  , TmFun(..)
   , Type(..)
   , TyVar(..)
   , Kind(..)
@@ -398,14 +397,6 @@ data TmStringOp
   = TmConcat
   -- char_at_idx x i
   | TmIndexStr
-
--- | Named function definitions are one way of doing recursion.
--- (On the other hand, let-rec expressions.)
-data TmFun
-  -- | @f (x : t) : t' = e@
-  = TmFun TmVar TmVar Type Type Term
-  -- | @f \@a : t' = e@
-  | TmTFun TmVar TyVar Kind Type Term
 
 data Type
   = TyUnit
