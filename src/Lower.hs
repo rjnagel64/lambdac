@@ -153,8 +153,6 @@ lowerTerm (H.CaseH x H.CaseBool ks) = do
     k' <- lowerName k
     pure (i, ty, k')
   pure (IntCaseH x' ks')
-lowerTerm (H.CaseH x (H.CaseSum t s) ks) = do
-  CaseH <$> lowerName x <*> (CaseSum <$> lowerSort t <*> lowerSort s) <*> traverse lowerCaseAlt ks
 lowerTerm (H.CaseH x (H.TyConApp tc ss) ks) = do
   CaseH <$> lowerName x <*> (TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss) <*> traverse lowerCaseAlt ks
 lowerTerm (H.LetValH p v e) = do
@@ -207,8 +205,6 @@ lowerValue (H.CtorAppH capp) = lowerCtorApp capp
 -- Slightly messy, because booleans are ctorapp in Hoist, but back to being Value in Lower
 lowerCtorApp :: H.CtorAppH -> M ValueH
 lowerCtorApp (H.BoolH b) = pure (BoolH b)
-lowerCtorApp (H.InlH x) = (CtorAppH . InlH) <$> lowerName x
-lowerCtorApp (H.InrH x) = (CtorAppH . InrH) <$> lowerName x
 lowerCtorApp (H.CtorApp c xs) =
   CtorAppH <$> (CtorApp <$> lowerCtor c <*> traverse lowerName xs)
 
@@ -244,7 +240,6 @@ lowerSort H.UnitH = pure UnitH
 lowerSort H.StringH = pure StringH
 lowerSort H.CharH = pure CharH
 lowerSort (H.ProductH t s) = ProductH <$> lowerSort t <*> lowerSort s
-lowerSort (H.SumH t s) = SumH <$> lowerSort t <*> lowerSort s
 lowerSort (H.ClosureH tele) = ClosureH <$> lowerClosureTele tele
 lowerSort (H.RecordH fields) = TyRecordH <$> traverse lowerField fields
   where lowerField (f, t) = (,) <$> lowerFieldLabel f <*> lowerSort t
@@ -482,7 +477,6 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     tycode (AllocH _) = "A"
     tycode (ProductH _ _) = "Q"
     tycode (TyRecordH _) = "R"
-    tycode (SumH _ _) = "S"
     tycode (TyConH tc) = let n = show tc in show (length n) ++ n
     tycode (TyAppH t _) = tycode t
 
@@ -594,7 +588,6 @@ data Sort
   | StringH
   | CharH
   | ProductH Sort Sort
-  | SumH Sort Sort
   | ClosureH ClosureTele
   | TyRecordH [(FieldLabel, Sort)]
   | TyConH TyCon
@@ -618,7 +611,6 @@ data Kind = Star | KArr Kind Kind
   deriving (Eq)
 
 asTyConApp :: Sort -> Maybe TyConApp
-asTyConApp (SumH t s) = Just (CaseSum t s)
 asTyConApp (TyConH tc) = Just (TyConApp tc [])
 asTyConApp (TyAppH t s) = go t [s]
   where
@@ -630,12 +622,10 @@ asTyConApp (TyAppH t s) = go t [s]
 asTyConApp _ = Nothing
 
 fromTyConApp :: TyConApp -> Sort
-fromTyConApp (CaseSum t s) = SumH t s
 fromTyConApp (TyConApp tc args) = foldl TyAppH (TyConH tc) args
 
 data TyConApp
   = TyConApp TyCon [Sort]
-  | CaseSum Sort Sort
 
 
 
@@ -690,8 +680,6 @@ data ValueH
 
 data CtorAppH
   = CtorApp Ctor [Name]
-  | InlH Name
-  | InrH Name
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -752,7 +740,6 @@ ftv CharH = mempty
 ftv TokenH = mempty
 ftv (ProductH t s) = ftv t <> ftv s
 ftv (TyRecordH fs) = foldMap (ftv . snd) fs
-ftv (SumH t s) = ftv t <> ftv s
 ftv (TyAppH t s) = ftv t <> ftv s
 ftv (ClosureH tele) = ftvTele tele
 
@@ -807,8 +794,6 @@ equalSort ae (TyRecordH fs1) (TyRecordH fs2) = go fs1 fs2
     go ((f1, t1):fs1') ((f2, t2):fs2') = f1 == f2 && equalSort ae t1 t2 && go fs1' fs2'
     go _ _ = False
 equalSort _ (TyRecordH _) _ = False
-equalSort ae (SumH s1 s2) (SumH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
-equalSort _ (SumH _ _) _ = False
 equalSort ae (TyAppH s1 s2) (TyAppH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
 equalSort _ (TyAppH _ _) _ = False
 equalSort ae (ClosureH ss) (ClosureH ts) = equalTele ae ss ts
@@ -875,7 +860,6 @@ substSort _ CharH = CharH
 substSort _ TokenH = TokenH
 substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
 substSort sub (TyRecordH fs) = TyRecordH (map (second (substSort sub)) fs)
-substSort sub (SumH s t) = SumH (substSort sub s) (substSort sub t)
 substSort sub (TyAppH s t) = TyAppH (substSort sub s) (substSort sub t)
 substSort sub (ClosureH tele) = ClosureH (substTele sub tele)
 
@@ -968,8 +952,6 @@ pprintValue (RecordH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
 pprintValue (CtorAppH capp) = pprintCtorApp capp
 
 pprintCtorApp :: CtorAppH -> String
-pprintCtorApp (InlH x) = "inl(" ++ show x ++ ")"
-pprintCtorApp (InrH y) = "inr(" ++ show y ++ ")"
 pprintCtorApp (CtorApp c xs) =
   show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
 
@@ -1018,7 +1000,6 @@ pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (TyRecordH []) = "{}"
 pprintSort (TyRecordH fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
   where pprintField (f, t) = show f ++ " : " ++ pprintSort t
-pprintSort (SumH t s) = "sum " ++ pprintSort t ++ " " ++ pprintSort s
 pprintSort (TyAppH t s) = pprintSort t ++ " " ++ pprintSort s
 pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
 pprintSort (AllocH aa) = show aa

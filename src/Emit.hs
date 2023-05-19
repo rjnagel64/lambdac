@@ -106,7 +106,6 @@ typeForSort (TyRecordH _) = "struct record *"
 typeForSort UnitH = "struct unit *"
 typeForSort BooleanH = "struct bool_value *"
 typeForSort TokenH = "struct token *"
-typeForSort (SumH _ _) = "struct sum *"
 typeForSort (TyConH tc) = "struct " ++ show tc ++ " *"
 typeForSort (TyAppH t _) = typeForSort t
 
@@ -119,7 +118,6 @@ asSort CharH x = "CAST_CHAR(" ++ x ++ ")"
 asSort BooleanH x = "CAST_BOOL(" ++ x ++ ")"
 asSort (ProductH _ _) x = "CAST_PAIR(" ++ x ++ ")"
 asSort (TyRecordH _) x = "CAST_RECORD(" ++ x ++ ")"
-asSort (SumH _ _) x = "CAST_sum(" ++ x ++ ")"
 asSort UnitH x = "CAST_UNIT(" ++ x ++ ")"
 asSort TokenH x = "CAST_TOKEN(" ++ x ++ ")"
 asSort (TyAppH t _) x = asSort t x
@@ -561,16 +559,12 @@ emitValueDefinition denv p (CtorAppH capp) =
       defineLocal p (emitCtorAlloc desc capp) []
 
 emitCtorAlloc :: DataDesc -> CtorAppH -> String
-emitCtorAlloc desc capp = method ++ "(" ++ commaSep args' ++ ")"
+emitCtorAlloc desc (CtorApp ctor xs) = method ++ "(" ++ commaSep args' ++ ")"
   where
-    (c, args) = case capp of
-      InlH x -> (Ctor (TyCon "sum") (Id "inl") 0, [x])
-      InrH x -> (Ctor (TyCon "sum") (Id "inr") 1, [x])
-      CtorApp ctor xs -> (ctor, xs)
-    method = "allocate_" ++ show (ctorTyCon c) ++ "_" ++ show (ctorName c)
+    method = "allocate_" ++ show (ctorTyCon ctor) ++ "_" ++ show (ctorName ctor)
 
-    argCasts = ctorArgCasts (dataCtors desc Map.! c)
-    args' = zipWith makeArg args argCasts
+    argCasts = ctorArgCasts (dataCtors desc Map.! ctor)
+    args' = zipWith makeArg xs argCasts
     makeArg x (_, Nothing) = emitName x
     makeArg x (_, Just _) = asAlloc (emitName x)
 
@@ -618,19 +612,7 @@ dataDesc (DataDecl _tycon ctors) tyargs =
           Just s' -> (show fld, Just s')
         f (fld, _s) = (show fld, Nothing)
 
-sumDataDecl :: DataDecl
-sumDataDecl =
-  let tc = TyCon "sum" in
-  let aa = TyVar (Id "a") in
-  let bb = TyVar (Id "b") in
-  let tys = [(aa, Star), (bb, Star)] in
-  DataDecl tc
-  [ CtorDecl (Ctor tc (Id "inl") 0) tys [(Id "payload", AllocH aa)]
-  , CtorDecl (Ctor tc (Id "inr") 1) tys [(Id "payload", AllocH bb)]
-  ]
-
 dataDescFor :: DataEnv -> TyConApp -> DataDesc
-dataDescFor _ (CaseSum t s) = dataDesc sumDataDecl [t, s]
 dataDescFor denv (TyConApp tc args) = dataDesc (denv Map.! tc) args
 
 emitPrimOp :: PrimOp -> String

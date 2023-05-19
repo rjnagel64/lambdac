@@ -395,9 +395,6 @@ checkValue (CtorAppH capp) s = case asTyConApp s of
 checkCtorApp :: CtorAppH -> TyConApp -> TC ()
 checkCtorApp (BoolH _) CaseBool = checkCtorArgs [] []
 checkCtorApp _ CaseBool = throwError BadCtorApp 
-checkCtorApp (InlH x) (CaseSum t _s) = checkCtorArgs [x] [ValueTele t]
-checkCtorApp (InrH y) (CaseSum _t s) = checkCtorArgs [y] [ValueTele s]
-checkCtorApp _ (CaseSum _ _) = throwError BadCtorApp
 checkCtorApp (CtorApp c args) tcapp = do
   ctors <- instantiateTyConApp tcapp
   case Map.lookup c ctors of
@@ -442,8 +439,6 @@ checkBranches branches branchTys = do
 instantiateTyConApp :: TyConApp -> TC (Map Ctor [TeleEntry])
 instantiateTyConApp CaseBool =
   pure $ Map.fromList [(Ctor "false", []), (Ctor "true", [])]
-instantiateTyConApp (CaseSum t s) =
-  pure $ Map.fromList [(Ctor "inl", [ValueTele t]), (Ctor "inr", [ValueTele s])]
 instantiateTyConApp (TyConApp tc tys) = do
   ctors <- snd <$> lookupTyCon tc
   cs <- fmap Map.fromList $ for ctors $ \ (CtorDecl c typarams argTys) -> do
@@ -467,7 +462,6 @@ inferSort CharH = pure Star
 inferSort TokenH = pure Star
 inferSort (ProductH t s) = checkSort t Star *> checkSort s Star *> pure Star
 inferSort (RecordH fs) = traverse_ (\ (f, t) -> checkSort t Star) fs *> pure Star
-inferSort (SumH t s) = checkSort t Star *> checkSort s Star *> pure Star
 inferSort (ClosureH tele) = checkTele tele *> pure Star
 
 -- | Check that a sort has the specified kind.
