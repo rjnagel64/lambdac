@@ -14,7 +14,6 @@ module Resolve
   , FieldLabel(..)
 
   , TyCon(..)
-  , Ctor(..)
   , Program(..)
   , DataDecl(..)
   , CtorDecl(..)
@@ -63,9 +62,9 @@ withDataDecl (DataDecl tc as ctors) cont = do
 -- bring a set of constructors into scope, in parallel.
 withCtors :: [(TyVar, Kind)] -> [CtorDecl] -> ([S.CtorDecl] -> M a) -> M a
 withCtors as ctors cont = do
-  assertDistinctCtors [c | CtorDecl c _ <- ctors]
+  assertDistinctIDs [c | CtorDecl c _ <- ctors]
 
-  (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl c@(Ctor ident) args) -> do
+  (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl c@(ID ident) args) -> do
     let c' = S.Ctor ident
     withTyVars as $ \as' -> do
       args' <- traverse resolveType args
@@ -74,8 +73,8 @@ withCtors as ctors cont = do
   let extend env = env { ctxCons = insertMany binds (ctxCons env) }
   local extend $ cont ctors'
 
-assertDistinctCtors :: [Ctor] -> M ()
-assertDistinctCtors cs = pure () -- TODO: detect duplicates
+assertDistinctIDs :: [ID] -> M ()
+assertDistinctIDs xs = pure ()
 
 withRecBinds :: [(TmVar, Type, Term)] -> ([(S.TmVar, S.Type, S.Term)] -> M a) -> M a
 withRecBinds xs cont = do
@@ -100,7 +99,7 @@ resolveTerm :: Term -> M S.Term
 resolveTerm (TmNameOcc (ID x)) = do
   tmVarEnv <- asks ctxVars
   ctorEnv <- asks ctxCons
-  case (Map.lookup (TmVar x) tmVarEnv, Map.lookup (Ctor x) ctorEnv) of
+  case (Map.lookup (TmVar x) tmVarEnv, Map.lookup (ID x) ctorEnv) of
     -- Hmm. this is an elab-style pass, I should return real errors since they are user-facing.
     (Nothing, Nothing) -> error ("name not in scope: " ++ x)
     (Just x', Nothing) -> pure (S.TmVarOcc x')
@@ -155,8 +154,11 @@ resolveTerm (TmLetRec xs e) = do
 resolveTerm (TmCase e s alts) = do
   e' <- resolveTerm e
   s' <- resolveType s
-  alts' <- for alts $ \ (c, xs, rhs) -> do
-    c' <- resolveCtorOcc c
+  alts' <- for alts $ \ (ID c, xs, rhs) -> do
+    envCtors <- asks ctxCons
+    c' <- case Map.lookup (ID c) envCtors of
+      Nothing -> error ("ctor not in scope: " ++ c)
+      Just c' -> pure c'
     withTmVars xs $ \xs' -> do
       rhs' <- resolveTerm rhs
       pure (c', xs', rhs')
@@ -218,13 +220,6 @@ resolveStringOp TmIndexStr = pure S.TmIndexStr
 resolveFieldLabel :: FieldLabel -> M S.FieldLabel
 resolveFieldLabel (FieldLabel l) = pure (S.FieldLabel l)
 
-resolveCtorOcc :: Ctor -> M S.Ctor
-resolveCtorOcc c = do
-  env <- asks ctxCons
-  case Map.lookup c env of
-    Nothing -> error "ctor not in scope"
-    Just c' -> pure c'
-
 withTmVar :: TmVar -> Type -> (S.TmVar -> S.Type -> M a) -> M a
 withTmVar x@(TmVar ident) t cont = do
   let x' = S.TmVar ident
@@ -265,7 +260,7 @@ deriving instance MonadReader Context M
 data Context
   = Context {
     ctxVars :: Map TmVar S.TmVar
-  , ctxCons :: Map Ctor S.Ctor
+  , ctxCons :: Map ID S.Ctor
   , ctxTyVars :: Map TyVar S.TyVar
   , ctxTyCons :: Map TyCon S.TyCon
   }
@@ -283,11 +278,13 @@ runM = flip runReader emptyContext . getM
 
 -- | A generic identifier, that will be resolved to an appropriate type by this pass.
 newtype ID = ID String
+  deriving (Eq, Ord)
 
 instance Show ID where
   show (ID x) = x
 
 -- | Term variables stand for values.
+-- TODO: Remove TmVar, TyVar, Ctor, TyCon from Resolve. They should only be in Source
 newtype TmVar = TmVar String
   deriving (Eq, Ord)
 
@@ -309,12 +306,6 @@ data TyCon = TyCon String
 instance Show TyCon where
   show (TyCon tc) = tc
 
-data Ctor = Ctor String
-  deriving (Eq, Ord)
-
-instance Show Ctor where
-  show (Ctor c) = c
-
 newtype FieldLabel = FieldLabel String
   deriving (Eq)
 
@@ -327,7 +318,7 @@ data Program = Program [DataDecl] Term
 
 data DataDecl = DataDecl TyCon [(TyVar, Kind)] [CtorDecl]
 
-data CtorDecl = CtorDecl Ctor [Type]
+data CtorDecl = CtorDecl ID [Type]
 
 
 data Term
@@ -376,7 +367,7 @@ data Term
   -- e1 `stringOp` e2
   | TmStringOp Term TmStringOp Term
   -- case e return s of { (c_i (x:t)+ -> e_i')+ }
-  | TmCase Term Type [(Ctor, [(TmVar, Type)], Term)]
+  | TmCase Term Type [(ID, [(TmVar, Type)], Term)]
   -- pure e
   | TmPure Term
   -- let x : t <- e1 in e2

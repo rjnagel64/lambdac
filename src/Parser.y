@@ -176,12 +176,12 @@ ATerm :: { Term }
      | 'false' { TmBool False }
      | 'getLine' { TmGetLine }
 
-Alts :: { DList (Ctor, [(TmVar, Type)], Term) }
+Alts :: { DList (ID, [(TmVar, Type)], Term) }
      : {- empty -} { DL.empty }
      | Alt { DL.singleton $1 }
      | Alts ';' Alt { DL.snoc $1 $3 }
 
-Alt :: { (Ctor, [(TmVar, Type)], Term) }
+Alt :: { (ID, [(TmVar, Type)], Term) }
     -- Shift-reduce conflict
     -- ID '(' | ... '->' ... should always shift, but for some reason the LR
     -- automaton considered the possibility of reducing a list of zero varbinds
@@ -275,8 +275,8 @@ ident (L _ (TokID s)) = ID s
 var :: L Token -> TmVar
 var (L _ (TokID s)) = TmVar s
 
-ctor :: L Token -> Ctor
-ctor (L _ (TokID s)) = Ctor s
+ctor :: L Token -> ID
+ctor = ident
 
 tvar :: L Token -> TyVar
 tvar (L _ (TokID s)) = TyVar s
