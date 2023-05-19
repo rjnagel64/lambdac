@@ -1,5 +1,5 @@
 
-module Source
+module Source.IR
   ( Term(..)
   , TmArith(..)
   , TmCmp(..)

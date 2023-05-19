@@ -1,9 +1,9 @@
 
-module TypeCheck
+module Source.TypeCheck
     ( checkProgram
     ) where
 
-import Source
+import Source.IR
 
 import qualified Data.Map as Map
 import Data.Map (Map)

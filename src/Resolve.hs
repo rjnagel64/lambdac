@@ -30,12 +30,6 @@ module Resolve
   , pprintKind
   ) where
 
--- * duplicate syntax of Source IR
--- * define no-op name-resolution pass to Source
--- * rewire driver to pass through Resolve
--- * Start refactoring Resolve IR to take ID for all identifiers, resolve based
---   on usage.
-
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
@@ -45,7 +39,7 @@ import Data.Bifunctor
 import Data.List (intercalate)
 import Data.Traversable (for)
 
-import qualified Source as S
+import qualified Source.IR as S
 
 import Control.Monad.Reader
 

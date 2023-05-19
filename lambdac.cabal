@@ -37,8 +37,8 @@ library
       Lexer
       Parser
       Resolve
-      Source
-      TypeCheck
+      Source.IR
+      Source.TypeCheck
       CPS
       CPS.IR
       CPS.Opt

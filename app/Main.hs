@@ -11,8 +11,7 @@ import System.FilePath
 import qualified Lexer as Lx
 import qualified Parser as P
 import qualified Resolve as R
-import qualified Source as S
-import qualified TypeCheck as T
+import qualified Source.TypeCheck as ST
 import qualified CPS as K
 import qualified CPS.TypeCheck as KT
 import qualified CC as C
@@ -80,7 +79,7 @@ main = do
 
   srcR <- parseFile (driverFile args)
   let srcS = R.resolveProgram srcR
-  case T.checkProgram srcS of
+  case ST.checkProgram srcS of
     Left err -> do
       putStrLn "type error:"
       putStrLn $ show err

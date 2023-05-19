@@ -624,8 +624,7 @@ asTyConApp _ = Nothing
 fromTyConApp :: TyConApp -> Sort
 fromTyConApp (TyConApp tc args) = foldl TyAppH (TyConH tc) args
 
-data TyConApp
-  = TyConApp TyCon [Sort]
+data TyConApp = TyConApp TyCon [Sort]
 
 
 
