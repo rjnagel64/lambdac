@@ -127,10 +127,10 @@ CtorArgs :: { DList Type }
 -- is kind of weird.)
 Term :: { Term }
      : AppTerm { $1 }
-     | '\\' '(' ID ':' Type ')' '->' Term { TmLam (var $3) $5 $8 }
+     | '\\' '(' ID ':' Type ')' '->' Term { TmLam (ident $3) $5 $8 }
      | '\\' '@' ID '->' Term { TmTLam (tvar $3) KiStar $5 }
-     | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
-     | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (var $2) $4 $6 $8 }
+     | 'let' ID ':' Type '=' Term 'in' Term { TmLet (ident $2) $4 $6 $8 }
+     | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (ident $2) $4 $6 $8 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (DL.toList $2) $4 }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
      | 'case' Term 'return' Type 'of' '{' Alts '}' { TmCase $2 $4 (DL.toList $7) }
@@ -176,12 +176,12 @@ ATerm :: { Term }
      | 'false' { TmBool False }
      | 'getLine' { TmGetLine }
 
-Alts :: { DList (ID, [(TmVar, Type)], Term) }
+Alts :: { DList (ID, [(ID, Type)], Term) }
      : {- empty -} { DL.empty }
      | Alt { DL.singleton $1 }
      | Alts ';' Alt { DL.snoc $1 $3 }
 
-Alt :: { (ID, [(TmVar, Type)], Term) }
+Alt :: { (ID, [(ID, Type)], Term) }
     -- Shift-reduce conflict
     -- ID '(' | ... '->' ... should always shift, but for some reason the LR
     -- automaton considered the possibility of reducing a list of zero varbinds
@@ -191,7 +191,7 @@ Alt :: { (ID, [(TmVar, Type)], Term) }
     : ID '->' Term { (ctor $1, [], $3) }
     | ID VarBinds '->' Term { (ctor $1, DL.toList $2, $4) }
 
-VarBinds :: { DList (TmVar, Type) }
+VarBinds :: { DList (ID, Type) }
 	 : VarBind { DL.singleton $1 }
 	 | VarBinds VarBind { DL.snoc $1 $2 }
 
@@ -206,15 +206,15 @@ FieldValsNE :: { DList (FieldLabel, Term) }
 FieldVal :: { (FieldLabel, Term) }
 	 : ID '=' Term { (fieldLabel $1, $3) }
 
-VarBind :: { (TmVar, Type) }
-        : '(' ID ':' Type ')' { (var $2, $4) }
+VarBind :: { (ID, Type) }
+        : '(' ID ':' Type ')' { (ident $2, $4) }
 
-RecBinds :: { DList (TmVar, Type, Term) }
+RecBinds :: { DList (ID, Type, Term) }
          : RecBind { DL.singleton $1 }
          | RecBinds RecBind { DL.snoc $1 $2 }
 
-RecBind :: { (TmVar, Type, Term) }
-        : ID ':' Type '=' Term ';' { (var $1, $3, $5) }
+RecBind :: { (ID, Type, Term) }
+        : ID ':' Type '=' Term ';' { (ident $1, $3, $5) }
 
 Type :: { Type }
      : AppType { $1 }
@@ -271,9 +271,6 @@ parseError ts@(L l token:_) = Left $
 
 ident :: L Token -> ID
 ident (L _ (TokID s)) = ID s
-
-var :: L Token -> TmVar
-var (L _ (TokID s)) = TmVar s
 
 ctor :: L Token -> ID
 ctor = ident

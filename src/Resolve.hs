@@ -6,7 +6,6 @@ module Resolve
   , TmCmp(..)
   , TmStringOp(..)
   , ID(..)
-  , TmVar(..)
   , Type(..)
   , TyVar(..)
   , Kind(..)
@@ -75,11 +74,11 @@ withCtors as ctors cont = do
 assertDistinctIDs :: [ID] -> M ()
 assertDistinctIDs xs = pure ()
 
-withRecBinds :: [(TmVar, Type, Term)] -> ([(S.TmVar, S.Type, S.Term)] -> M a) -> M a
+withRecBinds :: [(ID, Type, Term)] -> ([(S.TmVar, S.Type, S.Term)] -> M a) -> M a
 withRecBinds xs cont = do
-  assertDistinctTmVars [x | (x, _, _) <- xs]
+  assertDistinctIDs [x | (x, _, _) <- xs]
 
-  (binds, ys) <- fmap unzip . for xs $ \ (x@(TmVar ident), t, e) -> do
+  (binds, ys) <- fmap unzip . for xs $ \ (x@(ID ident), t, e) -> do
     let x' = S.TmVar ident
     t' <- resolveType t
     pure ((x, x'), (x', t', e))
@@ -91,14 +90,11 @@ withRecBinds xs cont = do
       pure (x', t', e')
     cont xs'
 
-assertDistinctTmVars :: [TmVar] -> M ()
-assertDistinctTmVars xs = pure () -- TODO: detect duplicates
-
 resolveTerm :: Term -> M S.Term
 resolveTerm (TmNameOcc (ID x)) = do
   tmVarEnv <- asks ctxVars
   ctorEnv <- asks ctxCons
-  case (Map.lookup (TmVar x) tmVarEnv, Map.lookup (ID x) ctorEnv) of
+  case (Map.lookup (ID x) tmVarEnv, Map.lookup (ID x) ctorEnv) of
     -- Hmm. this is an elab-style pass, I should return real errors since they are user-facing.
     (Nothing, Nothing) -> error ("name not in scope: " ++ x)
     (Just x', Nothing) -> pure (S.TmVarOcc x')
@@ -219,14 +215,14 @@ resolveStringOp TmIndexStr = pure S.TmIndexStr
 resolveFieldLabel :: FieldLabel -> M S.FieldLabel
 resolveFieldLabel (FieldLabel l) = pure (S.FieldLabel l)
 
-withTmVar :: TmVar -> Type -> (S.TmVar -> S.Type -> M a) -> M a
-withTmVar x@(TmVar ident) t cont = do
+withTmVar :: ID -> Type -> (S.TmVar -> S.Type -> M a) -> M a
+withTmVar x@(ID ident) t cont = do
   let x' = S.TmVar ident
   t' <- resolveType t
   let extend env = env { ctxVars = Map.insert x x' (ctxVars env) }
   local extend $ cont x' t'
 
-withTmVars :: [(TmVar, Type)] -> ([(S.TmVar, S.Type)] -> M a) -> M a
+withTmVars :: [(ID, Type)] -> ([(S.TmVar, S.Type)] -> M a) -> M a
 withTmVars [] cont = cont []
 withTmVars ((x, t):xs) cont = withTmVar x t $ \x' t' -> withTmVars xs $ \xs' -> cont ((x', t'):xs')
 
@@ -258,7 +254,7 @@ deriving instance MonadReader Context M
 
 data Context
   = Context {
-    ctxVars :: Map TmVar S.TmVar
+    ctxVars :: Map ID S.TmVar
   , ctxCons :: Map ID S.Ctor
   , ctxTyVars :: Map TyVar S.TyVar
   , ctxTyCons :: Map TyCon S.TyCon
@@ -282,13 +278,7 @@ newtype ID = ID String
 instance Show ID where
   show (ID x) = x
 
--- | Term variables stand for values.
 -- TODO: Remove TmVar, TyVar, Ctor, TyCon from Resolve. They should only be in Source
-newtype TmVar = TmVar String
-  deriving (Eq, Ord)
-
-instance Show TmVar where
-  show (TmVar x) = x
 
 -- | Type variables stand for types.
 data TyVar
@@ -324,7 +314,7 @@ data Term
   -- an identifer (variable or ctor or primop, etc.)
   = TmNameOcc ID
   -- \ (x:t) -> e
-  | TmLam TmVar Type Term
+  | TmLam ID Type Term
   -- e1 e2
   | TmApp Term Term
   -- (e1, e2)
@@ -338,9 +328,9 @@ data Term
   -- { l1 = e1, ..., ln = en }
   | TmRecord [(FieldLabel, Term)]
   -- let x:t = e1 in e2
-  | TmLet TmVar Type Term Term
+  | TmLet ID Type Term Term
   -- let rec (x:t = e)+ in e'
-  | TmLetRec [(TmVar, Type, Term)] Term
+  | TmLetRec [(ID, Type, Term)] Term
   -- ()
   | TmNil
   -- 17
@@ -366,11 +356,11 @@ data Term
   -- e1 `stringOp` e2
   | TmStringOp Term TmStringOp Term
   -- case e return s of { (c_i (x:t)+ -> e_i')+ }
-  | TmCase Term Type [(ID, [(TmVar, Type)], Term)]
+  | TmCase Term Type [(ID, [(ID, Type)], Term)]
   -- pure e
   | TmPure Term
   -- let x : t <- e1 in e2
-  | TmBind TmVar Type Term Term
+  | TmBind ID Type Term Term
   -- getLine
   | TmGetLine
   -- putLine e
