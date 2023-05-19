@@ -105,12 +105,6 @@ data CtorDecl = CtorDecl Ctor [Type]
 data Term
   -- x
   = TmVarOcc TmVar
-  -- case e return s of inl (x : t1) -> e1; inr (y : t2) -> e2
-  | TmCaseSum Term Type (TmVar, Type, Term) (TmVar, Type, Term)
-  -- inl @a @b e
-  | TmInl Type Type Term
-  -- inr @a @b e
-  | TmInr Type Type Term
   -- \ (x:t) -> e
   | TmLam TmVar Type Term
   -- e1 e2
@@ -205,7 +199,6 @@ data Type
   | TyVarOcc TyVar
   | TyConOcc TyCon
   | TyAll TyVar Kind Type
-  | TySum Type Type
   | TyProd Type Type
   | TyArr Type Type
   | TyApp Type Type
@@ -217,12 +210,10 @@ instance Eq Type where
 
 data TyConApp
   = CaseBool
-  | CaseSum Type Type
   | TyConApp TyCon [Type]
 
 asTyConApp :: Type -> Maybe TyConApp
 asTyConApp TyBool = Just CaseBool
-asTyConApp (TySum t s) = Just (CaseSum t s)
 asTyConApp (TyConOcc tc) = Just (TyConApp tc [])
 asTyConApp (TyApp t s) = go t [s]
   where
@@ -233,7 +224,6 @@ asTyConApp _ = Nothing
 
 fromTyConApp :: TyConApp -> Type
 fromTyConApp CaseBool = TyBool
-fromTyConApp (CaseSum t s) = TySum t s
 fromTyConApp (TyConApp tc tys) = foldl TyApp (TyConOcc tc) tys
 
 data Kind
@@ -283,8 +273,6 @@ eqType ae (TyRecord fs1) (TyRecord fs2) = go fs1 fs2
     go ((f1, t1):fs1') ((f2, t2):fs2') = f1 == f2 && eqType ae t1 t2 && go fs1' fs2'
     go _ _ = False
 eqType _ (TyRecord _) _ = False
-eqType ae (TySum t1 t2) (TySum t3 t4) = eqType ae t1 t3 && eqType ae t2 t4
-eqType _ (TySum _ _) _ = False
 eqType ae (TyArr arg1 ret1) (TyArr arg2 ret2) =
   eqType ae arg1 arg2 && eqType ae ret1 ret2
 eqType _ (TyArr _ _) _ = False
@@ -338,7 +326,6 @@ substType _ TyString = TyString
 substType _ TyChar = TyChar
 substType sub (TyProd t1 t2) = TyProd (substType sub t1) (substType sub t2)
 substType sub (TyRecord fs) = TyRecord (map (second (substType sub)) fs)
-substType sub (TySum t1 t2) = TySum (substType sub t1) (substType sub t2)
 substType sub (TyArr t1 t2) = TyArr (substType sub t1) (substType sub t2)
 substType sub (TyApp t1 t2) = TyApp (substType sub t1) (substType sub t2)
 substType sub (TyIO t1) = TyIO (substType sub t1)
@@ -348,7 +335,6 @@ substType _ (TyConOcc tc) = TyConOcc tc
 ftv :: Type -> Set TyVar
 ftv (TyVarOcc aa) = Set.singleton aa
 ftv (TyAll bb _ t) = Set.delete bb (ftv t)
-ftv (TySum t1 t2) = ftv t1 <> ftv t2
 ftv (TyProd t1 t2) = ftv t1 <> ftv t2
 ftv (TyRecord fs) = foldMap (ftv . snd) fs
 ftv (TyArr t1 t2) = ftv t1 <> ftv t2
@@ -375,8 +361,6 @@ pprintType _ (TyRecord fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " 
 pprintType p (TyArr t1 t2) = parensIf (p > 4) $ pprintType 5 t1 ++ " -> " ++ pprintType 4 t2
 -- infix 5 *
 pprintType p (TyProd t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " * " ++ pprintType 6 t2
--- infix 5 +
-pprintType p (TySum t1 t2) = parensIf (p > 5) $ pprintType 6 t1 ++ " + " ++ pprintType 6 t2
 -- infixl 10 __
 pprintType p (TyApp t1 t2) = parensIf (p > 10) $ pprintType 10 t1 ++ " " ++ pprintType 11 t2
 pprintType p (TyIO t1) = parensIf (p > 10) $ "IO " ++ pprintType 11 t1

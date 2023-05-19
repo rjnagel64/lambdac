@@ -76,7 +76,6 @@ cpsType S.TyInt = pure IntK
 cpsType S.TyString = pure StringK
 cpsType S.TyChar = pure CharK
 cpsType S.TyBool = pure BoolK
-cpsType (S.TySum a b) = SumK <$> cpsType a <*> cpsType b
 cpsType (S.TyProd a b) = ProdK <$> cpsType a <*> cpsType b
 cpsType (S.TyRecord fields) = RecordK <$> traverse cpsFieldType fields
   where cpsFieldType (S.FieldLabel f, t) = (,) <$> pure (FieldLabel f) <*> cpsType t
@@ -191,22 +190,6 @@ cps (S.TmTLam aa ki e) k =
         pure (def, S.TyAll aa ki retTy)
       (e'', t'') <- applyCont k f ty
       pure (LetFunAbsK [def] e'', t'')
-cps (S.TmInl a b e) k = do
-  cps e $ MetaCont $ \z _t -> do
-    freshTm "x" $ \x -> do
-      let ty = S.TySum a b
-      ty' <- cpsType ty
-      (e', t') <- applyCont k x ty
-      let res = LetValK x ty' (InlK z) e'
-      pure (res, t')
-cps (S.TmInr a b e) k = do
-  cps e $ MetaCont $ \z _t -> do
-    freshTm "x" $ \x -> do
-      let ty = S.TySum a b
-      ty' <- cpsType ty
-      (e', t') <- applyCont k x ty
-      let res = LetValK x ty' (InrK z) e'
-      pure (res, t')
 cps (S.TmFst e) k = 
   cps e $ MetaCont $ \z t -> do
     (ta, _tb) <- case t of
@@ -397,9 +380,6 @@ cps (S.TmRunIO e) k = do
     freshTm "s" $ \s0 -> do
       let res = LetValK s0 TokenK WorldTokenK (CallK m [s0] [ContValK cont])
       pure (res, t')
-cps (S.TmCaseSum e s (xl, tl, el) (xr, tr, er)) k = do
-  let alts = [(S.Ctor "inl", [(xl, tl)], el), (S.Ctor "inr", [(xr, tr)], er)]
-  cpsCase e k s alts
 cps (S.TmIf e s et ef) k = do
   let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
   cpsCase e k s alts
