@@ -5,6 +5,7 @@ module Resolve
   , TmArith(..)
   , TmCmp(..)
   , TmStringOp(..)
+  , ID(..)
   , TmVar(..)
   , TmFun(..)
   , Type(..)
@@ -117,6 +118,15 @@ assertDistinctTmVars :: [TmVar] -> M ()
 assertDistinctTmVars xs = pure () -- TODO: detect duplicates
 
 resolveTerm :: Term -> M S.Term
+resolveTerm (TmNameOcc (ID x)) = do
+  tmVarEnv <- asks ctxVars
+  ctorEnv <- asks ctxCons
+  case (Map.lookup (TmVar x) tmVarEnv, Map.lookup (Ctor x) ctorEnv) of
+    -- Hmm. this is an elab-style pass, I should return real errors since they are user-facing.
+    (Nothing, Nothing) -> error "name not in scope"
+    (Just x', Nothing) -> pure (S.TmVarOcc x')
+    (Nothing, Just x') -> pure (S.TmCtorOcc x')
+    (Just _, Just _) -> error "ambiguous name (could be variable or ctor)"
 resolveTerm (TmVarOcc x) = do
   env <- asks ctxVars
   case Map.lookup x env of
@@ -313,6 +323,10 @@ runM = flip runReader emptyContext . getM
       }
 
 
+-- | A generic identifier, that will be resolved to an appropriate type by this pass.
+newtype ID = ID String
+
+
 -- | Term variables stand for values.
 newtype TmVar = TmVar String
   deriving (Eq, Ord)
@@ -357,8 +371,10 @@ data CtorDecl = CtorDecl Ctor [Type]
 
 
 data Term
+  -- an identifer (variable or ctor or primop, etc.)
+  = TmNameOcc ID
   -- x
-  = TmVarOcc TmVar
+  | TmVarOcc TmVar
   -- case e return s of inl (x : t1) -> e1; inr (y : t2) -> e2
   | TmCaseSum Term Type (TmVar, Type, Term) (TmVar, Type, Term)
   -- inl @a @b e
