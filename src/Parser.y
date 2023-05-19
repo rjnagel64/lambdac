@@ -58,8 +58,6 @@ import Resolve
   'getLine' { L _ TokGetLine }
   'if' { L _ TokIf }
   'in' { L _ TokIn }
-  'inl' { L _ TokInl }
-  'inr' { L _ TokInr }
   'int' { L _ TokInt }
   'let' { L _ TokLet }
   'letrec' { L _ TokLetRec }
@@ -135,8 +133,8 @@ Term :: { Term }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (var $2) $4 $6 $8 }
      | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (var $2) $4 $6 $8 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (DL.toList $2) $4 }
-     | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
-       { TmCaseSum $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
+     -- | 'case' Term 'return' Type 'of' '{' 'inl' '(' ID ':' Type ')' '->' Term ';' 'inr' '(' ID ':' Type ')' '->' Term '}'
+     --   { TmCaseSum $2 $4 (var $9, $11, $14) (var $18, $20, $23) }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
      | 'case' Term 'return' Type 'of' '{' Alts '}' { TmCase $2 $4 (DL.toList $7) }
 
@@ -155,8 +153,8 @@ Term :: { Term }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
 
      -- These are basically AppTerm:s, aren't they?
-     | 'inl' '@' AType '@' AType ATerm { TmInl $3 $5 $6 }
-     | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
+     -- | 'inl' '@' AType '@' AType ATerm { TmInl $3 $5 $6 }
+     -- | 'inr' '@' AType '@' AType ATerm { TmInr $3 $5 $6 }
      | 'fst' ATerm { TmFst $2 }
      | 'snd' ATerm { TmSnd $2 }
      | 'eq_char#' ATerm ATerm { TmCmp $2 TmCmpEqChar $3 }
@@ -175,8 +173,7 @@ ATerm :: { Term }
      | '(' ')' { TmNil }
      | '(' Term ',' Term ')' { TmPair $2 $4 }
      | '{' FieldVals '}' { TmRecord (DL.toList $2) }
-     | ID { TmVarOcc (var $1) }
-     | '%' ID { TmCtorOcc (ctor $2) }
+     | ID { TmNameOcc (ident $1) }
      | INT { TmInt (int $1) }
      | STRING { TmString (string $1) }
      | CHAR { TmChar (char $1) }
@@ -284,17 +281,20 @@ parseError [] = Left EOF
 parseError ts@(L l token:_) = Left $
   ErrorAt l $ "Parse Error:\n  " <> (intercalate "\n  " (show <$> take 5 ts))
 
+ident :: L Token -> ID
+ident (L _ (TokID s)) = ID s
+
 var :: L Token -> TmVar
 var (L _ (TokID s)) = TmVar s
+
+ctor :: L Token -> Ctor
+ctor (L _ (TokID s)) = Ctor s
 
 tvar :: L Token -> TyVar
 tvar (L _ (TokID s)) = TyVar s
 
 tcon :: L Token -> TyCon
 tcon (L _ (TokID s)) = TyCon s
-
-ctor :: L Token -> Ctor
-ctor (L _ (TokID s)) = Ctor s
 
 fieldLabel :: L Token -> FieldLabel
 fieldLabel (L _ (TokID s)) = FieldLabel s

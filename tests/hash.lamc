@@ -27,6 +27,6 @@ let hash2 : %list int -> int =
 in
 
 let l : %list int =
-  %cons @int 7 (%cons @int 12 (%cons @int 94 (%cons @int 0 (%cons @int 24 (%nil @int)))))
+  cons @int 7 (cons @int 12 (cons @int 94 (cons @int 0 (cons @int 24 (nil @int)))))
 in
 (hash1 l, hash2 l)

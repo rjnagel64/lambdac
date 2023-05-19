@@ -1,6 +1,6 @@
 
 data two = { both(int, bool) }
 
-case %both 17 true return bool of {
+case both 17 true return bool of {
   both (x : int) (y : bool) -> if y return bool then x > 14 else false
 }

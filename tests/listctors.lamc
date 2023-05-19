@@ -2,4 +2,4 @@ data list (a : *) = {
   nil();
   cons(a, %list a)
 }
-(%nil @int, %cons @bool true (%nil @bool))
+(nil @int, cons @bool true (nil @bool))

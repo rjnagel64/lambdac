@@ -10,9 +10,9 @@ letrec merge : %list int -> %list int -> %list int =
         nil -> xs;
         cons (y : int) (ys2 : %list int) ->
           if x <= y return %list int then
-            %cons @int x (merge xs2 ys)
+            cons @int x (merge xs2 ys)
           else
-            %cons @int y (merge xs ys2)
+            cons @int y (merge xs ys2)
       }
     };
 in
@@ -20,14 +20,14 @@ letrec splithalf : %list int -> %list int * %list int =
   \ (xs : %list int) ->
   letrec go : %list int -> %list int -> %list int * %list int =
     \ (slow : %list int) -> \ (fast : %list int) -> case fast return %list int * %list int of {
-      nil -> (%nil @int, slow);
+      nil -> (nil @int, slow);
       cons (_ : int) (fast1 : %list int) -> case fast1 return %list int * %list int of {
-        nil -> (%nil @int, slow);
+        nil -> (nil @int, slow);
         cons (_ : int) (fast2 : %list int) -> case slow return %list int * %list int of {
-          nil -> (%nil @int, slow);
+          nil -> (nil @int, slow);
           cons (x : int) (slow1 : %list int) ->
             let p : %list int * %list int = go slow1 fast2 in
-              (%cons @int x (fst p), snd p)
+              (cons @int x (fst p), snd p)
         }
       }
     };
@@ -48,7 +48,7 @@ letrec mergesort : %list int -> %list int =
     };
 in
 let l : %list int =
-  %cons @int 3 (%cons @int 2 (%cons @int 6 (%cons @int 1 (%cons @int 4 (%cons @int 5 (%cons @int 7 (%nil @int)))))))
+  cons @int 3 (cons @int 2 (cons @int 6 (cons @int 1 (cons @int 4 (cons @int 5 (cons @int 7 (nil @int)))))))
 in
 mergesort l
 -- splithalf l

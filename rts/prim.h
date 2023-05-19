@@ -44,19 +44,6 @@ struct closure *allocate_closure(struct alloc_header *env, void (*enter)(void));
 
 #define CAST_CLOSURE(v) ((struct closure *)(v))
 
-struct sum {
-    struct alloc_header header;
-    uint32_t discriminant;
-    struct alloc_header *payload;
-};
-
-struct sum *allocate_sum_inl(struct alloc_header *v);
-struct sum *allocate_sum_inr(struct alloc_header *v);
-
-#define CAST_sum(v) ((struct sum *)(v))
-#define CAST_sum_inl(v) (v)
-#define CAST_sum_inr(v) (v)
-
 struct pair {
     struct alloc_header header;
     struct alloc_header *fst;

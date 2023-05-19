@@ -123,16 +123,10 @@ resolveTerm (TmNameOcc (ID x)) = do
   ctorEnv <- asks ctxCons
   case (Map.lookup (TmVar x) tmVarEnv, Map.lookup (Ctor x) ctorEnv) of
     -- Hmm. this is an elab-style pass, I should return real errors since they are user-facing.
-    (Nothing, Nothing) -> error "name not in scope"
+    (Nothing, Nothing) -> error ("name not in scope: " ++ x)
     (Just x', Nothing) -> pure (S.TmVarOcc x')
     (Nothing, Just x') -> pure (S.TmCtorOcc x')
     (Just _, Just _) -> error "ambiguous name (could be variable or ctor)"
-resolveTerm (TmVarOcc x) = do
-  env <- asks ctxVars
-  case Map.lookup x env of
-    Nothing -> error "var not in scope"
-    Just x' -> pure (S.TmVarOcc x')
-resolveTerm (TmCtorOcc c) = S.TmCtorOcc <$> resolveCtorOcc c
 resolveTerm TmNil = pure S.TmNil
 resolveTerm TmGetLine = pure S.TmGetLine
 resolveTerm (TmInt i) = pure (S.TmInt i)
@@ -142,8 +136,6 @@ resolveTerm (TmChar c) = pure (S.TmChar c)
 resolveTerm (TmPure e) = S.TmPure <$> resolveTerm e
 resolveTerm (TmPutLine e) = S.TmPutLine <$> resolveTerm e
 resolveTerm (TmRunIO e) = S.TmRunIO <$> resolveTerm e
-resolveTerm (TmInl t s e) = S.TmInl <$> resolveType t <*> resolveType s <*> resolveTerm e
-resolveTerm (TmInr t s e) = S.TmInr <$> resolveType t <*> resolveType s <*> resolveTerm e
 resolveTerm (TmFst e) = S.TmFst <$> resolveTerm e
 resolveTerm (TmSnd e) = S.TmSnd <$> resolveTerm e
 resolveTerm (TmFieldProj e l) = S.TmFieldProj <$> resolveTerm e <*> resolveFieldLabel l
@@ -196,22 +188,12 @@ resolveTerm (TmIf ec s et ef) = do
   et' <- resolveTerm et
   ef' <- resolveTerm ef
   pure (S.TmIf ec' s' et' ef')
-resolveTerm (TmCaseSum e s (xl, tl, el) (xr, tr, er)) = do
-  e' <- resolveTerm e
-  s' <- resolveType s
-  altl <- withTmVar xl tl $ \xl' tl' -> do
-    el' <- resolveTerm el
-    pure (xl', tl', el')
-  altr <- withTmVar xr tr $ \xr' tr' -> do
-    er' <- resolveTerm er
-    pure (xr', tr', er')
-  pure (S.TmCaseSum e' s' altl altr)
 
 resolveType :: Type -> M S.Type
 resolveType (TyVarOcc a) = do
   env <- asks ctxTyVars
   case Map.lookup a env of
-    Nothing -> error "tyvar not in scope"
+    Nothing -> error ("tyvar not in scope: " ++ show a)
     Just a' -> pure (S.TyVarOcc a')
 resolveType (TyConOcc tc) = do
   env <- asks ctxTyCons
@@ -373,14 +355,6 @@ data CtorDecl = CtorDecl Ctor [Type]
 data Term
   -- an identifer (variable or ctor or primop, etc.)
   = TmNameOcc ID
-  -- x
-  | TmVarOcc TmVar
-  -- case e return s of inl (x : t1) -> e1; inr (y : t2) -> e2
-  | TmCaseSum Term Type (TmVar, Type, Term) (TmVar, Type, Term)
-  -- inl @a @b e
-  | TmInl Type Type Term
-  -- inr @a @b e
-  | TmInr Type Type Term
   -- \ (x:t) -> e
   | TmLam TmVar Type Term
   -- e1 e2
@@ -423,8 +397,6 @@ data Term
   | TmChar Char
   -- e1 `stringOp` e2
   | TmStringOp Term TmStringOp Term
-  -- c
-  | TmCtorOcc Ctor
   -- case e return s of { (c_i (x:t)+ -> e_i')+ }
   | TmCase Term Type [(Ctor, [(TmVar, Type)], Term)]
   -- pure e

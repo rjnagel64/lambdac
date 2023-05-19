@@ -1,3 +1,3 @@
 
 data foo = { mkfoo(int) }
-case %mkfoo 17 return bool of { mkfoo (x : int) -> x > 16 }
+case mkfoo 17 return bool of { mkfoo (x : int) -> x > 16 }

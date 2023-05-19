@@ -1,1 +1,5 @@
+data sum (a : *) (b : *) = {
+  inl(a);
+  inr(b)
+}
 (inl @int @unit 17, inr @unit @bool true)

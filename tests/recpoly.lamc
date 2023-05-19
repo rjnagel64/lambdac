@@ -13,4 +13,4 @@ let max : int -> int -> int =
   \ (elem : int) -> \ (acc : int) -> if elem > acc return int then elem else acc
 in
 foldr @int @int max 0
-(%cons @int 4 (%cons @int 7 (%cons @int 2 (%cons @int 5 (%nil @int)))))
+(cons @int 4 (cons @int 7 (cons @int 2 (cons @int 5 (nil @int)))))

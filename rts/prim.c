@@ -117,45 +117,6 @@ struct closure *allocate_closure(
     return cl;
 }
 
-void trace_sum(struct alloc_header *alloc) {
-    struct sum *v = CAST_sum(alloc);
-    mark_gray(v->payload);
-}
-
-void display_sum(struct alloc_header *alloc, struct string_buf *sb) {
-    struct sum *v = CAST_sum(alloc);
-    switch (v->discriminant) {
-    case 0:
-        string_buf_push_slice(sb, "inl ", 4);
-        v->payload->info->display(v->payload, sb);
-        break;
-    case 1:
-        string_buf_push_slice(sb, "inr ", 4);
-        v->payload->info->display(v->payload, sb);
-        break;
-    }
-}
-
-const type_info sum_info = { trace_sum, display_sum };
-
-struct sum *allocate_sum_inl(struct alloc_header *x) {
-    struct sum *v = malloc(sizeof(struct sum));
-    v->discriminant = 0;
-    v->payload = x;
-
-    cons_new_alloc(AS_ALLOC(v), &sum_info);
-    return v;
-}
-
-struct sum *allocate_sum_inr(struct alloc_header *y) {
-    struct sum *v = malloc(sizeof(struct sum));
-    v->discriminant = 1;
-    v->payload = y;
-
-    cons_new_alloc(AS_ALLOC(v), &sum_info);
-    return v;
-}
-
 void trace_pair(struct alloc_header *alloc) {
     struct pair *p = CAST_PAIR(alloc);
     mark_gray(p->fst);

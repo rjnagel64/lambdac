@@ -42,8 +42,6 @@ tokens :-
   "getLine" { simpleToken TokGetLine }
   "if" { simpleToken TokIf }
   "in" { simpleToken TokIn }
-  "inl" { simpleToken TokInl }
-  "inr" { simpleToken TokInr }
   "int" { simpleToken TokInt }
   "let" { simpleToken TokLet }
   "letrec" { simpleToken TokLetRec }
@@ -152,8 +150,6 @@ data Token
   | TokGetLine
   | TokIf
   | TokIn
-  | TokInl
-  | TokInr
   | TokInt
   | TokLet
   | TokLetRec
