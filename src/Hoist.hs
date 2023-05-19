@@ -22,7 +22,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Control.Monad.Reader
-import Control.Monad.Writer hiding (Sum)
+import Control.Monad.Writer
 import Control.Monad.State
 
 import Data.Traversable (for)
@@ -58,7 +58,6 @@ sortOf C.Character = CharH
 sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
 sortOf (C.Record fields) = RecordH (map sortOfField fields)
   where sortOfField (f, t) = (hoistFieldLabel f, sortOf t)
-sortOf (C.Sum t s) = SumH (sortOf t) (sortOf s)
 sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
   where
     f (C.ValueTele s) = ValueTele (sortOf s)
@@ -73,7 +72,6 @@ kindOf (C.KArr k1 k2) = KArr (kindOf k1) (kindOf k2)
 
 caseKind :: C.CaseKind -> TyConApp
 caseKind C.CaseBool = CaseBool
-caseKind (C.CaseSum a b) = CaseSum (sortOf a) (sortOf b)
 caseKind (C.TyConApp (C.TyCon tc) args) = TyConApp (TyCon tc) (map sortOf args)
 
 
@@ -283,8 +281,6 @@ hoistValue (C.RecordC fields) =
   where hoistField (f, x) = (,) <$> pure (hoistFieldLabel f) <*> hoistVarOcc x
 hoistValue C.NilC = pure NilH
 hoistValue C.WorldTokenC = pure WorldToken
-hoistValue (C.InlC x) = (CtorAppH . InlH) <$> hoistVarOcc x
-hoistValue (C.InrC x) = (CtorAppH . InrH) <$> hoistVarOcc x
 hoistValue (C.StringC s) = pure (StringValH s)
 hoistValue (C.CharC c) = pure (CharValH c)
 hoistValue (C.CtorAppC (C.Ctor c) args) = (CtorAppH . CtorApp (Ctor c)) <$> traverse hoistVarOcc args

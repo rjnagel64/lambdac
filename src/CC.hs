@@ -10,7 +10,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Control.Monad.Reader
-import Control.Monad.Writer hiding (Sum)
+import Control.Monad.Writer
 import Control.Monad.State
 
 import Data.Foldable (toList)
@@ -312,7 +312,6 @@ makeClosureEnv flds = do
     ftv _ Character = Set.empty
     ftv _ Token = Set.empty
     ftv _ (TyConOcc _) = Set.empty
-    ftv ctx (Sum t1 t2) = ftv ctx t1 <> ftv ctx t2
     ftv ctx (Pair t1 t2) = ftv ctx t1 <> ftv ctx t2
     ftv ctx (Record fields) = foldMap (ftv ctx . snd) fields
     ftv ctx (TyApp t1 t2) = ftv ctx t1 <> ftv ctx t2

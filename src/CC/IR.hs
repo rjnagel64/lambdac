@@ -118,7 +118,6 @@ data Sort
   = Closure [TeleEntry]
   | Integer
   | Alloc TyVar
-  | Sum Sort Sort
   | String
   | Character
   | Pair Sort Sort
@@ -168,7 +167,6 @@ data Argument = ValueArg Name | TypeArg Sort
 
 data CaseKind
   = CaseBool
-  | CaseSum Sort Sort
   | TyConApp TyCon [Sort]
 
 data ArithC
@@ -248,8 +246,6 @@ data ValueC
   | RecordC [(FieldLabel, Name)]
   | NilC
   | WorldTokenC
-  | InlC Name
-  | InrC Name
   | IntC Int
   | BoolC Bool
   | StringC String
@@ -312,7 +308,6 @@ pprintSort (Alloc aa) = "alloc(" ++ show aa ++ ")"
 pprintSort String = "string"
 pprintSort Character = "char"
 pprintSort Boolean = "bool"
-pprintSort (Sum s t) = "sum " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort (Pair s t) = "pair " ++ pprintSort s ++ " " ++ pprintSort t
 pprintSort (Record []) = "{}"
 pprintSort (Record fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
@@ -343,8 +338,6 @@ pprintValue (RecordC fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
   where pprintField (f, x) = show f ++ " = " ++ show x
 pprintValue (IntC i) = show i
 pprintValue (BoolC b) = if b then "true" else "false"
-pprintValue (InlC x) = "inl " ++ show x
-pprintValue (InrC y) = "inr " ++ show y
 pprintValue (StringC s) = show s
 pprintValue (CharC c) = show c
 pprintValue (CtorAppC c xs) = show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
