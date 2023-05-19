@@ -228,7 +228,6 @@ Type :: { Type }
      -- I'm not quite sure I like that. In particular, ((x, y), z) : a * b * c
      -- but I would prefer ((x, y), z): (a * b) * c
      | Type '*' Type { TyProd $1 $3 }
-     | Type '+' Type { TySum $1 $3 }
      | 'forall' ID '.' Type { TyAll (tvar $2) KiStar $4 }
 
 AppType :: { Type }
