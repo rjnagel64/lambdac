@@ -145,23 +145,23 @@ resolveTerm (TmStringOp e1 op e2) =
 resolveTerm (TmApp e1 e2) = liftA2 S.TmApp <$> resolveTerm e1 <*> resolveTerm e2
 resolveTerm (TmTApp e t) = liftA2 S.TmTApp <$> resolveTerm e <*> resolveType t
 resolveTerm (TmLam x t e) = do
-  withTmVar x t $ \x' t' -> do
+  withTmVar x t $ \xt' -> do
     e' <- resolveTerm e
-    pure (S.TmLam <$> x' <*> t' <*> e')
+    pure (uncurry S.TmLam <$> xt' <*> e')
 resolveTerm (TmTLam a k e) = do
-  withTyVar a k $ \a' k' -> do
+  withTyVar a k $ \ak' -> do
     e' <- resolveTerm e
-    pure (S.TmTLam a' <$> k' <*> e')
+    pure (uncurry S.TmTLam <$> ak' <*> e')
 resolveTerm (TmLet x t e1 e2) = do
   e1' <- resolveTerm e1
-  withTmVar x t $ \x' t' -> do
+  withTmVar x t $ \xt' -> do
     e2' <- resolveTerm e2
-    pure (S.TmLet <$> x' <*> t' <*> e1' <*> e2')
+    pure (uncurry S.TmLet <$> xt' <*> e1' <*> e2')
 resolveTerm (TmBind x t e1 e2) = do
   e1' <- resolveTerm e1
-  withTmVar x t $ \x' t' -> do
+  withTmVar x t $ \xt' -> do
     e2' <- resolveTerm e2
-    pure (S.TmBind <$> x' <*> t' <*> e1' <*> e2')
+    pure (uncurry S.TmBind <$> xt' <*> e1' <*> e2')
 resolveTerm (TmLetRec xs e) = do
   withRecBinds xs $ \xs' -> do
     e' <- resolveTerm e
@@ -209,9 +209,9 @@ resolveType (TyRecord fs) = (liftA S.TyRecord . sequenceA) <$> traverse resolveF
     resolveField :: (FieldLabel, Type) -> M (Resolved (S.FieldLabel, S.Type))
     resolveField (l, t) = liftA2 (,) <$> resolveFieldLabel l <*> resolveType t
 resolveType (TyAll a k t) = do
-  withTyVar a k $ \a' k' -> do
+  withTyVar a k $ \ak' -> do
     t' <- resolveType t
-    pure (S.TyAll a' <$> k' <*> t')
+    pure (uncurry S.TyAll <$> ak' <*> t')
 
 resolveKind :: Kind -> M (Resolved S.Kind)
 resolveKind KiStar = pure (Resolved S.KiStar)
@@ -238,52 +238,36 @@ resolveStringOp TmIndexStr = pure (Resolved S.TmIndexStr)
 resolveFieldLabel :: FieldLabel -> M (Resolved S.FieldLabel)
 resolveFieldLabel (FieldLabel l) = pure (Resolved (S.FieldLabel l))
 
-withTmVar' :: ID -> Type -> (Resolved S.TmVar -> Resolved S.Type -> M a) -> M a
-withTmVar' x@(ID ident) t cont = do
-  let x' = S.TmVar ident
-  t' <- resolveType t
-  let extend env = env { ctxVars = Map.insert x x' (ctxVars env) }
-  local extend $ cont (Resolved x') t'
-
-withTmVars' :: [(ID, Type)] -> (Resolved [(S.TmVar, S.Type)] -> M a) -> M a
-withTmVars' [] cont = cont (Resolved [])
-withTmVars' ((x, t):xs) cont =
-  withTmVar x t $ \rx' rt' ->
-    withTmVars' xs $ \rxs' ->
-      cont ((\x' t' xs' -> (x', t') : xs') <$> rx' <*> rt' <*> rxs')
-
 withTmVars :: Traversable t => t (ID, Type) -> (Resolved (t (S.TmVar, S.Type)) -> M a) -> M a
 withTmVars xs cont = do
   initEnv <- ask
-  (xs', newEnv) <- runStateT (sequenceA <$> traverse g xs) initEnv
+  (xs', newEnv) <- runStateT (sequenceA <$> traverse resolveBind xs) initEnv
   local (\_ -> newEnv) $ cont xs'
   where
-    g (x@(ID ident), t) = StateT $ \env -> do
+    resolveBind (x@(ID ident), t) = StateT $ \env -> do
       let x' = S.TmVar ident
       t' <- resolveType t
       let bind = (,) x' <$> t'
-      let env' = env { ctxVars = Map.insert x x' (ctxVars env) }
-      pure (bind, env')
+      pure (bind, env { ctxVars = Map.insert x x' (ctxVars env) })
 
-withTmVar :: ID -> Type -> (Resolved S.TmVar -> Resolved S.Type -> M a) -> M a
+withTmVar :: ID -> Type -> (Resolved (S.TmVar, S.Type) -> M a) -> M a
 withTmVar x t cont =
-  withTmVars (Identity (x, t)) $ \rb -> do
-    -- Hmm. Unpacking the components here is annoying.
-    cont (fmap (fst . runIdentity) rb) (fmap (snd . runIdentity) rb)
+  withTmVars (Identity (x, t)) $ \rb -> cont (fmap runIdentity rb)
 
-withTyVar :: ID -> Kind -> (S.TyVar -> Resolved S.Kind -> M a) -> M a
-withTyVar a@(ID ident) k cont = do
-  let a' = S.TyVar ident
-  k' <- resolveKind k
-  let extend env = env { ctxTyVars = Map.insert a a' (ctxTyVars env) }
-  local extend $ cont a' k'
+withTyVars :: Traversable t => t (ID, Kind) -> (Resolved (t (S.TyVar, S.Kind)) -> M a) -> M a
+withTyVars as cont = do
+  initEnv <- ask
+  (as', newEnv) <- runStateT (sequenceA <$> traverse resolveBind as) initEnv
+  local (\_ -> newEnv) $ cont as'
+  where
+    resolveBind (a@(ID ident), k) = StateT $ \env -> do
+      let a' = S.TyVar ident
+      k' <- resolveKind k
+      let bind = (,) a' <$> k'
+      pure (bind, env { ctxTyVars = Map.insert a a' (ctxTyVars env) })
 
-withTyVars :: [(ID, Kind)] -> (Resolved [(S.TyVar, S.Kind)] -> M a) -> M a
-withTyVars [] cont = cont (Resolved [])
-withTyVars ((a, k):as) cont =
-  withTyVar a k $ \a' rk' ->
-    withTyVars as $ \ras' ->
-      cont ((\k' as' -> (a', k') : as') <$> rk' <*> ras')
+withTyVar :: ID -> Kind -> (Resolved (S.TyVar, S.Kind) -> M a) -> M a
+withTyVar a k cont = withTyVars (Identity (a, k)) $ \rb -> cont (fmap runIdentity rb)
 
 withTyCon :: ID -> Kind -> (S.TyCon -> Resolved S.Kind -> M a) -> M a
 withTyCon tc@(ID ident) k cont = do
