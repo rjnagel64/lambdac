@@ -9,7 +9,6 @@ import Lexer
 import qualified Data.DList as DL
 import Data.DList (DList)
 
--- import Source
 import Resolve
 }
 
@@ -101,23 +100,23 @@ DataDecls :: { DList DataDecl }
 	  | DataDecls DataDecl { DL.snoc $1 $2 }
 
 DataDecl :: { DataDecl }
-	 : 'data' ID '=' '{' CtorDecls '}' { DataDecl (ident' $2) [] (DL.toList $5) }
-	 | 'data' ID TyBinds '=' '{' CtorDecls '}' { DataDecl (ident' $2) (DL.toList $3) (DL.toList $6) }
+	 : 'data' ID '=' '{' CtorDecls '}' { DataDecl (ident $2) [] (DL.toList $5) }
+	 | 'data' ID TyBinds '=' '{' CtorDecls '}' { DataDecl (ident $2) (DL.toList $3) (DL.toList $6) }
 
 TyBinds :: { DList (L ID, Kind) }
 	: TyBind { DL.singleton $1 }
 	| TyBinds TyBind { DL.snoc $1 $2 }
 
 TyBind :: { (L ID, Kind) }
-       : '(' ID ':' Kind ')' { (ident' $2, $4) }
+       : '(' ID ':' Kind ')' { (ident $2, $4) }
 
 CtorDecls :: { DList CtorDecl }
 	  : CtorDecl { DL.singleton $1 }
 	  | CtorDecls ';' CtorDecl { DL.snoc $1 $3 }
 
 CtorDecl :: { CtorDecl }
-	 : ID '(' CtorArgs ')' { CtorDecl (ident' $1) (DL.toList $3) }
-	 | ID '(' ')' { CtorDecl (ident' $1) [] }
+	 : ID '(' CtorArgs ')' { CtorDecl (ident $1) (DL.toList $3) }
+	 | ID '(' ')' { CtorDecl (ident $1) [] }
 
 CtorArgs :: { DList Type }
 	 : Type { DL.singleton $1 }
@@ -130,10 +129,10 @@ CtorArgs :: { DList Type }
 -- is kind of weird.)
 Term :: { Term }
      : AppTerm { $1 }
-     | '\\' '(' ID ':' Type ')' '->' Term { TmLam (ident' $3) $5 $8 }
-     | '\\' '@' ID '->' Term { TmTLam (ident' $3) KiStar $5 }
-     | 'let' ID ':' Type '=' Term 'in' Term { TmLet (ident' $2) $4 $6 $8 }
-     | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (ident' $2) $4 $6 $8 }
+     | '\\' '(' ID ':' Type ')' '->' Term { TmLam (ident $3) $5 $8 }
+     | '\\' '@' ID '->' Term { TmTLam (ident $3) KiStar $5 }
+     | 'let' ID ':' Type '=' Term 'in' Term { TmLet (ident $2) $4 $6 $8 }
+     | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (ident $2) $4 $6 $8 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (DL.toList $2) $4 }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
      | 'case' Term 'return' Type 'of' '{' Alts '}' { TmCase $2 $4 (DL.toList $7) }
@@ -171,7 +170,7 @@ ATerm :: { Term }
      | '(' ')' { TmNil }
      | '(' Term ',' Term ')' { TmPair $2 $4 }
      | '{' FieldVals '}' { TmRecord (DL.toList $2) }
-     | ID { TmNameOcc (ident' $1) }
+     | ID { TmNameOcc (ident $1) }
      | INT { TmInt (int $1) }
      | STRING { TmString (string $1) }
      | CHAR { TmChar (char $1) }
@@ -191,15 +190,15 @@ Alt :: { (L ID, [(L ID, Type)], Term) }
     -- and then trying to parse '(' as the RHS.
     --
     -- Therefore, the rule is manually split to avoid such nonsense.
-    : ID '->' Term { (ident' $1, [], $3) }
-    | ID VarBinds '->' Term { (ident' $1, DL.toList $2, $4) }
+    : ID '->' Term { (ident $1, [], $3) }
+    | ID VarBinds '->' Term { (ident $1, DL.toList $2, $4) }
 
 VarBinds :: { DList (L ID, Type) }
 	 : VarBind { DL.singleton $1 }
 	 | VarBinds VarBind { DL.snoc $1 $2 }
 
 VarBind :: { (L ID, Type) }
-        : '(' ID ':' Type ')' { (ident' $2, $4) }
+        : '(' ID ':' Type ')' { (ident $2, $4) }
 
 FieldVals :: { DList (FieldLabel, Term) }
 	  : {- empty -} { DL.empty }
@@ -217,7 +216,7 @@ RecBinds :: { DList (L ID, Type, Term) }
          | RecBinds RecBind { DL.snoc $1 $2 }
 
 RecBind :: { (L ID, Type, Term) }
-        : ID ':' Type '=' Term ';' { (ident' $1, $3, $5) }
+        : ID ':' Type '=' Term ';' { (ident $1, $3, $5) }
 
 Type :: { Type }
      : AppType { $1 }
@@ -226,7 +225,7 @@ Type :: { Type }
      -- I'm not quite sure I like that. In particular, ((x, y), z) : a * b * c
      -- but I would prefer ((x, y), z): (a * b) * c
      | Type '*' Type { TyProd $1 $3 }
-     | 'forall' ID '.' Type { TyAll (ident' $2) KiStar $4 }
+     | 'forall' ID '.' Type { TyAll (ident $2) KiStar $4 }
 
 AppType :: { Type }
         : AType { $1 }
@@ -240,7 +239,7 @@ AType :: { Type }
       | 'bool' { TyBool }
       | 'string' { TyString }
       | 'char' { TyChar }
-      | ID { TyNameOcc (ident' $1) }
+      | ID { TyNameOcc (ident $1) }
 
 FieldTys :: { DList (FieldLabel, Type) }
 	 : {- empty -} { DL.empty }
@@ -269,11 +268,8 @@ parseError [] = Left EOF
 parseError ts@(L l token:_) = Left $
   ErrorAt l $ "Parse Error:\n  " <> (intercalate "\n  " (show <$> take 5 ts))
 
-ident :: L Token -> ID
-ident (L _ (TokID s)) = ID s
-
-ident' :: L Token -> L ID
-ident' (L l (TokID s)) = L l (ID s)
+ident :: L Token -> L ID
+ident (L l (TokID s)) = L l (ID s)
 
 fieldLabel :: L Token -> FieldLabel
 fieldLabel (L _ (TokID s)) = FieldLabel s
