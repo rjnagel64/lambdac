@@ -142,6 +142,13 @@ lowerTerm :: H.TermH -> M TermH
 lowerTerm (H.HaltH s x) = HaltH <$> lowerSort s <*> lowerName x
 lowerTerm (H.OpenH f xs) =
   OpenH <$> lookupThunkType f <*> lowerName f <*> traverse lowerClosureArg xs
+lowerTerm (H.IfH x k1 k2) = do
+  x' <- lowerName x
+  ty1 <- lookupThunkType k1
+  k1' <- lowerName k1
+  ty2 <- lookupThunkType k2
+  k2' <- lowerName k2
+  pure (IntCaseH x' [(0, ty1, k1'), (1, ty2, k2')])
 lowerTerm (H.CaseH x H.CaseBool ks) = do
   let desc = Map.fromList [(H.Ctor "false", 0), (H.Ctor "true", 1)]
   x' <- lowerName x

@@ -226,6 +226,8 @@ data TermH
   | HaltH Sort Name
   -- 'call f (x, @int, z, $string_info)'
   | OpenH Name [ClosureArg]
+  -- 'if x then k1 else k2'
+  | IfH Name Name Name
   -- 'case x of { c1 -> k1 | c2 -> k2 | ... }'
   | CaseH Name TyConApp [(Ctor, Name)]
   -- 'letrec (f1 : closure(ss) = #f1 { env1 })+ in e'
