@@ -161,6 +161,7 @@ data TermC
   | JumpC Name [Name] -- k x...
   | CallC Name [Argument] [Name] -- f (x | @t)+ k+
   | HaltC Name
+  | IfC Name [(Ctor, Name)] -- if x then k1 else k2
   | CaseC Name CaseKind [(Ctor, Name)] -- case x of c1 -> k1 | c2 -> k2 | ...
 
 data Argument = ValueArg Name | TypeArg Sort

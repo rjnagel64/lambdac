@@ -380,9 +380,6 @@ cps (S.TmRunIO e) k = do
     freshTm "s" $ \s0 -> do
       let res = LetValK s0 TokenK WorldTokenK (CallK m [s0] [ContValK cont])
       pure (res, t')
--- cps (S.TmIf e s et ef) k = do
---   let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
---   cpsCase e k s alts
 cps (S.TmIf e s et ef) k = do
   (coval, _) <- reifyCont k s
   nameJoinPoint coval $ \j addBinds -> do
@@ -391,7 +388,7 @@ cps (S.TmIf e s et ef) k = do
       let contf = ContDef [] ef'
       (et', _s') <- cps et (ObjCont j)
       let contt = ContDef [] et'
-      let res = IfK z (ContValK contf) (ContValK contt)
+      let res = IfK z contf contt
       pure (addBinds res, s)
 cps (S.TmCase e s alts) k =
   cpsCase e k s alts

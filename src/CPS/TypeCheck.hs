@@ -206,8 +206,8 @@ check (InstK f ts ks) = do
   checkCoArgs ks ss'
 check (IfK x k1 k2) = do
   checkTmVar x BoolK
-  checkCoValue k1 (ContK [])
-  checkCoValue k2 (ContK [])
+  checkCoValue (ContValK k1) (ContK [])
+  checkCoValue (ContValK k2) (ContK [])
 check (CaseK x s ks) = checkCase x s ks
 check (LetContK ks e) = do
   defs <- for ks $ \ (k, cont) -> do
