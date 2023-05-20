@@ -27,6 +27,8 @@ import qualified Source.IR as S
 import Control.Monad.Reader
 import Control.Monad.State
 
+import Data.Loc
+
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
@@ -65,15 +67,15 @@ withDataDecl (DataDecl tc as ctors) cont = do
       -- kind of hacky. It would be better for Source and subsequent IRs to be
       -- like GADTs, with the data decl having a kind signature, but the tyvars
       -- being confined to each constructor.
-      as' <- traverse (\ (ID a, k) -> liftA2 (,) <$> pure (Resolved (S.TyVar a)) <*> resolveKind k) as
+      as' <- traverse (\ (L _ (ID a), k) -> liftA2 (,) <$> pure (Resolved (S.TyVar a)) <*> resolveKind k) as
       cont (S.DataDecl tc' <$> sequenceA as' <*> ctors')
 
 -- bring a set of constructors into scope, in parallel.
-withCtors :: [(ID, Kind)] -> [CtorDecl] -> (Resolved [S.CtorDecl] -> M a) -> M a
+withCtors :: [(L ID, Kind)] -> [CtorDecl] -> (Resolved [S.CtorDecl] -> M a) -> M a
 withCtors as ctors cont = do
   uniq <- assertDistinctIDs [c | CtorDecl c _ <- ctors]
 
-  (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl c@(ID ident) args) -> do
+  (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl (L l c@(ID ident)) args) -> do
     let c' = S.Ctor ident
     withTyVars as $ \as' -> do
       args' <- traverse resolveType args
@@ -83,11 +85,11 @@ withCtors as ctors cont = do
   let extend env = env { ctxCons = insertMany binds (ctxCons env) }
   local extend $ cont (uniq *> sequenceA ctors')
 
-withRecBinds :: [(ID, Type, Term)] -> (Resolved [(S.TmVar, S.Type, S.Term)] -> M a) -> M a
+withRecBinds :: [(L ID, Type, Term)] -> (Resolved [(S.TmVar, S.Type, S.Term)] -> M a) -> M a
 withRecBinds xs cont = do
   uniq <- assertDistinctIDs [x | (x, _, _) <- xs]
 
-  (binds, ys) <- fmap unzip . for xs $ \ (x@(ID ident), t, e) -> do
+  (binds, ys) <- fmap unzip . for xs $ \ (L l x@(ID ident), t, e) -> do
     let x' = S.TmVar ident
     t' <- resolveType t
     pure ((x, x'), (x', t', e))
@@ -99,20 +101,20 @@ withRecBinds xs cont = do
       pure ((,,) x' <$> t' <*> e')
     cont (uniq *> sequenceA xs')
 
-assertDistinctIDs :: [ID] -> M (Resolved ())
+assertDistinctIDs :: [L ID] -> M (Resolved ())
 assertDistinctIDs xs =
   case foldr f ([], Set.empty) xs of
     ([], _) -> pure (Resolved ())
     (es, _) -> pure (Error es)
   where
-    f x (es, seen) =
+    f (L l x) (es, seen) =
       if Set.member x seen then
         (DuplicateBinder x : es, seen)
       else
         (es, Set.insert x seen)
 
 resolveTerm :: Term -> M (Resolved S.Term)
-resolveTerm (TmNameOcc x) = do
+resolveTerm (TmNameOcc (L l x)) = do
   tmVarEnv <- asks ctxVars
   ctorEnv <- asks ctxCons
   case (Map.lookup x tmVarEnv, Map.lookup x ctorEnv) of
@@ -169,7 +171,7 @@ resolveTerm (TmLetRec xs e) = do
 resolveTerm (TmCase e s alts) = do
   e' <- resolveTerm e
   s' <- resolveType s
-  alts' <- for alts $ \ (c, xs, rhs) -> do
+  alts' <- for alts $ \ (L l c, xs, rhs) -> do
     envCtors <- asks ctxCons
     c' <- case Map.lookup c envCtors of
       Nothing -> pure (Error [NameNotInScope c])
@@ -186,14 +188,14 @@ resolveTerm (TmIf ec s et ef) = do
   pure (S.TmIf <$> ec' <*> s' <*> et' <*> ef')
 
 resolveType :: Type -> M (Resolved S.Type)
-resolveType (TyNameOcc (ID x)) = do
+resolveType (TyNameOcc (L l x)) = do
   tyVars <- asks ctxTyVars
   tyCons <- asks ctxTyCons
-  case (Map.lookup (ID x) tyVars, Map.lookup (ID x) tyCons) of
-    (Nothing, Nothing) -> pure (Error [NameNotInScope (ID x)])
+  case (Map.lookup x tyVars, Map.lookup x tyCons) of
+    (Nothing, Nothing) -> pure (Error [NameNotInScope x])
     (Just x', Nothing) -> pure (Resolved (S.TyVarOcc x'))
     (Nothing, Just x') -> pure (Resolved (S.TyConOcc x'))
-    (Just _, Just _) -> pure (Error [AmbiguousName (ID x)])
+    (Just _, Just _) -> pure (Error [AmbiguousName x])
 resolveType TyUnit = pure (Resolved S.TyUnit)
 resolveType TyInt = pure (Resolved S.TyInt)
 resolveType TyBool = pure (Resolved S.TyBool)
@@ -238,39 +240,39 @@ resolveStringOp TmIndexStr = pure (Resolved S.TmIndexStr)
 resolveFieldLabel :: FieldLabel -> M (Resolved S.FieldLabel)
 resolveFieldLabel (FieldLabel l) = pure (Resolved (S.FieldLabel l))
 
-withTmVars :: Traversable t => t (ID, Type) -> (Resolved (t (S.TmVar, S.Type)) -> M a) -> M a
+withTmVars :: Traversable t => t (L ID, Type) -> (Resolved (t (S.TmVar, S.Type)) -> M a) -> M a
 withTmVars xs cont = do
   initEnv <- ask
   (xs', newEnv) <- runStateT (sequenceA <$> traverse resolveBind xs) initEnv
   local (\_ -> newEnv) $ cont xs'
   where
-    resolveBind (x@(ID ident), t) = StateT $ \env -> do
+    resolveBind (L l x@(ID ident), t) = StateT $ \env -> do
       let x' = S.TmVar ident
       t' <- resolveType t
       let bind = (,) x' <$> t'
       pure (bind, env { ctxVars = Map.insert x x' (ctxVars env) })
 
-withTmVar :: ID -> Type -> (Resolved (S.TmVar, S.Type) -> M a) -> M a
+withTmVar :: L ID -> Type -> (Resolved (S.TmVar, S.Type) -> M a) -> M a
 withTmVar x t cont =
   withTmVars (Identity (x, t)) $ \rb -> cont (fmap runIdentity rb)
 
-withTyVars :: Traversable t => t (ID, Kind) -> (Resolved (t (S.TyVar, S.Kind)) -> M a) -> M a
+withTyVars :: Traversable t => t (L ID, Kind) -> (Resolved (t (S.TyVar, S.Kind)) -> M a) -> M a
 withTyVars as cont = do
   initEnv <- ask
   (as', newEnv) <- runStateT (sequenceA <$> traverse resolveBind as) initEnv
   local (\_ -> newEnv) $ cont as'
   where
-    resolveBind (a@(ID ident), k) = StateT $ \env -> do
+    resolveBind (L l a@(ID ident), k) = StateT $ \env -> do
       let a' = S.TyVar ident
       k' <- resolveKind k
       let bind = (,) a' <$> k'
       pure (bind, env { ctxTyVars = Map.insert a a' (ctxTyVars env) })
 
-withTyVar :: ID -> Kind -> (Resolved (S.TyVar, S.Kind) -> M a) -> M a
+withTyVar :: L ID -> Kind -> (Resolved (S.TyVar, S.Kind) -> M a) -> M a
 withTyVar a k cont = withTyVars (Identity (a, k)) $ \rb -> cont (fmap runIdentity rb)
 
-withTyCon :: ID -> Kind -> (S.TyCon -> Resolved S.Kind -> M a) -> M a
-withTyCon tc@(ID ident) k cont = do
+withTyCon :: L ID -> Kind -> (S.TyCon -> Resolved S.Kind -> M a) -> M a
+withTyCon (L l tc@(ID ident)) k cont = do
   let tc' = S.TyCon ident
   k' <- resolveKind k
   let extend env = env { ctxTyCons = Map.insert tc tc' (ctxTyCons env) }
@@ -309,6 +311,10 @@ data Resolved a
   = Resolved a
   | Error [ResolveError]
 
+-- TODO: Location info on resolve errors
+-- * not in scope: report location of occurrence
+-- * ambiguous: report occurrence and list of binding sites
+-- * duplicate names: report current location and location from 'seen'.
 data ResolveError
   = NameNotInScope ID -- list of what categories were searched?
   | AmbiguousName ID -- list of what categories it could be?
@@ -345,16 +351,16 @@ instance Show FieldLabel where
 
 data Program = Program [DataDecl] Term
 
-data DataDecl = DataDecl ID [(ID, Kind)] [CtorDecl]
+data DataDecl = DataDecl (L ID) [(L ID, Kind)] [CtorDecl]
 
-data CtorDecl = CtorDecl ID [Type]
+data CtorDecl = CtorDecl (L ID) [Type]
 
 
 data Term
   -- an identifer (variable or ctor or primop, etc.)
-  = TmNameOcc ID
+  = TmNameOcc (L ID)
   -- \ (x:t) -> e
-  | TmLam ID Type Term
+  | TmLam (L ID) Type Term
   -- e1 e2
   | TmApp Term Term
   -- (e1, e2)
@@ -368,9 +374,9 @@ data Term
   -- { l1 = e1, ..., ln = en }
   | TmRecord [(FieldLabel, Term)]
   -- let x:t = e1 in e2
-  | TmLet ID Type Term Term
+  | TmLet (L ID) Type Term Term
   -- let rec (x:t = e)+ in e'
-  | TmLetRec [(ID, Type, Term)] Term
+  | TmLetRec [(L ID, Type, Term)] Term
   -- ()
   | TmNil
   -- 17
@@ -386,7 +392,7 @@ data Term
   -- e1 `cmp` e2
   | TmCmp Term TmCmp Term
   -- \ @(a : k) -> e
-  | TmTLam ID Kind Term
+  | TmTLam (L ID) Kind Term
   -- e @s
   | TmTApp Term Type
   -- "foo"
@@ -396,11 +402,11 @@ data Term
   -- e1 `stringOp` e2
   | TmStringOp Term TmStringOp Term
   -- case e return s of { (c_i (x:t)+ -> e_i')+ }
-  | TmCase Term Type [(ID, [(ID, Type)], Term)]
+  | TmCase Term Type [(L ID, [(L ID, Type)], Term)]
   -- pure e
   | TmPure Term
   -- let x : t <- e1 in e2
-  | TmBind ID Type Term Term
+  | TmBind (L ID) Type Term Term
   -- getLine
   | TmGetLine
   -- putLine e
@@ -437,8 +443,8 @@ data Type
   | TyApp Type Type
   | TyRecord [(FieldLabel, Type)]
   | TyIO Type
-  | TyNameOcc ID
-  | TyAll ID Kind Type
+  | TyNameOcc (L ID)
+  | TyAll (L ID) Kind Type
 
 data Kind
   = KiStar
