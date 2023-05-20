@@ -274,6 +274,10 @@ checkTerm (OpenH f args) = do
     s -> throwError (BadOpen f s)
   -- Check that args match closure telescope
   checkCallArgs tele args
+checkTerm (IfH x k1 k2) = do
+  checkName x BooleanH
+  checkName k1 (ClosureH (ClosureTele []))
+  checkName k2 (ClosureH (ClosureTele []))
 checkTerm (CaseH x kind ks) = checkCase x kind ks
 checkTerm (AllocClosure cs e) = do
   let binds = map closurePlace cs
