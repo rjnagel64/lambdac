@@ -25,9 +25,13 @@ import Data.Traversable (for)
 import qualified Source.IR as S
 
 import Control.Monad.Reader
+import Control.Monad.State
+
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
 
+import Data.Functor.Identity
 import Control.Applicative (liftA, liftA2, liftA3) -- wat. why is liftA2 not in Prelude?
 
 
@@ -67,7 +71,7 @@ withDataDecl (DataDecl tc as ctors) cont = do
 -- bring a set of constructors into scope, in parallel.
 withCtors :: [(ID, Kind)] -> [CtorDecl] -> (Resolved [S.CtorDecl] -> M a) -> M a
 withCtors as ctors cont = do
-  assertDistinctIDs [c | CtorDecl c _ <- ctors]
+  uniq <- assertDistinctIDs [c | CtorDecl c _ <- ctors]
 
   (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl c@(ID ident) args) -> do
     let c' = S.Ctor ident
@@ -77,14 +81,11 @@ withCtors as ctors cont = do
       pure ((c, c'), S.CtorDecl <$> Resolved c' <*> sequenceA args')
 
   let extend env = env { ctxCons = insertMany binds (ctxCons env) }
-  local extend $ cont (sequenceA ctors')
-
-assertDistinctIDs :: [ID] -> M ()
-assertDistinctIDs xs = pure ()
+  local extend $ cont (uniq *> sequenceA ctors')
 
 withRecBinds :: [(ID, Type, Term)] -> (Resolved [(S.TmVar, S.Type, S.Term)] -> M a) -> M a
 withRecBinds xs cont = do
-  assertDistinctIDs [x | (x, _, _) <- xs]
+  uniq <- assertDistinctIDs [x | (x, _, _) <- xs]
 
   (binds, ys) <- fmap unzip . for xs $ \ (x@(ID ident), t, e) -> do
     let x' = S.TmVar ident
@@ -96,7 +97,19 @@ withRecBinds xs cont = do
     xs' <- for ys $ \ (x', t', e) -> do
       e' <- resolveTerm e
       pure ((,,) x' <$> t' <*> e')
-    cont (sequenceA xs')
+    cont (uniq *> sequenceA xs')
+
+assertDistinctIDs :: [ID] -> M (Resolved ())
+assertDistinctIDs xs =
+  case foldr f ([], Set.empty) xs of
+    ([], _) -> pure (Resolved ())
+    (es, _) -> pure (Error es)
+  where
+    f x (es, seen) =
+      if Set.member x seen then
+        (DuplicateBinder x : es, seen)
+      else
+        (es, Set.insert x seen)
 
 resolveTerm :: Term -> M (Resolved S.Term)
 resolveTerm (TmNameOcc x) = do
@@ -134,7 +147,7 @@ resolveTerm (TmTApp e t) = liftA2 S.TmTApp <$> resolveTerm e <*> resolveType t
 resolveTerm (TmLam x t e) = do
   withTmVar x t $ \x' t' -> do
     e' <- resolveTerm e
-    pure (S.TmLam x' <$> t' <*> e')
+    pure (S.TmLam <$> x' <*> t' <*> e')
 resolveTerm (TmTLam a k e) = do
   withTyVar a k $ \a' k' -> do
     e' <- resolveTerm e
@@ -143,12 +156,12 @@ resolveTerm (TmLet x t e1 e2) = do
   e1' <- resolveTerm e1
   withTmVar x t $ \x' t' -> do
     e2' <- resolveTerm e2
-    pure (S.TmLet x' <$> t' <*> e1' <*> e2')
+    pure (S.TmLet <$> x' <*> t' <*> e1' <*> e2')
 resolveTerm (TmBind x t e1 e2) = do
   e1' <- resolveTerm e1
   withTmVar x t $ \x' t' -> do
     e2' <- resolveTerm e2
-    pure (S.TmBind x' <$> t' <*> e1' <*> e2')
+    pure (S.TmBind <$> x' <*> t' <*> e1' <*> e2')
 resolveTerm (TmLetRec xs e) = do
   withRecBinds xs $ \xs' -> do
     e' <- resolveTerm e
@@ -225,19 +238,38 @@ resolveStringOp TmIndexStr = pure (Resolved S.TmIndexStr)
 resolveFieldLabel :: FieldLabel -> M (Resolved S.FieldLabel)
 resolveFieldLabel (FieldLabel l) = pure (Resolved (S.FieldLabel l))
 
-withTmVar :: ID -> Type -> (S.TmVar -> Resolved S.Type -> M a) -> M a
-withTmVar x@(ID ident) t cont = do
+withTmVar' :: ID -> Type -> (Resolved S.TmVar -> Resolved S.Type -> M a) -> M a
+withTmVar' x@(ID ident) t cont = do
   let x' = S.TmVar ident
   t' <- resolveType t
   let extend env = env { ctxVars = Map.insert x x' (ctxVars env) }
-  local extend $ cont x' t'
+  local extend $ cont (Resolved x') t'
 
-withTmVars :: [(ID, Type)] -> (Resolved [(S.TmVar, S.Type)] -> M a) -> M a
-withTmVars [] cont = cont (Resolved [])
-withTmVars ((x, t):xs) cont =
-  withTmVar x t $ \x' rt' ->
-    withTmVars xs $ \rxs' ->
-      cont ((\t' xs' -> (x', t') : xs') <$> rt' <*> rxs')
+withTmVars' :: [(ID, Type)] -> (Resolved [(S.TmVar, S.Type)] -> M a) -> M a
+withTmVars' [] cont = cont (Resolved [])
+withTmVars' ((x, t):xs) cont =
+  withTmVar x t $ \rx' rt' ->
+    withTmVars' xs $ \rxs' ->
+      cont ((\x' t' xs' -> (x', t') : xs') <$> rx' <*> rt' <*> rxs')
+
+withTmVars :: Traversable t => t (ID, Type) -> (Resolved (t (S.TmVar, S.Type)) -> M a) -> M a
+withTmVars xs cont = do
+  initEnv <- ask
+  (xs', newEnv) <- runStateT (sequenceA <$> traverse g xs) initEnv
+  local (\_ -> newEnv) $ cont xs'
+  where
+    g (x@(ID ident), t) = StateT $ \env -> do
+      let x' = S.TmVar ident
+      t' <- resolveType t
+      let bind = (,) x' <$> t'
+      let env' = env { ctxVars = Map.insert x x' (ctxVars env) }
+      pure (bind, env')
+
+withTmVar :: ID -> Type -> (Resolved S.TmVar -> Resolved S.Type -> M a) -> M a
+withTmVar x t cont =
+  withTmVars (Identity (x, t)) $ \rb -> do
+    -- Hmm. Unpacking the components here is annoying.
+    cont (fmap (fst . runIdentity) rb) (fmap (snd . runIdentity) rb)
 
 withTyVar :: ID -> Kind -> (S.TyVar -> Resolved S.Kind -> M a) -> M a
 withTyVar a@(ID ident) k cont = do
@@ -296,6 +328,7 @@ data Resolved a
 data ResolveError
   = NameNotInScope ID -- list of what categories were searched?
   | AmbiguousName ID -- list of what categories it could be?
+  | DuplicateBinder ID -- same name used for multiple binds in same group
 
 instance Functor Resolved where
   fmap f (Resolved a) = Resolved (f a)
@@ -433,6 +466,7 @@ data Kind
 pprintError :: ResolveError -> String
 pprintError (NameNotInScope x) = "name not in scope: " ++ show x
 pprintError (AmbiguousName x) = "ambiguous name: " ++ show x
+pprintError (DuplicateBinder x) = "multiple binders with same name: " ++ show x
 
 -- something something showsPrec
 pprintType :: Int -> Type -> String
