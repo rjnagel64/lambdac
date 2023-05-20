@@ -27,8 +27,7 @@ import Control.Monad.Reader
 import qualified Data.Map as Map
 import Data.Map (Map)
 
--- import Prelude hiding (liftA2)
-import Control.Applicative (liftA2, liftA) -- wat. why is this not already in scope.
+import Control.Applicative (liftA, liftA2, liftA3) -- wat. why is liftA2 not in Prelude?
 
 
 -- | Utility function for inserting many items at once.
@@ -40,7 +39,7 @@ resolveProgram :: Program -> S.Program
 resolveProgram (Program ds e) = runM $ do
   withDataDecls ds $ \ds' -> do
     e' <- resolveTerm e
-    pure (S.Program ds' e')
+    pure (S.Program ds' (fromResolved e'))
 
 withDataDecls :: [DataDecl] -> ([S.DataDecl] -> M a) -> M a
 withDataDecls [] cont = cont []
@@ -75,96 +74,95 @@ withCtors as ctors cont = do
 assertDistinctIDs :: [ID] -> M ()
 assertDistinctIDs xs = pure ()
 
-withRecBinds :: [(ID, Type, Term)] -> ([(S.TmVar, S.Type, S.Term)] -> M a) -> M a
+withRecBinds :: [(ID, Type, Term)] -> (Resolved [(S.TmVar, S.Type, S.Term)] -> M a) -> M a
 withRecBinds xs cont = do
   assertDistinctIDs [x | (x, _, _) <- xs]
 
   (binds, ys) <- fmap unzip . for xs $ \ (x@(ID ident), t, e) -> do
     let x' = S.TmVar ident
-    t' <- fromResolved <$> resolveType t
+    t' <- resolveType t
     pure ((x, x'), (x', t', e))
 
   let extend env = env { ctxVars = insertMany binds (ctxVars env) }
   local extend $ do
     xs' <- for ys $ \ (x', t', e) -> do
       e' <- resolveTerm e
-      pure (x', t', e')
-    cont xs'
+      pure ((,,) x' <$> t' <*> e')
+    cont (sequenceA xs')
 
-resolveTerm :: Term -> M S.Term
-resolveTerm (TmNameOcc (ID x)) = do
+resolveTerm :: Term -> M (Resolved S.Term)
+resolveTerm (TmNameOcc x) = do
   tmVarEnv <- asks ctxVars
   ctorEnv <- asks ctxCons
-  case (Map.lookup (ID x) tmVarEnv, Map.lookup (ID x) ctorEnv) of
-    -- Hmm. this is an elab-style pass, I should return real errors since they are user-facing.
-    (Nothing, Nothing) -> error ("name not in scope: " ++ x)
-    (Just x', Nothing) -> pure (S.TmVarOcc x')
-    (Nothing, Just x') -> pure (S.TmCtorOcc x')
-    (Just _, Just _) -> error "ambiguous name (could be variable or ctor)"
-resolveTerm TmNil = pure S.TmNil
-resolveTerm TmGetLine = pure S.TmGetLine
-resolveTerm (TmInt i) = pure (S.TmInt i)
-resolveTerm (TmBool b) = pure (S.TmBool b)
-resolveTerm (TmString s) = pure (S.TmString s)
-resolveTerm (TmChar c) = pure (S.TmChar c)
-resolveTerm (TmPure e) = S.TmPure <$> resolveTerm e
-resolveTerm (TmPutLine e) = S.TmPutLine <$> resolveTerm e
-resolveTerm (TmRunIO e) = S.TmRunIO <$> resolveTerm e
-resolveTerm (TmFst e) = S.TmFst <$> resolveTerm e
-resolveTerm (TmSnd e) = S.TmSnd <$> resolveTerm e
-resolveTerm (TmFieldProj e l) = S.TmFieldProj <$> resolveTerm e <*> (fromResolved <$> resolveFieldLabel l)
-resolveTerm (TmPair e1 e2) = S.TmPair <$> resolveTerm e1 <*> resolveTerm e2
-resolveTerm (TmRecord fs) = S.TmRecord <$> traverse resolveField fs
-  where resolveField (l, e) = (,) <$> (fromResolved <$> resolveFieldLabel l) <*> resolveTerm e
+  case (Map.lookup x tmVarEnv, Map.lookup x ctorEnv) of
+    (Nothing, Nothing) -> pure (Error [NameNotInScope x])
+    (Just x', Nothing) -> pure (Resolved (S.TmVarOcc x'))
+    (Nothing, Just x') -> pure (Resolved (S.TmCtorOcc x'))
+    (Just _, Just _) -> pure (Error [AmbiguousName x])
+resolveTerm TmNil = pure (Resolved S.TmNil)
+resolveTerm TmGetLine = pure (Resolved S.TmGetLine)
+resolveTerm (TmInt i) = pure (Resolved (S.TmInt i))
+resolveTerm (TmBool b) = pure (Resolved (S.TmBool b))
+resolveTerm (TmString s) = pure (Resolved (S.TmString s))
+resolveTerm (TmChar c) = pure (Resolved (S.TmChar c))
+resolveTerm (TmPure e) = liftA S.TmPure <$> resolveTerm e
+resolveTerm (TmPutLine e) = liftA S.TmPutLine <$> resolveTerm e
+resolveTerm (TmRunIO e) = liftA S.TmRunIO <$> resolveTerm e
+resolveTerm (TmFst e) = liftA S.TmFst <$> resolveTerm e
+resolveTerm (TmSnd e) = liftA S.TmSnd <$> resolveTerm e
+resolveTerm (TmFieldProj e l) = liftA2 S.TmFieldProj <$> resolveTerm e <*> resolveFieldLabel l
+resolveTerm (TmPair e1 e2) = liftA2 S.TmPair <$> resolveTerm e1 <*> resolveTerm e2
+resolveTerm (TmRecord fs) = (liftA S.TmRecord . sequenceA) <$> traverse resolveField fs
+  where resolveField (l, e) = liftA2 (,) <$> resolveFieldLabel l <*> resolveTerm e
 resolveTerm (TmArith e1 op e2) =
-  S.TmArith <$> resolveTerm e1 <*> (fromResolved <$> resolveArith op) <*> resolveTerm e2
-resolveTerm (TmNegate e) = S.TmNegate <$> resolveTerm e
+  liftA3 S.TmArith <$> resolveTerm e1 <*> resolveArith op <*> resolveTerm e2
+resolveTerm (TmNegate e) = liftA S.TmNegate <$> resolveTerm e
 resolveTerm (TmCmp e1 op e2) =
-  S.TmCmp <$> resolveTerm e1 <*> (fromResolved <$> resolveCmp op) <*> resolveTerm e2
+  liftA3 S.TmCmp <$> resolveTerm e1 <*> resolveCmp op <*> resolveTerm e2
 resolveTerm (TmStringOp e1 op e2) =
-  S.TmStringOp <$> resolveTerm e1 <*> (fromResolved <$> resolveStringOp op) <*> resolveTerm e2
-resolveTerm (TmApp e1 e2) = S.TmApp <$> resolveTerm e1 <*> resolveTerm e2
-resolveTerm (TmTApp e t) = S.TmTApp <$> resolveTerm e <*> (fromResolved <$> resolveType t)
+  liftA3 S.TmStringOp <$> resolveTerm e1 <*> resolveStringOp op <*> resolveTerm e2
+resolveTerm (TmApp e1 e2) = liftA2 S.TmApp <$> resolveTerm e1 <*> resolveTerm e2
+resolveTerm (TmTApp e t) = liftA2 S.TmTApp <$> resolveTerm e <*> resolveType t
 resolveTerm (TmLam x t e) = do
   withTmVar x t $ \x' t' -> do
     e' <- resolveTerm e
-    pure (S.TmLam x' (fromResolved t') e')
+    pure (S.TmLam x' <$> t' <*> e')
 resolveTerm (TmTLam a k e) = do
   withTyVar a k $ \a' k' -> do
     e' <- resolveTerm e
-    pure (S.TmTLam a' (fromResolved k') e')
+    pure (S.TmTLam a' <$> k' <*> e')
 resolveTerm (TmLet x t e1 e2) = do
   e1' <- resolveTerm e1
   withTmVar x t $ \x' t' -> do
     e2' <- resolveTerm e2
-    pure (S.TmLet x' (fromResolved t') e1' e2')
+    pure (S.TmLet x' <$> t' <*> e1' <*> e2')
 resolveTerm (TmBind x t e1 e2) = do
   e1' <- resolveTerm e1
   withTmVar x t $ \x' t' -> do
     e2' <- resolveTerm e2
-    pure (S.TmBind x' (fromResolved t') e1' e2')
+    pure (S.TmBind x' <$> t' <*> e1' <*> e2')
 resolveTerm (TmLetRec xs e) = do
   withRecBinds xs $ \xs' -> do
     e' <- resolveTerm e
-    pure (S.TmLetRec xs' e')
+    pure (S.TmLetRec <$> xs' <*> e')
 resolveTerm (TmCase e s alts) = do
   e' <- resolveTerm e
-  s' <- fromResolved <$> resolveType s
-  alts' <- for alts $ \ (ID c, xs, rhs) -> do
+  s' <- resolveType s
+  alts' <- for alts $ \ (c, xs, rhs) -> do
     envCtors <- asks ctxCons
-    c' <- case Map.lookup (ID c) envCtors of
-      Nothing -> error ("ctor not in scope: " ++ c)
-      Just c' -> pure c'
+    c' <- case Map.lookup c envCtors of
+      Nothing -> pure (Error [NameNotInScope c])
+      Just c' -> pure (Resolved c')
     withTmVars xs $ \xs' -> do
       rhs' <- resolveTerm rhs
-      pure (c', (fromResolved xs'), rhs')
-  pure (S.TmCase e' s' alts')
+      pure ((,,) <$> c' <*> xs' <*> rhs')
+  pure (S.TmCase <$> e' <*> s' <*> sequenceA alts')
 resolveTerm (TmIf ec s et ef) = do
   ec' <- resolveTerm ec
-  s' <- fromResolved <$> resolveType s
+  s' <- resolveType s
   et' <- resolveTerm et
   ef' <- resolveTerm ef
-  pure (S.TmIf ec' s' et' ef')
+  pure (S.TmIf <$> ec' <*> s' <*> et' <*> ef')
 
 resolveType :: Type -> M (Resolved S.Type)
 resolveType (TyNameOcc (ID x)) = do
