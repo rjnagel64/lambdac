@@ -501,6 +501,8 @@ pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x ++ ";\n"
 pprintTerm n (OpenH c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
+pprintTerm n (IfH x k1 k2) =
+  indent n $ "if " ++ show x ++ " then " ++ show k1 ++ " else " ++ show k2
 pprintTerm n (CaseH x _kind ks) =
   let branches = intercalate " | " (map (\ (c, k) -> show c ++ " -> " ++ show k) ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"

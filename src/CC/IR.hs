@@ -288,6 +288,8 @@ pprintTerm n (LetSndC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFieldC x y f e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ show y ++ "#" ++ show f ++ ";\n") ++ pprintTerm n e
+pprintTerm n (IfC x k1 k2) =
+  indent n $ "if " ++ show x ++ " then " ++ show k1 ++ " else " ++ show k2
 pprintTerm n (CaseC x _ ks) =
   let branches = intercalate " | " (map show ks) in
   indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"

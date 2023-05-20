@@ -454,6 +454,8 @@ pprintTerm n (CallK f xs ks) =
   indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map pprintCoValue ks) ++ ";\n"
 pprintTerm n (InstK f ts ks) =
   indent n $ intercalate " @" (show f : map pprintType ts) ++ " " ++ intercalate " " (map pprintCoValue ks) ++ ";\n"
+pprintTerm n (IfK x k1 k2) =
+  indent n $ "if " ++ show x ++ " then " ++ pprintContDef k1 ++ " else " ++ pprintContDef k2
 pprintTerm n (CaseK x tcapp ks) =
   let branches = intercalate " | " (map pprintBranch ks) in
   let t = fromTyConApp tcapp in
