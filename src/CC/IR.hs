@@ -18,7 +18,7 @@ module CC.IR
   , StringOpC(..)
   , PrimIO(..)
   , Argument(..)
-  , CaseKind(..)
+  , TyConApp(..)
   , FunClosureDef(..)
   , funClosureSort
   , ClosureParam(..)
@@ -162,13 +162,11 @@ data TermC
   | CallC Name [Argument] [Name] -- f (x | @t)+ k+
   | HaltC Name
   | IfC Name [(Ctor, Name)] -- if x then k1 else k2
-  | CaseC Name CaseKind [(Ctor, Name)] -- case x of c1 -> k1 | c2 -> k2 | ...
+  | CaseC Name TyConApp [(Ctor, Name)] -- case x of c1 -> k1 | c2 -> k2 | ...
 
 data Argument = ValueArg Name | TypeArg Sort
 
-data CaseKind
-  = CaseBool
-  | TyConApp TyCon [Sort]
+data TyConApp = TyConApp TyCon [Sort]
 
 data ArithC
   = AddC Name Name

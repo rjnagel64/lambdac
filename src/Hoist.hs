@@ -70,8 +70,7 @@ kindOf :: C.Kind -> Kind
 kindOf C.Star = Star
 kindOf (C.KArr k1 k2) = KArr (kindOf k1) (kindOf k2)
 
-caseKind :: C.CaseKind -> TyConApp
-caseKind C.CaseBool = CaseBool
+caseKind :: C.TyConApp -> TyConApp
 caseKind (C.TyConApp (C.TyCon tc) args) = TyConApp (TyCon tc) (map sortOf args)
 
 
