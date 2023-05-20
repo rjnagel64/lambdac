@@ -391,7 +391,7 @@ cps (S.TmIf e s et ef) k = do
       let contf = ContDef [] ef'
       (et', _s') <- cps et (ObjCont j)
       let contt = ContDef [] et'
-      let res = IfK z CaseBool (Ctor "false", ContValK contf) (Ctor "true", ContValK contt)
+      let res = IfK z (ContValK contf) (ContValK contt)
       pure (addBinds res, s)
 cps (S.TmCase e s alts) k =
   cpsCase e k s alts

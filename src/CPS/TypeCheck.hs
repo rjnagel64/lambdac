@@ -204,7 +204,10 @@ check (InstK f ts ks) = do
     t -> throwError (CannotInst f t)
   ss' <- instantiate aas ts ss
   checkCoArgs ks ss'
-check (IfK x s (c1, k1) (c2, k2)) = checkCase x s [(c1, k1), (c2, k2)]
+check (IfK x k1 k2) = do
+  checkTmVar x BoolK
+  checkCoValue k1 (ContK [])
+  checkCoValue k2 (ContK [])
 check (CaseK x s ks) = checkCase x s ks
 check (LetContK ks e) = do
   defs <- for ks $ \ (k, cont) -> do
