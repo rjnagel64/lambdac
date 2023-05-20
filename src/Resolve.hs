@@ -1,19 +1,20 @@
 
 module Resolve
   ( resolveProgram
-  , Term(..)
-  , TmArith(..)
-  , TmCmp(..)
-  , TmStringOp(..)
-  , ID(..)
-  , Type(..)
-  , Kind(..)
-  , FieldLabel(..)
 
   , Program(..)
   , DataDecl(..)
   , CtorDecl(..)
+  , Term(..)
+  , Type(..)
+  , Kind(..)
+  , TmArith(..)
+  , TmCmp(..)
+  , TmStringOp(..)
+  , ID(..)
+  , FieldLabel(..)
 
+  , pprintError
   , pprintType
   , pprintKind
   ) where
@@ -35,17 +36,23 @@ insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
 
-resolveProgram :: Program -> S.Program
-resolveProgram (Program ds e) = runM $ do
+resolveProgram :: Program -> Either [ResolveError] S.Program
+resolveProgram (Program ds e) = runM $ fmap resolved $ do
   withDataDecls ds $ \ds' -> do
     e' <- resolveTerm e
-    pure (S.Program ds' (fromResolved e'))
+    pure (S.Program <$> ds' <*> e')
+  where
+    resolved (Resolved a) = Right a
+    resolved (Error es) = Left es
 
-withDataDecls :: [DataDecl] -> ([S.DataDecl] -> M a) -> M a
-withDataDecls [] cont = cont []
-withDataDecls (d:ds) cont = withDataDecl d $ \d' -> withDataDecls ds $ \ds' -> cont (d':ds')
+withDataDecls :: [DataDecl] -> (Resolved [S.DataDecl] -> M a) -> M a
+withDataDecls [] cont = cont (Resolved [])
+withDataDecls (d:ds) cont =
+  withDataDecl d $ \rd' ->
+    withDataDecls ds $ \rds' ->
+      cont ((:) <$> rd' <*> rds')
 
-withDataDecl :: DataDecl -> (S.DataDecl -> M a) -> M a
+withDataDecl :: DataDecl -> (Resolved S.DataDecl -> M a) -> M a
 withDataDecl (DataDecl tc as ctors) cont = do
   let k = foldr KiArr KiStar (map snd as)
   withTyCon tc k $ \tc' k' -> do
@@ -54,22 +61,23 @@ withDataDecl (DataDecl tc as ctors) cont = do
       -- kind of hacky. It would be better for Source and subsequent IRs to be
       -- like GADTs, with the data decl having a kind signature, but the tyvars
       -- being confined to each constructor.
-      as' <- traverse (\ (ID a, k) -> (,) <$> pure (S.TyVar a) <*> fmap fromResolved (resolveKind k)) as
-      cont (S.DataDecl tc' as' ctors')
+      as' <- traverse (\ (ID a, k) -> liftA2 (,) <$> pure (Resolved (S.TyVar a)) <*> resolveKind k) as
+      cont (S.DataDecl tc' <$> sequenceA as' <*> ctors')
 
 -- bring a set of constructors into scope, in parallel.
-withCtors :: [(ID, Kind)] -> [CtorDecl] -> ([S.CtorDecl] -> M a) -> M a
+withCtors :: [(ID, Kind)] -> [CtorDecl] -> (Resolved [S.CtorDecl] -> M a) -> M a
 withCtors as ctors cont = do
   assertDistinctIDs [c | CtorDecl c _ <- ctors]
 
   (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl c@(ID ident) args) -> do
     let c' = S.Ctor ident
     withTyVars as $ \as' -> do
-      args' <- traverse (fmap fromResolved . resolveType) args
-      pure ((c, c'), S.CtorDecl c' args') -- I should include the as' in the new ctor decl
+      args' <- traverse resolveType args
+      -- I should include the as' in the new ctor decl
+      pure ((c, c'), S.CtorDecl <$> Resolved c' <*> sequenceA args')
 
   let extend env = env { ctxCons = insertMany binds (ctxCons env) }
-  local extend $ cont ctors'
+  local extend $ cont (sequenceA ctors')
 
 assertDistinctIDs :: [ID] -> M ()
 assertDistinctIDs xs = pure ()
@@ -278,13 +286,15 @@ runM = flip runReader emptyContext . getM
       , ctxTyCons = Map.empty
       }
 
-
+-- | The result of performing name resolution. It is either something
+-- successfully resolved to a value of type @a@, or it is a collection of error
+-- messages.
 data Resolved a
   = Resolved a
   | Error [ResolveError]
 
 data ResolveError
-  = NameNotInScope ID
+  = NameNotInScope ID -- list of what categories were searched?
   | AmbiguousName ID -- list of what categories it could be?
 
 instance Functor Resolved where
@@ -299,14 +309,6 @@ instance Applicative Resolved where
   Error es <*> Resolved _ = Error es
   Error es1 <*> Error es2 = Error (es1 <> es2)
 
-fromResolved :: Resolved a -> a
-fromResolved (Resolved a) = a
-fromResolved (Error es) = error msg
-  where
-    msg = unlines ("name resolution error(s):" : map pprErr es)
-    pprErr (NameNotInScope x) = " * name not in scope: " ++ show x
-    pprErr (AmbiguousName x) =  " * ambiguous name: " ++ show x
-
 
 -- | A generic identifier, that will be resolved to an appropriate type by this pass.
 newtype ID = ID String
@@ -315,6 +317,8 @@ newtype ID = ID String
 instance Show ID where
   show (ID x) = x
 
+-- | A name used to identify a record field.
+-- TODO: Replace Resolve.FieldLabel with ID?
 newtype FieldLabel = FieldLabel String
   deriving (Eq)
 
@@ -323,7 +327,6 @@ instance Show FieldLabel where
 
 
 data Program = Program [DataDecl] Term
-
 
 data DataDecl = DataDecl ID [(ID, Kind)] [CtorDecl]
 
@@ -403,9 +406,7 @@ data TmCmp
   | TmCmpEqChar
 
 data TmStringOp
-  -- s1 ^ s2
   = TmConcat
-  -- char_at_idx x i
   | TmIndexStr
 
 data Type
@@ -428,6 +429,10 @@ data Kind
   deriving (Eq)
 
 
+
+pprintError :: ResolveError -> String
+pprintError (NameNotInScope x) = "name not in scope: " ++ show x
+pprintError (AmbiguousName x) = "ambiguous name: " ++ show x
 
 -- something something showsPrec
 pprintType :: Int -> Type -> String

@@ -3,6 +3,7 @@
 module Main where
 
 import Control.Monad (when)
+import Data.Foldable (traverse_)
 import System.Exit
 import Options.Applicative
 import System.Process.Typed
@@ -78,7 +79,12 @@ main = do
   args <- execParser opts
 
   srcR <- parseFile (driverFile args)
-  let srcS = R.resolveProgram srcR
+  srcS <- case R.resolveProgram srcR of
+    Left errs -> do
+      putStrLn "name resolution error(s):"
+      traverse_ (putStrLn . (" * "++) . R.pprintError) errs
+      exitFailure
+    Right srcS -> pure srcS
   case ST.checkProgram srcS of
     Left err -> do
       putStrLn "type error:"
