@@ -213,13 +213,6 @@ simplifyContDef env (k, ContDef xs e) =
 
 -- | Perform beta-reduction for a case expression
 simplifyCase :: SimplEnv -> TmVar -> TyConApp -> [(Ctor, CoValueK)] -> (TermK, Census)
-simplifyCase env x CaseBool [(c1, CoVarK k1), (c2, CoVarK k2)] =
-  case lookupValue x env of
-    (_, Just (BoolValK True)) -> (JumpK k1 [], mempty)
-    (_, Just (BoolValK False)) -> (JumpK k2 [], mempty)
-    (_, Just _) -> error "simplifyCase: env contained invalid value for bool type"
-    (x', Nothing) -> (CaseK x' CaseBool [(c1, CoVarK k1), (c2, CoVarK k2)], recordOne x')
-simplifyCase _ _ CaseBool _ = error "simplifyCase: incorrect number of branches for bool type"
 simplifyCase _ _ _ _ = error "simplifyCase: cannot perform case analysis on this type"
 
 -- data Usage = MustKeep | ProductUsage Usage Usage | CanDiscard

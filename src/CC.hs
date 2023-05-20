@@ -191,7 +191,6 @@ cconvKind (K.KArrK k1 k2) = KArr <$> cconvKind k1 <*> cconvKind k2
 
 cconvTyConApp :: K.TyConApp -> ConvM CaseKind
 cconvTyConApp (K.TyConApp (K.TyCon tc) args) = TyConApp (TyCon tc) <$> traverse cconvType args
-cconvTyConApp K.CaseBool = pure CaseBool
 
 cconv :: K.TermK -> ConvM TermC
 cconv (K.HaltK x) = HaltC <$> cconvTmVar x

@@ -263,9 +263,6 @@ inferContDef (ContDef xs e) = do
   pure $ ContK [s | (_, s) <- xs]
 
 checkCase :: TmVar -> TyConApp -> [(Ctor, CoValueK)] -> TC ()
-checkCase x CaseBool ks =
-  checkTmVar x BoolK *>
-  checkBranches ks (Map.fromList [(Ctor "false", []), (Ctor "true", [])])
 checkCase x tcapp ks = do
   checkTmVar x (fromTyConApp tcapp)
   branchTys <- instantiateTyConApp tcapp
@@ -349,7 +346,6 @@ checkCtorApp c args tcapp@(TyConApp tc _) = do
 checkCtorApp _ _ _ = error "ctor application can only construct a TyCon, not bool or t + s"
 
 instantiateTyConApp :: TyConApp -> TC (Map Ctor [TypeK])
-instantiateTyConApp CaseBool = pure (Map.fromList [(Ctor "false", []), (Ctor "true", [])])
 instantiateTyConApp (TyConApp tc tys) = do
   DataDecl _ params ctors <- lookupTyCon tc
   sub <- parameterSubst params tys

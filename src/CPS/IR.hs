@@ -262,10 +262,8 @@ data KindK
 
 data TyConApp
   = TyConApp TyCon [TypeK]
-  | CaseBool
 
 asTyConApp :: TypeK -> Maybe TyConApp
-asTyConApp BoolK = Just CaseBool
 asTyConApp (TyConOccK tc) = Just (TyConApp tc [])
 asTyConApp (TyAppK t s) = go t [s]
   where
@@ -276,7 +274,6 @@ asTyConApp _ = Nothing
 
 fromTyConApp :: TyConApp -> TypeK
 fromTyConApp (TyConApp tc args) = foldl TyAppK (TyConOccK tc) args
-fromTyConApp CaseBool = BoolK
 
 
 -- Alpha-Equality of types
