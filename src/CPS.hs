@@ -384,24 +384,15 @@ cps (S.TmRunIO e) k = do
 --   let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
 --   cpsCase e k s alts
 cps (S.TmIf e s et ef) k = do
-  -- This just the old case but mostly inlined.
-  -- By exploiting the fact that t === S.TyBool and the known structure of the
-  -- alts, I am going to simplify this into the new IfK constructor.
-  let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
   (coval, _) <- reifyCont k s
   nameJoinPoint coval $ \j addBinds -> do
-    (e', t') <- do
-      cps e $ MetaCont $ \z t -> do
-        res <- do
-          tcapp <- cpsType t >>= \t' -> case asTyConApp t' of
-            Nothing -> error "cannot perform case analysis on this type"
-            Just app -> pure app
-          conts <- for alts $ \ (S.Ctor c, xs, rhs) -> do
-            (cont, _s') <- cpsBranch xs rhs (ObjCont j)
-            pure (Ctor c, ContValK cont)
-          pure (CaseK z tcapp conts)
-        pure (res, s)
-    pure (addBinds e', t')
+    cps e $ MetaCont $ \z _t -> do
+      (ef', _s') <- cps ef (ObjCont j)
+      let contf = ContDef [] ef'
+      (et', _s') <- cps et (ObjCont j)
+      let contt = ContDef [] et'
+      let res = IfK z CaseBool (Ctor "false", ContValK contf) (Ctor "true", ContValK contt)
+      pure (addBinds res, s)
 cps (S.TmCase e s alts) k =
   cpsCase e k s alts
 

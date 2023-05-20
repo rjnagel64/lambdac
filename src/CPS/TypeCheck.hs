@@ -204,6 +204,7 @@ check (InstK f ts ks) = do
     t -> throwError (CannotInst f t)
   ss' <- instantiate aas ts ss
   checkCoArgs ks ss'
+check (IfK x s (c1, k1) (c2, k2)) = checkCase x s [(c1, k1), (c2, k2)]
 check (CaseK x s ks) = checkCase x s ks
 check (LetContK ks e) = do
   defs <- for ks $ \ (k, cont) -> do
@@ -345,6 +346,7 @@ checkCtorApp c args tcapp@(TyConApp tc _) = do
 checkCtorApp _ _ _ = error "ctor application can only construct a TyCon, not bool or t + s"
 
 instantiateTyConApp :: TyConApp -> TC (Map Ctor [TypeK])
+instantiateTyConApp CaseBool = pure (Map.fromList [(Ctor "false", []), (Ctor "true", [])])
 instantiateTyConApp (TyConApp tc tys) = do
   DataDecl _ params ctors <- lookupTyCon tc
   sub <- parameterSubst params tys
