@@ -380,11 +380,34 @@ cps (S.TmRunIO e) k = do
     freshTm "s" $ \s0 -> do
       let res = LetValK s0 TokenK WorldTokenK (CallK m [s0] [ContValK cont])
       pure (res, t')
+-- cps (S.TmIf e s et ef) k = do
+--   let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
+--   cpsCase e k s alts
 cps (S.TmIf e s et ef) k = do
+  -- This just the old case but mostly inlined.
+  -- By exploiting the fact that t === S.TyBool and the known structure of the
+  -- alts, I am going to simplify this into the new IfK constructor.
   let alts = [(S.Ctor "false", [], ef), (S.Ctor "true", [], et)]
-  cpsCase e k s alts
+  (coval, _) <- reifyCont k s
+  nameJoinPoint coval $ \j addBinds -> do
+    (e', t') <- do
+      cps e $ MetaCont $ \z t -> do
+        res <- do
+          tcapp <- cpsType t >>= \t' -> case asTyConApp t' of
+            Nothing -> error "cannot perform case analysis on this type"
+            Just app -> pure app
+          conts <- for alts $ \ (S.Ctor c, xs, rhs) -> do
+            (cont, _s') <- cpsBranch xs rhs (ObjCont j)
+            pure (Ctor c, ContValK cont)
+          pure (CaseK z tcapp conts)
+        pure (res, s)
+    pure (addBinds e', t')
 cps (S.TmCase e s alts) k =
   cpsCase e k s alts
+
+nameJoinPoint :: CoValueK -> (CoVar -> (TermK -> TermK) -> CPS (TermK, S.Type)) -> CPS (TermK, S.Type)
+nameJoinPoint (CoVarK j) k = k j (\e -> e)
+nameJoinPoint (ContValK cont) k = freshCo "j" $ \j -> k j (\e -> LetContK [(j, cont)] e)
 
 cpsRecord :: [(S.FieldLabel, S.Term)] -> [(S.FieldLabel, S.Type, TmVar)] -> Cont -> CPS (TermK, S.Type)
 cpsRecord [] ss k =
@@ -472,11 +495,9 @@ cpsFun (TmTFun f aa ki s e) =
 cpsCase :: S.Term -> Cont -> S.Type -> [(S.Ctor, [(S.TmVar, S.Type)], S.Term)] -> CPS (TermK, S.Type)
 cpsCase e k s alts = do
   (coval, _) <- reifyCont k s
-  case coval of
-    CoVarK j -> cpsCase' e j s alts
-    ContValK cont -> freshCo "j" $ \j -> do
-      (e', t') <- cpsCase' e j s alts
-      pure (LetContK [(j, cont)] e', t')
+  nameJoinPoint coval $ \j addBindsTo -> do
+    (e', t') <- cpsCase' e j s alts
+    pure (addBindsTo e', t')
 
 -- | CPS-transform a case analysis, given a scrutinee, a continuation variable,
 -- a return type, and a list of branches with bound variables.

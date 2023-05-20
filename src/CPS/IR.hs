@@ -142,6 +142,8 @@ data TermK
   | CallK TmVar [TmVar] [CoValueK]
   -- f @t k
   | InstK TmVar [TypeK] [CoValueK]
+  -- if x then k1 else k2
+  | IfK TmVar TyConApp (Ctor, CoValueK) (Ctor, CoValueK)
   -- case x : s of c1 -> k1 | c2 -> k2 | ..., branch
   | CaseK TmVar TyConApp [(Ctor, CoValueK)]
   -- halt x

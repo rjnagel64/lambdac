@@ -221,6 +221,16 @@ cconv (K.InstK f ts ks) = do
     pure term
   else
     pure (LetContC kbinds term)
+cconv (K.IfK x kind (c1, k1) (c2, k2)) = do
+  x' <- cconvTmVar x
+  kind' <- cconvTyConApp kind
+  (kbinds, ks0') <- cconvCoArgs (Compose [(c1, k1), (c2, k2)])
+  let ks' = map (\ (K.Ctor c, k') -> (Ctor c, k')) (getCompose ks0')
+  let term = CaseC x' kind' ks'
+  if null kbinds then
+    pure term
+  else
+    pure (LetContC kbinds term)
 cconv (K.CaseK x kind ks) = do
   x' <- cconvTmVar x
   kind' <- cconvTyConApp kind
