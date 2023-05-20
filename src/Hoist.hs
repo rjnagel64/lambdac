@@ -149,10 +149,11 @@ hoist (C.CallC f xs ks) = do
   f' <- hoistVarOcc f
   ys <- hoistArgList (xs ++ map C.ValueArg ks)
   pure (OpenH f' ys)
-hoist (C.IfC x ks) = do
+hoist (C.IfC x k1 k2) = do
   x' <- hoistVarOcc x
-  ks' <- traverse (\ (C.Ctor c, k) -> (,) <$> pure (Ctor c) <*> hoistVarOcc k) ks
-  pure $ CaseH x' CaseBool ks'
+  k1' <- hoistVarOcc k1
+  k2' <- hoistVarOcc k2
+  pure $ IfH x' k1' k2'
 hoist (C.CaseC x t ks) = do
   x' <- hoistVarOcc x
   let kind = caseKind t

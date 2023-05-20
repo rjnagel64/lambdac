@@ -224,9 +224,10 @@ cconv (K.IfK x contf contt) = do
   x' <- cconvTmVar x
   contf' <- cconvContDef contf
   contt' <- cconvContDef contt
-  let kbinds = [(Name "__false_cont" 0, contf'), (Name "__true_cont" 0, contt')]
-  let ks' = [(Ctor "false", Name "__false_cont" 0), (Ctor "true", Name "__true_cont" 0)]
-  pure (LetContC kbinds (IfC x' ks'))
+  let k1 = Name "__false_cont" 0
+  let k2 = Name "__true_cont" 0
+  let kbinds = [(k1, contf'), (k2, contt')]
+  pure (LetContC kbinds (IfC x' k1 k2))
 cconv (K.CaseK x kind ks) = do
   x' <- cconvTmVar x
   kind' <- cconvTyConApp kind
