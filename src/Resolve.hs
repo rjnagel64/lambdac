@@ -128,21 +128,21 @@ resolveTerm (TmTApp e t) = S.TmTApp <$> resolveTerm e <*> (fromResolved <$> reso
 resolveTerm (TmLam x t e) = do
   withTmVar x t $ \x' t' -> do
     e' <- resolveTerm e
-    pure (S.TmLam x' t' e')
+    pure (S.TmLam x' (fromResolved t') e')
 resolveTerm (TmTLam a k e) = do
   withTyVar a k $ \a' k' -> do
     e' <- resolveTerm e
-    pure (S.TmTLam a' k' e')
+    pure (S.TmTLam a' (fromResolved k') e')
 resolveTerm (TmLet x t e1 e2) = do
   e1' <- resolveTerm e1
   withTmVar x t $ \x' t' -> do
     e2' <- resolveTerm e2
-    pure (S.TmLet x' t' e1' e2')
+    pure (S.TmLet x' (fromResolved t') e1' e2')
 resolveTerm (TmBind x t e1 e2) = do
   e1' <- resolveTerm e1
   withTmVar x t $ \x' t' -> do
     e2' <- resolveTerm e2
-    pure (S.TmBind x' t' e1' e2')
+    pure (S.TmBind x' (fromResolved t') e1' e2')
 resolveTerm (TmLetRec xs e) = do
   withRecBinds xs $ \xs' -> do
     e' <- resolveTerm e
@@ -157,7 +157,7 @@ resolveTerm (TmCase e s alts) = do
       Just c' -> pure c'
     withTmVars xs $ \xs' -> do
       rhs' <- resolveTerm rhs
-      pure (c', xs', rhs')
+      pure (c', (fromResolved xs'), rhs')
   pure (S.TmCase e' s' alts')
 resolveTerm (TmIf ec s et ef) = do
   ec' <- resolveTerm ec
@@ -171,10 +171,10 @@ resolveType (TyNameOcc (ID x)) = do
   tyVars <- asks ctxTyVars
   tyCons <- asks ctxTyCons
   case (Map.lookup (ID x) tyVars, Map.lookup (ID x) tyCons) of
-    (Nothing, Nothing) -> pure (Error [NameNotInScope (ID x)]) -- error ("name not in scope: " ++ x)
+    (Nothing, Nothing) -> pure (Error [NameNotInScope (ID x)])
     (Just x', Nothing) -> pure (Resolved (S.TyVarOcc x'))
     (Nothing, Just x') -> pure (Resolved (S.TyConOcc x'))
-    (Just _, Just _) -> pure (Error [AmbiguousName (ID x)]) -- error ("abiguous name (could be tyvar or tycon") 
+    (Just _, Just _) -> pure (Error [AmbiguousName (ID x)])
 resolveType TyUnit = pure (Resolved S.TyUnit)
 resolveType TyInt = pure (Resolved S.TyInt)
 resolveType TyBool = pure (Resolved S.TyBool)
@@ -192,7 +192,7 @@ resolveType (TyRecord fs) = (liftA S.TyRecord . sequenceA) <$> traverse resolveF
 resolveType (TyAll a k t) = do
   withTyVar a k $ \a' k' -> do
     t' <- resolveType t
-    pure (S.TyAll a' <$> Resolved k' <*> t')
+    pure (S.TyAll a' <$> k' <*> t')
 
 resolveKind :: Kind -> M (Resolved S.Kind)
 resolveKind KiStar = pure (Resolved S.KiStar)
@@ -219,32 +219,38 @@ resolveStringOp TmIndexStr = pure (Resolved S.TmIndexStr)
 resolveFieldLabel :: FieldLabel -> M (Resolved S.FieldLabel)
 resolveFieldLabel (FieldLabel l) = pure (Resolved (S.FieldLabel l))
 
-withTmVar :: ID -> Type -> (S.TmVar -> S.Type -> M a) -> M a
+withTmVar :: ID -> Type -> (S.TmVar -> Resolved S.Type -> M a) -> M a
 withTmVar x@(ID ident) t cont = do
   let x' = S.TmVar ident
-  t' <- fromResolved <$> resolveType t
+  t' <- resolveType t
   let extend env = env { ctxVars = Map.insert x x' (ctxVars env) }
   local extend $ cont x' t'
 
-withTmVars :: [(ID, Type)] -> ([(S.TmVar, S.Type)] -> M a) -> M a
-withTmVars [] cont = cont []
-withTmVars ((x, t):xs) cont = withTmVar x t $ \x' t' -> withTmVars xs $ \xs' -> cont ((x', t'):xs')
+withTmVars :: [(ID, Type)] -> (Resolved [(S.TmVar, S.Type)] -> M a) -> M a
+withTmVars [] cont = cont (Resolved [])
+withTmVars ((x, t):xs) cont =
+  withTmVar x t $ \x' rt' ->
+    withTmVars xs $ \rxs' ->
+      cont ((\t' xs' -> (x', t') : xs') <$> rt' <*> rxs')
 
-withTyVar :: ID -> Kind -> (S.TyVar -> S.Kind -> M a) -> M a
+withTyVar :: ID -> Kind -> (S.TyVar -> Resolved S.Kind -> M a) -> M a
 withTyVar a@(ID ident) k cont = do
   let a' = S.TyVar ident
-  k' <- fromResolved <$> resolveKind k
+  k' <- resolveKind k
   let extend env = env { ctxTyVars = Map.insert a a' (ctxTyVars env) }
   local extend $ cont a' k'
 
-withTyVars :: [(ID, Kind)] -> ([(S.TyVar, S.Kind)] -> M a) -> M a
-withTyVars [] cont = cont []
-withTyVars ((a, k):as) cont = withTyVar a k $ \a' k' -> withTyVars as $ \as' -> cont ((a', k'):as')
+withTyVars :: [(ID, Kind)] -> (Resolved [(S.TyVar, S.Kind)] -> M a) -> M a
+withTyVars [] cont = cont (Resolved [])
+withTyVars ((a, k):as) cont =
+  withTyVar a k $ \a' rk' ->
+    withTyVars as $ \ras' ->
+      cont ((\k' as' -> (a', k') : as') <$> rk' <*> ras')
 
-withTyCon :: ID -> Kind -> (S.TyCon -> S.Kind -> M a) -> M a
+withTyCon :: ID -> Kind -> (S.TyCon -> Resolved S.Kind -> M a) -> M a
 withTyCon tc@(ID ident) k cont = do
   let tc' = S.TyCon ident
-  k' <- fromResolved <$> resolveKind k
+  k' <- resolveKind k
   let extend env = env { ctxTyCons = Map.insert tc tc' (ctxTyCons env) }
   local extend $ cont tc' k'
 
