@@ -433,9 +433,17 @@ cpsValue v ty k =
     let res = LetValK x ty' v e'
     pure (res, t')
 
+-- | An auxiliary type for named function definitions, produced while
+-- performing CPS translation of letrec-expressions.
+data TmFun
+  -- | @f (x : t) : t' = e@
+  = TmFun S.TmVar S.TmVar S.Type S.Type S.Term
+  -- | @f \@a : t' = e@
+  | TmTFun S.TmVar S.TyVar S.Kind S.Type S.Term
+
 -- | Translate a function definition into continuation-passing style.
-cpsFun :: S.TmFun -> CPS FunDef
-cpsFun (S.TmFun f x t s e) =
+cpsFun :: TmFun -> CPS FunDef
+cpsFun (TmFun f x t s e) =
   freshCo "k" $ \k -> do
     env <- asks cpsEnvCtx
     -- Recursive bindings already handled, outside of this.
@@ -447,7 +455,7 @@ cpsFun (S.TmFun f x t s e) =
       s' <- cpsCoType s
       pure (FunDef f' bs [(k, s')] e')
     pure fun
-cpsFun (S.TmTFun f aa ki s e) =
+cpsFun (TmTFun f aa ki s e) =
   freshCo "k" $ \k -> do
     env <- asks cpsEnvCtx
     -- Recursive bindings already handled, outside of this.
@@ -661,7 +669,7 @@ freshenTyVarBinds bs k = do
   bs'' <- traverse (\ (_, (aa', ki)) -> (,) aa' <$> cpsKind ki) bs'
   local extend (k bs'')
 
-freshenRecBinds :: [(S.TmVar, S.Type, S.Term)] -> ([S.TmFun] -> CPS a) -> CPS a
+freshenRecBinds :: [(S.TmVar, S.Type, S.Term)] -> ([TmFun] -> CPS a) -> CPS a
 freshenRecBinds fs k = do
   scope <- asks cpsEnvScope
   let
@@ -675,10 +683,10 @@ freshenRecBinds fs k = do
   fs' <- for fs $ \ (f, ty, rhs) -> do
     case (ty, rhs) of
       (S.TyArr _t s, S.TmLam x t' body) -> do
-        pure (S.TmFun f x t' s body)
+        pure (TmFun f x t' s body)
       (S.TyAll aa _k1 t, S.TmTLam bb k2 body) -> do
         let sub = S.singleSubst aa (S.TyVarOcc bb)
-        pure (S.TmTFun f bb k2 (S.substType sub t) body)
+        pure (TmTFun f bb k2 (S.substType sub t) body)
       (_, _) -> error "letrec error"
   local extend (k fs')
 
