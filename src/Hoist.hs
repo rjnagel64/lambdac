@@ -41,6 +41,9 @@ import Hoist.IR hiding (Subst, singleSubst, substSort)
 -- because they do not impact code generation. The type-checker, however, cares
 -- more.
 
+insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
+insertMany xs m = foldr (uncurry Map.insert) m xs
+
 asPlace :: C.Sort -> C.Name -> Place
 asPlace s (C.Name x i) = Place (sortOf s) (Id (x ++ show i))
 
@@ -85,9 +88,9 @@ deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter ClosureDecls HoistM
 deriving newtype instance MonadState (Set CodeLabel) HoistM
 
-data HoistEnv = HoistEnv { localScope :: Scope, envScope :: Scope }
+data HoistEnv = HoistEnv { localScope :: Map C.Name Place, envScope :: Map C.Name Place }
 
-data Scope = Scope { scopePlaces :: Map C.Name Place }
+data Scope = Scope (Map C.Name Place)
 
 -- Hmm. Might consider using a DList here. I think there might be a left-nested
 -- append happening.
@@ -114,8 +117,7 @@ runHoist =
   flip runReaderT emptyEnv .
   runHoistM
   where
-    emptyEnv = HoistEnv emptyScope emptyScope
-    emptyScope = Scope Map.empty
+    emptyEnv = HoistEnv { localScope = Map.empty, envScope = Map.empty }
 
 
 hoistDataDecls :: [C.DataDecl] -> [DataDecl]
@@ -207,21 +209,18 @@ hoist (C.LetFunC fs e) = do
       let p = asPlace (C.funClosureSort def) f in
       ((f, p), (p, def))) fs
 
-  let
-    extend (HoistEnv (Scope places) envsc) =
-      let places' = foldr (uncurry Map.insert) places fbinds in
-      HoistEnv (Scope places') envsc
+  let extend env = env { localScope = insertMany fbinds (localScope env) }
   local extend $ do
     allocs <- for fs' $ \ (p, C.FunClosureDef f env params body) -> do
       -- Pick a name for the closure's code
       fcode <- nameClosureCode f
       envp <- pickEnvironmentPlace (placeName p)
 
-      (envd, newEnv, enva) <- hoistEnvDef env
+      (envd, Scope newEnv, enva) <- hoistEnvDef env
 
       -- hoist the closure code and emit
-      let (newLocals, params') = convertParameters params
-      local (\ (HoistEnv _ _) -> HoistEnv newLocals newEnv) $ do
+      let (Scope newLocals, params') = convertParameters params
+      local (\_env -> HoistEnv newLocals newEnv) $ do
         envn <- pickEnvironmentName
         body' <- hoist body
         let decl = CodeDecl fcode (envn, envd) params' body'
@@ -232,13 +231,43 @@ hoist (C.LetFunC fs e) = do
     e' <- hoist e
     pure (AllocClosure allocs e')
 hoist (C.LetContC ks e) = do
+  -- Continuation closures are necessarily non-recursive, so this case is
+  -- simpler than the case for LetFunC.
   (kbinds, allocs) <- fmap unzip $ traverse (\ (k, def) -> hoistContClosure k def) ks
-  let
-    extend (HoistEnv (Scope places) envsc) =
-      let places' = foldr (uncurry Map.insert) places kbinds in
-      HoistEnv (Scope places') envsc
+  let extend env = env { localScope = insertMany kbinds (localScope env) }
   e' <- local extend $ hoist e
   pure (AllocClosure allocs e')
+
+-- hoist (C.LetContC ks e) = do
+--   withContClosures ks $ \_ -> do
+--     let allocs = _
+--     e' <- hoist e
+--     pure (AllocClosure allocs e')
+--
+-- withContClosures :: [(C.Name, C.ContClosureDef)] -> (_ -> HoistM a) -> HoistM a
+-- withContClosures ks cont = do
+--   -- translate each ContClosureDef to a top-level CodeDecl
+--   -- make a ClosureAlloc for each entry
+--   -- extend the context
+--   -- invoke continuation
+--   (kbinds, allocs) <- unzip <$> for ks $ \ (k, C.ContClosureDef env params body) -> do
+--     -- invent a code label for this closure
+--     -- map 'k' (CC variable) to a Hoist variable
+--     -- create a ClosureAlloc describing the code label, etc.
+--     -- some nonsense involving the EnvDef (maybe withEnvDef be scoping op, but
+--     -- hoistEnvAlloc be occurrence?)
+--
+--   let extend env = _
+--   local extend $ cont _
+--
+-- hoistEnvAlloc :: C.EnvDef -> HoistM EnvAlloc
+-- hoistEnvAlloc (C.EnvDef tys xs) = _
+--
+-- withEnvDef :: C.EnvDef -> (EnvDef -> HoistM a) -> HoistM a
+-- withEnvDef (C.EnvDef tys xs) cont =
+--   withTyVars tys $ \tys' -> do
+--     withEnvPlaces xs $ \xs' -> do
+--       cont (EnvDef tys xs')
 
 hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
 hoistContClosure k def@(C.ContClosureDef env params body) = do
@@ -247,11 +276,11 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
   kcode <- nameClosureCode k
   envp <- pickEnvironmentPlace (placeName kplace)
 
-  (envd, newEnv, enva) <- hoistEnvDef env
+  (envd, Scope newEnv, enva) <- hoistEnvDef env
 
   -- hoist the closure code and emit
-  let (newLocals, params') = convertParameters (C.makeClosureParams [] params)
-  local (\ (HoistEnv _ _) -> HoistEnv newLocals newEnv) $ do
+  let (Scope newLocals, params') = convertParameters (C.makeClosureParams [] params)
+  local (\_env -> HoistEnv newLocals newEnv) $ do
     envn <- pickEnvironmentName
     body' <- hoist body
     let decl = CodeDecl kcode (envn, envd) params' body'
@@ -359,16 +388,18 @@ convertParameters params = (Scope places, params')
 -- anything already in scope.
 pickEnvironmentName :: HoistM Id
 pickEnvironmentName = do
-  HoistEnv locals env <- ask
-  let scopeNames (Scope places) = foldMap (Set.singleton . placeName) places
+  locals <- asks localScope
+  env <- asks envScope
+  let scopeNames places = foldMap (Set.singleton . placeName) places
   let scope = scopeNames locals <> scopeNames env
   let go i = let envp = Id ("env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
 
 pickEnvironmentPlace :: Id -> HoistM Id
 pickEnvironmentPlace (Id cl) = do
-  HoistEnv locals env <- ask
-  let scopeNames (Scope places) = foldMap (Set.singleton . placeName) places
+  locals <- asks localScope
+  env <- asks envScope
+  let scopeNames places = foldMap (Set.singleton . placeName) places
   let scope = scopeNames locals <> scopeNames env
   let go i = let envp = Id (cl ++ "_env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
@@ -377,8 +408,8 @@ pickEnvironmentPlace (Id cl) = do
 -- | Hoist a variable occurrence, and also retrieve its sort.
 hoistVarOccSort :: C.Name -> HoistM (Name, Sort)
 hoistVarOccSort x = do
-  ps <- asks (scopePlaces . localScope)
-  fs <- asks (scopePlaces . envScope)
+  ps <- asks localScope
+  fs <- asks envScope
   case Map.lookup x ps of
     Just (Place s x') -> pure (LocalName x', s)
     Nothing -> case Map.lookup x fs of
@@ -404,9 +435,9 @@ hoistArgList xs = traverse f xs
 -- | Extend the local scope with a new place with the given name and sort.
 withPlace :: C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
 withPlace x s cont = do
-  inScope <- asks (scopePlaces . localScope)
+  inScope <- asks localScope
   let x' = go x inScope
-  let extend (HoistEnv (Scope places) env) = HoistEnv (Scope (Map.insert x x' places)) env
+  let extend env = env { localScope = Map.insert x x' (localScope env) }
   local extend $ cont x'
   where
     -- I think this is fine. We might shadow local names, which is bad, but

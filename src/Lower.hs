@@ -668,6 +668,18 @@ data ClosureAlloc
     closurePlace :: Place
   , closureDecl :: CodeLabel
   , closureCodeInst :: [Sort]
+  -- Idea: split out the environment portion of ClosureAlloc into EnvAlloc.
+  -- Then, AllocClosure would take [EnvAlloc], [ClosureAlloc], TermH
+  -- ClosureAlloc would keep an Id that references the appropriate EnvAlloc.
+  --
+  -- I can't quite do this yet, because emitting the environment allocation
+  -- requires knowing the name of the environemt type, which requires knowing
+  -- the code label.
+  --
+  -- If, in the future I make each closure environment its own, named type, I
+  -- could circumvent this problem. (And incidentally, make 'let envPlace :
+  -- EnvTyCon = { (l = x)+ }' very close to a normal value binding, which is
+  -- also desirable.)
   , closureEnvPlace :: Id
   , closureEnvValues :: [(Id, Name)]
   }
