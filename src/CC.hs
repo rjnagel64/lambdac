@@ -354,6 +354,7 @@ cconvCmp (K.CmpEqCharK x y) = EqCharC <$> cconvTmVar x <*> cconvTmVar y
 cconvStringOp :: K.StringOpK -> ConvM StringOpC
 cconvStringOp (K.ConcatK x y) = ConcatC <$> cconvTmVar x <*> cconvTmVar y
 cconvStringOp (K.IndexK x y) = IndexC <$> cconvTmVar x <*> cconvTmVar y
+cconvStringOp (K.LengthK x) = LengthC <$> cconvTmVar x
 
 cconvPrimIO :: K.PrimIO -> ConvM (PrimIO, K.TypeK)
 cconvPrimIO (K.PrimGetLine x) =

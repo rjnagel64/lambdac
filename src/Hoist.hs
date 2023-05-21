@@ -307,6 +307,7 @@ hoistCmp (C.EqCharC x y) = PrimEqChar <$> hoistVarOcc x <*> hoistVarOcc y
 hoistStringOp :: C.StringOpC -> HoistM PrimOp
 hoistStringOp (C.ConcatC x y) = PrimConcatenate <$> hoistVarOcc x <*> hoistVarOcc y
 hoistStringOp (C.IndexC x y) = PrimIndexStr <$> hoistVarOcc x <*> hoistVarOcc y
+hoistStringOp (C.LengthC x) = PrimStrlen <$> hoistVarOcc x
 
 hoistPrimIO :: C.PrimIO -> HoistM PrimIO
 hoistPrimIO (C.GetLineC x) = PrimGetLine <$> hoistVarOcc x

@@ -52,6 +52,7 @@ tokens :-
   "runIO" { simpleToken TokRunIO }
   "snd" { simpleToken TokSnd }
   "string" { simpleToken TokString }
+  "string_length#" { simpleToken TokStringLength }
   "then" { simpleToken TokThen }
   "true" { simpleToken TokTrue }
   "unit" { simpleToken TokUnit }
@@ -158,6 +159,7 @@ data Token
   | TokRunIO
   | TokSnd
   | TokString
+  | TokStringLength
   | TokThen
   | TokTrue
   | TokUnit

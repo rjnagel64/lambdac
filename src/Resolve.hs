@@ -142,6 +142,8 @@ resolveTerm (TmCmp e1 op e2) =
   liftA3 S.TmCmp <$> resolveTerm e1 <*> resolveCmp op <*> resolveTerm e2
 resolveTerm (TmStringOp e1 op e2) =
   liftA3 S.TmStringOp <$> resolveTerm e1 <*> resolveStringOp op <*> resolveTerm e2
+resolveTerm (TmStringLength e) =
+  liftA S.TmStringLength <$> resolveTerm e
 resolveTerm (TmApp e1 e2) = liftA2 S.TmApp <$> resolveTerm e1 <*> resolveTerm e2
 resolveTerm (TmTApp e t) = liftA2 S.TmTApp <$> resolveTerm e <*> resolveType t
 resolveTerm (TmLam x t e) = do
@@ -395,6 +397,8 @@ data Term
   | TmChar Char
   -- e1 `stringOp` e2
   | TmStringOp Term TmStringOp Term
+  -- string_length# e1
+  | TmStringLength Term
   -- case e return s of { (c_i (x:t)+ -> e_i')+ }
   | TmCase Term Type [(L ID, [(L ID, Type)], Term)]
   -- pure e

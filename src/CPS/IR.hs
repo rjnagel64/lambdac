@@ -218,6 +218,8 @@ data StringOpK
   = ConcatK TmVar TmVar
   -- char_at_idx x i
   | IndexK TmVar TmVar
+  -- string_length x
+  | LengthK TmVar
 
 data PrimIO
   = PrimGetLine TmVar
@@ -519,6 +521,7 @@ pprintCompare (CmpEqCharK x y) = show x ++ " == " ++ show y
 pprintStringOp :: StringOpK -> String
 pprintStringOp (ConcatK x y) = show x ++ " ^ " ++ show y
 pprintStringOp (IndexK x y) = show x ++ ".char_at_idx " ++ show y
+pprintStringOp (LengthK x) = "string_length " ++ show x
 
 pprintPrimIO :: PrimIO -> String
 pprintPrimIO (PrimGetLine x) = "getLine " ++ show x

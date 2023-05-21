@@ -209,6 +209,7 @@ infer (TmCmp e1 _ e2) = do
   pure TyBool
 infer (TmStringOp e1 TmConcat e2) = check e1 TyString *> check e2 TyString *> pure TyString
 infer (TmStringOp e1 TmIndexStr e2) = check e1 TyString *> check e2 TyInt *> pure TyChar
+infer (TmStringLength e1) = check e1 TyString *> pure TyInt
 
 infer (TmIf ec s et ef) = do
   let alts = [(Ctor "false", [], ef), (Ctor "true", [], et)]

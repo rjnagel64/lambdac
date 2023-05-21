@@ -146,6 +146,8 @@ data Term
   | TmChar Char
   -- e1 `stringOp` e2
   | TmStringOp Term TmStringOp Term
+  -- string_length# e1
+  | TmStringLength Term
   -- c
   | TmCtorOcc Ctor
   -- case e return s of { (c_i (x:t)+ -> e_i')+ }

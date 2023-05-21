@@ -251,6 +251,12 @@ cps (S.TmStringOp e1 op e2) k =
         ty' <- cpsType ty
         let res = LetStringOpK x ty' op' e'
         pure (res, t')
+cps (S.TmStringLength e) k =
+  cps e $ MetaCont $ \x _t -> do
+    freshTm "z" $ \z -> do
+      (e', t') <- applyCont k z S.TyInt
+      let res = LetStringOpK z IntK (LengthK x) e'
+      pure (res, t')
 cps (S.TmPair e1 e2) k =
   cps e1 $ MetaCont $ \v1 t1 ->
     cps e2 $ MetaCont $ \v2 t2 ->

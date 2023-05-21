@@ -66,6 +66,7 @@ import Resolve
   'runIO' { L _ TokRunIO }
   'snd' { L _ TokSnd }
   'string' { L _ TokString }
+  'string_length#' { L _ TokStringLength }
   'then' { L _ TokThen }
   'true' { L _ TokTrue }
   'unit' { L _ TokUnit }
@@ -156,6 +157,7 @@ Term :: { Term }
      | 'snd' ATerm { TmSnd $2 }
      | 'eq_char#' ATerm ATerm { TmCmp $2 TmCmpEqChar $3 }
      | 'char_at_idx#' ATerm ATerm { TmStringOp $2 TmIndexStr $3 }
+     | 'string_length#' ATerm { TmStringLength $2 } 
      | 'pure' ATerm { TmPure $2 }
      | 'putLine' ATerm { TmPutLine $2 }
      | 'runIO' ATerm { TmRunIO $2 }

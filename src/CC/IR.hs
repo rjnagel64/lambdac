@@ -186,6 +186,7 @@ data CmpC
 data StringOpC
   = ConcatC Name Name -- y ^ z, concatenation
   | IndexC Name Name -- char_at_index x i, indexing
+  | LengthC Name -- string_length x
 
 data PrimIO
   = GetLineC Name
@@ -361,6 +362,7 @@ pprintCompare (EqCharC x y) = show x ++ " == " ++ show y
 pprintStringOp :: StringOpC -> String
 pprintStringOp (ConcatC x y) = show x ++ " ^ " ++ show y
 pprintStringOp (IndexC x y) = show x ++ ".char_at_index " ++ show y
+pprintStringOp (LengthC x) = "string_length " ++ show x
 
 pprintPrimIO :: PrimIO -> String
 pprintPrimIO (GetLineC x) = "getLine " ++ show x
