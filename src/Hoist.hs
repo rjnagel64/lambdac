@@ -95,8 +95,6 @@ data HoistEnv =
   , nameRefs :: Map C.Name Name
   }
 
-data Scope = Scope (Map C.Name Place)
-
 -- Hmm. Might consider using a DList here. I think there might be a left-nested
 -- append happening.
 newtype ClosureDecls = ClosureDecls { getClosureDecls :: [CodeDecl] }
@@ -146,7 +144,8 @@ hoistCtorDecl params' (C.CtorDecl (C.Ctor c) args) = CtorDecl (Ctor c) params' (
 -- function names to C names.
 hoist :: C.TermC -> HoistM TermH
 hoist (C.HaltC x) = do
-  (x', s) <- hoistVarOccSort x
+  x' <- hoistVarOcc x
+  s <- lookupSort x
   pure (HaltH s x')
 hoist (C.JumpC k xs) = do
   k' <- hoistVarOcc k
@@ -436,32 +435,37 @@ pickEnvironmentPlace (Id cl) = do
   pure (go (0 :: Int))
 
 
--- | Hoist a variable occurrence, and also retrieve its sort.
-hoistVarOccSort :: C.Name -> HoistM (Name, Sort)
-hoistVarOccSort x = do
-  ps <- asks localScope
-  fs <- asks envScope
-  case Map.lookup x ps of
-    Just (Place s x') -> pure (LocalName x', s)
-    Nothing -> case Map.lookup x fs of
-      Just (Place s x') -> pure (EnvName x', s)
-      Nothing -> error ("var not in scope: " ++ show x)
-
 hoistFieldLabel :: C.FieldLabel -> FieldLabel
 hoistFieldLabel (C.FieldLabel f) = FieldLabel f
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
-hoistVarOcc = fmap fst . hoistVarOccSort
+hoistVarOcc x = do
+  ps <- asks localScope
+  fs <- asks envScope
+  case Map.lookup x ps of
+    Just (Place s x') -> pure (LocalName x')
+    Nothing -> case Map.lookup x fs of
+      Just (Place s x') -> pure (EnvName x')
+      Nothing -> error ("var not in scope: " ++ show x)
+
+lookupSort :: C.Name -> HoistM Sort
+lookupSort x = do
+  ps <- asks localScope
+  fs <- asks envScope
+  case Map.lookup x ps of
+    Just (Place s x') -> pure s
+    Nothing -> case Map.lookup x fs of
+      Just (Place s x') -> pure s
+      Nothing -> error ("var not in scope: " ++ show x)
 
 -- | Hoist a list of arguments.
 hoistArgList :: [C.Argument] -> HoistM [ClosureArg]
 hoistArgList xs = traverse f xs
   where
     f (C.TypeArg t) = pure (TypeArg (sortOf t))
-    f (C.ValueArg x) = hoistVarOccSort x >>= \case
-      (x', _) -> pure (ValueArg x')
+    f (C.ValueArg x) = ValueArg <$> hoistVarOcc x
 
 -- | Extend the local scope with a new place with the given name and sort.
 withPlace :: C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
