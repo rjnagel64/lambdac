@@ -88,7 +88,12 @@ deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter ClosureDecls HoistM
 deriving newtype instance MonadState (Set CodeLabel) HoistM
 
-data HoistEnv = HoistEnv { localScope :: Map C.Name Place, envScope :: Map C.Name Place }
+data HoistEnv =
+  HoistEnv {
+    localScope :: Map C.Name Place
+  , envScope :: Map C.Name Place
+  , nameRefs :: Map C.Name Name
+  }
 
 data Scope = Scope (Map C.Name Place)
 
@@ -117,7 +122,7 @@ runHoist =
   flip runReaderT emptyEnv .
   runHoistM
   where
-    emptyEnv = HoistEnv { localScope = Map.empty, envScope = Map.empty }
+    emptyEnv = HoistEnv { localScope = Map.empty, envScope = Map.empty, nameRefs = Map.empty }
 
 
 hoistDataDecls :: [C.DataDecl] -> [DataDecl]
@@ -209,23 +214,26 @@ hoist (C.LetFunC fs e) = do
       let p = asPlace (C.funClosureSort def) f in
       ((f, p), (p, def))) fs
 
-  let extend env = env { localScope = insertMany fbinds (localScope env) }
+  let fbinds' = [(f, LocalName (placeName f')) | (f, f') <- fbinds]
+  let extend env = env { localScope = insertMany fbinds (localScope env), nameRefs = insertMany fbinds' (nameRefs env) }
   local extend $ do
     allocs <- for fs' $ \ (p, C.FunClosureDef f env params body) -> do
       -- Pick a name for the closure's code
       fcode <- nameClosureCode f
       envp <- pickEnvironmentPlace (placeName p)
 
-      (envd, Scope newEnv, enva) <- hoistEnvDef env
+      (envd, Scope newEnv) <- hoistEnvDef env
 
       -- hoist the closure code and emit
       let (Scope newLocals, params') = convertParameters params
-      local (\_env -> HoistEnv newLocals newEnv) $ do
+      -- TODO: Extend nameRefs with newLocals
+      local (\env -> HoistEnv newLocals newEnv (nameRefs env)) $ do
         envn <- pickEnvironmentName
         body' <- hoist body
         let decl = CodeDecl fcode (envn, envd) params' body'
         tellClosure decl
 
+      enva <- hoistEnvAlloc env
       let alloc = ClosureAlloc p fcode envp enva
       pure alloc
     e' <- hoist e
@@ -234,7 +242,8 @@ hoist (C.LetContC ks e) = do
   -- Continuation closures are necessarily non-recursive, so this case is
   -- simpler than the case for LetFunC.
   (kbinds, allocs) <- fmap unzip $ traverse (\ (k, def) -> hoistContClosure k def) ks
-  let extend env = env { localScope = insertMany kbinds (localScope env) }
+  let kbinds' = [(k, LocalName (placeName k')) | (k, k') <- kbinds]
+  let extend env = env { localScope = insertMany kbinds (localScope env), nameRefs = insertMany kbinds' (nameRefs env) }
   e' <- local extend $ hoist e
   pure (AllocClosure allocs e')
 
@@ -276,20 +285,22 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
   kcode <- nameClosureCode k
   envp <- pickEnvironmentPlace (placeName kplace)
 
-  (envd, Scope newEnv, enva) <- hoistEnvDef env
+  (envd, Scope newEnv) <- hoistEnvDef env
 
   -- hoist the closure code and emit
   let (Scope newLocals, params') = convertParameters (C.makeClosureParams [] params)
-  local (\_env -> HoistEnv newLocals newEnv) $ do
+  -- TODO: Extend nameRefs with newLocals
+  local (\env -> HoistEnv newLocals newEnv (nameRefs env)) $ do
     envn <- pickEnvironmentName
     body' <- hoist body
     let decl = CodeDecl kcode (envn, envd) params' body'
     tellClosure decl
 
+  enva <- hoistEnvAlloc env
   let alloc = ClosureAlloc kplace kcode envp enva
   pure ((k, kplace), alloc)
 
-hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, Scope, EnvAlloc)
+hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, Scope)
 hoistEnvDef (C.EnvDef tyfields fields) = do
   let declTyFields = map (\ (aa, k) -> (asTyVar aa, kindOf k)) tyfields
   let declFields = map (\ (x, s) -> asPlace s x) fields
@@ -297,7 +308,10 @@ hoistEnvDef (C.EnvDef tyfields fields) = do
 
   let scPlaces = Map.fromList $ map (\ (x, s) -> (x, asPlace s x)) fields
   let envsc = Scope scPlaces
+  pure (envd, envsc)
 
+hoistEnvAlloc :: C.EnvDef -> HoistM EnvAlloc
+hoistEnvAlloc (C.EnvDef tyfields fields) = do
   -- Note: When allocating a recursive environment, we need to have the current
   -- bind group in scope. consider even-odd:
   -- let
@@ -307,11 +321,14 @@ hoistEnvDef (C.EnvDef tyfields fields) = do
   -- ...
   -- In order to construct the environments { odd0 = odd0 } and { even0 = even0 },
   -- we need to have 'even0' and 'odd0' in the local scope.
+  --
+  -- (I think I take care of this in LetFunC? That's where the recursive group
+  -- is)
   let tyFields = map (\ (aa, k) -> AllocH (asTyVar aa)) tyfields
   allocFields <- for fields $ \ (x, s) ->
     (,) (placeName (asPlace s x)) <$> hoistVarOcc x
   let enva = EnvAlloc tyFields allocFields
-  pure (envd, envsc, enva)
+  pure enva
 
 hoistValue :: C.ValueC -> HoistM ValueH
 hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
@@ -384,6 +401,17 @@ convertParameters params = (Scope places, params')
       let p = asPlace s x in
       (ps . Map.insert x p, PlaceParam p : tele)
 
+withParameterList :: [C.ClosureParam] -> ([ClosureParam] -> HoistM a) -> HoistM a
+withParameterList [] cont = cont []
+withParameterList (C.ValueParam x s : params) cont =
+  withPlace x s $ \x' ->
+    withParameterList params $ \params' ->
+      cont (PlaceParam x' : params')
+withParameterList (C.TypeParam aa k : params) cont =
+  withTyVar aa k $ \aa' k' ->
+    withParameterList params $ \params' ->
+      cont (TypeParam aa' k' : params')
+
 -- | Pick a name for the environment parameter, that will not clash with
 -- anything already in scope.
 pickEnvironmentName :: HoistM Id
@@ -437,7 +465,7 @@ withPlace :: C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
 withPlace x s cont = do
   inScope <- asks localScope
   let x' = go x inScope
-  let extend env = env { localScope = Map.insert x x' (localScope env) }
+  let extend env = env { localScope = Map.insert x x' (localScope env), nameRefs = Map.insert x (LocalName (placeName x')) (nameRefs env) }
   local extend $ cont x'
   where
     -- I think this is fine. We might shadow local names, which is bad, but
@@ -446,4 +474,8 @@ withPlace x s cont = do
     go v ps = case Map.lookup v ps of
       Nothing -> asPlace s v
       Just _ -> go (C.prime v) ps
+
+-- I don't have scoping for tyvars yet, but this is where it would go.
+withTyVar :: C.TyVar -> C.Kind -> (TyVar -> Kind -> HoistM a) -> HoistM a
+withTyVar aa k cont = cont (asTyVar aa) (kindOf k)
 
