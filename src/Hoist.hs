@@ -222,12 +222,14 @@ hoist (C.LetFunC fs e) = do
       fcode <- nameClosureCode f
       envp <- pickEnvironmentPlace (placeName p)
 
-      (envd, Scope newEnv) <- hoistEnvDef env
+      (envd, envPlaces) <- hoistEnvDef env
+      let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- envPlaces]
 
       -- hoist the closure code and emit
-      let (Scope newLocals, params') = convertParameters params
-      -- TODO: Extend nameRefs with newLocals
-      local (\env -> HoistEnv newLocals newEnv (nameRefs env)) $ do
+      let (localPlaces, params') = convertParameters params
+      let newLocalRefs = [(x, LocalName (placeName x')) | (x, x') <- localPlaces]
+      let newNameRefs = newEnvRefs ++ newLocalRefs
+      local (\env -> HoistEnv (Map.fromList localPlaces) (Map.fromList envPlaces) (insertMany newNameRefs (nameRefs env))) $ do
         envn <- pickEnvironmentName
         body' <- hoist body
         let decl = CodeDecl fcode (envn, envd) params' body'
@@ -285,12 +287,14 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
   kcode <- nameClosureCode k
   envp <- pickEnvironmentPlace (placeName kplace)
 
-  (envd, Scope newEnv) <- hoistEnvDef env
+  (envd, envPlaces) <- hoistEnvDef env
+  let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- envPlaces]
 
   -- hoist the closure code and emit
-  let (Scope newLocals, params') = convertParameters (C.makeClosureParams [] params)
-  -- TODO: Extend nameRefs with newLocals
-  local (\env -> HoistEnv newLocals newEnv (nameRefs env)) $ do
+  let (localPlaces, params') = convertParameters (C.makeClosureParams [] params)
+  let newLocalRefs = [(x, LocalName (placeName x')) | (x, x') <- localPlaces]
+  let newNameRefs = newEnvRefs ++ newLocalRefs
+  local (\env -> HoistEnv (Map.fromList localPlaces) (Map.fromList envPlaces) (insertMany newNameRefs (nameRefs env))) $ do
     envn <- pickEnvironmentName
     body' <- hoist body
     let decl = CodeDecl kcode (envn, envd) params' body'
@@ -300,15 +304,14 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
   let alloc = ClosureAlloc kplace kcode envp enva
   pure ((k, kplace), alloc)
 
-hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, Scope)
+hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, [(C.Name, Place)])
 hoistEnvDef (C.EnvDef tyfields fields) = do
   let declTyFields = map (\ (aa, k) -> (asTyVar aa, kindOf k)) tyfields
   let declFields = map (\ (x, s) -> asPlace s x) fields
   let envd = EnvDecl declTyFields declFields
 
-  let scPlaces = Map.fromList $ map (\ (x, s) -> (x, asPlace s x)) fields
-  let envsc = Scope scPlaces
-  pure (envd, envsc)
+  let places = map (\ (x, s) -> (x, asPlace s x)) fields
+  pure (envd, places)
 
 hoistEnvAlloc :: C.EnvDef -> HoistM EnvAlloc
 hoistEnvAlloc (C.EnvDef tyfields fields) = do
@@ -378,8 +381,8 @@ nameClosureCode c@(C.Name x i) = do
   else
     nameClosureCode (C.prime c)
 
-convertParameters :: [C.ClosureParam] -> (Scope, [ClosureParam])
-convertParameters params = (Scope places, params')
+convertParameters :: [C.ClosureParam] -> ([(C.Name, Place)], [ClosureParam])
+convertParameters params = (places, params')
   where
     -- The reason why this fold looks weird is because it uses the
     -- foldl-via-foldr trick: using a chain of updates as the accumulating
@@ -392,14 +395,14 @@ convertParameters params = (Scope places, params')
     -- I guess I could have used foldl and a DList H.ClosureParam, but eh, whatever.
     (places, params') =
       let (ps, te) = foldr addParam (id, []) params in
-      (ps Map.empty, te)
+      (ps [], te)
 
     addParam (C.TypeParam aa k) (ps, tele) =
       let aa' = asTyVar aa in
       (ps, TypeParam aa' (kindOf k) : tele)
     addParam (C.ValueParam x s) (ps, tele) =
       let p = asPlace s x in
-      (ps . Map.insert x p, PlaceParam p : tele)
+      (ps . (:) (x, p), PlaceParam p : tele)
 
 withParameterList :: [C.ClosureParam] -> ([ClosureParam] -> HoistM a) -> HoistM a
 withParameterList [] cont = cont []
