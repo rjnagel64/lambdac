@@ -286,18 +286,19 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
   kcode <- nameClosureCode k
   envp <- pickEnvironmentPlace (placeName kplace)
 
+  -- Extend context with environment
   (envd, envPlaces) <- hoistEnvDef env
   let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- envPlaces]
-
-  -- hoist the closure code and emit
-  let (localPlaces, params') = convertParameters (C.makeClosureParams [] params)
-  let newLocalRefs = [(x, LocalName (placeName x')) | (x, x') <- localPlaces]
-  let newNameRefs = newEnvRefs ++ newLocalRefs
-  local (\env -> HoistEnv (Map.fromList localPlaces) (Map.fromList envPlaces) (insertMany newNameRefs (nameRefs env))) $ do
-    envn <- pickEnvironmentName
-    body' <- hoist body
-    let decl = CodeDecl kcode (envn, envd) params' body'
-    tellClosure decl
+  local (\env -> env { envScope = Map.fromList envPlaces, nameRefs = insertMany newEnvRefs (nameRefs env) }) $ do
+    -- Extend context with parameter list
+    let (localPlaces, params') = convertParameters (C.makeClosureParams [] params)
+    let newLocalRefs = [(x, LocalName (placeName x')) | (x, x') <- localPlaces]
+    local (\env -> env { localScope = Map.fromList localPlaces, nameRefs = insertMany newLocalRefs (nameRefs env) }) $ do
+      -- hoist the closure body and emit a code declaration
+      envn <- pickEnvironmentName
+      body' <- hoist body
+      let decl = CodeDecl kcode (envn, envd) params' body'
+      tellClosure decl
 
   enva <- hoistEnvAlloc env
   let alloc = ClosureAlloc kplace kcode envp enva
