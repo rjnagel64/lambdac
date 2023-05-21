@@ -161,37 +161,46 @@ hoist (C.CaseC x t ks) = do
   pure $ CaseH x' kind ks'
 hoist (C.LetValC (x, s) v e) = do
   v' <- hoistValue v
-  (x', e') <- withPlace x s $ hoist e
-  pure $ LetValH x' v' e'
+  withPlace x s $ \x' -> do
+    e' <- hoist e
+    pure (LetValH x' v' e')
 hoist (C.LetFstC (x, s) y e) = do
   y' <- hoistVarOcc y
-  (x', e') <- withPlace x s $ hoist e
-  pure (LetProjectH x' y' ProjectFst e')
+  withPlace x s $ \x' -> do
+    e' <- hoist e
+    pure (LetProjectH x' y' ProjectFst e')
 hoist (C.LetSndC (x, s) y e) = do
   y' <- hoistVarOcc y
-  (x', e') <- withPlace x s $ hoist e
-  pure (LetProjectH x' y' ProjectSnd e')
+  withPlace x s $ \x' -> do
+    e' <- hoist e
+    pure (LetProjectH x' y' ProjectSnd e')
 hoist (C.LetFieldC (x, s) y f e) = do
   y' <- hoistVarOcc y
   let f' = hoistFieldLabel f
-  (x', e') <- withPlace x s $ hoist e
-  pure (LetProjectH x' y' (ProjectField f') e')
+  withPlace x s $ \x' -> do
+    e' <- hoist e
+    pure (LetProjectH x' y' (ProjectField f') e')
 hoist (C.LetArithC (x, s) op e) = do
   op' <- hoistArith op
-  (x', e') <- withPlace x s $ hoist e
-  pure (LetPrimH x' op' e')
+  withPlace x s $ \x' -> do
+    e' <- hoist e
+    pure (LetPrimH x' op' e')
 hoist (C.LetCompareC (x, s) op e) = do
   op' <- hoistCmp op
-  (x', e') <- withPlace x s $ hoist e
-  pure (LetPrimH x' op' e')
+  withPlace x s $ \x' -> do
+    e' <- hoist e
+    pure (LetPrimH x' op' e')
 hoist (C.LetStringOpC (x, s) op e) = do
   op' <- hoistStringOp op
-  (x', e') <- withPlace x s $ hoist e
-  pure (LetPrimH x' op' e')
-hoist (C.LetBindC (x1, s1) (x2, s2) prim e) = do
-  prim' <- hoistPrimIO prim
-  (x1', (x2', e')) <- withPlace x1 s1 $ withPlace x2 s2 $ hoist e
-  pure (LetBindH x1' x2' prim' e')
+  withPlace x s $ \x' -> do
+    e' <- hoist e
+    pure (LetPrimH x' op' e')
+hoist (C.LetBindC (x1, s1) (x2, s2) op e) = do
+  op' <- hoistPrimIO op
+  withPlace x1 s1 $ \x1' -> do
+    withPlace x2 s2 $ \x2' -> do
+      e' <- hoist e
+      pure (LetBindH x1' x2' op' e')
 hoist (C.LetFunC fs e) = do
   let
     (fbinds, fs') = unzip $ map (\def@(C.FunClosureDef f _ _ _) -> 
@@ -392,21 +401,18 @@ hoistArgList xs = traverse f xs
     f (C.ValueArg x) = hoistVarOccSort x >>= \case
       (x', _) -> pure (ValueArg x')
 
--- | Bind a place name of the appropriate sort, running a monadic action in the
--- extended environment.
-withPlace :: C.Name -> C.Sort -> HoistM a -> HoistM (Place, a)
-withPlace x s m = do
+-- | Extend the local scope with a new place with the given name and sort.
+withPlace :: C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
+withPlace x s cont = do
   inScope <- asks (scopePlaces . localScope)
-  x' <- go x inScope
+  let x' = go x inScope
   let extend (HoistEnv (Scope places) env) = HoistEnv (Scope (Map.insert x x' places)) env
-  a <- local extend m
-  pure (x', a)
+  local extend $ cont x'
   where
     -- I think this is fine. We might shadow local names, which is bad, but
     -- environment references are guarded by 'env->'.
-    go :: C.Name -> Map C.Name Place -> HoistM Place
+    go :: C.Name -> Map C.Name Place -> Place
     go v ps = case Map.lookup v ps of
-      Nothing -> pure (asPlace s v)
+      Nothing -> asPlace s v
       Just _ -> go (C.prime v) ps
-
 
