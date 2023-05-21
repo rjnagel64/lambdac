@@ -31,7 +31,6 @@ import Data.Loc
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
 
 import Data.Functor.Identity
 import Control.Applicative (liftA, liftA2, liftA3) -- wat. why is liftA2 not in Prelude?
@@ -75,7 +74,7 @@ withCtors :: [(L ID, Kind)] -> [CtorDecl] -> (Resolved [S.CtorDecl] -> M a) -> M
 withCtors as ctors cont = do
   uniq <- assertDistinctIDs [c | CtorDecl c _ <- ctors]
 
-  (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl (L l c@(ID ident)) args) -> do
+  (binds, ctors') <- fmap unzip . for ctors $ \ (CtorDecl (L _ c@(ID ident)) args) -> do
     let c' = S.Ctor ident
     withTyVars as $ \as' -> do
       args' <- traverse resolveType args
@@ -89,7 +88,7 @@ withRecBinds :: [(L ID, Type, Term)] -> (Resolved [(S.TmVar, S.Type, S.Term)] ->
 withRecBinds xs cont = do
   uniq <- assertDistinctIDs [x | (x, _, _) <- xs]
 
-  (binds, ys) <- fmap unzip . for xs $ \ (L l x@(ID ident), t, e) -> do
+  (binds, ys) <- fmap unzip . for xs $ \ (L _ x@(ID ident), t, e) -> do
     let x' = S.TmVar ident
     t' <- resolveType t
     pure ((x, x'), (x', t', e))
@@ -103,25 +102,24 @@ withRecBinds xs cont = do
 
 assertDistinctIDs :: [L ID] -> M (Resolved ())
 assertDistinctIDs xs =
-  case foldr f ([], Set.empty) xs of
+  case foldr f ([], Map.empty) xs of
     ([], _) -> pure (Resolved ())
     (es, _) -> pure (Error es)
   where
     f (L l x) (es, seen) =
-      if Set.member x seen then
-        (DuplicateBinder x : es, seen)
-      else
-        (es, Set.insert x seen)
+      case Map.lookup x seen of
+        Just l' -> (DuplicateBinder l l' x : es, seen)
+        Nothing -> (es, Map.insert x l seen)
 
 resolveTerm :: Term -> M (Resolved S.Term)
 resolveTerm (TmNameOcc (L l x)) = do
   tmVarEnv <- asks ctxVars
   ctorEnv <- asks ctxCons
   case (Map.lookup x tmVarEnv, Map.lookup x ctorEnv) of
-    (Nothing, Nothing) -> pure (Error [NameNotInScope x])
+    (Nothing, Nothing) -> pure (Error [NameNotInScope l x])
     (Just x', Nothing) -> pure (Resolved (S.TmVarOcc x'))
     (Nothing, Just x') -> pure (Resolved (S.TmCtorOcc x'))
-    (Just _, Just _) -> pure (Error [AmbiguousName x])
+    (Just _, Just _) -> pure (Error [AmbiguousName l x])
 resolveTerm TmNil = pure (Resolved S.TmNil)
 resolveTerm TmGetLine = pure (Resolved S.TmGetLine)
 resolveTerm (TmInt i) = pure (Resolved (S.TmInt i))
@@ -174,7 +172,7 @@ resolveTerm (TmCase e s alts) = do
   alts' <- for alts $ \ (L l c, xs, rhs) -> do
     envCtors <- asks ctxCons
     c' <- case Map.lookup c envCtors of
-      Nothing -> pure (Error [NameNotInScope c])
+      Nothing -> pure (Error [NameNotInScope l c])
       Just c' -> pure (Resolved c')
     withTmVars xs $ \xs' -> do
       rhs' <- resolveTerm rhs
@@ -192,10 +190,10 @@ resolveType (TyNameOcc (L l x)) = do
   tyVars <- asks ctxTyVars
   tyCons <- asks ctxTyCons
   case (Map.lookup x tyVars, Map.lookup x tyCons) of
-    (Nothing, Nothing) -> pure (Error [NameNotInScope x])
+    (Nothing, Nothing) -> pure (Error [NameNotInScope l x])
     (Just x', Nothing) -> pure (Resolved (S.TyVarOcc x'))
     (Nothing, Just x') -> pure (Resolved (S.TyConOcc x'))
-    (Just _, Just _) -> pure (Error [AmbiguousName x])
+    (Just _, Just _) -> pure (Error [AmbiguousName l x])
 resolveType TyUnit = pure (Resolved S.TyUnit)
 resolveType TyInt = pure (Resolved S.TyInt)
 resolveType TyBool = pure (Resolved S.TyBool)
@@ -246,7 +244,7 @@ withTmVars xs cont = do
   (xs', newEnv) <- runStateT (sequenceA <$> traverse resolveBind xs) initEnv
   local (\_ -> newEnv) $ cont xs'
   where
-    resolveBind (L l x@(ID ident), t) = StateT $ \env -> do
+    resolveBind (L _ x@(ID ident), t) = StateT $ \env -> do
       let x' = S.TmVar ident
       t' <- resolveType t
       let bind = (,) x' <$> t'
@@ -262,7 +260,7 @@ withTyVars as cont = do
   (as', newEnv) <- runStateT (sequenceA <$> traverse resolveBind as) initEnv
   local (\_ -> newEnv) $ cont as'
   where
-    resolveBind (L l a@(ID ident), k) = StateT $ \env -> do
+    resolveBind (L _ a@(ID ident), k) = StateT $ \env -> do
       let a' = S.TyVar ident
       k' <- resolveKind k
       let bind = (,) a' <$> k'
@@ -272,7 +270,7 @@ withTyVar :: L ID -> Kind -> (Resolved (S.TyVar, S.Kind) -> M a) -> M a
 withTyVar a k cont = withTyVars (Identity (a, k)) $ \rb -> cont (fmap runIdentity rb)
 
 withTyCon :: L ID -> Kind -> (S.TyCon -> Resolved S.Kind -> M a) -> M a
-withTyCon (L l tc@(ID ident)) k cont = do
+withTyCon (L _ tc@(ID ident)) k cont = do
   let tc' = S.TyCon ident
   k' <- resolveKind k
   let extend env = env { ctxTyCons = Map.insert tc tc' (ctxTyCons env) }
@@ -311,14 +309,10 @@ data Resolved a
   = Resolved a
   | Error [ResolveError]
 
--- TODO: Location info on resolve errors
--- * not in scope: report location of occurrence
--- * ambiguous: report occurrence and list of binding sites
--- * duplicate names: report current location and location from 'seen'.
 data ResolveError
-  = NameNotInScope ID -- list of what categories were searched?
-  | AmbiguousName ID -- list of what categories it could be?
-  | DuplicateBinder ID -- same name used for multiple binds in same group
+  = NameNotInScope Loc ID
+  | AmbiguousName Loc ID
+  | DuplicateBinder Loc Loc ID
 
 instance Functor Resolved where
   fmap f (Resolved a) = Resolved (f a)
@@ -454,9 +448,9 @@ data Kind
 
 
 pprintError :: ResolveError -> String
-pprintError (NameNotInScope x) = "name not in scope: " ++ show x
-pprintError (AmbiguousName x) = "ambiguous name: " ++ show x
-pprintError (DuplicateBinder x) = "multiple binders with same name: " ++ show x
+pprintError (NameNotInScope l x) = displayLoc l ++ ": name not in scope: " ++ show x
+pprintError (AmbiguousName l x) = displayLoc l ++ ": ambiguous name: " ++ show x
+pprintError (DuplicateBinder l l' x) = "multiple binders with same name: " ++ show x
 
 -- something something showsPrec
 pprintType :: Int -> Type -> String
