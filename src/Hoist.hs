@@ -442,13 +442,10 @@ hoistFieldLabel (C.FieldLabel f) = FieldLabel f
 -- environment reference.
 hoistVarOcc :: C.Name -> HoistM Name
 hoistVarOcc x = do
-  ps <- asks localScope
-  fs <- asks envScope
-  case Map.lookup x ps of
-    Just (Place s x') -> pure (LocalName x')
-    Nothing -> case Map.lookup x fs of
-      Just (Place s x') -> pure (EnvName x')
-      Nothing -> error ("var not in scope: " ++ show x)
+  env <- asks nameRefs
+  case Map.lookup x env of
+    Nothing -> error ("var not in scope: " ++ show x)
+    Just x' -> pure x'
 
 lookupSort :: C.Name -> HoistM Sort
 lookupSort x = do
