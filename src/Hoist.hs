@@ -108,10 +108,14 @@ tellClosure cs = tell (ClosureDecls [cs])
 
 
 hoistProgram :: C.Program -> Program
-hoistProgram (C.Program ds srcC) =
-  let ds' = hoistDataDecls ds in
-  let (srcH, cs) = runHoist (hoist srcC) in
-  Program (map DeclData ds' ++ map DeclCode (getClosureDecls cs)) srcH
+hoistProgram (C.Program ds e) =
+  let
+    ((dataDecls, mainExpr), cs) = runHoist $ do
+      withDataDecls ds $ \ds' -> do
+        e' <- hoist e
+        pure (ds', e')
+  in
+    Program (map DeclData dataDecls ++ map DeclCode (getClosureDecls cs)) mainExpr
 
 runHoist :: HoistM a -> (a, ClosureDecls)
 runHoist =
@@ -122,20 +126,24 @@ runHoist =
   where
     emptyEnv = HoistEnv { localScope = Map.empty, envScope = Map.empty, nameRefs = Map.empty }
 
+withDataDecls :: [C.DataDecl] -> ([DataDecl] -> HoistM a) -> HoistM a
+withDataDecls [] cont = cont []
+withDataDecls (C.DataDecl (C.TyCon tc) kind ctors : ds) cont =
+  let kind' = kindOf kind in
+  withCtorDecls ctors $ \ctors' ->
+    let d' = DataDecl (TyCon tc) kind' ctors' in
+    withDataDecls ds $ \ds' ->
+      cont (d' : ds')
 
-hoistDataDecls :: [C.DataDecl] -> [DataDecl]
-hoistDataDecls [] = []
-hoistDataDecls (C.DataDecl (C.TyCon tc) kind ctors : ds) = DataDecl (TyCon tc) kind' ctors' : hoistDataDecls ds
-  where
-    kind' = kindOf kind
-    ctors' = map hoistCtorDecl ctors
+withCtorDecls :: [C.CtorDecl] -> ([CtorDecl] -> HoistM a) -> HoistM a
+withCtorDecls ctors cont = traverse hoistCtorDecl ctors >>= cont
 
-hoistCtorDecl :: C.CtorDecl -> CtorDecl
+hoistCtorDecl :: C.CtorDecl -> HoistM CtorDecl
 hoistCtorDecl (C.CtorDecl (C.Ctor c) params args) =
-  withTyVars' params $ \params' -> CtorDecl (Ctor c) params' (zipWith f [0..] args)
+  withTyVars params $ \params' -> pure (CtorDecl (Ctor c) params' (zipWith makeField [0..] args))
   where
-    f :: Int -> C.Sort -> (Id, Sort)
-    f i s = (Id ("arg" ++ show i), sortOf s)
+    makeField :: Int -> C.Sort -> (Id, Sort)
+    makeField i s = (Id ("arg" ++ show i), sortOf s)
 
 
 
@@ -442,13 +450,6 @@ withTyVars ((aa, k) : aas) cont =
   withTyVar aa k $ \aa' k' ->
     withTyVars aas $ \aas' ->
       cont ((aa', k') : aas')
-
--- a sketchy, non-monadic version of withTyVars that reflects the fact that I
--- don't actually perform any monadic effects in withTyVar.
---
--- Please refactor away from withTyVars' promptly.
-withTyVars' :: [(C.TyVar, C.Kind)] -> ([(TyVar, Kind)] -> a) -> a
-withTyVars' aas cont = let aas' = map (\ (aa, k) -> (asTyVar aa, kindOf k)) aas in cont aas'
 
 withEnvFields :: [(C.Name, C.Sort)] -> ([(Id, Sort)] -> HoistM a) -> HoistM a
 withEnvFields fields cont = do
