@@ -345,20 +345,9 @@ runM = flip runReader emptyEnv . getM
         envNames = Map.empty
       , envTyVars = Map.empty
       , envTyCons = Map.empty
-      , envCtors = initCtors
+      , envCtors = Map.empty
       , envThunkTypes = Map.empty
       }
-    -- All conditionals are lowered to case-expressions, even analysis on
-    -- built-ins like bool and sum types.
-    -- All conditionals have branches labelled by ctors (though it should
-    -- probably be discriminants instead...)
-    -- Therefore, we need to pre-populate the ctor environment with some
-    -- built-in sum types.
-    -- Hopefully, I will be able to remove this in the future.
-    initCtors = Map.fromList
-      [ (H.Ctor "inl", (Ctor (TyCon "sum") (Id "inl") 0))
-      , (H.Ctor "inr", (Ctor (TyCon "sum") (Id "inr") 1))
-      ]
 
 -- This isn't actually a scoping operation anymore, since I pass the env ptr
 -- directly to withEnvFields, but it's still semi-useful to indicate that the
