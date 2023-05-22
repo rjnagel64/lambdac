@@ -110,17 +110,11 @@ withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [(Id, Sort)] -
 withEnvironment (envName, H.EnvDecl aas fields) k = do
   withTyVars aas $ \aas' -> do
     withEnvPtr envName $ \envName' -> do
-      withEnvFields fields $ \fields' -> do
+      withEnvFields envName' fields $ \fields' -> do
         k aas' envName' fields'
 
-withEnvFields :: [H.Place] -> ([(Id, Sort)] -> M a) -> M a
-withEnvFields fields k = do
-  -- This function is always called in the scope of withEnvPtr, so the error
-  -- cannot be reached.
-  envp <- asks envEnvPtr >>= \case
-    Nothing -> error "environment reference without environment pointer available"
-    Just envp -> pure envp
-
+withEnvFields :: Id -> [H.Place] -> ([(Id, Sort)] -> M a) -> M a
+withEnvFields envp fields k = do
   (fields', binds, thunkBindsMaybe) <- fmap unzip3 $ for fields $ \ (H.Place s x) -> do
     s' <- lowerSort s
     x' <- lowerId x
@@ -192,24 +186,24 @@ lowerTerm (H.CaseH x (H.TyConApp tc ss) ks) = do
   CaseH <$> lowerName x <*> (TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss) <*> traverse lowerCaseAlt ks
 lowerTerm (H.LetValH p v e) = do
   v' <- lowerValue v
-  withPlace LocalPlace p $ \p' -> do
+  withPlace p $ \p' -> do
     e' <- lowerTerm e
     pure (LetValH p' v' e')
 lowerTerm (H.LetPrimH p op e) = do
   op' <- lowerPrimOp op
-  withPlace LocalPlace p $ \p' -> do
+  withPlace p $ \p' -> do
     e' <- lowerTerm e
     pure (LetPrimH p' op' e')
 lowerTerm (H.LetBindH ps px op e) = do
   op' <- lowerIOPrimOp op
-  withPlace LocalPlace ps $ \ps' -> do
-    withPlace LocalPlace px $ \px' -> do
+  withPlace ps $ \ps' -> do
+    withPlace px $ \px' -> do
       e' <- lowerTerm e
       pure (LetBindH ps' px' op' e')
 lowerTerm (H.LetProjectH p x proj e) = do
   x' <- lowerName x
   proj' <- lowerProjection proj
-  withPlace LocalPlace p $ \p' -> do
+  withPlace p $ \p' -> do
     e' <- lowerTerm e
     pure (LetProjectH p' x' proj' e')
 lowerTerm (H.AllocClosure cs e) = do
@@ -339,7 +333,6 @@ data LowerEnv
   = LowerEnv {
     envNames :: Map H.Name Name
   , envTyVars :: Map H.TyVar TyVar
-  , envEnvPtr :: Maybe Id
   , envTyCons :: Map H.TyCon TyCon
   , envCtors :: Map H.Ctor Ctor
   , envThunkTypes :: Map H.Name ThunkType
@@ -351,7 +344,6 @@ runM = flip runReader emptyEnv . getM
     emptyEnv = LowerEnv {
         envNames = Map.empty
       , envTyVars = Map.empty
-      , envEnvPtr = Nothing
       , envTyCons = Map.empty
       , envCtors = initCtors
       , envThunkTypes = Map.empty
@@ -368,22 +360,24 @@ runM = flip runReader emptyEnv . getM
       , (H.Ctor "inr", (Ctor (TyCon "sum") (Id "inr") 1))
       ]
 
+-- This isn't actually a scoping operation anymore, since I pass the env ptr
+-- directly to withEnvFields, but it's still semi-useful to indicate that the
+-- env ptr is "in scope".
 withEnvPtr :: H.Id -> (Id -> M a) -> M a
 withEnvPtr (H.Id envName) k = do
   let envName' = Id envName
-  let extend env = env { envEnvPtr = Just envName' }
-  local extend $ k envName'
+  k envName'
 
 withParams :: [H.ClosureParam] -> ([ClosureParam] -> M a) -> M a
 withParams [] k = k []
 withParams (H.PlaceParam p : ps) k =
-  withPlace LocalPlace p $ \p' -> withParams ps (\ps' -> k (PlaceParam p':ps'))
+  withPlace p $ \p' -> withParams ps (\ps' -> k (PlaceParam p':ps'))
 withParams (H.TypeParam aa kk : ps) k =
   withTyVar aa kk $ \aa' kk' -> withParams ps (\ps' -> k (TypeParam aa' kk':ps'))
 
 withClosures :: [H.ClosureAlloc] -> ([ClosureAlloc] -> M a) -> M a
 withClosures cs k = do
-  withPlaces LocalPlace (map H.closurePlace cs) $ \ps' -> do
+  withPlaces (map H.closurePlace cs) $ \ps' -> do
     cs' <- traverse lowerClosureAlloc (zip ps' cs)
     k cs'
 
@@ -396,20 +390,12 @@ lowerClosureAlloc (p', H.ClosureAlloc _p l envp (H.EnvAlloc tys xs)) = do
   pure (ClosureAlloc p' l' tys' envp' xs')
 
 
-data PlaceKind = LocalPlace | EnvPlace
-
-withPlace :: PlaceKind -> H.Place -> (Place -> M a) -> M a
-withPlace kind (H.Place s x) k = do
+withPlace :: H.Place -> (Place -> M a) -> M a
+withPlace (H.Place s x) k = do
   s' <- lowerSort s
   x' <- lowerId x
   let p' = Place s' x'
-  (occ, occ') <- case kind of
-    LocalPlace -> pure (H.LocalName x, LocalName x')
-    EnvPlace -> do
-      envp <- asks envEnvPtr >>= \case
-        Nothing -> error "environment reference without environment pointer available"
-        Just envp -> pure envp
-      pure (H.EnvName x, EnvName envp x')
+  let (occ, occ') = (H.LocalName x, LocalName x')
   -- Places that have a closure type are associated with a Thunk Type: the
   -- calling convention used to invoke that closure.
   let
@@ -435,10 +421,10 @@ withTyVar aa@(H.TyVar i) kk k = do
 -- This function implements lowering for a sequence of value bindings.
 -- I also need lowering for a group of value bindings (closure allocation)
 -- Likewise, ctor decls are basically unordered, and introduced as a group.
-withPlaces :: PlaceKind -> [H.Place] -> ([Place] -> M a) -> M a
-withPlaces _ [] k = k []
-withPlaces kind (p:ps) k = withPlace kind p $ \p' ->
-  withPlaces kind ps $ \ps' ->
+withPlaces :: [H.Place] -> ([Place] -> M a) -> M a
+withPlaces [] k = k []
+withPlaces (p:ps) k = withPlace p $ \p' ->
+  withPlaces ps $ \ps' ->
     k (p':ps')
 
 withTyVars :: [(H.TyVar, H.Kind)] -> ([(TyVar, Kind)] -> M a) -> M a
