@@ -208,6 +208,16 @@ hoist (C.LetBindC (x1, s1) (x2, s2) op e) = do
       e' <- hoist e
       pure (LetBindH x1' x2' op' e')
 hoist (C.LetFunC fs e) = do
+  withFunClosures fs $ \allocs -> do
+    e' <- hoist e
+    pure (AllocClosure allocs e')
+hoist (C.LetContC ks e) = do
+  withContClosures ks $ \allocs -> do
+    e' <- hoist e
+    pure (AllocClosure allocs e')
+
+withFunClosures :: [C.FunClosureDef] -> ([ClosureAlloc] -> HoistM a) -> HoistM a
+withFunClosures fs cont = do
   let
     (fbinds, fs') = unzip $ map (\def@(C.FunClosureDef f _ _ _) -> 
       let p = asPlace (C.funClosureSort def) f in
@@ -217,6 +227,8 @@ hoist (C.LetFunC fs e) = do
   let extend env = env { localScope = insertMany fbinds (localScope env), nameRefs = insertMany fbinds' (nameRefs env) }
   local extend $ do
     allocs <- for fs' $ \ (p, C.FunClosureDef f env params body) -> do
+      -- This block is basically hoistFunClosure, right?
+      -- (and thus nearly identical to hoistContClosure?)
       -- Pick a name for the closure's code
       fcode <- nameClosureCode f
       envp <- pickEnvironmentPlace (placeName p)
@@ -234,38 +246,16 @@ hoist (C.LetFunC fs e) = do
       enva <- hoistEnvAlloc env
       let alloc = ClosureAlloc p fcode envp enva
       pure alloc
-    e' <- hoist e
-    pure (AllocClosure allocs e')
-hoist (C.LetContC ks e) = do
+    cont allocs
+
+withContClosures :: [(C.Name, C.ContClosureDef)] -> ([ClosureAlloc] -> HoistM a) -> HoistM a
+withContClosures ks cont = do
   -- Continuation closures are necessarily non-recursive, so this case is
   -- simpler than the case for LetFunC.
   (kbinds, allocs) <- fmap unzip $ traverse (\ (k, def) -> hoistContClosure k def) ks
   let kbinds' = [(k, LocalName (placeName k')) | (k, k') <- kbinds]
   let extend env = env { localScope = insertMany kbinds (localScope env), nameRefs = insertMany kbinds' (nameRefs env) }
-  e' <- local extend $ hoist e
-  pure (AllocClosure allocs e')
-
--- hoist (C.LetContC ks e) = do
---   withContClosures ks $ \_ -> do
---     let allocs = _
---     e' <- hoist e
---     pure (AllocClosure allocs e')
---
--- withContClosures :: [(C.Name, C.ContClosureDef)] -> (_ -> HoistM a) -> HoistM a
--- withContClosures ks cont = do
---   -- translate each ContClosureDef to a top-level CodeDecl
---   -- make a ClosureAlloc for each entry
---   -- extend the context
---   -- invoke continuation
---   (kbinds, allocs) <- unzip <$> for ks $ \ (k, C.ContClosureDef env params body) -> do
---     -- invent a code label for this closure
---     -- map 'k' (CC variable) to a Hoist variable
---     -- create a ClosureAlloc describing the code label, etc.
---     -- some nonsense involving the EnvDef (maybe withEnvDef be scoping op, but
---     -- hoistEnvAlloc be occurrence?)
---
---   let extend env = _
---   local extend $ cont _
+  local extend $ cont allocs
 
 hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
 hoistContClosure k def@(C.ContClosureDef env params body) = do
