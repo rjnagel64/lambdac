@@ -167,44 +167,44 @@ hoist (C.CaseC x t ks) = do
   pure $ CaseH x' kind ks'
 hoist (C.LetValC (x, s) v e) = do
   v' <- hoistValue v
-  withPlace LocalPlace x s $ \x' -> do
+  withPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetValH x' v' e')
 hoist (C.LetFstC (x, s) y e) = do
   y' <- hoistVarOcc y
-  withPlace LocalPlace x s $ \x' -> do
+  withPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetProjectH x' y' ProjectFst e')
 hoist (C.LetSndC (x, s) y e) = do
   y' <- hoistVarOcc y
-  withPlace LocalPlace x s $ \x' -> do
+  withPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetProjectH x' y' ProjectSnd e')
 hoist (C.LetFieldC (x, s) y f e) = do
   y' <- hoistVarOcc y
   let f' = hoistFieldLabel f
-  withPlace LocalPlace x s $ \x' -> do
+  withPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetProjectH x' y' (ProjectField f') e')
 hoist (C.LetArithC (x, s) op e) = do
   op' <- hoistArith op
-  withPlace LocalPlace x s $ \x' -> do
+  withPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetPrimH x' op' e')
 hoist (C.LetCompareC (x, s) op e) = do
   op' <- hoistCmp op
-  withPlace LocalPlace x s $ \x' -> do
+  withPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetPrimH x' op' e')
 hoist (C.LetStringOpC (x, s) op e) = do
   op' <- hoistStringOp op
-  withPlace LocalPlace x s $ \x' -> do
+  withPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetPrimH x' op' e')
 hoist (C.LetBindC (x1, s1) (x2, s2) op e) = do
   op' <- hoistPrimIO op
-  withPlace LocalPlace x1 s1 $ \x1' -> do
-    withPlace LocalPlace x2 s2 $ \x2' -> do
+  withPlace x1 s1 $ \x1' -> do
+    withPlace x2 s2 $ \x2' -> do
       e' <- hoist e
       pure (LetBindH x1' x2' op' e')
 hoist (C.LetFunC fs e) = do
@@ -365,7 +365,7 @@ nameClosureCode c@(C.Name x i) = do
 withParameterList :: [C.ClosureParam] -> ([ClosureParam] -> HoistM a) -> HoistM a
 withParameterList [] cont = cont []
 withParameterList (C.ValueParam x s : params) cont =
-  withPlace LocalPlace x s $ \x' ->
+  withPlace x s $ \x' ->
     withParameterList params $ \params' ->
       cont (PlaceParam x' : params')
 withParameterList (C.TypeParam aa k : params) cont =
@@ -423,23 +423,15 @@ hoistArgList xs = traverse f xs
     f (C.TypeArg t) = pure (TypeArg (sortOf t))
     f (C.ValueArg x) = ValueArg <$> hoistVarOcc x
 
-data PlaceKind
-  = LocalPlace
-  | EnvPlace
-
 -- | Extend the local scope with a new place with the given name and sort.
-withPlace :: PlaceKind -> C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
-withPlace kind x s cont = do
+withPlace :: C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
+withPlace x s cont = do
   inScope <- asks localScope
   let x' = go x inScope
+  let xname = LocalName (placeName x')
   let
-    extend env = case kind of
-      LocalPlace ->
-        let xname = LocalName (placeName x') in
-        env { localScope = Map.insert x x' (localScope env), nameRefs = Map.insert x xname (nameRefs env) }
-      EnvPlace ->
-        let xname = EnvName (placeName x') in
-        env { envScope = Map.insert x x' (envScope env), nameRefs = Map.insert x xname (nameRefs env) }
+    extend env =
+      env { localScope = Map.insert x x' (localScope env), nameRefs = Map.insert x xname (nameRefs env) }
   local extend $ cont x'
   where
     -- I think this is fine. We might shadow local names, which is bad, but
