@@ -343,7 +343,7 @@ withTyVars ((aa, k) : aas) cont =
 
 withEnvPlaces :: [(C.Name, C.Sort)] -> ([Place] -> HoistM a) -> HoistM a
 withEnvPlaces fields cont = do
-  let fields' = [asPlace x s | (x, s) <- fields]
+  let fields' = [asPlace s x | (x, s) <- fields]
   cont fields'
 
 hoistValue :: C.ValueC -> HoistM ValueH

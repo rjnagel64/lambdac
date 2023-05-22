@@ -67,11 +67,16 @@ import Data.Bifunctor
 import Data.Function (on)
 import Data.Int (Int64)
 import Data.List (intercalate)
+import Data.Maybe (catMaybes)
 import Data.Traversable (for)
 
 import qualified Hoist.IR as H
 
 import Control.Monad.Reader
+
+
+insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
+insertMany xs m = foldr (uncurry Map.insert) m xs
 
 
 lowerProgram :: H.Program -> Program
@@ -101,12 +106,35 @@ lowerCodeDecl (H.CodeDecl (H.CodeLabel l) (envName, H.EnvDecl aas fields) params
       body' <- lowerTerm body
       pure (CodeDecl l' aas' (envName', fields') params' body')
 
-withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [Place] -> M a) -> M a
+withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [(Id, Sort)] -> M a) -> M a
 withEnvironment (envName, H.EnvDecl aas fields) k = do
   withTyVars aas $ \aas' -> do
     withEnvPtr envName $ \envName' -> do
-      withPlaces EnvPlace fields $ \fields' -> do
+      withEnvFields fields $ \fields' -> do
         k aas' envName' fields'
+
+withEnvFields :: [H.Place] -> ([(Id, Sort)] -> M a) -> M a
+withEnvFields fields k = do
+  -- This function is always called in the scope of withEnvPtr, so the error
+  -- cannot be reached.
+  envp <- asks envEnvPtr >>= \case
+    Nothing -> error "environment reference without environment pointer available"
+    Just envp -> pure envp
+
+  (fields', binds, thunkBindsMaybe) <- fmap unzip3 $ for fields $ \ (H.Place s x) -> do
+    s' <- lowerSort s
+    x' <- lowerId x
+    let field' = (x', s')
+    let bind = (H.EnvName x, EnvName envp x')
+    case s' of
+      ClosureH tele -> do
+        let thunkBind = (H.EnvName x, teleThunkType tele)
+        pure (field', bind, Just thunkBind)
+      _ -> do
+        pure (field', bind, Nothing)
+  let thunkBinds = catMaybes thunkBindsMaybe
+  let extend env = env { envNames = insertMany binds (envNames env), envThunkTypes = insertMany thunkBinds (envThunkTypes env) }
+  local extend $ k fields'
 
 withDataDecl :: H.DataDecl -> (DataDecl -> M a) -> M a
 withDataDecl (H.DataDecl tc ki cds) k = do
@@ -556,7 +584,7 @@ data Decl
 
 
 data CodeDecl
-  = CodeDecl CodeLabel [(TyVar, Kind)] (Id, [Place]) [ClosureParam] TermH
+  = CodeDecl CodeLabel [(TyVar, Kind)] (Id, [(Id, Sort)]) [ClosureParam] TermH
 
 codeDeclName :: CodeDecl -> CodeLabel
 codeDeclName (CodeDecl c _ _ _ _) = c 
@@ -911,7 +939,8 @@ pprintClosureDecl n (CodeDecl f aas (name, fs) params e) =
   where
     tyParams = intercalate ", " typeFields
     typeFields = map (\ (aa, k) -> "@" ++ show aa ++ " : " ++ pprintKind k) aas
-    envParam = show name ++ " : {" ++ intercalate ", " (map pprintPlace fs) ++ "}"
+    envParam = show name ++ " : {" ++ intercalate ", " (map pprintEnvField fs) ++ "}"
+    pprintEnvField (x, s) = show x ++ " : " ++ pprintSort s
     valueParams = intercalate ", " (map pprintParam params)
 
 pprintDataDecl :: Int -> DataDecl -> String

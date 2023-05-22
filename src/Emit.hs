@@ -348,8 +348,7 @@ emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
 
 
 emitClosureDecl :: DataEnv -> CodeDecl -> [Line]
-emitClosureDecl denv cd@(CodeDecl d _aas (envName, places) params e) =
-  let fields = [(placeName p, placeSort p) | p <- places] in
+emitClosureDecl denv cd@(CodeDecl d _aas (envName, fields) params e) =
   emitClosureEnv cns fields ++
   emitClosureCode denv cns envName params e ++
   emitClosureEnter tns cns ty
