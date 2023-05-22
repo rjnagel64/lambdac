@@ -167,44 +167,44 @@ hoist (C.CaseC x t ks) = do
   pure $ CaseH x' kind ks'
 hoist (C.LetValC (x, s) v e) = do
   v' <- hoistValue v
-  withPlace x s $ \x' -> do
+  withPlace LocalPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetValH x' v' e')
 hoist (C.LetFstC (x, s) y e) = do
   y' <- hoistVarOcc y
-  withPlace x s $ \x' -> do
+  withPlace LocalPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetProjectH x' y' ProjectFst e')
 hoist (C.LetSndC (x, s) y e) = do
   y' <- hoistVarOcc y
-  withPlace x s $ \x' -> do
+  withPlace LocalPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetProjectH x' y' ProjectSnd e')
 hoist (C.LetFieldC (x, s) y f e) = do
   y' <- hoistVarOcc y
   let f' = hoistFieldLabel f
-  withPlace x s $ \x' -> do
+  withPlace LocalPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetProjectH x' y' (ProjectField f') e')
 hoist (C.LetArithC (x, s) op e) = do
   op' <- hoistArith op
-  withPlace x s $ \x' -> do
+  withPlace LocalPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetPrimH x' op' e')
 hoist (C.LetCompareC (x, s) op e) = do
   op' <- hoistCmp op
-  withPlace x s $ \x' -> do
+  withPlace LocalPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetPrimH x' op' e')
 hoist (C.LetStringOpC (x, s) op e) = do
   op' <- hoistStringOp op
-  withPlace x s $ \x' -> do
+  withPlace LocalPlace x s $ \x' -> do
     e' <- hoist e
     pure (LetPrimH x' op' e')
 hoist (C.LetBindC (x1, s1) (x2, s2) op e) = do
   op' <- hoistPrimIO op
-  withPlace x1 s1 $ \x1' -> do
-    withPlace x2 s2 $ \x2' -> do
+  withPlace LocalPlace x1 s1 $ \x1' -> do
+    withPlace LocalPlace x2 s2 $ \x2' -> do
       e' <- hoist e
       pure (LetBindH x1' x2' op' e')
 hoist (C.LetFunC fs e) = do
@@ -221,18 +221,17 @@ hoist (C.LetFunC fs e) = do
       fcode <- nameClosureCode f
       envp <- pickEnvironmentPlace (placeName p)
 
+      -- Extend context with environment
       (envd, envPlaces) <- hoistEnvDef env
       let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- envPlaces]
-
-      -- hoist the closure code and emit
-      let (localPlaces, params') = convertParameters params
-      let newLocalRefs = [(x, LocalName (placeName x')) | (x, x') <- localPlaces]
-      let newNameRefs = newEnvRefs ++ newLocalRefs
-      local (\env -> HoistEnv (Map.fromList localPlaces) (Map.fromList envPlaces) (insertMany newNameRefs (nameRefs env))) $ do
-        envn <- pickEnvironmentName
-        body' <- hoist body
-        let decl = CodeDecl fcode (envn, envd) params' body'
-        tellClosure decl
+      local (\env -> env { envScope = Map.fromList envPlaces, nameRefs = insertMany newEnvRefs (nameRefs env) }) $ do
+        -- Extend context with parameter list
+        withParameterList params $ \params' -> do
+          -- hoist the closure body and emit a code declaration
+          envn <- pickEnvironmentName
+          body' <- hoist body
+          let decl = CodeDecl fcode (envn, envd) params' body'
+          tellClosure decl
 
       enva <- hoistEnvAlloc env
       let alloc = ClosureAlloc p fcode envp enva
@@ -269,15 +268,6 @@ hoist (C.LetContC ks e) = do
 --
 --   let extend env = _
 --   local extend $ cont _
---
--- hoistEnvAlloc :: C.EnvDef -> HoistM EnvAlloc
--- hoistEnvAlloc (C.EnvDef tys xs) = _
---
--- withEnvDef :: C.EnvDef -> (EnvDef -> HoistM a) -> HoistM a
--- withEnvDef (C.EnvDef tys xs) cont =
---   withTyVars tys $ \tys' -> do
---     withEnvPlaces xs $ \xs' -> do
---       cont (EnvDef tys xs')
 
 hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
 hoistContClosure k def@(C.ContClosureDef env params body) = do
@@ -290,10 +280,9 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
   (envd, envPlaces) <- hoistEnvDef env
   let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- envPlaces]
   local (\env -> env { envScope = Map.fromList envPlaces, nameRefs = insertMany newEnvRefs (nameRefs env) }) $ do
+  -- withEnvDef env $ \envd -> do
     -- Extend context with parameter list
-    let (localPlaces, params') = convertParameters (C.makeClosureParams [] params)
-    let newLocalRefs = [(x, LocalName (placeName x')) | (x, x') <- localPlaces]
-    local (\env -> env { localScope = Map.fromList localPlaces, nameRefs = insertMany newLocalRefs (nameRefs env) }) $ do
+    withParameterList (C.makeClosureParams [] params) $ \params' -> do
       -- hoist the closure body and emit a code declaration
       envn <- pickEnvironmentName
       body' <- hoist body
@@ -332,6 +321,30 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
     (,) (placeName (asPlace s x)) <$> hoistVarOcc x
   let enva = EnvAlloc tyFields allocFields
   pure enva
+
+-- Problem: this ends up renaming the environment places, leading to record
+-- label mismatches between the EnvDecl and the corresponding EnvAlloc.
+--
+-- I really don't think the value fields of an EnvDecl should be Place.
+-- They really aren't Place:s in the same way as value bindings. They're much
+-- more like record labels, which do not have scoping/shadowing.
+withEnvDef :: C.EnvDef -> (EnvDecl -> HoistM a) -> HoistM a
+withEnvDef (C.EnvDef tys xs) cont =
+  withTyVars tys $ \tys' -> do
+    withEnvPlaces xs $ \xs' -> do
+      cont (EnvDecl tys' xs')
+
+withTyVars :: [(C.TyVar, C.Kind)] -> ([(TyVar, Kind)] -> HoistM a) -> HoistM a
+withTyVars [] cont = cont []
+withTyVars ((aa, k) : aas) cont =
+  withTyVar aa k $ \aa' k' ->
+    withTyVars aas $ \aas' ->
+      cont ((aa', k') : aas')
+
+withEnvPlaces :: [(C.Name, C.Sort)] -> ([Place] -> HoistM a) -> HoistM a
+withEnvPlaces fields cont = do
+  let fields' = [asPlace x s | (x, s) <- fields]
+  cont fields'
 
 hoistValue :: C.ValueC -> HoistM ValueH
 hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
@@ -381,33 +394,10 @@ nameClosureCode c@(C.Name x i) = do
   else
     nameClosureCode (C.prime c)
 
-convertParameters :: [C.ClosureParam] -> ([(C.Name, Place)], [ClosureParam])
-convertParameters params = (places, params')
-  where
-    -- The reason why this fold looks weird is because it uses the
-    -- foldl-via-foldr trick: using a chain of updates as the accumulating
-    -- parameter.
-    --
-    -- This is because place and info parameters are supposed to be extended
-    -- from left to right, but using foldl directly would mean repeated snoc
-    -- operations to build the Hoist parameter telescope
-    --
-    -- I guess I could have used foldl and a DList H.ClosureParam, but eh, whatever.
-    (places, params') =
-      let (ps, te) = foldr addParam (id, []) params in
-      (ps [], te)
-
-    addParam (C.TypeParam aa k) (ps, tele) =
-      let aa' = asTyVar aa in
-      (ps, TypeParam aa' (kindOf k) : tele)
-    addParam (C.ValueParam x s) (ps, tele) =
-      let p = asPlace s x in
-      (ps . (:) (x, p), PlaceParam p : tele)
-
 withParameterList :: [C.ClosureParam] -> ([ClosureParam] -> HoistM a) -> HoistM a
 withParameterList [] cont = cont []
 withParameterList (C.ValueParam x s : params) cont =
-  withPlace x s $ \x' ->
+  withPlace LocalPlace x s $ \x' ->
     withParameterList params $ \params' ->
       cont (PlaceParam x' : params')
 withParameterList (C.TypeParam aa k : params) cont =
@@ -465,12 +455,23 @@ hoistArgList xs = traverse f xs
     f (C.TypeArg t) = pure (TypeArg (sortOf t))
     f (C.ValueArg x) = ValueArg <$> hoistVarOcc x
 
+data PlaceKind
+  = LocalPlace
+  | EnvPlace
+
 -- | Extend the local scope with a new place with the given name and sort.
-withPlace :: C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
-withPlace x s cont = do
+withPlace :: PlaceKind -> C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
+withPlace kind x s cont = do
   inScope <- asks localScope
   let x' = go x inScope
-  let extend env = env { localScope = Map.insert x x' (localScope env), nameRefs = Map.insert x (LocalName (placeName x')) (nameRefs env) }
+  let
+    extend env = case kind of
+      LocalPlace ->
+        let xname = LocalName (placeName x') in
+        env { localScope = Map.insert x x' (localScope env), nameRefs = Map.insert x xname (nameRefs env) }
+      EnvPlace ->
+        let xname = EnvName (placeName x') in
+        env { envScope = Map.insert x x' (envScope env), nameRefs = Map.insert x xname (nameRefs env) }
   local extend $ cont x'
   where
     -- I think this is fine. We might shadow local names, which is bad, but
