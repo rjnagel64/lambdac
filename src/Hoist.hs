@@ -226,26 +226,7 @@ withFunClosures fs cont = do
   let fbinds' = [(f, LocalName (placeName f')) | (f, f') <- fbinds]
   let extend env = env { localScope = insertMany fbinds (localScope env), nameRefs = insertMany fbinds' (nameRefs env) }
   local extend $ do
-    allocs <- for fs' $ \ (p, C.FunClosureDef f env params body) -> do
-      -- This block is basically hoistFunClosure, right?
-      -- (and thus nearly identical to hoistContClosure?)
-      -- Pick a name for the closure's code
-      fcode <- nameClosureCode f
-      envp <- pickEnvironmentPlace (placeName p)
-
-      -- Extend context with environment
-      withEnvDef env $ \envd -> do
-        -- Extend context with parameter list
-        withParameterList params $ \params' -> do
-          -- hoist the closure body and emit a code declaration
-          envn <- pickEnvironmentName
-          body' <- hoist body
-          let decl = CodeDecl fcode (envn, envd) params' body'
-          tellClosure decl
-
-      enva <- hoistEnvAlloc env
-      let alloc = ClosureAlloc p fcode envp enva
-      pure alloc
+    allocs <- traverse (\ (p, def) -> hoistFunClosure p def) fs'
     cont allocs
 
 withContClosures :: [(C.Name, C.ContClosureDef)] -> ([ClosureAlloc] -> HoistM a) -> HoistM a
@@ -256,6 +237,26 @@ withContClosures ks cont = do
   let kbinds' = [(k, LocalName (placeName k')) | (k, k') <- kbinds]
   let extend env = env { localScope = insertMany kbinds (localScope env), nameRefs = insertMany kbinds' (nameRefs env) }
   local extend $ cont allocs
+
+hoistFunClosure :: Place -> C.FunClosureDef -> HoistM ClosureAlloc
+hoistFunClosure p (C.FunClosureDef f env params body) = do
+  -- Pick a name for the closure's code
+  fcode <- nameClosureCode f
+  envp <- pickEnvironmentPlace (placeName p)
+
+  -- Extend context with environment
+  withEnvDef env $ \envd -> do
+    -- Extend context with parameter list
+    withParameterList params $ \params' -> do
+      -- hoist the closure body and emit a code declaration
+      envn <- pickEnvironmentName
+      body' <- hoist body
+      let decl = CodeDecl fcode (envn, envd) params' body'
+      tellClosure decl
+
+  enva <- hoistEnvAlloc env
+  let alloc = ClosureAlloc p fcode envp enva
+  pure alloc
 
 hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
 hoistContClosure k def@(C.ContClosureDef env params body) = do
