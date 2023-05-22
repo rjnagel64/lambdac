@@ -349,7 +349,8 @@ emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
 
 emitClosureDecl :: DataEnv -> CodeDecl -> [Line]
 emitClosureDecl denv cd@(CodeDecl d _aas (envName, places) params e) =
-  emitClosureEnv cns places ++
+  let fields = [(placeName p, placeSort p) | p <- places] in
+  emitClosureEnv cns fields ++
   emitClosureCode denv cns envName params e ++
   emitClosureEnter tns cns ty
   where
@@ -361,7 +362,7 @@ emitClosureDecl denv cd@(CodeDecl d _aas (envName, places) params e) =
 -- This is part of what I hope to achieve with Lower.IR
 -- (Instead, Lower.IR.CodeDecl would contain a TyCon/TyConApp for the type of
 -- its environment.)
-emitClosureEnv :: ClosureNames -> [Place] -> [Line]
+emitClosureEnv :: ClosureNames -> [(Id, Sort)] -> [Line]
 emitClosureEnv ns envd =
   let ns' = closureEnvName ns in
   emitEnvDecl ns' envd ++
@@ -370,16 +371,17 @@ emitClosureEnv ns envd =
 
 -- These need better names, to reflect the fact that an environment is
 -- basically just a record type.
-emitEnvDecl :: EnvNames -> [Place] -> [Line]
+emitEnvDecl :: EnvNames -> [(Id, Sort)] -> [Line]
 emitEnvDecl ns fs =
   ["struct " ++ envTypeName ns ++ " {"
   ,"    struct alloc_header header;"] ++
   map mkField fs ++
   ["};"]
   where
-    mkField f = "    " ++ emitPlace f ++ ";"
+    -- mkField f = "    " ++ emitPlace f ++ ";"
+    mkField (x, s) = "    " ++ emitPlace (Place s x) ++ ";"
 
-emitEnvAlloc :: EnvNames -> [Place] -> [Line]
+emitEnvAlloc :: EnvNames -> [(Id, Sort)] -> [Line]
 emitEnvAlloc ns fs =
   ["struct " ++ envTypeName ns ++ " *" ++ envAllocName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ envTypeName ns ++ " *_env = malloc(sizeof(struct " ++ envTypeName ns ++ "));"]++
@@ -389,10 +391,10 @@ emitEnvAlloc ns fs =
   ,"}"]
   where
     paramList = if null params then "void" else commaSep params
-    params = map emitPlace fs
-    assignField (Place _ x) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
+    params = map (\ (x, s) -> emitPlace (Place s x)) fs
+    assignField (x, _) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
 
-emitEnvInfo :: EnvNames -> [Place] -> [Line]
+emitEnvInfo :: EnvNames -> [(Id, Sort)] -> [Line]
 emitEnvInfo ns fs =
   ["void " ++ envTraceName ns ++ "(struct alloc_header *alloc) {"
   ,"    " ++ envTy ++ show envName ++ " = (" ++ envTy ++ ")alloc;"] ++
@@ -402,7 +404,7 @@ emitEnvInfo ns fs =
   where
     envName = Id "env"
     envTy = "struct " ++ envTypeName ns ++ " *"
-    traceField (Place _ x) =
+    traceField (x, _) =
       let field = asAlloc (emitName (EnvName envName x)) in
       "    mark_gray(" ++ field ++ ");"
 
