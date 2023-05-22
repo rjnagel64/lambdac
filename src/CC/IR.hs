@@ -139,10 +139,10 @@ data Kind
 data Program = Program [DataDecl] TermC
 
 data DataDecl
-  = DataDecl TyCon [(TyVar, Kind)] [CtorDecl]
+  = DataDecl TyCon Kind [CtorDecl]
 
 data CtorDecl
-  = CtorDecl Ctor [Sort]
+  = CtorDecl Ctor [(TyVar, Kind)] [Sort]
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
@@ -260,14 +260,15 @@ pprintProgram :: Program -> String
 pprintProgram (Program ds e) = concatMap (pprintDataDecl 0) ds ++ pprintTerm 0 e
 
 pprintDataDecl :: Int -> DataDecl -> String
-pprintDataDecl n (DataDecl tc params ctors) =
-  indent n $ "data " ++ show tc ++ intercalate " " (map f params) ++ " where\n" ++
+pprintDataDecl n (DataDecl tc kind ctors) =
+  indent n $ "data " ++ show tc ++ " : " ++ pprintKind kind ++ " where\n" ++
   unlines (map (pprintCtorDecl (n+2)) ctors)
-  where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
 
 pprintCtorDecl :: Int -> CtorDecl -> String
-pprintCtorDecl n (CtorDecl c args) =
-  indent n $ show c ++ "(" ++ intercalate ", " (map pprintSort args) ++ ")"
+pprintCtorDecl n (CtorDecl c typarams args) =
+  indent n $ show c ++ "[" ++ intercalate ", " (map pprintTyBind typarams) ++ "](" ++ intercalate ", " (map pprintSort args) ++ ")"
+  where
+    pprintTyBind (aa, k) = "@" ++ show aa ++ " : " ++ pprintKind k
 
 pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"

@@ -150,13 +150,14 @@ cconvProgram (K.Program ds e) = runConv $ do
     runConv = fst . runWriter . flip runReaderT emptyContext . runConvM
 
 cconvDataDecl :: K.DataDecl -> ConvM DataDecl
-cconvDataDecl (K.DataDecl (K.TyCon tc) params ctors) =
-  withTys params $ \params' -> do
-    ctors' <- traverse cconvCtorDecl ctors
-    pure (DataDecl (TyCon tc) params' ctors')
+cconvDataDecl (K.DataDecl (K.TyCon tc) params ctors) = do
+  kind <- cconvKind $ foldr (\ (_, k1) k2 -> K.KArrK k1 k2) K.StarK params
+  ctors' <- traverse (cconvCtorDecl params) ctors
+  pure (DataDecl (TyCon tc) kind ctors')
 
-cconvCtorDecl :: K.CtorDecl -> ConvM CtorDecl
-cconvCtorDecl (K.CtorDecl (K.Ctor c) args) = CtorDecl (Ctor c) <$> traverse cconvType args
+cconvCtorDecl :: [(K.TyVar, K.KindK)] -> K.CtorDecl -> ConvM CtorDecl
+cconvCtorDecl params (K.CtorDecl (K.Ctor c) args) =
+  withTys params $ \params' -> CtorDecl (Ctor c) params' <$> traverse cconvType args
 
 cconvType :: K.TypeK -> ConvM Sort
 cconvType (K.TyVarOccK aa) = Alloc <$> cconvTyVar aa

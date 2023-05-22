@@ -125,14 +125,14 @@ runHoist =
 
 hoistDataDecls :: [C.DataDecl] -> [DataDecl]
 hoistDataDecls [] = []
-hoistDataDecls (C.DataDecl (C.TyCon tc) params ctors : ds) = DataDecl (TyCon tc) kind ctors' : hoistDataDecls ds
+hoistDataDecls (C.DataDecl (C.TyCon tc) kind ctors : ds) = DataDecl (TyCon tc) kind' ctors' : hoistDataDecls ds
   where
-    kind = foldr (\ (_, k1) k2 -> KArr (kindOf k1) k2) Star params
-    params' = map (\ (aa, k) -> (asTyVar aa, kindOf k)) params
-    ctors' = map (hoistCtorDecl params') ctors
+    kind' = kindOf kind
+    ctors' = map hoistCtorDecl ctors
 
-hoistCtorDecl :: [(TyVar, Kind)] -> C.CtorDecl -> CtorDecl
-hoistCtorDecl params' (C.CtorDecl (C.Ctor c) args) = CtorDecl (Ctor c) params' (zipWith f [0..] args)
+hoistCtorDecl :: C.CtorDecl -> CtorDecl
+hoistCtorDecl (C.CtorDecl (C.Ctor c) params args) =
+  withTyVars' params $ \params' -> CtorDecl (Ctor c) params' (zipWith f [0..] args)
   where
     f :: Int -> C.Sort -> (Id, Sort)
     f i s = (Id ("arg" ++ show i), sortOf s)
@@ -442,6 +442,13 @@ withTyVars ((aa, k) : aas) cont =
   withTyVar aa k $ \aa' k' ->
     withTyVars aas $ \aas' ->
       cont ((aa', k') : aas')
+
+-- a sketchy, non-monadic version of withTyVars that reflects the fact that I
+-- don't actually perform any monadic effects in withTyVar.
+--
+-- Please refactor away from withTyVars' promptly.
+withTyVars' :: [(C.TyVar, C.Kind)] -> ([(TyVar, Kind)] -> a) -> a
+withTyVars' aas cont = let aas' = map (\ (aa, k) -> (asTyVar aa, kindOf k)) aas in cont aas'
 
 withEnvFields :: [(C.Name, C.Sort)] -> ([(Id, Sort)] -> HoistM a) -> HoistM a
 withEnvFields fields cont = do
