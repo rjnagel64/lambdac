@@ -282,7 +282,7 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
 withEnvDef :: C.EnvDef -> (EnvDecl -> HoistM a) -> HoistM a
 withEnvDef (C.EnvDef tys xs) cont =
   withTyVars tys $ \tys' -> do
-    withEnvPlaces xs $ \xs' -> do
+    withEnvFields xs $ \xs' -> do
       cont (EnvDecl tys' xs')
 
 hoistEnvAlloc :: C.EnvDef -> HoistM EnvAlloc
@@ -443,10 +443,10 @@ withTyVars ((aa, k) : aas) cont =
     withTyVars aas $ \aas' ->
       cont ((aa', k') : aas')
 
-withEnvPlaces :: [(C.Name, C.Sort)] -> ([Place] -> HoistM a) -> HoistM a
-withEnvPlaces fields cont = do
+withEnvFields :: [(C.Name, C.Sort)] -> ([(Id, Sort)] -> HoistM a) -> HoistM a
+withEnvFields fields cont = do
   let binds = [(x, asPlace s x) | (x, s) <- fields]
-  let fields' = [x' | (_x, x') <- binds]
+  let fields' = [(placeName x', placeSort x') | (_x, x') <- binds]
   let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- binds]
 
   let extend env = env { envScope = Map.fromList binds, nameRefs = insertMany newEnvRefs (nameRefs env) }

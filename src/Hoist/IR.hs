@@ -26,7 +26,6 @@ module Hoist.IR
 
     , CodeDecl(..)
     , codeDeclName
-    , codeDeclTele
     , EnvDecl(..)
     , ClosureParam(..)
 
@@ -132,13 +131,7 @@ data CodeDecl
 codeDeclName :: CodeDecl -> CodeLabel
 codeDeclName (CodeDecl c _ _ _) = c 
 
-codeDeclTele :: CodeDecl -> ClosureTele
-codeDeclTele (CodeDecl _ _ params _) = ClosureTele (map f params)
-  where
-    f (PlaceParam p) = ValueTele (placeSort p)
-    f (TypeParam aa k) = TypeTele aa k
-
-data EnvDecl = EnvDecl [(TyVar, Kind)] [Place]
+data EnvDecl = EnvDecl [(TyVar, Kind)] [(Id, Sort)]
 
 data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
 
@@ -482,7 +475,8 @@ pprintClosureDecl n (CodeDecl f (name, EnvDecl aas fs) params e) =
   where
     tyParams = intercalate ", " typeFields
     typeFields = map (\ (aa, k) -> "@" ++ show aa ++ " : " ++ pprintKind k) aas
-    envParam = show name ++ " : {" ++ intercalate ", " (map pprintPlace fs) ++ "}"
+    envParam = show name ++ " : {" ++ intercalate ", " (map pprintEnvField fs) ++ "}"
+    pprintEnvField (x, s) = show x ++ " : " ++ pprintSort s
     valueParams = intercalate ", " (map pprintParam params)
 
 pprintDataDecl :: Int -> DataDecl -> String

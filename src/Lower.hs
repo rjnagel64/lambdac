@@ -113,11 +113,11 @@ withEnvironment (envName, H.EnvDecl aas fields) k = do
       withEnvFields envName' fields $ \fields' -> do
         k aas' envName' fields'
 
-withEnvFields :: Id -> [H.Place] -> ([(Id, Sort)] -> M a) -> M a
+withEnvFields :: Id -> [(H.Id, H.Sort)] -> ([(Id, Sort)] -> M a) -> M a
 withEnvFields envp fields k = do
-  (fields', binds, thunkBindsMaybe) <- fmap unzip3 $ for fields $ \ (H.Place s x) -> do
-    s' <- lowerSort s
+  (fields', binds, thunkBindsMaybe) <- fmap unzip3 $ for fields $ \ (x, s) -> do
     x' <- lowerId x
+    s' <- lowerSort s
     let field' = (x', s')
     let bind = (H.EnvName x, EnvName envp x')
     case s' of

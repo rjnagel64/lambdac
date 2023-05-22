@@ -219,26 +219,31 @@ checkCtorDecl (CtorDecl _c tys args) = do
 
 -- | Type-check a top-level code declaration and add it to the signature.
 checkCodeDecl :: CodeDecl -> TC ()
-checkCodeDecl decl@(CodeDecl cl (envp, envd) params body) = do
+checkCodeDecl decl@(CodeDecl cl (_envp, envd) params body) = do
   -- Check the environment and parameters to populate the environment scope for
   -- the typing context
-  (typarams, recordparam) <- checkEnvDecl envd
-  local (\ (Context _ _ _) -> Context Map.empty (Map.fromList typarams) recordparam) $ do
-    withParams params $ checkTerm body
-  let tele = codeDeclTele decl
-  let declTy = ClosureDeclType typarams recordparam tele
+  withEnvDecl envd $ 
+    withParams params $
+      checkTerm body
+  let declTy = codeDeclType decl
   modify (\ (Signature clos tcs) -> Signature (Map.insert cl declTy clos) tcs)
 
 -- | Check that all field labels are disjoint, and that each field type is
 -- well-formed.
-checkEnvDecl :: EnvDecl -> TC ([(TyVar, Kind)], [(Id, Sort)])
-checkEnvDecl (EnvDecl tys places) = do
-  checkUniqueLabels [placeName p | p <- places]
+withEnvDecl :: EnvDecl -> TC a -> TC a
+withEnvDecl (EnvDecl tys fields) m = do
+  checkUniqueLabels [x | (x, _) <- fields]
+  withTyVars tys $ traverse_ (\ (_x, s) -> checkSort s Star) fields
+  let extend (Context _ _ _) = Context Map.empty (Map.fromList tys) fields
+  local extend $ m
 
-  fields <- withTyVars tys $ for places $ \ (Place s x) -> do
-    checkSort s Star
-    pure (x, s)
-  pure (tys, fields)
+codeDeclType :: CodeDecl -> ClosureDeclType
+codeDeclType (CodeDecl _cl (_envp, (EnvDecl typarams recordparam)) params _body) =
+  ClosureDeclType typarams recordparam (ClosureTele (map f params))
+  where
+    f (PlaceParam p) = ValueTele (placeSort p)
+    f (TypeParam aa k) = TypeTele aa k
+
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()
