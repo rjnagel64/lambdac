@@ -222,9 +222,7 @@ hoist (C.LetFunC fs e) = do
       envp <- pickEnvironmentPlace (placeName p)
 
       -- Extend context with environment
-      (envd, envPlaces) <- hoistEnvDef env
-      let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- envPlaces]
-      local (\env -> env { envScope = Map.fromList envPlaces, nameRefs = insertMany newEnvRefs (nameRefs env) }) $ do
+      withEnvDef env $ \envd -> do
         -- Extend context with parameter list
         withParameterList params $ \params' -> do
           -- hoist the closure body and emit a code declaration
@@ -277,10 +275,7 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
   envp <- pickEnvironmentPlace (placeName kplace)
 
   -- Extend context with environment
-  (envd, envPlaces) <- hoistEnvDef env
-  let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- envPlaces]
-  local (\env -> env { envScope = Map.fromList envPlaces, nameRefs = insertMany newEnvRefs (nameRefs env) }) $ do
-  -- withEnvDef env $ \envd -> do
+  withEnvDef env $ \envd -> do
     -- Extend context with parameter list
     withParameterList (C.makeClosureParams [] params) $ \params' -> do
       -- hoist the closure body and emit a code declaration
@@ -293,14 +288,11 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
   let alloc = ClosureAlloc kplace kcode envp enva
   pure ((k, kplace), alloc)
 
-hoistEnvDef :: C.EnvDef -> HoistM (EnvDecl, [(C.Name, Place)])
-hoistEnvDef (C.EnvDef tyfields fields) = do
-  let declTyFields = map (\ (aa, k) -> (asTyVar aa, kindOf k)) tyfields
-  let declFields = map (\ (x, s) -> asPlace s x) fields
-  let envd = EnvDecl declTyFields declFields
-
-  let places = map (\ (x, s) -> (x, asPlace s x)) fields
-  pure (envd, places)
+withEnvDef :: C.EnvDef -> (EnvDecl -> HoistM a) -> HoistM a
+withEnvDef (C.EnvDef tys xs) cont =
+  withTyVars tys $ \tys' -> do
+    withEnvPlaces xs $ \xs' -> do
+      cont (EnvDecl tys' xs')
 
 hoistEnvAlloc :: C.EnvDef -> HoistM EnvAlloc
 hoistEnvAlloc (C.EnvDef tyfields fields) = do
@@ -321,30 +313,6 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
     (,) (placeName (asPlace s x)) <$> hoistVarOcc x
   let enva = EnvAlloc tyFields allocFields
   pure enva
-
--- Problem: this ends up renaming the environment places, leading to record
--- label mismatches between the EnvDecl and the corresponding EnvAlloc.
---
--- I really don't think the value fields of an EnvDecl should be Place.
--- They really aren't Place:s in the same way as value bindings. They're much
--- more like record labels, which do not have scoping/shadowing.
-withEnvDef :: C.EnvDef -> (EnvDecl -> HoistM a) -> HoistM a
-withEnvDef (C.EnvDef tys xs) cont =
-  withTyVars tys $ \tys' -> do
-    withEnvPlaces xs $ \xs' -> do
-      cont (EnvDecl tys' xs')
-
-withTyVars :: [(C.TyVar, C.Kind)] -> ([(TyVar, Kind)] -> HoistM a) -> HoistM a
-withTyVars [] cont = cont []
-withTyVars ((aa, k) : aas) cont =
-  withTyVar aa k $ \aa' k' ->
-    withTyVars aas $ \aas' ->
-      cont ((aa', k') : aas')
-
-withEnvPlaces :: [(C.Name, C.Sort)] -> ([Place] -> HoistM a) -> HoistM a
-withEnvPlaces fields cont = do
-  let fields' = [asPlace s x | (x, s) <- fields]
-  cont fields'
 
 hoistValue :: C.ValueC -> HoistM ValueH
 hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
@@ -484,4 +452,20 @@ withPlace kind x s cont = do
 -- I don't have scoping for tyvars yet, but this is where it would go.
 withTyVar :: C.TyVar -> C.Kind -> (TyVar -> Kind -> HoistM a) -> HoistM a
 withTyVar aa k cont = cont (asTyVar aa) (kindOf k)
+
+withTyVars :: [(C.TyVar, C.Kind)] -> ([(TyVar, Kind)] -> HoistM a) -> HoistM a
+withTyVars [] cont = cont []
+withTyVars ((aa, k) : aas) cont =
+  withTyVar aa k $ \aa' k' ->
+    withTyVars aas $ \aas' ->
+      cont ((aa', k') : aas')
+
+withEnvPlaces :: [(C.Name, C.Sort)] -> ([Place] -> HoistM a) -> HoistM a
+withEnvPlaces fields cont = do
+  let binds = [(x, asPlace s x) | (x, s) <- fields]
+  let fields' = [x' | (_x, x') <- binds]
+  let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- binds]
+
+  let extend env = env { envScope = Map.fromList binds, nameRefs = insertMany newEnvRefs (nameRefs env) }
+  local extend $ cont fields'
 
