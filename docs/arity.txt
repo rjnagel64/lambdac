@@ -129,4 +129,9 @@ adder arg1 k2
 Assume all functions are non-recursive, so I don't have to worry about
 iteration to fixpoint. (yet)
 
-TODO: Figure out rules for how to start the analysis, propagate the analysis
+How do I start the analysis/propagate the analysis
+
+It's reasonably obvious in direct style (Call Arity glosses over the
+forward-only arity analysis), but not very clear once we're in CPS and already
+uncurried (but with 1-argument functions). (Because chains of applications have
+been spread out by continuations, so it's hard to count arguments, etc.)
