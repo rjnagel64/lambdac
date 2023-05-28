@@ -135,12 +135,15 @@ lookupTyVar :: TyVar -> TC KindK
 lookupTyVar x = asks tyContext >>= maybe err pure . Map.lookup x
   where err = throwError (TyNotInScope x)
 
-lookupTyCon :: TyCon -> TC DataDecl
-lookupTyCon x = gets sigTyCons >>= maybe err pure . Map.lookup x
+lookupTyCon :: TyCon -> TC KindK
+lookupTyCon tc = dataDeclKind <$> lookupDataDecl tc
+
+lookupDataDecl :: TyCon -> TC DataDecl
+lookupDataDecl x = gets sigTyCons >>= maybe err pure . Map.lookup x
   where err = throwError (TyConNotInScope x)
 
 dataDeclKind :: DataDecl -> KindK
-dataDeclKind (DataDecl _ params _) = foldr (\ (_, k1) k2 -> KArrK k1 k2) StarK params
+dataDeclKind (DataDecl _ kind _) = kind
 
 equalTypes :: TypeK -> TypeK -> TC ()
 equalTypes expected actual =
@@ -175,14 +178,24 @@ checkProgram (Program ds e) = runTC $ do
 
 withDataDecls :: [DataDecl] -> TC a -> TC a
 withDataDecls [] m = m
-withDataDecls (dd@(DataDecl tc params ctors) : ds) m = do
+withDataDecls (dd@(DataDecl tc _ ctors) : ds) m = do
   modify (\ (Signature tcs) -> Signature (Map.insert tc dd tcs))
-  withTyVars params $ traverse_ checkCtorDecl ctors
-  withDataDecls ds m
+  withCtorDecls ctors $ do
+    withDataDecls ds m
+
+withCtorDecls :: [CtorDecl] -> TC a -> TC a
+withCtorDecls ctors m = do
+  -- check that ctors are distinct
+  -- check that ctor types are well-formed
+  traverse_ checkCtorDecl ctors
+  -- Not a typo. Information about ctors is currently stored in the Signature,
+  -- not the Context.
+  let extend env = env
+  local extend $ m
 
 -- Hmm. Do I need to record ctor -> type bindings? (or ctor -> tycon? or anything?)
 checkCtorDecl :: CtorDecl -> TC ()
-checkCtorDecl (CtorDecl c args) = traverse_ (\t -> checkType t StarK) args
+checkCtorDecl (CtorDecl c params args) = withTyVars params $ traverse_ (\t -> checkType t StarK) args
 
 
 check :: TermK -> TC ()
@@ -297,6 +310,7 @@ checkCompare (CmpEqCharK x y) = checkTmVar x CharK *> checkTmVar y CharK
 checkStringOp :: StringOpK -> TC TypeK
 checkStringOp (ConcatK x y) = checkTmVar x StringK *> checkTmVar y StringK *> pure StringK
 checkStringOp (IndexK x y) = checkTmVar x StringK *> checkTmVar y IntK *> pure CharK
+checkStringOp (LengthK x) = checkTmVar x StringK *> pure IntK
 
 checkIntBinOp :: TmVar -> TmVar -> TC ()
 checkIntBinOp x y = do
@@ -343,14 +357,14 @@ checkCtorApp c args tcapp@(TyConApp tc _) = do
   case Map.lookup c ctors of
     Nothing -> throwError (InvalidCtor c tc)
     Just argTys -> checkCtorArgs args argTys
-checkCtorApp _ _ _ = error "ctor application can only construct a TyCon, not bool or t + s"
 
 instantiateTyConApp :: TyConApp -> TC (Map Ctor [TypeK])
 instantiateTyConApp (TyConApp tc tys) = do
-  DataDecl _ params ctors <- lookupTyCon tc
-  sub <- parameterSubst params tys
-  let cs = Map.fromList [(c, map (substTypeK sub) argTys) | CtorDecl c argTys <- ctors]
-  pure cs
+  DataDecl _ _ ctors <- lookupDataDecl tc
+  ctorDefs <- for ctors $ \ (CtorDecl c params argTys) -> do
+    sub <- parameterSubst params tys
+    pure (c, map (substTypeK sub) argTys)
+  pure (Map.fromList ctorDefs)
 
 parameterSubst :: [(TyVar, KindK)] -> [TypeK] -> TC Subst
 parameterSubst params args = makeSubst <$> go params args
@@ -394,7 +408,7 @@ checkCoValue (ContValK cont) s = do
 -- | Check that a type has the given kind.
 inferType :: TypeK -> TC KindK
 inferType (TyVarOccK aa) = lookupTyVar aa
-inferType (TyConOccK tc) = dataDeclKind <$> lookupTyCon tc
+inferType (TyConOccK tc) = lookupTyCon tc
 inferType (AllK aas ss) =
   withTyVars aas (traverse_ (\s -> checkCoType s StarK) ss) *>
   pure StarK

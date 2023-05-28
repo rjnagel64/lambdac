@@ -587,10 +587,10 @@ makeCtorWrapper tc params c ctorargs e = do
             pure (wrapper, FunK [argTy] [ContK [innerTy]])
 
 makeDataWrapper :: DataDecl -> TermK -> CPS TermK
-makeDataWrapper (DataDecl tc params ctors) e = go ctors e
+makeDataWrapper (DataDecl tc _ ctors) e = go ctors e
   where
     go [] e' = pure e'
-    go (CtorDecl c args : cs) e' = makeCtorWrapper tc params c args =<< go cs e'
+    go (CtorDecl c params args : cs) e' = makeCtorWrapper tc params c args =<< go cs e'
 
 addCtorWrappers :: [DataDecl] -> TermK -> CPS TermK
 addCtorWrappers [] e = pure e
@@ -598,13 +598,13 @@ addCtorWrappers (dd : ds) e = makeDataWrapper dd =<< addCtorWrappers ds e
 
 cpsDataDecl :: S.DataDecl -> CPS DataDecl
 cpsDataDecl (S.DataDecl (S.TyCon tc) params ctors) = do
-  freshenTyVarBinds params $ \bs -> do
-    let params' = bs
-    ctors' <- traverse cpsCtorDecl ctors
-    pure (DataDecl (TyCon tc) params' ctors')
+  kind <- cpsKind $ foldr (\ (_aa, k1) k2 -> S.KiArr k1 k2) S.KiStar params
+  freshenTyVarBinds params $ \params' -> do
+    ctors' <- traverse (cpsCtorDecl params') ctors
+    pure (DataDecl (TyCon tc) kind ctors')
 
-cpsCtorDecl :: S.CtorDecl -> CPS CtorDecl
-cpsCtorDecl (S.CtorDecl (S.Ctor c) args) = CtorDecl (Ctor c) <$> traverse cpsType args
+cpsCtorDecl :: [(TyVar, KindK)] -> S.CtorDecl -> CPS CtorDecl
+cpsCtorDecl params' (S.CtorDecl (S.Ctor c) args) = CtorDecl (Ctor c) params' <$> traverse cpsType args
 
 ctorWrapperBinds :: S.DataDecl -> [(S.Ctor, (TmVar, S.Type))]
 ctorWrapperBinds (S.DataDecl tc params ctors) = map ctorDeclType ctors

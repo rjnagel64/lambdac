@@ -88,7 +88,7 @@ deriving instance Monad ConvM
 deriving instance MonadReader Context ConvM
 deriving instance MonadWriter Fields ConvM
 
-insertMany :: Ord k => [(k, v)] -> Map k v -> Map k v
+insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
 -- | Bind a sequence of term variables: both extending the typing context on
@@ -98,7 +98,7 @@ withTms :: Traversable t => t (K.TmVar, K.TypeK) -> (t (Name, Sort) -> ConvM a) 
 withTms xs k = do
   xs' <- traverse (\ (x, t) -> cconvType t >>= \t' -> pure (x, (tmVar x, t'))) xs
   let bs = fmap snd xs'
-  let extend (Context tms cos tys) = Context (insertMany (toList xs') tms) cos tys
+  let extend (Context tms cos tys) = Context (insertMany xs' tms) cos tys
   censor (bindOccs bs) $ local extend $ k bs
   where
     -- Hmm. I'm pretty sure I don't have to worry about shadowing, but I should
@@ -113,7 +113,7 @@ withCos :: Traversable t => t (K.CoVar, K.CoTypeK) -> (t (Name, Sort) -> ConvM a
 withCos ks k = do
   ks' <- traverse (\ (x, t) -> cconvCoType t >>= \t' -> pure (x, (coVar x, t'))) ks
   let bs = fmap snd ks'
-  let extend (Context tms cos tys) = Context tms (insertMany (toList ks') cos) tys
+  let extend (Context tms cos tys) = Context tms (insertMany ks' cos) tys
   censor (bindOccs bs) $ local extend $ k bs
   where
     -- Hmm. I'm pretty sure I don't have to worry about shadowing, but I should
@@ -124,7 +124,7 @@ withCos ks k = do
 -- | Bind a sequence of type variables: both extending the typing context on
 -- the way down, and removing them from the free variable set on the way back
 -- up.
-withTys :: [(K.TyVar, K.KindK)] -> ([(TyVar, Kind)] -> ConvM a) -> ConvM a
+withTys :: Traversable t => t (K.TyVar, K.KindK) -> (t (TyVar, Kind) -> ConvM a) -> ConvM a
 withTys aas k = do
   aas' <- traverse (\ (aa, ki) -> cconvKind ki >>= \ki' -> pure (aa, (tyVar aa, ki'))) aas
   let bs = fmap snd aas'
@@ -150,13 +150,13 @@ cconvProgram (K.Program ds e) = runConv $ do
     runConv = fst . runWriter . flip runReaderT emptyContext . runConvM
 
 cconvDataDecl :: K.DataDecl -> ConvM DataDecl
-cconvDataDecl (K.DataDecl (K.TyCon tc) params ctors) = do
-  kind <- cconvKind $ foldr (\ (_, k1) k2 -> K.KArrK k1 k2) K.StarK params
-  ctors' <- traverse (cconvCtorDecl params) ctors
-  pure (DataDecl (TyCon tc) kind ctors')
+cconvDataDecl (K.DataDecl (K.TyCon tc) kind ctors) = do
+  kind' <- cconvKind kind
+  ctors' <- traverse cconvCtorDecl ctors
+  pure (DataDecl (TyCon tc) kind' ctors')
 
-cconvCtorDecl :: [(K.TyVar, K.KindK)] -> K.CtorDecl -> ConvM CtorDecl
-cconvCtorDecl params (K.CtorDecl (K.Ctor c) args) =
+cconvCtorDecl :: K.CtorDecl -> ConvM CtorDecl
+cconvCtorDecl (K.CtorDecl (K.Ctor c) params args) =
   withTys params $ \params' -> CtorDecl (Ctor c) params' <$> traverse cconvType args
 
 cconvType :: K.TypeK -> ConvM Sort
@@ -207,7 +207,7 @@ cconv (K.CallK f xs ks) = do
   f' <- cconvTmVar f
   xs' <- traverse (fmap ValueArg . cconvTmVar) xs
   (kbinds, ks') <- cconvCoArgs ks
-  let term = (CallC f' xs' ks')
+  let term = CallC f' xs' ks'
   if null kbinds then
     pure term
   else

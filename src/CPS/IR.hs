@@ -92,9 +92,9 @@ instance Show FieldLabel where
 
 data Program = Program [DataDecl] TermK
 
-data DataDecl = DataDecl TyCon [(TyVar, KindK)] [CtorDecl]
+data DataDecl = DataDecl TyCon KindK [CtorDecl]
 
-data CtorDecl = CtorDecl Ctor [TypeK]
+data CtorDecl = CtorDecl Ctor [(TyVar, KindK)] [TypeK]
 
 -- | Terms in continuation-passing style.
 --
@@ -440,14 +440,14 @@ pprintProgram :: Program -> String
 pprintProgram (Program ds e) = concatMap (pprintDataDecl 0) ds ++ pprintTerm 0 e
 
 pprintDataDecl :: Int -> DataDecl -> String
-pprintDataDecl n (DataDecl tc params ctors) =
-  indent n $ "data " ++ show tc ++ intercalate " " (map f params) ++ " where\n" ++
+pprintDataDecl n (DataDecl tc kind ctors) =
+  indent n $ "data " ++ show tc ++ " : " ++ pprintKind kind ++ " where\n" ++
   unlines (map (pprintCtorDecl (n+2)) ctors)
-  where f (aa, k) = "(" ++ show aa ++ " : " ++ pprintKind k ++ ")"
 
 pprintCtorDecl :: Int -> CtorDecl -> String
-pprintCtorDecl n (CtorDecl c args) =
-  indent n $ show c ++ "(" ++ intercalate ", " (map pprintType args) ++ ")"
+pprintCtorDecl n (CtorDecl c tyargs args) =
+  indent n $ show c ++ "(" ++ intercalate ", " (map f tyargs ++ map pprintType args) ++ ")"
+  where f (aa, k) = "@" ++ show aa ++ " : " ++ pprintKind k
 
 pprintTerm :: Int -> TermK -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
