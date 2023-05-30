@@ -11,7 +11,7 @@ import Data.Traversable (mapAccumL, for)
 
 import Control.Monad.Reader
 
-import qualified Source.IR as S
+import qualified Core.IR as S
 
 import CPS.IR
 

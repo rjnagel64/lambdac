@@ -22,7 +22,7 @@ module Resolve
 import Data.List (intercalate)
 import Data.Traversable (for)
 
-import qualified Source.IR as S
+import qualified Core.IR as S
 
 import Control.Monad.Reader
 import Control.Monad.State

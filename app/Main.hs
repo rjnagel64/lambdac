@@ -12,7 +12,7 @@ import System.FilePath
 import qualified Lexer as Lx
 import qualified Parser as P
 import qualified Resolve as R
-import qualified Source.TypeCheck as ST
+import qualified Core.TypeCheck as ST
 import qualified CPS as K
 import qualified CPS.TypeCheck as KT
 import qualified CC as C
