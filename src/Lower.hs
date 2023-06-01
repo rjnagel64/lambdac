@@ -75,6 +75,16 @@ import qualified Hoist.IR as H
 import Control.Monad.Reader
 
 
+-- TODO: Avoid shadowing names when preparing to Emit
+-- C does not permit multiple variables with the same name. Therefore, before I
+-- invoke the Emit phase, I need to ensure that all parameters, local
+-- variables, and the environment pointer are distinct.
+--
+-- Right now, I do this in Hoist and it creates a mess. I want to move it here,
+-- where things are better structured and also push the invariant closer to the
+-- phase that requires that invariant.
+
+
 insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 

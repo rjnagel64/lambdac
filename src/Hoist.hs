@@ -90,9 +90,14 @@ deriving newtype instance MonadState (Set CodeLabel) HoistM
 
 data HoistEnv =
   HoistEnv {
+    -- TODO: At this point, the only remaining uses of localScope and envScope
+    -- are to compute the in-scope set for renaming variables. Maintain that
+    -- set directly somehow.
+    -- Problem: the uses are kind of confused about using the Set C.Name or the Set Place
     localScope :: Map C.Name Place
   , envScope :: Map C.Name Place
   , nameRefs :: Map C.Name Name
+  , nameSorts :: Map C.Name Sort
   }
 
 -- Hmm. Might consider using a DList here. I think there might be a left-nested
@@ -124,7 +129,7 @@ runHoist =
   flip runReaderT emptyEnv .
   runHoistM
   where
-    emptyEnv = HoistEnv { localScope = Map.empty, envScope = Map.empty, nameRefs = Map.empty }
+    emptyEnv = HoistEnv { localScope = Map.empty, envScope = Map.empty, nameRefs = Map.empty, nameSorts = Map.empty }
 
 withDataDecls :: [C.DataDecl] -> ([DataDecl] -> HoistM a) -> HoistM a
 withDataDecls [] cont = cont []
@@ -231,8 +236,9 @@ withFunClosures fs cont = do
       let p = asPlace (C.funClosureSort def) f in
       ((f, p), (p, def))) fs
 
-  let fbinds' = [(f, LocalName (placeName f')) | (f, f') <- fbinds]
-  let extend env = env { localScope = insertMany fbinds (localScope env), nameRefs = insertMany fbinds' (nameRefs env) }
+  let fnames = [(f, LocalName (placeName f')) | (f, f') <- fbinds]
+  let fsorts = [(f, placeSort f') | (f, f') <- fbinds]
+  let extend env = env { localScope = insertMany fbinds (localScope env), nameRefs = insertMany fnames (nameRefs env), nameSorts = insertMany fsorts (nameSorts env) }
   local extend $ do
     allocs <- traverse (\ (p, def) -> hoistFunClosure p def) fs'
     cont allocs
@@ -242,8 +248,9 @@ withContClosures ks cont = do
   -- Continuation closures are necessarily non-recursive, so this case is
   -- simpler than the case for LetFunC.
   (kbinds, allocs) <- fmap unzip $ traverse (\ (k, def) -> hoistContClosure k def) ks
-  let kbinds' = [(k, LocalName (placeName k')) | (k, k') <- kbinds]
-  let extend env = env { localScope = insertMany kbinds (localScope env), nameRefs = insertMany kbinds' (nameRefs env) }
+  let knames = [(k, LocalName (placeName k')) | (k, k') <- kbinds]
+  let ksorts = [(k, placeSort k') | (k, k') <- kbinds]
+  let extend env = env { localScope = insertMany kbinds (localScope env), nameRefs = insertMany knames (nameRefs env), nameSorts = insertMany ksorts (nameSorts env) }
   local extend $ cont allocs
 
 hoistFunClosure :: Place -> C.FunClosureDef -> HoistM ClosureAlloc
@@ -257,10 +264,10 @@ hoistFunClosure p (C.FunClosureDef f env params body) = do
     -- Extend context with parameter list
     withParameterList params $ \params' -> do
       -- hoist the closure body and emit a code declaration
-      envn <- pickEnvironmentName
-      body' <- hoist body
-      let decl = CodeDecl fcode (envn, envd) params' body'
-      tellClosure decl
+      withEnvironmentName $ \envn -> do
+        body' <- hoist body
+        let decl = CodeDecl fcode (envn, envd) params' body'
+        tellClosure decl
 
   enva <- hoistEnvAlloc env
   let alloc = ClosureAlloc p fcode envp enva
@@ -278,10 +285,10 @@ hoistContClosure k def@(C.ContClosureDef env params body) = do
     -- Extend context with parameter list
     withParameterList (C.makeClosureParams [] params) $ \params' -> do
       -- hoist the closure body and emit a code declaration
-      envn <- pickEnvironmentName
-      body' <- hoist body
-      let decl = CodeDecl kcode (envn, envd) params' body'
-      tellClosure decl
+      withEnvironmentName $ \envn -> do
+        body' <- hoist body
+        let decl = CodeDecl kcode (envn, envd) params' body'
+        tellClosure decl
 
   enva <- hoistEnvAlloc env
   let alloc = ClosureAlloc kplace kcode envp enva
@@ -383,6 +390,11 @@ pickEnvironmentName = do
   let go i = let envp = Id ("env" ++ show i) in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
 
+withEnvironmentName :: (Id -> HoistM a) -> HoistM a
+withEnvironmentName cont = do
+  envn <- pickEnvironmentName
+  cont envn
+
 pickEnvironmentPlace :: Id -> HoistM Id
 pickEnvironmentPlace (Id cl) = do
   locals <- asks localScope
@@ -407,13 +419,10 @@ hoistVarOcc x = do
 
 lookupSort :: C.Name -> HoistM Sort
 lookupSort x = do
-  ps <- asks localScope
-  fs <- asks envScope
-  case Map.lookup x ps of
-    Just (Place s x') -> pure s
-    Nothing -> case Map.lookup x fs of
-      Just (Place s x') -> pure s
-      Nothing -> error ("var not in scope: " ++ show x)
+  env <- asks nameSorts
+  case Map.lookup x env of
+    Nothing -> error ("var not in scope: " ++ show x)
+    Just s -> pure s
 
 -- | Hoist a list of arguments.
 hoistArgList :: [C.Argument] -> HoistM [ClosureArg]
@@ -425,20 +434,21 @@ hoistArgList xs = traverse f xs
 -- | Extend the local scope with a new place with the given name and sort.
 withPlace :: C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
 withPlace x s cont = do
-  inScope <- asks localScope
+  inScope <- asks (Map.keysSet . nameRefs)
   let x' = go x inScope
   let xname = LocalName (placeName x')
+  let xsort = placeSort x'
   let
     extend env =
-      env { localScope = Map.insert x x' (localScope env), nameRefs = Map.insert x xname (nameRefs env) }
+      env { localScope = Map.insert x x' (localScope env), nameRefs = Map.insert x xname (nameRefs env), nameSorts = Map.insert x xsort (nameSorts env) }
   local extend $ cont x'
   where
     -- I think this is fine. We might shadow local names, which is bad, but
     -- environment references are guarded by 'env->'.
-    go :: C.Name -> Map C.Name Place -> Place
-    go v ps = case Map.lookup v ps of
-      Nothing -> asPlace s v
-      Just _ -> go (C.prime v) ps
+    go :: C.Name -> Set C.Name -> Place
+    go v ps = case Set.member v ps of
+      False -> asPlace s v
+      True -> go (C.prime v) ps
 
 -- I don't have scoping for tyvars yet, but this is where it would go.
 withTyVar :: C.TyVar -> C.Kind -> (TyVar -> Kind -> HoistM a) -> HoistM a
@@ -456,7 +466,8 @@ withEnvFields fields cont = do
   let binds = [(x, asPlace s x) | (x, s) <- fields]
   let fields' = [(placeName x', placeSort x') | (_x, x') <- binds]
   let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- binds]
+  let newEnvSorts = [(x, placeSort x') | (x, x') <- binds]
 
-  let extend env = env { envScope = Map.fromList binds, nameRefs = insertMany newEnvRefs (nameRefs env) }
+  let extend env = env { envScope = Map.fromList binds, nameRefs = insertMany newEnvRefs (nameRefs env), nameSorts = insertMany newEnvSorts (nameSorts env) }
   local extend $ cont fields'
 
