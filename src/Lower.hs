@@ -39,6 +39,7 @@ module Lower
     , ClosureArg(..)
     , CaseAlt(..)
     , ClosureAlloc(..)
+    , EnvAlloc(..)
     , ValueH(..)
     , CtorAppH(..)
     , PrimOp(..)
@@ -219,7 +220,8 @@ lowerTerm (H.LetProjectH p x proj e) = do
 lowerTerm (H.AllocClosure cs e) = do
   withClosures cs $ \cs' -> do
     e' <- lowerTerm e
-    pure (AllocClosure cs' e')
+    let es' = [EnvAlloc l p fs | ClosureAlloc _ l _ p fs <- cs']
+    pure (AllocClosures es' cs' e')
 
 lowerClosureArg :: H.ClosureArg -> M ClosureArg
 lowerClosureArg (H.ValueArg x) = ValueArg <$> lowerName x
@@ -660,7 +662,7 @@ data TermH
   | LetProjectH Place Name Projection TermH
   -- 'letrec (f1 : closure(ss) = #f1 { env1 })+ in e'
   -- Closures may be mutually recursive, so they are allocated as a group.
-  | AllocClosure [ClosureAlloc] TermH
+  | AllocClosures [EnvAlloc] [ClosureAlloc] TermH
   -- 'halt @bool x'
   | HaltH Sort Name
   -- 'call f (x, @int, z)', annotated with calling convention
@@ -682,7 +684,7 @@ data ClosureAlloc
   , closureDecl :: CodeLabel
   , closureCodeInst :: [Sort]
   -- Idea: split out the environment portion of ClosureAlloc into EnvAlloc.
-  -- Then, AllocClosure would take [EnvAlloc], [ClosureAlloc], TermH
+  -- Then, AllocClosures would take [EnvAlloc], [ClosureAlloc], TermH
   -- ClosureAlloc would keep an Id that references the appropriate EnvAlloc.
   --
   -- I can't quite do this yet, because emitting the environment allocation
@@ -696,6 +698,9 @@ data ClosureAlloc
   , closureEnvPlace :: Id
   , closureEnvValues :: [(Id, Name)]
   }
+
+data EnvAlloc
+  = EnvAlloc CodeLabel Id [(Id, Name)]
 
 
 data ValueH
@@ -963,7 +968,7 @@ pprintTerm n (LetPrimH x p e) =
 pprintTerm n (LetBindH p1 p2 prim e) =
   indent n ("let " ++ ps ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
   where ps = pprintPlace p1 ++ ", " ++ pprintPlace p2
-pprintTerm n (AllocClosure cs e) =
+pprintTerm n (AllocClosures es cs e) =
   indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
 
 pprintClosureArg :: ClosureArg -> String

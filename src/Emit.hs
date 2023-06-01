@@ -156,7 +156,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
     termThunkTypes (LetPrimH _ _ e) = termThunkTypes e
     termThunkTypes (LetBindH _ _ prim e) = termThunkTypes e -- can a primop record a thunk type?
     termThunkTypes (LetProjectH _ _ _ e) = termThunkTypes e
-    termThunkTypes (AllocClosure _ e) = termThunkTypes e
+    termThunkTypes (AllocClosures _ _ e) = termThunkTypes e
 
 -- programRecordTypes :: Program -> Set RecordType
 -- Hmm. Existential types can be thought of as records with type fields.
@@ -455,8 +455,8 @@ emitTerm denv (LetBindH p1 p2 prim e) =
   ,"    " ++ emitPlace p2 ++ ";"
   ,"    " ++ emitPrimIO prim p1 p2 ++ ";"] ++
   emitTerm denv e
-emitTerm denv (AllocClosure cs e) =
-  emitClosureGroup cs ++
+emitTerm denv (AllocClosures es cs e) =
+  emitClosureGroup es cs ++
   emitTerm denv e
 emitTerm _ (HaltH _ x) =
   ["    halt_with(" ++ asAlloc (emitName x) ++ ");"]
@@ -657,15 +657,15 @@ emitBuiltinCall fn args = show fn ++ "(" ++ commaSep (map emitName args) ++ ")"
 -- - Second, the closures are allocated using the environments from step 1.
 -- - Third, the @NULL@s in the environments are patched to refer to the
 --   freshly-allocated closures.
-emitClosureGroup :: [ClosureAlloc] -> [Line]
-emitClosureGroup closures =
-  map (allocEnv recNames) closures ++
+emitClosureGroup :: [EnvAlloc] -> [ClosureAlloc] -> [Line]
+emitClosureGroup envs closures =
+  map (allocEnv recNames) envs ++
   map allocClosure closures ++
-  concatMap (patchEnv recNames) closures
+  concatMap (patchEnv recNames) envs
   where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ _ <- closures]
 
-allocEnv :: Set Id -> ClosureAlloc -> Line
-allocEnv recNames (ClosureAlloc _p d _inst envPlace fields) =
+allocEnv :: Set Id -> EnvAlloc -> Line
+allocEnv recNames (EnvAlloc d envPlace fields) =
   "    struct " ++ envTypeName ns' ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
   where
     ns' = closureEnvName (namesForClosure d)
@@ -682,19 +682,19 @@ allocClosure (ClosureAlloc p d _tys envPlace _env) =
     envArg = asAlloc (show envPlace)
     enterArg = closureEnterName ns
 
-patchEnv :: Set Id -> ClosureAlloc -> [Line]
-patchEnv recNames (ClosureAlloc _ _ _ envPlace fields) = concatMap patchField fields
+patchEnv :: Set Id -> EnvAlloc -> [Line]
+patchEnv recNames (EnvAlloc _ envPlace fields) = mapMaybe patchField fields
   where
     patchField (f, LocalName x) =
       if Set.member f recNames then
-        ["    " ++ show envPlace ++ "->" ++ show f ++ " = " ++ show x ++ ";"]
+        Just ("    " ++ show envPlace ++ "->" ++ show f ++ " = " ++ show x ++ ";")
       else
-        []
+        Nothing
     -- Patching recursive closures should only ever involve local names.
     -- (An environment reference cannot possibly be part of this recursive bind
     -- group, so we never need to patch a field whose value is obtained from an
     -- EnvName)
-    patchField (_, EnvName _ _) = []
+    patchField (_, EnvName _ _) = Nothing
 
 -- Define a local variable, by giving it a name+type, an initializer, and an
 -- optional list of field initializers.
