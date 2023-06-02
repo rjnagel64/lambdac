@@ -24,6 +24,7 @@ module Lower
     , substSort
     , substTele
 
+    , EnvDecl(..)
     , CodeDecl(..)
     , codeDeclName
     , codeDeclTele
@@ -105,33 +106,19 @@ lowerDecls (H.DeclData dd : ds) k = do
     lowerDecls ds $ \ds' -> do
       k (DeclData dd' : ds')
 lowerDecls (H.DeclCode cd : ds) k = do
-  cd' <- lowerCodeDecl cd
+  (ed', cd') <- lowerCodeDecl cd
   lowerDecls ds $ \ds' -> do
-    k (DeclCode cd' : ds')
+    k (DeclEnv ed' : DeclCode cd' : ds')
 
--- Idea: instead of H.CodeDecl -> M CodeDecl, try H.CodeDecl -> M (EnvDecl, CodeDecl)
--- CodeDecl would then contain a TyCon that references the EnvDecl.
---
--- By itself, this does not deduplicate environment types, but I could
--- (theoretically) add that as a Lower.IR->Lower.IR pass that looks for
--- structurally identical environment types
---
--- This also lets me make the type of an environment a real type, which is nice.
--- Specifically, if the "pseudo-forall" binds aa+ and the environment's tycon
--- is T, then the environment parameter has type 'T aa+'. (unless I do some
--- optimizations or whatever to unbox/deduplicate/whatever the environment)
---
--- This would involve adding a new constructor to Decl, emitting a second Decl
--- here, rearranging Emit to split the code generation for an EnvDecl away from
--- emitting a closure, and generally shuffling things around. (Also some way of
--- generating names for the environment types)
-lowerCodeDecl :: H.CodeDecl -> M CodeDecl
+lowerCodeDecl :: H.CodeDecl -> M (EnvDecl, CodeDecl)
 lowerCodeDecl (H.CodeDecl (H.CodeLabel l) (envName, H.EnvDecl aas fields) params body) = do
   let l' = CodeLabel l
   withEnvironment (envName, H.EnvDecl aas fields) $ \aas' envName' fields' -> do
     withParams params $ \params' -> do
       body' <- lowerTerm body
-      pure (CodeDecl l' aas' (envName', fields') params' body')
+      let envd = EnvDecl l' fields'
+      let coded = CodeDecl l' aas' (envName', fields') params' body'
+      pure (envd, coded)
 
 withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [(Id, Sort)] -> M a) -> M a
 withEnvironment (envName, H.EnvDecl aas fields) k = do
@@ -583,9 +570,13 @@ instance Show FieldLabel where
 data Program = Program [Decl] TermH
 
 data Decl
-  = DeclCode CodeDecl
-  | DeclData DataDecl
+  = DeclData DataDecl
+  | DeclEnv EnvDecl
+  | DeclCode CodeDecl
 
+
+data EnvDecl
+  = EnvDecl CodeLabel [(Id, Sort)]
 
 data CodeDecl
   = CodeDecl CodeLabel [(TyVar, Kind)] (Id, [(Id, Sort)]) [ClosureParam] TermH
@@ -923,18 +914,23 @@ pprintProgram (Program ds srcH) = pprintDecls ds ++ ";;\n" ++ pprintTerm 0 srcH
 pprintDecls :: [Decl] -> String
 pprintDecls ds = concatMap pprintDecl ds
   where
+    pprintDecl (DeclEnv ed) = pprintEnvDecl 0 ed
     pprintDecl (DeclCode cd) = pprintClosureDecl 0 cd
     pprintDecl (DeclData dd) = pprintDataDecl 0 dd
 
+pprintEnvDecl :: Int -> EnvDecl -> String
+pprintEnvDecl n (EnvDecl l fields) =
+  indent n ("environment " ++ show l ++ "::Env = {" ++ intercalate ", " (map pprintEnvField fields) ++ "}\n")
+  where pprintEnvField (x, s) = show x ++ " : " ++ pprintSort s
+
 pprintClosureDecl :: Int -> CodeDecl -> String
 pprintClosureDecl n (CodeDecl f aas (name, fs) params e) =
-  indent n ("code " ++ show f ++ "[" ++ tyParams ++ "](" ++ envParam ++ "; " ++ valueParams ++ ") =\n") ++
+  indent n ("code " ++ show f ++ "[" ++ tyParams ++ "](" ++ envParam ++ ", " ++ valueParams ++ ") =\n") ++
   pprintTerm (n+2) e
   where
     tyParams = intercalate ", " typeFields
     typeFields = map (\ (aa, k) -> "@" ++ show aa ++ " : " ++ pprintKind k) aas
-    envParam = show name ++ " : {" ++ intercalate ", " (map pprintEnvField fs) ++ "}"
-    pprintEnvField (x, s) = show x ++ " : " ++ pprintSort s
+    envParam = show name ++ " : " ++ show f ++ "::Env"
     valueParams = intercalate ", " (map pprintParam params)
 
 pprintDataDecl :: Int -> DataDecl -> String

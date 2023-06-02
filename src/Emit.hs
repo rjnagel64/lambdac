@@ -134,6 +134,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
   where
     declThunks = foldl declThunkTypes Set.empty decls
     declThunkTypes acc (DeclData _) = acc
+    declThunkTypes acc (DeclEnv _) = acc
     declThunkTypes acc (DeclCode cd) = codeDeclThunkTypes acc cd
 
     codeDeclThunkTypes acc cd@(CodeDecl _ _ _ _ e) =
@@ -198,8 +199,10 @@ prologue :: [Line]
 prologue = ["#include \"rts.h\""]
 
 emitDecl :: DataEnv -> Decl -> (DataEnv, [Line])
+emitDecl denv (DeclEnv ed) =
+  (denv, emitClosureEnv ed)
 emitDecl denv (DeclCode cd) =
-  (denv, emitClosureDecl denv cd)
+  (denv, emitCodeDecl denv cd)
 emitDecl denv (DeclData dd@(DataDecl tc _)) =
   let denv' = Map.insert tc dd denv in
   (denv', emitDataDecl dd)
@@ -343,27 +346,6 @@ emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
     assignField (x, _s) = "    ctor->" ++ show x ++ " = " ++ show x ++ ";"
 
 
-emitClosureDecl :: DataEnv -> CodeDecl -> [Line]
-emitClosureDecl denv cd@(CodeDecl d _aas (envName, fields) params e) =
-  emitClosureEnv envd ++
-  emitClosureCode denv ens cns envName params e ++
-  emitClosureEnter tns ens cns ty
-  where
-    envd = EnvDecl d fields
-    cns = namesForClosure d
-    ens = namesForEnv d
-    tns = namesForThunk ty
-    ty = codeDeclType cd
-
--- This should be migrated up into Lower.IR
--- (And it should have a TyCon instead of a CodeLabel)
-data EnvDecl
-  = EnvDecl CodeLabel [(Id, Sort)]
-
--- It would be nice if each closure didn't have to generate its own record type.
--- This is part of what I hope to achieve with Lower.IR
--- (Instead, Lower.IR.CodeDecl would contain a TyCon/TyConApp for the type of
--- its environment.)
 emitClosureEnv :: EnvDecl -> [Line]
 emitClosureEnv (EnvDecl d fields) =
   let ns = namesForEnv d in
@@ -409,18 +391,16 @@ emitEnvInfo ns fs =
       let field = asAlloc (emitName (EnvName envName x)) in
       "    mark_gray(" ++ field ++ ");"
 
-emitClosureEnter :: ThunkNames -> EnvNames -> ClosureNames -> ThunkType -> [Line]
-emitClosureEnter tns ens cns ty =
-  ["void " ++ closureEnterName cns ++ "(void) {"
-  ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
-  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")args->closure->env;"
-  ,"    " ++ closureCodeName cns ++ "(" ++ commaSep argList ++ ");"
-  ,"}"]
+
+emitCodeDecl :: DataEnv -> CodeDecl -> [Line]
+emitCodeDecl denv cd@(CodeDecl d _aas (envName, fields) params e) =
+  emitClosureCode denv ens cns envName params e ++
+  emitClosureEnter tns ens cns ty
   where
-    argsTy = "struct " ++ thunkArgsName tns ++ " *"
-    envTy = "struct " ++ envTypeName ens ++ " *"
-    argList = "env" : foldThunk consValue ty
-      where consValue i _ = "args->arg" ++ show i
+    cns = namesForClosure d
+    ens = namesForEnv d
+    tns = namesForThunk ty
+    ty = codeDeclType cd
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.
@@ -434,6 +414,19 @@ emitClosureCode denv ens cns envName xs e =
     envParam = "struct " ++ envTypeName ens ++ " *" ++ show envName
     emitParam (TypeParam _ _) = Nothing
     emitParam (PlaceParam p) = Just (emitPlace p)
+
+emitClosureEnter :: ThunkNames -> EnvNames -> ClosureNames -> ThunkType -> [Line]
+emitClosureEnter tns ens cns ty =
+  ["void " ++ closureEnterName cns ++ "(void) {"
+  ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
+  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")args->closure->env;"
+  ,"    " ++ closureCodeName cns ++ "(" ++ commaSep argList ++ ");"
+  ,"}"]
+  where
+    argsTy = "struct " ++ thunkArgsName tns ++ " *"
+    envTy = "struct " ++ envTypeName ens ++ " *"
+    argList = "env" : foldThunk consValue ty
+      where consValue i _ = "args->arg" ++ show i
 
 
 emitTerm :: DataEnv -> TermH -> [Line]
