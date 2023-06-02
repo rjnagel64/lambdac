@@ -106,23 +106,21 @@ lowerDecls (H.DeclData dd : ds) k = do
     lowerDecls ds $ \ds' -> do
       k (DeclData dd' : ds')
 lowerDecls (H.DeclCode cd : ds) k = do
-  (ed', cd') <- lowerCodeDecl cd
-  lowerDecls ds $ \ds' -> do
-    k (DeclEnv ed' : DeclCode cd' : ds')
+  withCodeDecl cd $ \ed' cd' -> do
+    lowerDecls ds $ \ds' -> do
+      k (DeclEnv ed' : DeclCode cd' : ds')
 
--- withCodeDecl :: H.CodeDecl -> (EnvDecl -> CodeDecl -> M a) -> M a
--- withCodeDecl (H.CodeDecl l (envName, H.EnvDecl aas fields) params body) k = do
---   _
-
-lowerCodeDecl :: H.CodeDecl -> M (EnvDecl, CodeDecl)
-lowerCodeDecl (H.CodeDecl l (envName, H.EnvDecl aas fields) params body) = do
-  withEnvironment (envName, H.EnvDecl aas fields) $ \aas' envName' fields' -> do
-    withParams params $ \params' -> do
-      withCodeLabel l $ \l' envTyCon -> do
-        body' <- lowerTerm body
-        let envd = EnvDecl envTyCon fields'
-        let coded = CodeDecl l' aas' (envName', envTyCon) params' body'
-        pure (envd, coded)
+withCodeDecl :: H.CodeDecl -> (EnvDecl -> CodeDecl -> M a) -> M a
+withCodeDecl (H.CodeDecl l (envName, H.EnvDecl aas fields) params body) k = do
+  withCodeLabel l $ \l' envTyCon -> do
+    (ed', cd') <- do
+      withEnvironment (envName, H.EnvDecl aas fields) $ \aas' envName' fields' -> do
+        withParams params $ \params' -> do
+          body' <- lowerTerm body
+          let envd = EnvDecl envTyCon fields'
+          let coded = CodeDecl l' aas' (envName', envTyCon) params' body'
+          pure (envd, coded)
+    k ed' cd'
 
 withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [(Id, Sort)] -> M a) -> M a
 withEnvironment (envName, H.EnvDecl aas fields) k = do
@@ -172,22 +170,19 @@ withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
 lowerId :: H.Id -> M Id
 lowerId (H.Id x) = pure (Id x)
 
--- TODO: use an environment lookup here
 lowerCodeLabel :: H.CodeLabel -> M CodeLabel
-lowerCodeLabel (H.CodeLabel l) = pure (CodeLabel l)
+lowerCodeLabel l = do
+  env <- asks envCodeLabels
+  case Map.lookup l env of
+    Nothing -> error ("code label not in scope: " ++ show l)
+    Just l' -> pure l'
 
--- TODO: use an environment lookup here
--- (I can't currently because a code label from one code decl needs to be in
--- scope for all subsequent decls, but the scoping needs to be adjusted to make
--- that happen.)
 lookupEnvTyCon :: H.CodeLabel -> M TyCon
 lookupEnvTyCon l@(H.CodeLabel x) = do
-  let tc = TyCon (x ++ "_env")
-  pure tc
-  -- env <- asks envEnvTyCons
-  -- case Map.lookup l env of
-  --   Nothing -> error ("code label not in scope: " ++ show l ++ " not in " ++ show env)
-  --   Just tc -> pure tc
+  env <- asks envEnvTyCons
+  case Map.lookup l env of
+    Nothing -> error ("env tycon for " ++ show l ++ " not in scope")
+    Just tc -> pure tc
 
 lowerFieldLabel :: H.FieldLabel -> M FieldLabel
 lowerFieldLabel (H.FieldLabel f) = pure (FieldLabel f)
@@ -368,6 +363,7 @@ data LowerEnv
   , envTyCons :: Map H.TyCon TyCon
   , envCtors :: Map H.Ctor Ctor
   , envThunkTypes :: Map H.Name ThunkType
+  , envCodeLabels :: Map H.CodeLabel CodeLabel
   , envEnvTyCons :: Map H.CodeLabel TyCon
   }
 
@@ -380,6 +376,7 @@ runM = flip runReader emptyEnv . getM
       , envTyCons = Map.empty
       , envCtors = Map.empty
       , envThunkTypes = Map.empty
+      , envCodeLabels = Map.empty
       , envEnvTyCons = Map.empty
       }
 
@@ -397,7 +394,7 @@ withCodeLabel :: H.CodeLabel -> (CodeLabel -> TyCon -> M a) -> M a
 withCodeLabel l@(H.CodeLabel x) k = do
   let l' = CodeLabel x
   let envTyCon = TyCon (x ++ "_env")
-  let extend env = env { envEnvTyCons = Map.insert l envTyCon (envEnvTyCons env) }
+  let extend env = env { envCodeLabels = Map.insert l l' (envCodeLabels env), envEnvTyCons = Map.insert l envTyCon (envEnvTyCons env) }
   local extend $ k l' envTyCon
 
 withParams :: [H.ClosureParam] -> ([ClosureParam] -> M a) -> M a
