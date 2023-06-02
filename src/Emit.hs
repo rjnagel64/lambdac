@@ -662,7 +662,7 @@ emitClosureGroup envs closures =
   map (allocEnv recNames) envs ++
   map allocClosure closures ++
   concatMap (patchEnv recNames) envs
-  where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ _ <- closures]
+  where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ <- closures]
 
 allocEnv :: Set Id -> EnvAlloc -> Line
 allocEnv recNames (EnvAlloc d envPlace fields) =
@@ -675,11 +675,11 @@ allocEnv recNames (EnvAlloc d envPlace fields) =
     emitAllocArg (f, x) = if Set.member f recNames then "NULL" else emitName x
 
 allocClosure :: ClosureAlloc -> Line
-allocClosure (ClosureAlloc p d _tys envPlace _env) =
+allocClosure (ClosureAlloc p d _tys envRef) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep [envArg, enterArg] ++ ");"
   where
     ns = namesForClosure d
-    envArg = asAlloc (show envPlace)
+    envArg = asAlloc (emitName (LocalName envRef))
     enterArg = closureEnterName ns
 
 patchEnv :: Set Id -> EnvAlloc -> [Line]

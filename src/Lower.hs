@@ -218,9 +218,8 @@ lowerTerm (H.LetProjectH p x proj e) = do
     e' <- lowerTerm e
     pure (LetProjectH p' x' proj' e')
 lowerTerm (H.AllocClosure cs e) = do
-  withClosures cs $ \cs' -> do
+  withClosures cs $ \es' cs' -> do
     e' <- lowerTerm e
-    let es' = [EnvAlloc l p fs | ClosureAlloc _ l _ p fs <- cs']
     pure (AllocClosures es' cs' e')
 
 lowerClosureArg :: H.ClosureArg -> M ClosureArg
@@ -376,19 +375,21 @@ withParams (H.PlaceParam p : ps) k =
 withParams (H.TypeParam aa kk : ps) k =
   withTyVar aa kk $ \aa' kk' -> withParams ps (\ps' -> k (TypeParam aa' kk':ps'))
 
-withClosures :: [H.ClosureAlloc] -> ([ClosureAlloc] -> M a) -> M a
+withClosures :: [H.ClosureAlloc] -> ([EnvAlloc] -> [ClosureAlloc] -> M a) -> M a
 withClosures cs k = do
   withPlaces (map H.closurePlace cs) $ \ps' -> do
-    cs' <- traverse lowerClosureAlloc (zip ps' cs)
-    k cs'
+    (es', cs') <- unzip <$> traverse lowerClosureAlloc (zip ps' cs)
+    k es' cs'
 
-lowerClosureAlloc :: (Place, H.ClosureAlloc) -> M ClosureAlloc
+lowerClosureAlloc :: (Place, H.ClosureAlloc) -> M (EnvAlloc, ClosureAlloc)
 lowerClosureAlloc (p', H.ClosureAlloc _p l envp (H.EnvAlloc tys xs)) = do
   l' <- lowerCodeLabel l
   envp' <- lowerId envp
   tys' <- traverse lowerSort tys
   xs' <- traverse (\ (fld, x) -> (,) <$> lowerId fld <*> lowerName x) xs
-  pure (ClosureAlloc p' l' tys' envp' xs')
+  let enva = EnvAlloc l' envp' xs'
+  let closa = ClosureAlloc p' l' tys' envp'
+  pure (enva, closa)
 
 
 withPlace :: H.Place -> (Place -> M a) -> M a
@@ -683,20 +684,7 @@ data ClosureAlloc
     closurePlace :: Place
   , closureDecl :: CodeLabel
   , closureCodeInst :: [Sort]
-  -- Idea: split out the environment portion of ClosureAlloc into EnvAlloc.
-  -- Then, AllocClosures would take [EnvAlloc], [ClosureAlloc], TermH
-  -- ClosureAlloc would keep an Id that references the appropriate EnvAlloc.
-  --
-  -- I can't quite do this yet, because emitting the environment allocation
-  -- requires knowing the name of the environemt type, which requires knowing
-  -- the code label.
-  --
-  -- If, in the future I make each closure environment its own, named type, I
-  -- could circumvent this problem. (And incidentally, make 'let envPlace :
-  -- EnvTyCon = { (l = x)+ }' very close to a normal value binding, which is
-  -- also desirable.)
-  , closureEnvPlace :: Id
-  , closureEnvValues :: [(Id, Name)]
+  , closureEnvRef :: Id
   }
 
 data EnvAlloc
@@ -969,7 +957,7 @@ pprintTerm n (LetBindH p1 p2 prim e) =
   indent n ("let " ++ ps ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
   where ps = pprintPlace p1 ++ ", " ++ pprintPlace p2
 pprintTerm n (AllocClosures es cs e) =
-  indent n "let\n" ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
+  indent n "let\n" ++ concatMap (pprintEnvAlloc (n+2)) es ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
 
 pprintClosureArg :: ClosureArg -> String
 pprintClosureArg (TypeArg s) = '@' : pprintSort s
@@ -1019,9 +1007,13 @@ pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
 pprintParam (TypeParam aa k) = '@' : show aa ++ " : " ++ pprintKind k
 
+pprintEnvAlloc :: Int -> EnvAlloc -> String
+pprintEnvAlloc n (EnvAlloc l p fs) =
+  indent n $ show p ++ " : " ++ show l ++ "::Env = {" ++ intercalate ", " (map pprintAllocArg fs) ++ "}\n"
+
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
-pprintClosureAlloc n (ClosureAlloc p d tys _envPlace fields) =
-  indent n $ pprintPlace p ++ " = " ++ show d ++ " " ++ intercalate " @" (map pprintSort tys) ++ " {" ++ intercalate ", " (map pprintAllocArg fields) ++ "}\n"
+pprintClosureAlloc n (ClosureAlloc p d tys env) =
+  indent n $ pprintPlace p ++ " = <<" ++ show d ++ " " ++ intercalate " @" (map pprintSort tys) ++ ", " ++ show env ++ ">>\n"
 
 pprintAllocArg :: (Id, Name) -> String
 pprintAllocArg (field, x) = show field ++ " = " ++ show x
