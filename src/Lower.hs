@@ -1,5 +1,5 @@
 
--- | A module describing the structure and syntactic operations on the Hoist IR.
+-- | A module describing the structure and syntactic operations on the Lower IR.
 module Lower
     ( Id(..)
     , Name(..)
@@ -109,6 +109,22 @@ lowerDecls (H.DeclCode cd : ds) k = do
   lowerDecls ds $ \ds' -> do
     k (DeclCode cd' : ds')
 
+-- Idea: instead of H.CodeDecl -> M CodeDecl, try H.CodeDecl -> M (EnvDecl, CodeDecl)
+-- CodeDecl would then contain a TyCon that references the EnvDecl.
+--
+-- By itself, this does not deduplicate environment types, but I could
+-- (theoretically) add that as a Lower.IR->Lower.IR pass that looks for
+-- structurally identical environment types
+--
+-- This also lets me make the type of an environment a real type, which is nice.
+-- Specifically, if the "pseudo-forall" binds aa+ and the environment's tycon
+-- is T, then the environment parameter has type 'T aa+'. (unless I do some
+-- optimizations or whatever to unbox/deduplicate/whatever the environment)
+--
+-- This would involve adding a new constructor to Decl, emitting a second Decl
+-- here, rearranging Emit to split the code generation for an EnvDecl away from
+-- emitting a closure, and generally shuffling things around. (Also some way of
+-- generating names for the environment types)
 lowerCodeDecl :: H.CodeDecl -> M CodeDecl
 lowerCodeDecl (H.CodeDecl (H.CodeLabel l) (envName, H.EnvDecl aas fields) params body) = do
   let l' = CodeLabel l
@@ -387,7 +403,7 @@ lowerClosureAlloc (p', H.ClosureAlloc _p l envp (H.EnvAlloc tys xs)) = do
   envp' <- lowerId envp
   tys' <- traverse lowerSort tys
   xs' <- traverse (\ (fld, x) -> (,) <$> lowerId fld <*> lowerName x) xs
-  let enva = EnvAlloc l' envp' xs'
+  let enva = EnvAlloc envp' l' xs'
   let closa = ClosureAlloc p' l' tys' envp'
   pure (enva, closa)
 
@@ -688,7 +704,7 @@ data ClosureAlloc
   }
 
 data EnvAlloc
-  = EnvAlloc CodeLabel Id [(Id, Name)]
+  = EnvAlloc Id CodeLabel [(Id, Name)]
 
 
 data ValueH
@@ -1008,7 +1024,7 @@ pprintParam (PlaceParam p) = pprintPlace p
 pprintParam (TypeParam aa k) = '@' : show aa ++ " : " ++ pprintKind k
 
 pprintEnvAlloc :: Int -> EnvAlloc -> String
-pprintEnvAlloc n (EnvAlloc l p fs) =
+pprintEnvAlloc n (EnvAlloc p l fs) =
   indent n $ show p ++ " : " ++ show l ++ "::Env = {" ++ intercalate ", " (map pprintAllocArg fs) ++ "}\n"
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String

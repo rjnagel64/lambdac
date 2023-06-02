@@ -665,7 +665,7 @@ emitClosureGroup envs closures =
   where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ <- closures]
 
 allocEnv :: Set Id -> EnvAlloc -> Line
-allocEnv recNames (EnvAlloc d envPlace fields) =
+allocEnv recNames (EnvAlloc envPlace d fields) =
   "    struct " ++ envTypeName ns' ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
   where
     ns' = closureEnvName (namesForClosure d)
@@ -683,7 +683,7 @@ allocClosure (ClosureAlloc p d _tys envRef) =
     enterArg = closureEnterName ns
 
 patchEnv :: Set Id -> EnvAlloc -> [Line]
-patchEnv recNames (EnvAlloc _ envPlace fields) = mapMaybe patchField fields
+patchEnv recNames (EnvAlloc envPlace _ fields) = mapMaybe patchField fields
   where
     patchField (f, LocalName x) =
       if Set.member f recNames then
