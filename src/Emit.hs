@@ -394,29 +394,28 @@ emitEnvInfo ns fs =
 
 emitCodeDecl :: DataEnv -> CodeDecl -> [Line]
 emitCodeDecl denv cd@(CodeDecl d _aas (envName, envTyCon) params e) =
-  emitClosureCode denv ens cns envName params e ++
-  emitClosureEnter tns ens cns ty
+  emitClosureCode denv envTyCon cns envName params e ++
+  emitClosureEnter tns envTyCon cns ty
   where
     cns = namesForClosure d
-    ens = namesForEnv envTyCon
     tns = namesForThunk ty
     ty = codeDeclType cd
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.
-emitClosureCode :: DataEnv -> EnvNames -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
-emitClosureCode denv ens cns envName xs e =
+emitClosureCode :: DataEnv -> TyCon -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
+emitClosureCode denv envTyCon cns envName xs e =
   ["void " ++ closureCodeName cns ++ "(" ++ paramList ++ ") {"] ++
   emitTerm denv e ++
   ["}"]
   where
     paramList = commaSep (envParam : mapMaybe emitParam xs)
-    envParam = "struct " ++ envTypeName ens ++ " *" ++ show envName
+    envParam = "struct " ++ show envTyCon ++ " *" ++ show envName
     emitParam (TypeParam _ _) = Nothing
     emitParam (PlaceParam p) = Just (emitPlace p)
 
-emitClosureEnter :: ThunkNames -> EnvNames -> ClosureNames -> ThunkType -> [Line]
-emitClosureEnter tns ens cns ty =
+emitClosureEnter :: ThunkNames -> TyCon -> ClosureNames -> ThunkType -> [Line]
+emitClosureEnter tns envTyCon cns ty =
   ["void " ++ closureEnterName cns ++ "(void) {"
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
   ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")args->closure->env;"
@@ -424,7 +423,7 @@ emitClosureEnter tns ens cns ty =
   ,"}"]
   where
     argsTy = "struct " ++ thunkArgsName tns ++ " *"
-    envTy = "struct " ++ envTypeName ens ++ " *"
+    envTy = "struct " ++ show envTyCon ++ " *"
     argList = "env" : foldThunk consValue ty
       where consValue i _ = "args->arg" ++ show i
 
