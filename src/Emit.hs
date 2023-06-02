@@ -44,9 +44,15 @@ type Line = String
 
 data ClosureNames
   = ClosureNames {
-    closureEnvName :: EnvNames
-  , closureCodeName :: String
+    closureCodeName :: String
   , closureEnterName :: String
+  }
+
+namesForClosure :: CodeLabel -> ClosureNames
+namesForClosure (CodeLabel f) =
+  ClosureNames {
+    closureCodeName = f ++ "_code"
+  , closureEnterName = "enter_" ++ f
   }
 
 data EnvNames
@@ -55,14 +61,6 @@ data EnvNames
   , envInfoName :: String
   , envAllocName :: String
   , envTraceName :: String
-  }
-
-namesForClosure :: CodeLabel -> ClosureNames
-namesForClosure (CodeLabel f) =
-  ClosureNames {
-    closureEnvName = namesForEnv (CodeLabel f)
-  , closureCodeName = f ++ "_code"
-  , closureEnterName = "enter_" ++ f
   }
 
 namesForEnv :: CodeLabel -> EnvNames
@@ -74,7 +72,6 @@ namesForEnv (CodeLabel f) =
   , envTraceName = "trace_" ++ f ++ "_env"
   }
 
-
 data ThunkNames
   = ThunkNames {
     thunkTypeName :: String
@@ -85,14 +82,13 @@ data ThunkNames
 
 namesForThunk :: ThunkType -> ThunkNames
 namesForThunk ty =
+  let code = thunkTypeCode ty in
   ThunkNames {
     thunkTypeName = "thunk_" ++ code
   , thunkArgsName = "args_" ++ code
   , thunkTraceName = "trace_args_" ++ code
   , thunkSuspendName = "suspend_" ++ code
   }
-  where
-    code = thunkTypeCode ty
 
 
 typeForSort :: Sort -> String
@@ -349,24 +345,31 @@ emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
 
 emitClosureDecl :: DataEnv -> CodeDecl -> [Line]
 emitClosureDecl denv cd@(CodeDecl d _aas (envName, fields) params e) =
-  emitClosureEnv cns fields ++
-  emitClosureCode denv cns envName params e ++
-  emitClosureEnter tns cns ty
+  emitClosureEnv envd ++
+  emitClosureCode denv ens cns envName params e ++
+  emitClosureEnter tns ens cns ty
   where
+    envd = EnvDecl d fields
     cns = namesForClosure d
+    ens = namesForEnv d
     tns = namesForThunk ty
     ty = codeDeclType cd
+
+-- This should be migrated up into Lower.IR
+-- (And it should have a TyCon instead of a CodeLabel)
+data EnvDecl
+  = EnvDecl CodeLabel [(Id, Sort)]
 
 -- It would be nice if each closure didn't have to generate its own record type.
 -- This is part of what I hope to achieve with Lower.IR
 -- (Instead, Lower.IR.CodeDecl would contain a TyCon/TyConApp for the type of
 -- its environment.)
-emitClosureEnv :: ClosureNames -> [(Id, Sort)] -> [Line]
-emitClosureEnv ns envd =
-  let ns' = closureEnvName ns in
-  emitEnvDecl ns' envd ++
-  emitEnvInfo ns' envd ++
-  emitEnvAlloc ns' envd
+emitClosureEnv :: EnvDecl -> [Line]
+emitClosureEnv (EnvDecl d fields) =
+  let ns = namesForEnv d in
+  emitEnvDecl ns fields ++
+  emitEnvInfo ns fields ++
+  emitEnvAlloc ns fields
 
 -- These need better names, to reflect the fact that an environment is
 -- basically just a record type.
@@ -377,7 +380,6 @@ emitEnvDecl ns fs =
   map mkField fs ++
   ["};"]
   where
-    -- mkField f = "    " ++ emitPlace f ++ ";"
     mkField (x, s) = "    " ++ emitPlace (Place s x) ++ ";"
 
 emitEnvAlloc :: EnvNames -> [(Id, Sort)] -> [Line]
@@ -407,8 +409,8 @@ emitEnvInfo ns fs =
       let field = asAlloc (emitName (EnvName envName x)) in
       "    mark_gray(" ++ field ++ ");"
 
-emitClosureEnter :: ThunkNames -> ClosureNames -> ThunkType -> [Line]
-emitClosureEnter tns cns ty =
+emitClosureEnter :: ThunkNames -> EnvNames -> ClosureNames -> ThunkType -> [Line]
+emitClosureEnter tns ens cns ty =
   ["void " ++ closureEnterName cns ++ "(void) {"
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
   ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")args->closure->env;"
@@ -416,20 +418,20 @@ emitClosureEnter tns cns ty =
   ,"}"]
   where
     argsTy = "struct " ++ thunkArgsName tns ++ " *"
-    envTy = "struct " ++ envTypeName (closureEnvName cns) ++ " *"
+    envTy = "struct " ++ envTypeName ens ++ " *"
     argList = "env" : foldThunk consValue ty
       where consValue i _ = "args->arg" ++ show i
 
 -- Hmm. emitEntryPoint and emitClosureCode are nearly identical, save for the
 -- environment pointer.
-emitClosureCode :: DataEnv -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
-emitClosureCode denv ns envName xs e =
-  ["void " ++ closureCodeName ns ++ "(" ++ paramList ++ ") {"] ++
+emitClosureCode :: DataEnv -> EnvNames -> ClosureNames -> Id -> [ClosureParam] -> TermH -> [Line]
+emitClosureCode denv ens cns envName xs e =
+  ["void " ++ closureCodeName cns ++ "(" ++ paramList ++ ") {"] ++
   emitTerm denv e ++
   ["}"]
   where
     paramList = commaSep (envParam : mapMaybe emitParam xs)
-    envParam = "struct " ++ envTypeName (closureEnvName ns) ++ " *" ++ show envName
+    envParam = "struct " ++ envTypeName ens ++ " *" ++ show envName
     emitParam (TypeParam _ _) = Nothing
     emitParam (PlaceParam p) = Just (emitPlace p)
 
@@ -666,11 +668,11 @@ emitClosureGroup envs closures =
 
 allocEnv :: Set Id -> EnvAlloc -> Line
 allocEnv recNames (EnvAlloc envPlace d fields) =
-  "    struct " ++ envTypeName ns' ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
+  "    struct " ++ envTypeName ns ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
   where
-    ns' = closureEnvName (namesForClosure d)
+    ns = namesForEnv d
 
-    call = envAllocName ns' ++ "(" ++ commaSep args ++ ")"
+    call = envAllocName ns ++ "(" ++ commaSep args ++ ")"
     args = map emitAllocArg fields
     emitAllocArg (f, x) = if Set.member f recNames then "NULL" else emitName x
 
