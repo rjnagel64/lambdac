@@ -110,15 +110,19 @@ lowerDecls (H.DeclCode cd : ds) k = do
   lowerDecls ds $ \ds' -> do
     k (DeclEnv ed' : DeclCode cd' : ds')
 
+-- withCodeDecl :: H.CodeDecl -> (EnvDecl -> CodeDecl -> M a) -> M a
+-- withCodeDecl (H.CodeDecl l (envName, H.EnvDecl aas fields) params body) k = do
+--   _
+
 lowerCodeDecl :: H.CodeDecl -> M (EnvDecl, CodeDecl)
-lowerCodeDecl (H.CodeDecl (H.CodeLabel l) (envName, H.EnvDecl aas fields) params body) = do
-  let l' = CodeLabel l
+lowerCodeDecl (H.CodeDecl l (envName, H.EnvDecl aas fields) params body) = do
   withEnvironment (envName, H.EnvDecl aas fields) $ \aas' envName' fields' -> do
     withParams params $ \params' -> do
-      body' <- lowerTerm body
-      let envd = EnvDecl l' fields'
-      let coded = CodeDecl l' aas' (envName', fields') params' body'
-      pure (envd, coded)
+      withCodeLabel l $ \l' envTyCon -> do
+        body' <- lowerTerm body
+        let envd = EnvDecl envTyCon fields'
+        let coded = CodeDecl l' aas' (envName', envTyCon) params' body'
+        pure (envd, coded)
 
 withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [(Id, Sort)] -> M a) -> M a
 withEnvironment (envName, H.EnvDecl aas fields) k = do
@@ -168,8 +172,22 @@ withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
 lowerId :: H.Id -> M Id
 lowerId (H.Id x) = pure (Id x)
 
+-- TODO: use an environment lookup here
 lowerCodeLabel :: H.CodeLabel -> M CodeLabel
 lowerCodeLabel (H.CodeLabel l) = pure (CodeLabel l)
+
+-- TODO: use an environment lookup here
+-- (I can't currently because a code label from one code decl needs to be in
+-- scope for all subsequent decls, but the scoping needs to be adjusted to make
+-- that happen.)
+lookupEnvTyCon :: H.CodeLabel -> M TyCon
+lookupEnvTyCon l@(H.CodeLabel x) = do
+  let tc = TyCon (x ++ "_env")
+  pure tc
+  -- env <- asks envEnvTyCons
+  -- case Map.lookup l env of
+  --   Nothing -> error ("code label not in scope: " ++ show l ++ " not in " ++ show env)
+  --   Just tc -> pure tc
 
 lowerFieldLabel :: H.FieldLabel -> M FieldLabel
 lowerFieldLabel (H.FieldLabel f) = pure (FieldLabel f)
@@ -350,6 +368,7 @@ data LowerEnv
   , envTyCons :: Map H.TyCon TyCon
   , envCtors :: Map H.Ctor Ctor
   , envThunkTypes :: Map H.Name ThunkType
+  , envEnvTyCons :: Map H.CodeLabel TyCon
   }
 
 runM :: M a -> a
@@ -361,6 +380,7 @@ runM = flip runReader emptyEnv . getM
       , envTyCons = Map.empty
       , envCtors = Map.empty
       , envThunkTypes = Map.empty
+      , envEnvTyCons = Map.empty
       }
 
 -- This isn't actually a scoping operation anymore, since I pass the env ptr
@@ -370,6 +390,15 @@ withEnvPtr :: H.Id -> (Id -> M a) -> M a
 withEnvPtr (H.Id envName) k = do
   let envName' = Id envName
   k envName'
+
+-- Problem: this needs to be in scope for all subsequent closures, not just the
+-- body of the current closure. Think about how to do this.
+withCodeLabel :: H.CodeLabel -> (CodeLabel -> TyCon -> M a) -> M a
+withCodeLabel l@(H.CodeLabel x) k = do
+  let l' = CodeLabel x
+  let envTyCon = TyCon (x ++ "_env")
+  let extend env = env { envEnvTyCons = Map.insert l envTyCon (envEnvTyCons env) }
+  local extend $ k l' envTyCon
 
 withParams :: [H.ClosureParam] -> ([ClosureParam] -> M a) -> M a
 withParams [] k = k []
@@ -387,10 +416,11 @@ withClosures cs k = do
 lowerClosureAlloc :: (Place, H.ClosureAlloc) -> M (EnvAlloc, ClosureAlloc)
 lowerClosureAlloc (p', H.ClosureAlloc _p l envp (H.EnvAlloc tys xs)) = do
   l' <- lowerCodeLabel l
+  tc <- lookupEnvTyCon l
   envp' <- lowerId envp
   tys' <- traverse lowerSort tys
   xs' <- traverse (\ (fld, x) -> (,) <$> lowerId fld <*> lowerName x) xs
-  let enva = EnvAlloc envp' l' xs'
+  let enva = EnvAlloc envp' tc xs'
   let closa = ClosureAlloc p' l' tys' envp'
   pure (enva, closa)
 
@@ -576,10 +606,10 @@ data Decl
 
 
 data EnvDecl
-  = EnvDecl CodeLabel [(Id, Sort)]
+  = EnvDecl TyCon [(Id, Sort)]
 
 data CodeDecl
-  = CodeDecl CodeLabel [(TyVar, Kind)] (Id, [(Id, Sort)]) [ClosureParam] TermH
+  = CodeDecl CodeLabel [(TyVar, Kind)] (Id, TyCon) [ClosureParam] TermH
 
 codeDeclName :: CodeDecl -> CodeLabel
 codeDeclName (CodeDecl c _ _ _ _) = c 
@@ -695,7 +725,7 @@ data ClosureAlloc
   }
 
 data EnvAlloc
-  = EnvAlloc Id CodeLabel [(Id, Name)]
+  = EnvAlloc Id TyCon [(Id, Name)]
 
 
 data ValueH
@@ -924,13 +954,13 @@ pprintEnvDecl n (EnvDecl l fields) =
   where pprintEnvField (x, s) = show x ++ " : " ++ pprintSort s
 
 pprintClosureDecl :: Int -> CodeDecl -> String
-pprintClosureDecl n (CodeDecl f aas (name, fs) params e) =
+pprintClosureDecl n (CodeDecl f aas (envName, envTyCon) params e) =
   indent n ("code " ++ show f ++ "[" ++ tyParams ++ "](" ++ envParam ++ ", " ++ valueParams ++ ") =\n") ++
   pprintTerm (n+2) e
   where
     tyParams = intercalate ", " typeFields
     typeFields = map (\ (aa, k) -> "@" ++ show aa ++ " : " ++ pprintKind k) aas
-    envParam = show name ++ " : " ++ show f ++ "::Env"
+    envParam = show envName ++ " : " ++ show envTyCon
     valueParams = intercalate ", " (map pprintParam params)
 
 pprintDataDecl :: Int -> DataDecl -> String
@@ -1020,8 +1050,8 @@ pprintParam (PlaceParam p) = pprintPlace p
 pprintParam (TypeParam aa k) = '@' : show aa ++ " : " ++ pprintKind k
 
 pprintEnvAlloc :: Int -> EnvAlloc -> String
-pprintEnvAlloc n (EnvAlloc p l fs) =
-  indent n $ show p ++ " : " ++ show l ++ "::Env = {" ++ intercalate ", " (map pprintAllocArg fs) ++ "}\n"
+pprintEnvAlloc n (EnvAlloc p tc fs) =
+  indent n $ show p ++ " : " ++ show tc ++ " = {" ++ intercalate ", " (map pprintAllocArg fs) ++ "}\n"
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p d tys env) =

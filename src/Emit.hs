@@ -63,13 +63,13 @@ data EnvNames
   , envTraceName :: String
   }
 
-namesForEnv :: CodeLabel -> EnvNames
-namesForEnv (CodeLabel f) =
+namesForEnv :: TyCon -> EnvNames
+namesForEnv (TyCon f) =
   EnvNames {
-    envTypeName = f ++ "_env"
-  , envInfoName = f ++ "_env_info"
-  , envAllocName = "allocate_" ++ f ++ "_env"
-  , envTraceName = "trace_" ++ f ++ "_env"
+    envTypeName = f
+  , envInfoName = f ++ "_info"
+  , envAllocName = "allocate_" ++ f
+  , envTraceName = "trace_" ++ f
   }
 
 data ThunkNames
@@ -393,12 +393,12 @@ emitEnvInfo ns fs =
 
 
 emitCodeDecl :: DataEnv -> CodeDecl -> [Line]
-emitCodeDecl denv cd@(CodeDecl d _aas (envName, fields) params e) =
+emitCodeDecl denv cd@(CodeDecl d _aas (envName, envTyCon) params e) =
   emitClosureCode denv ens cns envName params e ++
   emitClosureEnter tns ens cns ty
   where
     cns = namesForClosure d
-    ens = namesForEnv d
+    ens = namesForEnv envTyCon
     tns = namesForThunk ty
     ty = codeDeclType cd
 
@@ -660,20 +660,20 @@ emitClosureGroup envs closures =
   where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ <- closures]
 
 allocEnv :: Set Id -> EnvAlloc -> Line
-allocEnv recNames (EnvAlloc envPlace d fields) =
+allocEnv recNames (EnvAlloc envPlace tc fields) =
   "    struct " ++ envTypeName ns ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
   where
-    ns = namesForEnv d
+    ns = namesForEnv tc
 
     call = envAllocName ns ++ "(" ++ commaSep args ++ ")"
     args = map emitAllocArg fields
     emitAllocArg (f, x) = if Set.member f recNames then "NULL" else emitName x
 
 allocClosure :: ClosureAlloc -> Line
-allocClosure (ClosureAlloc p d _tys envRef) =
+allocClosure (ClosureAlloc p l _tys envRef) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep [envArg, enterArg] ++ ");"
   where
-    ns = namesForClosure d
+    ns = namesForClosure l
     envArg = asAlloc (emitName (LocalName envRef))
     enterArg = closureEnterName ns
 
