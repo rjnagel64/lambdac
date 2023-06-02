@@ -347,8 +347,8 @@ emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
 
 
 emitClosureEnv :: EnvDecl -> [Line]
-emitClosureEnv (EnvDecl d fields) =
-  let ns = namesForEnv d in
+emitClosureEnv (EnvDecl tc fields) =
+  let ns = namesForEnv tc in
   emitEnvDecl ns fields ++
   emitEnvInfo ns fields ++
   emitEnvAlloc ns fields
