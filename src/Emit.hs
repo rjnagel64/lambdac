@@ -346,6 +346,9 @@ emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
     assignField (x, _s) = "    ctor->" ++ show x ++ " = " ++ show x ++ ";"
 
 
+-- This is basically code generation for a named record type.
+-- If/when I add user-facing named record types, I could probably generalize
+-- this function to implement it.
 emitClosureEnv :: EnvDecl -> [Line]
 emitClosureEnv (EnvDecl tc fields) =
   let ns = namesForEnv tc in
@@ -353,8 +356,6 @@ emitClosureEnv (EnvDecl tc fields) =
   emitEnvInfo ns fields ++
   emitEnvAlloc ns fields
 
--- These need better names, to reflect the fact that an environment is
--- basically just a record type.
 emitEnvDecl :: EnvNames -> [(Id, Sort)] -> [Line]
 emitEnvDecl ns fs =
   ["struct " ++ envTypeName ns ++ " {"
@@ -696,7 +697,7 @@ patchEnv recNames (EnvAlloc envPlace _ fields) = mapMaybe patchField fields
 -- (A higher-level API could/should be used instead of string-typing)
 defineLocal :: Place -> String -> [Line] -> [Line]
 defineLocal p initVal fields =
-  [emitPlace p ++ " = " ++ initVal ++ ";"] ++
+  ["    " ++ emitPlace p ++ " = " ++ initVal ++ ";"] ++
   fields
 
 -- Hmm. Consider breaking up into semantically distinct operations:
