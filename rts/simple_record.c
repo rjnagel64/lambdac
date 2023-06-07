@@ -39,15 +39,13 @@ void display_record(struct alloc_header *alloc, struct string_buf *sb) {
 
 const type_info record_info = { trace_record, display_record };
 
-struct record *allocate_record(size_t num_fields) {
+struct record *allocate_record(size_t num_fields, struct field_init *fields) {
     struct record *rec = malloc(sizeof(struct record) + num_fields * sizeof(struct record_field));
     rec->num_fields = num_fields;
-    // Ensure memory is initialized, even if null.
-    // The GC currently ignores NULL fields, so it's fine for a GC to occur
-    // before the record is fully initialized.
     for (size_t i = 0; i < num_fields; i++) {
-        rec->fields[i].label = NULL;
-        rec->fields[i].value = NULL;
+        const struct field_init *field = &fields[i];
+        rec->fields[i].label = allocate_string(field->label, field->len);
+        rec->fields[i].value = field->value;
     }
 
     cons_new_alloc(AS_ALLOC(rec), &record_info);

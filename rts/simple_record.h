@@ -19,7 +19,12 @@ struct record {
 };
 #define CAST_RECORD(v) ((struct record *)(v))
 
-struct record *allocate_record(size_t num_fields);
+struct field_init {
+    char *label;
+    size_t len;
+    struct alloc_header *value;
+};
+struct record *allocate_record(size_t num_fields, struct field_init *fields);
 
 struct alloc_header *project_field(struct record *rec, char *name, size_t len);
 

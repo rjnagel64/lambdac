@@ -539,14 +539,10 @@ emitValueDefinition _ p NilH =
 emitValueDefinition _ p WorldToken =
   defineLocal p "allocate_token()" []
 emitValueDefinition _ p (RecordH fields) =
-  defineLocal p ("allocate_record(" ++ show (length fields) ++ ")") fields'
+  defineLocal p ("allocate_record(" ++ show (length fields) ++ ", (struct field_init[]){" ++ commaSep fieldInits ++ "})") []
   where
-    fields' = concatMap assignField (zip [0..] fields)
-    assignField :: (Int, (FieldLabel, Name)) -> [Line]
-    assignField (i, (FieldLabel label, x)) =
-      let lval = show (placeName p) ++ "->fields[" ++ show i ++ "]" in
-      ["    " ++ lval ++ ".label = allocate_string(" ++ show label ++ ", " ++ show (length label) ++ ");"
-      ,"    " ++ lval ++ ".value = " ++ asAlloc (emitName x) ++ ";"]
+    fieldInits = map initField fields
+    initField (FieldLabel f, x) = "{" ++ show f ++ ", " ++ show (length f) ++ ", " ++ asAlloc (emitName x) ++ "}"
 emitValueDefinition denv p (CtorAppH capp) =
   case asTyConApp (placeSort p) of
     Nothing -> error "not a constructed type"
@@ -661,11 +657,18 @@ emitClosureGroup envs closures =
 
 allocEnv :: Set Id -> EnvAlloc -> Line
 allocEnv recNames (EnvAlloc envPlace tc fields) =
-  "    struct " ++ envTypeName ns ++ " *" ++ show envPlace ++ " = " ++ call ++ ";"
+  "    " ++ emitPlace (Place (TyConH tc) envPlace) ++ " = " ++ call ++ ";"
   where
-    ns = namesForEnv tc
-
-    call = envAllocName ns ++ "(" ++ commaSep args ++ ")"
+    -- Hrrm. I would like to replace 'tc' with a general 'Sort', so that
+    -- environment allocations are very similar to value allocations (and so
+    -- that I could theoretically have an environment value that *isn't* a
+    -- named record type -- e.g. if there's only one field, store that field
+    -- directly).
+    -- 
+    -- However, I can't quite do that, because I don't have a way to allocate a
+    -- generic value (because anonymous records have complex initializers that
+    -- don't really fit into an expression spot)
+    call = "allocate_" ++ show tc ++ "(" ++ commaSep args ++ ")"
     args = map emitAllocArg fields
     emitAllocArg (f, x) = if Set.member f recNames then "NULL" else emitName x
 
@@ -680,16 +683,15 @@ allocClosure (ClosureAlloc p l _tys envRef) =
 patchEnv :: Set Id -> EnvAlloc -> [Line]
 patchEnv recNames (EnvAlloc envPlace _ fields) = mapMaybe patchField fields
   where
-    patchField (f, LocalName x) =
+    -- here, x should only ever be a LocalName, because patching only involves
+    -- names in a single recursive bind group. However, it doesn't hurt
+    -- anything to accept any NameRef here.
+    patchField (f, x) =
       if Set.member f recNames then
-        Just ("    " ++ show envPlace ++ "->" ++ show f ++ " = " ++ show x ++ ";")
+        let envf = EnvName envPlace f in
+        Just ("    " ++ emitName envf ++ " = " ++ emitName x ++ ";") 
       else
         Nothing
-    -- Patching recursive closures should only ever involve local names.
-    -- (An environment reference cannot possibly be part of this recursive bind
-    -- group, so we never need to patch a field whose value is obtained from an
-    -- EnvName)
-    patchField (_, EnvName _ _) = Nothing
 
 -- Define a local variable, by giving it a name+type, an initializer, and an
 -- optional list of field initializers.
