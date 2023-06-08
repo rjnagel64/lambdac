@@ -1,0 +1,333 @@
+
+-- integer unboxing, demonstrated on factorial.lamc
+-- (also, boolean unboxing)
+
+-- Source
+letrec
+  fact : int -> int =
+    \ (n : int) ->
+    if n == 0 return int then 1 else n * fact (n - 1);
+in
+fact 10
+
+-- CPS
+let fun fact (n : int, k0 : (int) -> !) =
+  let t0 : int = 0 in
+  let b : bool = n == t0 in
+  let cont if_true () =
+    let t1 : int = 1 in
+    k0 t1
+  in
+  let cont if_false () =
+    let t2 : int = 1 in
+    let n' : int = n - t2 in
+    fact n' (cont (z : int) => let t3 : int = n * z in k0 t3)
+  in
+  if b if_false if_true
+in
+let t4 : int = 10 in
+fact t4 (cont (result : int) => print_and_exit result)
+
+-- Unbox primitives
+-- fact scrutinizes 'n'
+-- all continuations scrutinize their argument (tricky higher-order reasoning.
+-- May need full analysis pass before worker-wrappering)
+let fun fact (n : int, k0 : (int) -> !) =
+  let u0 : int# = 0 in
+  let t0 : int = box u0 in
+  let u1 : int# = unbox n in
+  let u2 : int# = unbox t0 in
+  let u3 : bool# = u1 ==# u2 in
+  let b : bool = box u3 in
+  let cont if_true () =
+    let u4 : int# = 1 in
+    let t1 : int = box u4 in
+    k0 t1
+  in
+  let cont if_false () =
+    let u5 : int# = 1 in
+    let t2 : int = box u5 in
+    let u6 : int# = unbox n in
+    let u7 : int# = unbox t2 in
+    let u8 : int# = u6 -# u7 in
+    let n' : int = box u8 in
+    let cont k2 (z : int) =
+      let u9 : int# = unbox n in
+      let u10 : int# = unbox z in
+      let u11 : int# = u9 *# u10 in
+      let t3 : int = box u11 in
+      k0 t3
+    in
+    fact n' k2
+  in
+  let u12 : bool# = unbox b in
+  if u12 if_false if_true
+in
+let u13 : int# = 10 in
+let t4 : int = box u13 in
+let cont k3 (result : int) =
+  let u14 : int# = unbox result in
+  print_and_exit u14
+in
+fact t4 k3
+
+-- Worker-Wrapper transformation
+let
+  fun fact (n0 : int, k0 : (int) -> !) =
+    let cont k1 (x0 : int#) =
+      let x1 : int = box x0 in
+      k0 x1
+    in
+    let n1 : int# = unbox n0 in
+    fact_worker n1 k1
+
+  fun fact_worker (n# : int#, k0# : (int#) -> !) =
+    let n : int = box n# in
+    let k0 = cont (z : int) => let z# = unbox z in k0# z# in
+    let u0 : int# = 0 in
+    let t0 : int = box u0 in
+    let u1 : int# = unbox n in
+    let u2 : int# = unbox t0 in
+    let u3 : bool# = u1 ==# u2 in
+    let b : bool = box u3 in
+    let cont if_true () =
+      let u4 : int# = 1 in
+      let t1 : int = box u4 in
+      k0 t1
+    in
+    let cont if_false () =
+      let u5 : int# = 1 in
+      let t2 : int = box u5 in
+      let u6 : int# = unbox n in
+      let u7 : int# = unbox t2 in
+      let u8 : int# = u6 -# u7 in
+      let n' : int = box u8 in
+      let cont k2_worker (z# : int#) =
+        let z = box z# in
+        let u9 : int# = unbox n in
+        let u10 : int# = unbox z in
+        let u11 : int# = u9 *# u10 in
+        let t3 : int = box u11 in
+        k0 t3
+      in
+      let cont k2 (z : int) =
+        let z# = unbox z in
+        k2_worker z#
+      in
+      fact n' k2
+    in
+    let u12 : bool# = unbox b in
+    if u12 if_false if_true
+in
+let u13 : int# = 10 in
+let t4 : int = box u13 in
+let cont k3_worker (result# : int#) =
+  let result : int = box result# in
+  let u14 : int# = unbox result in
+  print_and_exit u14
+in
+let cont k3 (result : int) =
+  let result# : int# = unbox result in
+  k3_worker result#
+in
+fact t4 k3
+
+-- Inline wrappers
+let fun fact_worker (n# : int#, k0# : (int#) -> !) =
+  let n : int = box n# in
+  let u0 : int# = 0 in
+  let t0 : int = box u0 in
+  let u1 : int# = unbox n in
+  let u2 : int# = unbox t0 in
+  let u3 : bool# = u1 ==# u2 in
+  let b : bool = box u3 in
+  let cont if_true () =
+    let u4 : int# = 1 in
+    let t1 : int = box u4 in
+    let z# = unbox t1 in
+    k0# z#
+  in
+  let cont if_false () =
+    let u5 : int# = 1 in
+    let t2 : int = box u5 in
+    let u6 : int# = unbox n in
+    let u7 : int# = unbox t2 in
+    let u8 : int# = u6 -# u7 in
+    let n' : int = box u8 in
+    let cont k2_worker (z# : int#) =
+      let z = box z# in
+      let u9 : int# = unbox n in
+      let u10 : int# = unbox z in
+      let u11 : int# = u9 *# u10 in
+      let t3 : int = box u11 in
+      let z# = unbox t3 in
+      k0# z#
+    in
+    let cont k1 (x0 : int#) =
+      let x1 : int = box x0 in
+      let z# = unbox x1 in
+      k2_worker z#
+    in
+    let n1 : int# = unbox n' in
+    fact_worker n1 k1
+  in
+  let u12 : bool# = unbox b in
+  if u12 if_false if_true
+in
+let u13 : int# = 10 in
+let t4 : int = box u13 in
+let cont k3_worker (result# : int#) =
+  let result : int = box result# in
+  let u14 : int# = unbox result in
+  print_and_exit u14
+in
+let cont k1 (x0 : int#) =
+  let x1 : int = box x0 in
+  let result# : int# = unbox x1 in
+  k3_worker result#
+in
+let n1 : int# = unbox t4 in
+fact_worker n1 k1
+
+-- Cancel boxes
+let fun fact_worker (n# : int#, k0# : (int#) -> !) =
+  let n : int = box n# in
+  let u0 : int# = 0 in
+  let t0 : int = box u0 in
+  let u1 : int# = n# in
+  let u2 : int# = u0 in
+  let u3 : bool# = u1 ==# u2 in
+  let b : bool = box u3 in
+  let cont if_true () =
+    let u4 : int# = 1 in
+    let t1 : int = box u4 in
+    let z# = u4 in
+    k0# z#
+  in
+  let cont if_false () =
+    let u5 : int# = 1 in
+    let t2 : int = box u5 in
+    let u6 : int# = n# in
+    let u7 : int# = u5 in
+    let u8 : int# = u6 -# u7 in
+    let n' : int = box u8 in
+    let cont k2_worker (z# : int#) =
+      let z = box z# in
+      let u9 : int# = n# in
+      let u10 : int# = z# in
+      let u11 : int# = u9 *# u10 in
+      let t3 : int = box u11 in
+      let z# = u11 in
+      k0# z#
+    in
+    let cont k1 (x0 : int#) =
+      let x1 : int = box x0 in
+      let z# = x0 in
+      k2_worker z#
+    in
+    let n1 : int# = u8 in
+    fact_worker n1 k1
+  in
+  let u12 : bool# = u3 in
+  if u12 if_false if_true
+in
+let u13 : int# = 10 in
+let t4 : int = box u13 in
+let cont k3_worker (result# : int#) =
+  let result : int = box result# in
+  let u14 : int# = result# in
+  print_and_exit u14
+in
+let cont k1 (x0 : int#) =
+  let x1 : int = box x0 in
+  let result# : int# = x0 in
+  k3_worker result#
+in
+let n1 : int# = u13 in
+fact_worker n1 k1
+
+-- Final cleanups (should be fused with "Cancel boxes")
+let fun fact_worker (n# : int#, k0# : (int#) -> !) =
+  let u0 : int# = 0 in
+  let u3 : bool# = n# ==# u0 in
+  let cont if_true () =
+    let u4 : int# = 1 in
+    k0# u4#
+  in
+  let cont if_false () =
+    let u5 : int# = 1 in
+    let u8 : int# = n# -# u5 in
+    let cont k2_worker (z# : int#) =
+      let u11 : int# = n# *# z# in
+      k0# u11
+    in
+    let cont k1 (x0 : int#) =
+      k2_worker x0
+    in
+    fact_worker u8 k1
+  in
+  if u3 if_false if_true
+in
+let u13 : int# = 10 in
+let cont k3_worker (result# : int#) =
+  print_and_exit result#
+in
+let cont k1 (x0 : int#) =
+  k3_worker x0
+in
+fact_worker u13 k1
+
+-- Eta-contract continuations
+let fun fact_worker (n# : int#, k0# : (int#) -> !) =
+  let u0 : int# = 0 in
+  let u3 : bool# = n# ==# u0 in
+  let cont if_true () =
+    let u4 : int# = 1 in
+    k0# u4#
+  in
+  let cont if_false () =
+    let u5 : int# = 1 in
+    let u8 : int# = n# -# u5 in
+    let cont k2_worker (z# : int#) =
+      let u11 : int# = n# *# z# in
+      k0# u11
+    in
+    fact_worker u8 k2_worker
+  in
+  if u3 if_false if_true
+in
+let u13 : int# = 10 in
+let cont k3_worker (result# : int#) =
+  print_and_exit result#
+in
+fact_worker u13 k3_worker
+
+-- Basically the same as the original, but with all integers and integer
+-- operations unboxed
+
+
+-- Summary and Observations
+* the initial unboxing step creates a lot of garbage
+* unboxing the return value is tricky because it's higher-order control flow.
+* It probably needs a proper analysis pass to say "all continuations of this
+  function scrutinize their arguments"
+* I had to alter the main function from 'halt' to 'print_and_exit', so that all
+  continuations of 'fact' scrutinize their argument
+* Worker-wrapper creates more noise
+* cancelling box/unbox works well to clean up at this point
+* Sometimes, the wrapper for a continuation leaves behind an eta-redex
+* this works just as well for booleans as for integers, because booleans are
+  small integers
+* It is probably useful to run a tuple-flattening pass before unboxing.
+  This is because tuples and other product types box their values, but multiple
+  arguments/return values can be individually unboxed.
+
+
+-- Hmm. Consider another example: tail-recursive list sum
+-- You can unbox the accumulator here, but not the list elements
+-- Probably need tuples and/or arity raising to pass multiple parameters, though
+
+
+Another example: (naive) fibonacci
+This has two recursive calls, so the continuation structure is a bit more
+interesting than factorial.
