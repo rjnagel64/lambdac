@@ -524,22 +524,23 @@ emitIntCase x branches =
         ,"        break;"]
 
 emitValueDefinition :: DataEnv -> Place -> ValueH -> [Line]
+-- emitValueDefinition denv p v = ["    " ++ emitPlace p ++ " = " ++ emitValue denv v ++ ";"]
 emitValueDefinition _ p (IntH i) =
-  defineLocal p ("allocate_int64(" ++ show i ++ ")") []
+  defineLocal p ("allocate_int64(" ++ show i ++ ")")
 emitValueDefinition _ p (BoolH b) =
-  defineLocal p (if b then "allocate_bool_value(1)" else "allocate_bool_value(0)") []
+  defineLocal p (if b then "allocate_bool_value(1)" else "allocate_bool_value(0)")
 emitValueDefinition _ p (StringValH s) =
-  defineLocal p ("allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")") []
+  defineLocal p ("allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")")
 emitValueDefinition _ p (CharValH c) =
-  defineLocal p ("allocate_char(" ++ show c ++ ")") []
+  defineLocal p ("allocate_char(" ++ show c ++ ")")
 emitValueDefinition _ p (PairH x y) =
-  defineLocal p ("allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ asAlloc (emitName y) ++ ")") []
+  defineLocal p ("allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ asAlloc (emitName y) ++ ")")
 emitValueDefinition _ p NilH =
-  defineLocal p "allocate_unit()" []
+  defineLocal p "allocate_unit()"
 emitValueDefinition _ p WorldToken =
-  defineLocal p "allocate_token()" []
+  defineLocal p "allocate_token()"
 emitValueDefinition _ p (RecordH fields) =
-  defineLocal p ("allocate_record(" ++ show (length fields) ++ ", (struct field_init[]){" ++ commaSep fieldInits ++ "})") []
+  defineLocal p ("allocate_record(" ++ show (length fields) ++ ", (struct field_init[]){" ++ commaSep fieldInits ++ "})")
   where
     fieldInits = map initField fields
     initField (FieldLabel f, x) = "{" ++ show f ++ ", " ++ show (length f) ++ ", " ++ asAlloc (emitName x) ++ "}"
@@ -548,7 +549,40 @@ emitValueDefinition denv p (CtorAppH capp) =
     Nothing -> error "not a constructed type"
     Just tcapp ->
       let desc = dataDescFor denv tcapp in
-      defineLocal p (emitCtorAlloc desc capp) []
+      defineLocal p (emitCtorAlloc desc capp)
+
+emitValue :: DataEnv -> ValueH -> String
+emitValue _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
+emitValue _ (BoolH b) = if b then "allocate_bool_value(1)" else "allocate_bool_value(0)"
+emitValue _ (StringValH s) = "allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")"
+emitValue _ (CharValH c) = "allocate_char(" ++ show c ++ ")"
+emitValue _ (PairH x y) = "allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ asAlloc (emitName y) ++ ")"
+emitValue _ NilH = "allocate_unit()"
+emitValue _ WorldToken = "allocate_token()"
+emitValue _ (RecordH fields) =
+  "allocate_record(" ++ show (length fields) ++ ", (struct field_init[]){" ++ commaSep fieldInits ++ "})"
+  where
+    fieldInits = map initField fields
+    initField (FieldLabel f, x) =
+      "{" ++ show f ++ ", " ++ show (length f) ++ ", " ++ asAlloc (emitName x) ++ "}"
+-- emitValue denv (CtorAppH capp) =
+--   -- aargh. Need to know tyargs to figure out ctorArgCasts
+--   -- currently, tyargs come from the sort of the destination place.
+--   -- Can probably refactor CtorApp to allow recovering tcapp? might be messy elsewhere.
+--   -- (e.g., store tycon+tyargs in capp? would be more complicated for GADTs,
+--   -- but I only have regular ADTs right now, so it should work.)
+--   case asTyConApp _ of
+--     Nothing -> error "not a constructed type"
+--     Just tcapp ->
+--       let desc = dataDescFor denv tcapp in
+--       emitCtorAlloc desc capp
+-- 
+-- hmm. Lookup (TyCon, Ctor) in DataEnv. Use argument telescope to compute argCasts?
+-- emitValue denv (CtorApp c tyargs xs) =
+--   let tcapp = TyConApp (ctorTyCon c) tyargs in
+--   let desc = dataDescFor denv tcapp in
+--   emitCtorAlloc desc (CtorApp c tyargs xs)
+
 
 emitCtorAlloc :: DataDesc -> CtorAppH -> String
 emitCtorAlloc desc (CtorApp ctor xs) = method ++ "(" ++ commaSep args' ++ ")"
@@ -693,14 +727,9 @@ patchEnv recNames (EnvAlloc envPlace _ fields) = mapMaybe patchField fields
       else
         Nothing
 
--- Define a local variable, by giving it a name+type, an initializer, and an
--- optional list of field initializers.
---
--- (A higher-level API could/should be used instead of string-typing)
-defineLocal :: Place -> String -> [Line] -> [Line]
-defineLocal p initVal fields =
-  ["    " ++ emitPlace p ++ " = " ++ initVal ++ ";"] ++
-  fields
+defineLocal :: Place -> String -> [Line]
+defineLocal p initVal =
+  ["    " ++ emitPlace p ++ " = " ++ initVal ++ ";"]
 
 -- Hmm. Consider breaking up into semantically distinct operations:
 -- (Would still be effectively identical code, though.

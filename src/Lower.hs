@@ -737,6 +737,9 @@ data ValueH
   | CtorAppH CtorAppH
 
 data CtorAppH
+  -- hmm. should include type arguments, I think, since CtorDecl includes type parameters
+  -- This would also let me compute the argCasts required by emitCtorAlloc
+  -- without needing a TyConApp
   = CtorApp Ctor [Name]
 
 data PrimOp
