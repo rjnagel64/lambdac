@@ -178,7 +178,7 @@ lowerCodeLabel l = do
     Just l' -> pure l'
 
 lookupEnvTyCon :: H.CodeLabel -> M TyCon
-lookupEnvTyCon l@(H.CodeLabel x) = do
+lookupEnvTyCon l = do
   env <- asks envEnvTyCons
   case Map.lookup l env of
     Nothing -> error ("env tycon for " ++ show l ++ " not in scope")
@@ -198,19 +198,8 @@ lowerTerm (H.IfH x k1 k2) = do
   ty2 <- lookupThunkType k2
   k2' <- lowerName k2
   pure (IntCaseH x' [(0, ty1, k1'), (1, ty2, k2')])
-lowerTerm (H.CaseH x H.CaseBool ks) = do
-  let desc = Map.fromList [(H.Ctor "false", 0), (H.Ctor "true", 1)]
-  x' <- lowerName x
-  ks' <- for ks $ \ (c, k) -> do
-    i <- case Map.lookup c desc of
-      Nothing -> error "bad branch in if-statement"
-      Just i -> pure i
-    ty <- lookupThunkType k
-    k' <- lowerName k
-    pure (i, ty, k')
-  pure (IntCaseH x' ks')
-lowerTerm (H.CaseH x (H.TyConApp tc ss) ks) = do
-  CaseH <$> lowerName x <*> (TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss) <*> traverse lowerCaseAlt ks
+lowerTerm (H.CaseH x tcapp ks) = do
+  CaseH <$> lowerName x <*> lowerTyConApp tcapp <*> traverse lowerCaseAlt ks
 lowerTerm (H.LetValH p v e) = do
   v' <- lowerValue v
   withPlace p $ \p' -> do
@@ -249,6 +238,7 @@ lowerProjection (H.ProjectField f) = ProjectField <$> lowerFieldLabel f
 
 lowerValue :: H.ValueH -> M ValueH
 lowerValue (H.IntH i) = pure (IntH i)
+lowerValue (H.BoolH b) = pure (BoolH b)
 lowerValue (H.StringValH s) = pure (StringValH s)
 lowerValue (H.CharValH c) = pure (CharValH c)
 lowerValue (H.PairH x y) = PairH <$> lowerName x <*> lowerName y
@@ -258,11 +248,12 @@ lowerValue (H.RecordValH fields) = RecordH <$> traverse lowerField fields
   where lowerField (f, x) = (,) <$> lowerFieldLabel f <*> lowerName x
 lowerValue (H.CtorAppH capp) = lowerCtorApp capp
 
--- Slightly messy, because booleans are ctorapp in Hoist, but back to being Value in Lower
 lowerCtorApp :: H.CtorAppH -> M ValueH
-lowerCtorApp (H.BoolH b) = pure (BoolH b)
 lowerCtorApp (H.CtorApp c xs) =
   CtorAppH <$> (CtorApp <$> lowerCtor c <*> traverse lowerName xs)
+
+lowerTyConApp :: H.TyConApp -> M TyConApp
+lowerTyConApp (H.TyConApp tc ss) = TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss
 
 lowerPrimOp :: H.PrimOp -> M PrimOp
 lowerPrimOp (H.PrimAddInt64 x y) = PrimAddInt64 <$> lowerName x <*> lowerName y

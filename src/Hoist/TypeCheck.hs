@@ -381,6 +381,8 @@ checkPrimIO (PrimPutLine x y) = checkName x TokenH *> checkName y StringH *> pur
 checkValue :: ValueH -> Sort -> TC ()
 checkValue (IntH _) IntegerH = pure ()
 checkValue (IntH _) _ = throwError BadValue
+checkValue (BoolH _) BooleanH = pure ()
+checkValue (BoolH _) _ = throwError BadValue
 checkValue NilH UnitH = pure ()
 checkValue NilH _ = throwError BadValue
 checkValue (PairH x y) (ProductH s t) = do
@@ -402,8 +404,6 @@ checkValue (CtorAppH capp) s = case asTyConApp s of
 -- | Check that a constructor application is a value of the given type
 -- constructor application.
 checkCtorApp :: CtorAppH -> TyConApp -> TC ()
-checkCtorApp (BoolH _) CaseBool = checkCtorArgs [] []
-checkCtorApp _ CaseBool = throwError BadCtorApp 
 checkCtorApp (CtorApp c args) tcapp = do
   ctors <- instantiateTyConApp tcapp
   case Map.lookup c ctors of
@@ -446,8 +446,6 @@ checkBranches branches branchTys = do
 -- compute a mapping from that type constructor's data constructors to the
 -- instantiated type of that constructor.
 instantiateTyConApp :: TyConApp -> TC (Map Ctor [TeleEntry])
-instantiateTyConApp CaseBool =
-  pure $ Map.fromList [(Ctor "false", []), (Ctor "true", [])]
 instantiateTyConApp (TyConApp tc tys) = do
   ctors <- snd <$> lookupTyCon tc
   cs <- fmap Map.fromList $ for ctors $ \ (CtorDecl c typarams argTys) -> do

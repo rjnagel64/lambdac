@@ -322,7 +322,7 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
 
 hoistValue :: C.ValueC -> HoistM ValueH
 hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
-hoistValue (C.BoolC b) = pure (CtorAppH (BoolH b))
+hoistValue (C.BoolC b) = pure (BoolH b)
 hoistValue (C.PairC x y) =
   PairH <$> hoistVarOcc x <*> hoistVarOcc y
 hoistValue (C.RecordC fields) =

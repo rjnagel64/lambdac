@@ -184,7 +184,6 @@ data Kind = Star | KArr Kind Kind
   deriving (Eq)
 
 asTyConApp :: Sort -> Maybe TyConApp
-asTyConApp BooleanH = Just CaseBool
 asTyConApp (TyConH tc) = Just (TyConApp tc [])
 asTyConApp (TyAppH t s) = go t [s]
   where
@@ -196,12 +195,10 @@ asTyConApp (TyAppH t s) = go t [s]
 asTyConApp _ = Nothing
 
 fromTyConApp :: TyConApp -> Sort
-fromTyConApp CaseBool = BooleanH
 fromTyConApp (TyConApp tc args) = foldl TyAppH (TyConH tc) args
 
 data TyConApp
-  = CaseBool
-  | TyConApp TyCon [Sort]
+  = TyConApp TyCon [Sort]
 
 
 
@@ -251,6 +248,7 @@ data EnvAlloc
 
 data ValueH
   = IntH Int64
+  | BoolH Bool
   | StringValH String
   | CharValH Char
   | PairH Name Name
@@ -260,8 +258,7 @@ data ValueH
   | CtorAppH CtorAppH
 
 data CtorAppH
-  = BoolH Bool
-  | CtorApp Ctor [Name]
+  = CtorApp Ctor [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -527,13 +524,13 @@ pprintValue (RecordValH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ "
   where pprintField (f, x) = show f ++ " = " ++ show x
 pprintValue NilH = "()"
 pprintValue (IntH i) = show i
+pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (StringValH s) = show s
 pprintValue (CharValH c) = show c
 pprintValue WorldToken = "WORLD#"
 pprintValue (CtorAppH capp) = pprintCtorApp capp
 
 pprintCtorApp :: CtorAppH -> String
-pprintCtorApp (BoolH b) = if b then "true" else "false"
 pprintCtorApp (CtorApp c xs) = show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String
