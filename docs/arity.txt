@@ -135,3 +135,172 @@ It's reasonably obvious in direct style (Call Arity glosses over the
 forward-only arity analysis), but not very clear once we're in CPS and already
 uncurried (but with 1-argument functions). (Because chains of applications have
 been spread out by continuations, so it's hard to count arguments, etc.)
+
+
+
+Arity Analysis on Direct-Style IR
+=================================
+
+CPS makes analysis hard because most control flow is higher-order. So, to gain
+intution, I will not describe rules for arity analysis on a conventional
+direct-style IR.
+
+These rules are simplified from [Call Arity], with ideas from [Making a Faster
+Curry with Extensional Types]
+
+General idea: given an incoming arity ("this expression is applied to n
+arguments"), compute how many arguments are applied to each free variable of
+the expression.
+
+
+arity : Expr -> Arity -> Map Var Arity
+arity x n = { x -> n }
+arity (e1 e2) n = arity e2 0 <> arity e1 (n+1)
+-- can't go negative: still zero arity
+-- Annotate function parameters with their inferred arity as well.
+arity (λx. e) 0 = let env = arity e 0 in set x.arity = env[x]; env \\ {x}
+arity (λx. e) (S n) = let env = arity e n in set x.arity = env[x]; env \\ {x}
+-- do branches first
+-- scrutinee has incoming arity 0
+arity (case e1 of { inl x -> el; inr y -> er }) n = _
+-- use body to infer arity of e1
+arity (let x = e1 in e2) n = _
+-- need to iterate to fixpoint
+arity (letrec (xi = ei)+ in e) n = _
+arity e n = _
+
+Is this a forward or backward analysis?
+My hunch is backward, because 'arity (case e of { alts }) n' basically applies
+'n' arguments to each alt, while the scrutinee is always applied to 0 args
+
+
+Do I need to care about let-floating/duplicated work? I hope not.
+
+
+
+-- sample program: 
+zipWith :: (a -> b -> c) -> [a] -> [b] -> [c]
+zipWith f [] [] = []
+zipWith f (x:xs) (y:ys) = f x y : zipWith f xs ys
+zipWith f _ _ = []
+
+dot xs ys = sum (zipWith (*) xs ys)
+
+sum = go 0
+  where
+    go acc [] = acc
+    go acc (x:xs) = go (acc+x) xs
+
+-- not fully applied
+-- higher-order arity for the inner?
+matAdd :: [[Int]] -> [[Int]] -> [[Int]]
+matAdd = zipWith (zipWith (+)) 
+
+main :: [Bool]
+main = zipWith (||) [False, True, False, True] [False, False, True, True]
+
+main2 :: [[Int]]
+main2 = matAdd [[1, 2], [3, 4]] [[5, 6], [7, 8]]
+
+-- from body of main2, matAdd applied to 2 arguments
+-- from body of main, zipWith applied to 3 arguments
+-- from body of matAdd @ 2 arguments, zipWith applied to 3 arguments (and zipWith applied to 1 argument?)
+
+
+
+Hrrm. restrict argument position to variable?
+matAdd = let tmp = zipWith (+) in zipWith tmp
+from matAdd @ 2, zipWith applied to 3
+zipWith @ 3 ==> arg1 @ 2, arg2 @ 0, arg3 @ 0, zipWith @ 3 ==> tmp @ 2
+tmp @ 2 ==> zipWith @ 3
+zipWith @ 3 ==> arg1 @ 2, arg2 @ 0, arg3 @ 0 ==> (+) @ 2
+
+
+
+
+-- foldl via foldr, and why arity is tricky here
+foldr f z = go
+  where
+    go [] = z
+    go (x:xs) = f x (go xs)
+
+foldl f z xs = foldr (\x k -> k . f x) id xs $ z
+foldl f z xs = let
+    go [] = id
+    go (y:ys) = (\x k -> k . f x) y (go ys)
+  in
+    go xs z
+foldl f z xs = let
+    go [] = id
+    go (y:ys) = go ys . f y
+  in
+    go xs z
+
+-- same thing, but (.) inlined
+foldl f z xs = foldr (\x k b -> k (f x b)) id xs z
+foldl f z xs = let
+    go [] = id
+    go (y:ys) = (\x k b -> k (f x b)) y (go ys)
+  in
+    go xs z
+foldl f z xs = let
+    go [] = id
+    go (y:ys) = \b -> go ys (f y b)
+  in
+    go xs z
+
+-- core version
+
+-- non-inlined
+foldr = \f -> \z ->
+  let
+    go = \xs' -> case xs' of {
+      [] -> z
+      x:xs -> f x (go xs)
+    }
+  in
+    go
+
+foldl f z xs = foldr (\x k b -> k (f x b)) id xs z
+
+-- foldr inlined into foldl
+foldl = \f -> \z -> \xs ->
+  let
+    go = \xs' -> case xs' of {
+      [] -> id
+      y:ys -> \b -> go ys (f y b)
+    }
+  in
+    go xs z
+
+non-inlined:
+from foldl: foldr @ 4
+from foldr @ 4: go @ 2
+from go @ 2: z @ 1, f @ 3, go @ 1
+foldr/build fusion happens before inlining (foldr needs to still be around for rules to fire)
+So foldr must be analyzed separately
+So it can't see that there's an extra argument
+So it reduces the arity of 'go' and builds a chain of thunks.
+-- need higher-order arity to see that go will be called @ 2 again
+from go @ 1: z @ 0, f @ 2, go @ 1
+
+inlined version:
+foldl @ 3 ==> go @ 2
+go @ 2 ==> id @ 1, go @ 2, f @ 2
+no problems here. go has arity 2, foldl has arity 3
+
+foldl f z xs =
+  let
+    go [] b = b
+    go (y:ys) b = go ys (f y b)
+  in
+    go xs z
+
+foldl = \f ~> \z ~> \xs ~>
+  let
+    go = \xs' ~> \b ~> case xs' of
+      [] -> b
+      (y:ys) = go ys (f y b)
+  in
+    go xs z
+
