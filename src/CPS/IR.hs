@@ -36,9 +36,10 @@ module CPS.IR
     , KindK(..)
 
     , Subst
-    , makeSubst
+    , listSubst
     , substTypeK
     , substCoTypeK
+    , substTyConApp
 
     , pprintProgram
     , pprintType
@@ -398,10 +399,13 @@ substTypeK _ (TyConOccK tc) = TyConOccK tc
 substCoTypeK :: Subst -> CoTypeK -> CoTypeK
 substCoTypeK sub (ContK ss) = ContK (map (substTypeK sub) ss)
 
+substTyConApp :: Subst -> TyConApp -> TyConApp
+substTyConApp sub (TyConApp tc ts) = TyConApp tc (map (substTypeK sub) ts)
+
 data Subst = Subst (Map TyVar TypeK) (Set TyVar)
 
-makeSubst :: [(TyVar, TypeK)] -> Subst
-makeSubst xs = Subst (Map.fromList xs) sc
+listSubst :: [(TyVar, TypeK)] -> Subst
+listSubst xs = Subst (Map.fromList xs) sc
   where
     -- "Secrets of the GHC Inliner" says that you only need the FTV of the
     -- range of the substitution.

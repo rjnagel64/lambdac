@@ -19,10 +19,11 @@ import Prelude hiding (cos)
 
 
 data TypeError
-  = TmNotInScope TmVar
-  | CoNotInScope CoVar
-  | TyNotInScope TyVar
+  = TmVarNotInScope TmVar
+  | CoVarNotInScope CoVar
+  | TyVarNotInScope TyVar
   | TyConNotInScope TyCon
+  | CtorNotInScope Ctor
   | TypeMismatch TypeK TypeK
   | LabelMismatch FieldLabel FieldLabel
   | CoTypeMismatch CoTypeK CoTypeK
@@ -38,10 +39,11 @@ data TypeError
   | CannotTyApp TypeK
 
 instance Show TypeError where
-  show (TmNotInScope x) = "term variable " ++ show x ++ " not in scope"
-  show (CoNotInScope k) = "continuation variable " ++ show k ++ " not in scope"
-  show (TyNotInScope aa) = "type variable " ++ show aa ++ " not in scope"
+  show (TmVarNotInScope x) = "term variable " ++ show x ++ " not in scope"
+  show (CoVarNotInScope k) = "continuation variable " ++ show k ++ " not in scope"
+  show (TyVarNotInScope aa) = "type variable " ++ show aa ++ " not in scope"
   show (TyConNotInScope tc) = "type constructor " ++ show tc ++ " not in scope"
+  show (CtorNotInScope c) = "constructor " ++ show c ++ " not in scope"
   show (TypeMismatch expected actual) = unlines
     [ "type mismatch:"
     , "expected type: " ++ pprintType expected
@@ -142,26 +144,27 @@ withTyCon tc kk m = checkKind kk *> local extend m
 
 lookupTmVar :: TmVar -> TC TypeK
 lookupTmVar x = asks tmContext >>= maybe err pure . Map.lookup x
-  where err = throwError (TmNotInScope x)
+  where err = throwError (TmVarNotInScope x)
 
 lookupCoVar :: CoVar -> TC CoTypeK
 lookupCoVar x = asks coContext >>= maybe err pure . Map.lookup x
-  where err = throwError (CoNotInScope x)
+  where err = throwError (CoVarNotInScope x)
 
 lookupTyVar :: TyVar -> TC KindK
 lookupTyVar x = asks tyContext >>= maybe err pure . Map.lookup x
-  where err = throwError (TyNotInScope x)
+  where err = throwError (TyVarNotInScope x)
 
 lookupTyCon :: TyCon -> TC KindK
 lookupTyCon tc = asks tcContext >>= maybe err pure . Map.lookup tc
   where err = throwError (TyConNotInScope tc)
 
+lookupCtor :: Ctor -> TC CtorType
+lookupCtor c = asks ctContext >>= maybe err pure . Map.lookup c
+  where err = throwError (CtorNotInScope c)
+
 lookupDataDecl :: TyCon -> TC DataDecl
 lookupDataDecl x = gets sigTyCons >>= maybe err pure . Map.lookup x
   where err = throwError (TyConNotInScope x)
-
-dataDeclKind :: DataDecl -> KindK
-dataDeclKind (DataDecl _ kind _) = kind
 
 equalTypes :: TypeK -> TypeK -> TC ()
 equalTypes expected actual =
@@ -222,7 +225,7 @@ check (InstK f ts ks) = do
   (aas, ss) <- lookupTmVar f >>= \case
     AllK aas ss -> pure (aas, ss)
     t -> throwError (CannotInst f t)
-  sub <- parameterSubst aas ts
+  sub <- makeSubst aas ts
   let ss' = map (substCoTypeK sub) ss
   checkCoArgs ks ss'
 check (IfK x k1 k2) = do
@@ -335,14 +338,11 @@ checkValue (IntValK _) IntK = pure ()
 checkValue (BoolValK _) BoolK = pure ()
 checkValue (StringValK _) StringK = pure ()
 checkValue (CharValK _) CharK = pure ()
--- checkValue (CtorAppK c ts xs) t = do
---   CtorType aas ss tcapp <- lookupCtor c
---   sub <- parameterSubst aas ts
---   checkTmArgs xs (map (substTypeK sub) ss)
---   equalTypes (substTyConApp sub tcapp) t
-checkValue v@(CtorAppK c ss xs) t = case asTyConApp t of
-  Nothing -> throwError (BadValue v t)
-  Just tcapp -> checkCtorApp c xs tcapp
+checkValue (CtorAppK c ts xs) t = do
+  CtorType aas ss tcapp <- lookupCtor c
+  sub <- makeSubst aas ts
+  checkTmArgs xs (map (substTypeK sub) ss)
+  equalTypes (fromTyConApp $ substTyConApp sub tcapp) t
 checkValue WorldTokenK TokenK = pure ()
 checkValue v t = throwError (BadValue v t)
 
@@ -364,32 +364,20 @@ checkPrimIO (PrimPutLine s x) = do
   checkTmVar x StringK
   pure UnitK
 
-checkCtorApp :: Ctor -> [TmVar] -> TyConApp -> TC ()
-checkCtorApp c args tcapp@(TyConApp tc _) = do
-  ctors <- instantiateTyConApp tcapp
-  case Map.lookup c ctors of
-    Nothing -> throwError (InvalidCtor c tc)
-    Just argTys -> checkCtorArgs args argTys
-
 instantiateTyConApp :: TyConApp -> TC (Map Ctor [TypeK])
 instantiateTyConApp (TyConApp tc tys) = do
   DataDecl _ _ ctors <- lookupDataDecl tc
   ctorDefs <- for ctors $ \ (CtorDecl c params argTys) -> do
-    sub <- parameterSubst params tys
+    sub <- makeSubst params tys
     pure (c, map (substTypeK sub) argTys)
   pure (Map.fromList ctorDefs)
 
-parameterSubst :: [(TyVar, KindK)] -> [TypeK] -> TC Subst
-parameterSubst params args = makeSubst <$> go params args
+makeSubst :: [(TyVar, KindK)] -> [TypeK] -> TC Subst
+makeSubst params args = listSubst <$> go params args
   where
     go [] [] = pure []
     go ((aa, k) : aas) (t : ts) = checkType t k *> fmap ((aa, t) :) (go aas ts)
     go _ _ = throwError ArityMismatch
-
-checkCtorArgs :: [TmVar] -> [TypeK] -> TC ()
-checkCtorArgs [] [] = pure ()
-checkCtorArgs (x : xs) (t : ts) = checkTmVar x t *> checkCtorArgs xs ts
-checkCtorArgs _ _ = throwError ArityMismatch
 
 checkTmVar :: TmVar -> TypeK -> TC ()
 checkTmVar x t = do
