@@ -96,6 +96,7 @@ data Context
   , coContext :: Map CoVar CoTypeK
   , tyContext :: Map TyVar KindK
   , tcContext :: Map TyCon KindK
+  , ctContext :: Map Ctor CtorType
   }
 
 -- Hmm. Re-do this to use local scoping, not global signature
@@ -114,6 +115,7 @@ emptyContext =
   , coContext = Map.empty
   , tyContext = Map.empty
   , tcContext = Map.empty
+  , ctContext = Map.empty
   }
 
 emptySignature :: Signature
@@ -198,22 +200,22 @@ withDataDecls (dd@(DataDecl tc k ctors) : ds) m = do
   let extend sig = sig { sigTyCons = Map.insert tc dd (sigTyCons sig) }
   modify extend
   withTyCon tc k $
-    withCtorDecls ctors $
+    withCtorDecls tc ctors $
       withDataDecls ds m
 
-withCtorDecls :: [CtorDecl] -> TC a -> TC a
-withCtorDecls ctors m = do
+withCtorDecls :: TyCon -> [CtorDecl] -> TC a -> TC a
+withCtorDecls tc ctors m = do
   -- check that ctors are distinct
   -- check that ctor types are well-formed
-  traverse_ checkCtorDecl ctors
-  -- Not a typo. Information about ctors is currently stored in the Signature,
-  -- not the Context.
-  let extend env = env
+  binds <- traverse (checkCtorDecl tc) ctors
+  let extend ctx = ctx { ctContext = foldr (uncurry Map.insert) (ctContext ctx) binds }
   local extend $ m
 
 -- Hmm. Do I need to record ctor -> type bindings? (or ctor -> tycon? or anything?)
-checkCtorDecl :: CtorDecl -> TC ()
-checkCtorDecl (CtorDecl c params args) = withTyVars params $ traverse_ (\t -> checkType t StarK) args
+checkCtorDecl :: TyCon -> CtorDecl -> TC (Ctor, CtorType)
+checkCtorDecl tc (CtorDecl c params args) = do
+  withTyVars params $ traverse_ (\t -> checkType t StarK) args
+  pure (c, CtorType params args (TyConApp tc [TyVarOccK aa | (aa, _) <- params]))
 
 
 check :: TermK -> TC ()
