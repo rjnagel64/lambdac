@@ -175,19 +175,6 @@ equalKinds :: KindK -> KindK -> TC ()
 equalKinds expected actual =
   unless (expected == actual) $ throwError (KindMismatch expected actual)
 
--- Hmm. Constructing the substitution duplicates logic in parameterSubst.
--- Generalize, deduplicate.
-instantiate :: [(TyVar, KindK)] -> [TypeK] -> [CoTypeK] -> TC [CoTypeK]
-instantiate aas ts ss = do
-  sub <- makeSubst <$> zipExact aas ts
-  pure (map (substCoTypeK sub) ss)
-  where
-    zipExact [] [] = pure []
-    zipExact ((aa, kk):aas') (t:ts') = do
-      checkType t kk
-      rest <- zipExact aas' ts'
-      pure ((aa, t) : rest)
-    zipExact _ _ = throwError ArityMismatch
 
 
 checkProgram :: Program -> Either TypeError ()
@@ -235,7 +222,8 @@ check (InstK f ts ks) = do
   (aas, ss) <- lookupTmVar f >>= \case
     AllK aas ss -> pure (aas, ss)
     t -> throwError (CannotInst f t)
-  ss' <- instantiate aas ts ss
+  sub <- parameterSubst aas ts
+  let ss' = map (substCoTypeK sub) ss
   checkCoArgs ks ss'
 check (IfK x k1 k2) = do
   checkTmVar x BoolK
@@ -347,6 +335,11 @@ checkValue (IntValK _) IntK = pure ()
 checkValue (BoolValK _) BoolK = pure ()
 checkValue (StringValK _) StringK = pure ()
 checkValue (CharValK _) CharK = pure ()
+-- checkValue (CtorAppK c ts xs) t = do
+--   CtorType aas ss tcapp <- lookupCtor c
+--   sub <- parameterSubst aas ts
+--   checkTmArgs xs (map (substTypeK sub) ss)
+--   equalTypes (substTyConApp sub tcapp) t
 checkValue v@(CtorAppK c ss xs) t = case asTyConApp t of
   Nothing -> throwError (BadValue v t)
   Just tcapp -> checkCtorApp c xs tcapp
