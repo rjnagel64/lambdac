@@ -95,15 +95,26 @@ data Context
     tmContext :: Map TmVar TypeK
   , coContext :: Map CoVar CoTypeK
   , tyContext :: Map TyVar KindK
+  , tcContext :: Map TyCon KindK
   }
 
+-- Hmm. Re-do this to use local scoping, not global signature
 data Signature
   = Signature {
     sigTyCons :: Map TyCon DataDecl
   }
 
+-- constructors have types of the form forall (aa : k)+. ss+ -> T aa+
+data CtorType = CtorType [(TyVar, KindK)] [TypeK] TyConApp
+
 emptyContext :: Context
-emptyContext = Context Map.empty Map.empty Map.empty
+emptyContext =
+  Context {
+    tmContext = Map.empty
+  , coContext = Map.empty
+  , tyContext = Map.empty
+  , tcContext = Map.empty
+  }
 
 emptySignature :: Signature
 emptySignature = Signature Map.empty
@@ -111,17 +122,21 @@ emptySignature = Signature Map.empty
 withTmVars :: [(TmVar, TypeK)] -> TC a -> TC a
 withTmVars [] m = m
 withTmVars ((x, t) : binds) m = checkType t StarK *> local extend (withTmVars binds m)
-  where extend (Context tms cos tys) = Context (Map.insert x t tms) cos tys
+  where extend ctx = ctx { tmContext = Map.insert x t (tmContext ctx) }
 
 withCoVars :: [(CoVar, CoTypeK)] -> TC a -> TC a
 withCoVars [] m = m
 withCoVars ((k, s) : binds) m = checkCoType s StarK *> local extend (withCoVars binds m)
-  where extend (Context tms cos tys) = Context tms (Map.insert k s cos) tys
+  where extend ctx = ctx { coContext = Map.insert k s (coContext ctx) }
 
 withTyVars :: [(TyVar, KindK)] -> TC a -> TC a
 withTyVars [] m = m
 withTyVars ((aa, kk) : binds) m = checkKind kk *> local extend (withTyVars binds m)
-  where extend (Context tms cos tys) = Context tms cos (Map.insert aa kk tys)
+  where extend ctx = ctx { tyContext = Map.insert aa kk (tyContext ctx) }
+
+withTyCon :: TyCon -> KindK -> TC a -> TC a
+withTyCon tc kk m = checkKind kk *> local extend m
+  where extend ctx = ctx { tcContext = Map.insert tc kk (tcContext ctx) }
 
 lookupTmVar :: TmVar -> TC TypeK
 lookupTmVar x = asks tmContext >>= maybe err pure . Map.lookup x
@@ -136,7 +151,8 @@ lookupTyVar x = asks tyContext >>= maybe err pure . Map.lookup x
   where err = throwError (TyNotInScope x)
 
 lookupTyCon :: TyCon -> TC KindK
-lookupTyCon tc = dataDeclKind <$> lookupDataDecl tc
+lookupTyCon tc = asks tcContext >>= maybe err pure . Map.lookup tc
+  where err = throwError (TyConNotInScope tc)
 
 lookupDataDecl :: TyCon -> TC DataDecl
 lookupDataDecl x = gets sigTyCons >>= maybe err pure . Map.lookup x
@@ -178,10 +194,12 @@ checkProgram (Program ds e) = runTC $ do
 
 withDataDecls :: [DataDecl] -> TC a -> TC a
 withDataDecls [] m = m
-withDataDecls (dd@(DataDecl tc _ ctors) : ds) m = do
-  modify (\ (Signature tcs) -> Signature (Map.insert tc dd tcs))
-  withCtorDecls ctors $ do
-    withDataDecls ds m
+withDataDecls (dd@(DataDecl tc k ctors) : ds) m = do
+  let extend sig = sig { sigTyCons = Map.insert tc dd (sigTyCons sig) }
+  modify extend
+  withTyCon tc k $
+    withCtorDecls ctors $
+      withDataDecls ds m
 
 withCtorDecls :: [CtorDecl] -> TC a -> TC a
 withCtorDecls ctors m = do
