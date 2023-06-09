@@ -327,7 +327,7 @@ checkValue (IntValK _) IntK = pure ()
 checkValue (BoolValK _) BoolK = pure ()
 checkValue (StringValK _) StringK = pure ()
 checkValue (CharValK _) CharK = pure ()
-checkValue v@(CtorAppK c xs) t = case asTyConApp t of
+checkValue v@(CtorAppK c ss xs) t = case asTyConApp t of
   Nothing -> throwError (BadValue v t)
   Just tcapp -> checkCtorApp c xs tcapp
 checkValue WorldTokenK TokenK = pure ()

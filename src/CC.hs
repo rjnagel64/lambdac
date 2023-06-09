@@ -335,7 +335,7 @@ cconvValue (K.IntValK i) = pure (IntC i)
 cconvValue (K.BoolValK b) = pure (BoolC b)
 cconvValue (K.StringValK s) = pure (StringC s)
 cconvValue (K.CharValK s) = pure (CharC s)
-cconvValue (K.CtorAppK (K.Ctor c) args) = CtorAppC (Ctor c) <$> traverse cconvTmVar args
+cconvValue (K.CtorAppK (K.Ctor c) tyargs args) = CtorAppC (Ctor c) <$> traverse cconvTmVar args
 
 cconvArith :: K.ArithK -> ConvM ArithC
 cconvArith (K.AddK x y) = AddC <$> cconvTmVar x <*> cconvTmVar y

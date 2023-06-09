@@ -559,29 +559,29 @@ cpsBranch xs e k = freshenVarBinds xs $ \xs' -> do
 -- Nullary constructors (no value args, no type params) are merely let-expressions:
 -- let mkbar : bar = mkbar() in ...
 
-makeCtorWrapper :: TyCon -> [(TyVar, KindK)] -> Ctor -> [TypeK] -> TermK -> CPS TermK
-makeCtorWrapper tc params c ctorargs e = do
-  (w, _) <- go (let Ctor tmp = c in TmVar tmp 0) (map Left params ++ map Right ctorargs) [] e
+makeCtorWrapper :: TyCon -> Ctor -> [(TyVar, KindK)] -> [TypeK] -> TermK -> CPS TermK
+makeCtorWrapper tc c ctorparams ctorargs e = do
+  (w, _) <- go (let Ctor tmp = c in TmVar tmp 0) (ctorparams, ctorargs) ([], []) e
   pure w
   where
-    go :: TmVar -> [Either (TyVar, KindK) TypeK] -> [TmVar] -> TermK -> CPS (TermK, TypeK)
-    go name [] arglist body = do
-      let val = CtorAppK c arglist
-      let wrapperTy = foldl (\ t (aa, _) -> TyAppK t (TyVarOccK aa)) (TyConOccK tc) params
+    go :: TmVar -> ([(TyVar, KindK)], [TypeK]) -> ([TypeK], [TmVar]) -> TermK -> CPS (TermK, TypeK)
+    go name ([], []) (tyarglist, tmarglist) body = do
+      let val = CtorAppK c tyarglist tmarglist
+      let wrapperTy = foldl (\t (aa, _) -> TyAppK t (TyVarOccK aa)) (TyConOccK tc) ctorparams
       let wrapper = LetValK name wrapperTy val body
       pure (wrapper, wrapperTy)
-    go name (Left (aa, k) : args) arglist body =
+    go name ((aa, k) : tyargs, tmargs) (tyarglist, tmarglist) body = do
       freshTm "w" $ \newName ->
         freshCo "k" $ \newCont -> do
-          (inner, innerTy) <- go newName args arglist (JumpK newCont [newName])
+          (inner, innerTy) <- go newName (tyargs, tmargs) (tyarglist ++ [TyVarOccK aa], tmarglist) (JumpK newCont [newName])
           let fun = AbsDef name [(aa, k)] [(newCont, ContK [innerTy])] inner
           let wrapper = LetFunAbsK [fun] body
           pure (wrapper, AllK [(aa, k)] [ContK [innerTy]])
-    go name (Right argTy : args) arglist body =
+    go name ([], argTy : tmargs) (tyarglist, tmarglist) body = do
       freshTm "w" $ \newName ->
         freshTm "arg" $ \newArg ->
           freshCo "k" $ \newCont -> do
-            (inner, innerTy) <- go newName args (arglist ++ [newArg]) (JumpK newCont [newName])
+            (inner, innerTy) <- go newName ([], tmargs) (tyarglist, tmarglist ++ [newArg]) (JumpK newCont [newName])
             let fun = FunDef name [(newArg, argTy)] [(newCont, ContK [innerTy])] inner
             let wrapper = LetFunAbsK [fun] body
             pure (wrapper, FunK [argTy] [ContK [innerTy]])
@@ -590,7 +590,7 @@ makeDataWrapper :: DataDecl -> TermK -> CPS TermK
 makeDataWrapper (DataDecl tc _ ctors) e = go ctors e
   where
     go [] e' = pure e'
-    go (CtorDecl c params args : cs) e' = makeCtorWrapper tc params c args =<< go cs e'
+    go (CtorDecl c params args : cs) e' = makeCtorWrapper tc c params args =<< go cs e'
 
 addCtorWrappers :: [DataDecl] -> TermK -> CPS TermK
 addCtorWrappers [] e = pure e
