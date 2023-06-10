@@ -332,7 +332,8 @@ hoistValue C.NilC = pure NilH
 hoistValue C.WorldTokenC = pure WorldToken
 hoistValue (C.StringC s) = pure (StringValH s)
 hoistValue (C.CharC c) = pure (CharValH c)
-hoistValue (C.CtorAppC (C.Ctor c) args) = (CtorAppH . CtorApp (Ctor c)) <$> traverse hoistVarOcc args
+hoistValue (C.CtorAppC (C.Ctor c) tyargs args) =
+  (CtorAppH . CtorApp (Ctor c)) <$> traverse hoistVarOcc args
 
 hoistArith :: C.ArithC -> HoistM PrimOp
 hoistArith (C.AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y

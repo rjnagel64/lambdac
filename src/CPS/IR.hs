@@ -501,7 +501,7 @@ pprintValue (IntValK i) = show i
 pprintValue (BoolValK b) = if b then "true" else "false"
 pprintValue (StringValK s) = show s
 pprintValue (CharValK s) = show s
-pprintValue (CtorAppK c tyargs args) = show c ++ "(" ++ intercalate ", @" (map pprintType tyargs) ++ intercalate ", " (map show args) ++ ")"
+pprintValue (CtorAppK c tyargs args) = show c ++ "(" ++ intercalate ", @" (map pprintType tyargs) ++ ", " ++ intercalate ", " (map show args) ++ ")"
 
 pprintCoValue :: CoValueK -> String
 pprintCoValue (CoVarK k) = show k

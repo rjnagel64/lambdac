@@ -250,7 +250,7 @@ data ValueC
   | BoolC Bool
   | StringC String
   | CharC Char
-  | CtorAppC Ctor [Name]
+  | CtorAppC Ctor [Sort] [Name]
 
 
 indent :: Int -> String -> String
@@ -343,7 +343,7 @@ pprintValue (IntC i) = show i
 pprintValue (BoolC b) = if b then "true" else "false"
 pprintValue (StringC s) = show s
 pprintValue (CharC c) = show c
-pprintValue (CtorAppC c xs) = show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
+pprintValue (CtorAppC c ts xs) = show c ++ "(" ++ intercalate ", @" (map pprintSort ts) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
 
 pprintArith :: ArithC -> String
 pprintArith (AddC x y) = show x ++ " + " ++ show y
