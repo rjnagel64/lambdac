@@ -42,7 +42,6 @@ module Lower
     , ClosureAlloc(..)
     , EnvAlloc(..)
     , ValueH(..)
-    , CtorAppH(..)
     , PrimOp(..)
     , PrimIO(..)
 
@@ -247,7 +246,7 @@ lowerValue H.WorldToken = pure WorldToken
 lowerValue (H.RecordValH fields) = RecordH <$> traverse lowerField fields
   where lowerField (f, x) = (,) <$> lowerFieldLabel f <*> lowerName x
 lowerValue (H.CtorAppH c ss xs) = 
-  CtorAppH <$> (CtorApp <$> lowerCtor c <*> traverse lowerName xs)
+  CtorAppH <$> lowerCtor c <*> traverse lowerName xs
 
 lowerTyConApp :: H.TyConApp -> M TyConApp
 lowerTyConApp (H.TyConApp tc ss) = TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss
@@ -722,13 +721,7 @@ data ValueH
   | NilH
   | WorldToken
   | RecordH [(FieldLabel, Name)]
-  | CtorAppH CtorAppH
-
-data CtorAppH
-  -- hmm. should include type arguments, I think, since CtorDecl includes type parameters
-  -- This would also let me compute the argCasts required by emitCtorAlloc
-  -- without needing a TyConApp
-  = CtorApp Ctor [Name]
+  | CtorAppH Ctor [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -1004,10 +997,7 @@ pprintValue WorldToken = "WORLD#"
 pprintValue (RecordH []) = "{}"
 pprintValue (RecordH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
   where pprintField (f, x) = show f ++ " = " ++ show x
-pprintValue (CtorAppH capp) = pprintCtorApp capp
-
-pprintCtorApp :: CtorAppH -> String
-pprintCtorApp (CtorApp c xs) =
+pprintValue (CtorAppH c xs) = 
   show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String

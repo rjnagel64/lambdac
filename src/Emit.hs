@@ -544,12 +544,12 @@ emitValueDefinition _ p (RecordH fields) =
   where
     fieldInits = map initField fields
     initField (FieldLabel f, x) = "{" ++ show f ++ ", " ++ show (length f) ++ ", " ++ asAlloc (emitName x) ++ "}"
-emitValueDefinition denv p (CtorAppH capp) =
+emitValueDefinition denv p (CtorAppH c xs) =
   case asTyConApp (placeSort p) of
     Nothing -> error "not a constructed type"
     Just tcapp ->
       let desc = dataDescFor denv tcapp in
-      defineLocal p (emitCtorAlloc desc capp)
+      defineLocal p (emitCtorAlloc desc (c, xs))
 
 emitValue :: DataEnv -> ValueH -> String
 emitValue _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
@@ -584,8 +584,8 @@ emitValue _ (RecordH fields) =
 --   emitCtorAlloc desc (CtorApp c tyargs xs)
 
 
-emitCtorAlloc :: DataDesc -> CtorAppH -> String
-emitCtorAlloc desc (CtorApp ctor xs) = method ++ "(" ++ commaSep args' ++ ")"
+emitCtorAlloc :: DataDesc -> (Ctor, [Name]) -> String
+emitCtorAlloc desc (ctor, xs) = method ++ "(" ++ commaSep args' ++ ")"
   where
     method = "allocate_" ++ show (ctorTyCon ctor) ++ "_" ++ show (ctorName ctor)
 
