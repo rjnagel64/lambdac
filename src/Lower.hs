@@ -246,10 +246,7 @@ lowerValue H.NilH = pure NilH
 lowerValue H.WorldToken = pure WorldToken
 lowerValue (H.RecordValH fields) = RecordH <$> traverse lowerField fields
   where lowerField (f, x) = (,) <$> lowerFieldLabel f <*> lowerName x
-lowerValue (H.CtorAppH capp) = lowerCtorApp capp
-
-lowerCtorApp :: H.CtorAppH -> M ValueH
-lowerCtorApp (H.CtorApp c ss xs) =
+lowerValue (H.CtorAppH c ss xs) = 
   CtorAppH <$> (CtorApp <$> lowerCtor c <*> traverse lowerName xs)
 
 lowerTyConApp :: H.TyConApp -> M TyConApp

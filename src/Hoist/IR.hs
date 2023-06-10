@@ -40,7 +40,6 @@ module Hoist.IR
     , ClosureAlloc(..)
     , EnvAlloc(..)
     , ValueH(..)
-    , CtorAppH(..)
     , PrimOp(..)
     , PrimIO(..)
 
@@ -255,10 +254,7 @@ data ValueH
   | NilH
   | WorldToken
   | RecordValH [(FieldLabel, Name)]
-  | CtorAppH CtorAppH
-
-data CtorAppH
-  = CtorApp Ctor [Sort] [Name]
+  | CtorAppH Ctor [Sort] [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -528,10 +524,8 @@ pprintValue (BoolH b) = if b then "true" else "false"
 pprintValue (StringValH s) = show s
 pprintValue (CharValH c) = show c
 pprintValue WorldToken = "WORLD#"
-pprintValue (CtorAppH capp) = pprintCtorApp capp
-
-pprintCtorApp :: CtorAppH -> String
-pprintCtorApp (CtorApp c ss xs) = show c ++ "(" ++ intercalate ", @" (map pprintSort ss) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
+pprintValue (CtorAppH c ss xs) =
+  show c ++ "(" ++ intercalate ", @" (map pprintSort ss) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"

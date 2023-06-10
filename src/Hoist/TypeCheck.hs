@@ -397,7 +397,7 @@ checkValue WorldToken TokenH = pure ()
 checkValue WorldToken _ = throwError BadValue
 checkValue (RecordValH fieldVals) (RecordH fieldTys) = checkRecordValue fieldVals fieldTys
 checkValue (RecordValH _) _ = throwError BadValue
-checkValue (CtorAppH (CtorApp c tyargs args)) s = do
+checkValue (CtorAppH c tyargs args) s = do
   tcapp <- case asTyConApp s of
     Nothing -> throwError BadCtorApp
     Just tcapp -> pure tcapp
