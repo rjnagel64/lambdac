@@ -397,19 +397,14 @@ checkValue WorldToken TokenH = pure ()
 checkValue WorldToken _ = throwError BadValue
 checkValue (RecordValH fieldVals) (RecordH fieldTys) = checkRecordValue fieldVals fieldTys
 checkValue (RecordValH _) _ = throwError BadValue
-checkValue (CtorAppH capp) s = case asTyConApp s of
-  Nothing -> throwError BadCtorApp
-  Just tcapp -> checkCtorApp capp tcapp
-
--- | Check that a constructor application is a value of the given type
--- constructor application.
-checkCtorApp :: CtorAppH -> TyConApp -> TC ()
-checkCtorApp (CtorApp c args) tcapp = do
+checkValue (CtorAppH (CtorApp c tyargs args)) s = do
+  tcapp <- case asTyConApp s of
+    Nothing -> throwError BadCtorApp
+    Just tcapp -> pure tcapp
   ctors <- instantiateTyConApp tcapp
   case Map.lookup c ctors of
     Nothing -> throwError BadCtorApp
     Just argTys -> checkCtorArgs args argTys
-checkCtorApp _ (TyConApp _ _) = throwError BadCtorApp
 
 -- | Check a constructor's argument list against the constructors type
 -- signature.

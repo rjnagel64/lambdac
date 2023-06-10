@@ -249,7 +249,7 @@ lowerValue (H.RecordValH fields) = RecordH <$> traverse lowerField fields
 lowerValue (H.CtorAppH capp) = lowerCtorApp capp
 
 lowerCtorApp :: H.CtorAppH -> M ValueH
-lowerCtorApp (H.CtorApp c xs) =
+lowerCtorApp (H.CtorApp c ss xs) =
   CtorAppH <$> (CtorApp <$> lowerCtor c <*> traverse lowerName xs)
 
 lowerTyConApp :: H.TyConApp -> M TyConApp

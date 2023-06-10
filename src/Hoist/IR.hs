@@ -258,7 +258,7 @@ data ValueH
   | CtorAppH CtorAppH
 
 data CtorAppH
-  = CtorApp Ctor [Name]
+  = CtorApp Ctor [Sort] [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -531,7 +531,7 @@ pprintValue WorldToken = "WORLD#"
 pprintValue (CtorAppH capp) = pprintCtorApp capp
 
 pprintCtorApp :: CtorAppH -> String
-pprintCtorApp (CtorApp c xs) = show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
+pprintCtorApp (CtorApp c ss xs) = show c ++ "(" ++ intercalate ", @" (map pprintSort ss) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
