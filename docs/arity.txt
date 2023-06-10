@@ -29,7 +29,7 @@ let f = \x y -> \z -> e in
 ```
 let f = \b -> if b then \x -> x + x else \x -> x * x in
 f true 7
-==> No uncurry: signficant computation blocks argument list
+==> No uncurry: significant computation blocks argument list
 ```
 
 ```
@@ -267,7 +267,7 @@ foldl f z xs = foldr (\x k b -> k (f x b)) id xs z
 foldl = \f -> \z -> \xs ->
   let
     go = \xs' -> case xs' of {
-      [] -> id
+      [] -> \c -> c
       y:ys -> \b -> go ys (f y b)
     }
   in
@@ -288,6 +288,15 @@ inlined version:
 foldl @ 3 ==> go @ 2
 go @ 2 ==> id @ 1, go @ 2, f @ 2
 no problems here. go has arity 2, foldl has arity 3
+Okay, one problem: we need to sink the case analysis down past the accumulating
+paramter lambda. This is code motion, which I don't know how to do yet.
+(a different kind of arity analysis: go always applied to two arguments
+==> eta-expand body of \xs' -> case{} into \xs' -> \gen0984 -> case{} gen0984
+==> push the application down into each branch of the case
+  \xs' -> \gen0984 -> case of { c1 -> e1 gen0984; c2 -> e2 gen0984 }
+==> beta-reduce the redexes in each branch.
+  \xs' -> \gen0984 -> case xs' of { [] -> gen0984; y:ys -> go ys (f y gen0984) }
+This is a place where you have to care about duplicated work, I think.)
 
 foldl f z xs =
   let
