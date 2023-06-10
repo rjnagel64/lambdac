@@ -61,5 +61,5 @@ struct alloc_header *project_field(struct record *rec, char *name, size_t len) {
         }
     }
     // unreachable, because the compiler emits well-formed code.
-    panic("field not present in record");
+    unreachable("field not present in record");
 }

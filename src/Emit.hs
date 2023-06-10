@@ -490,7 +490,7 @@ emitCase desc x branches =
   ["    switch (" ++ emitName x ++ "->discriminant) {"] ++
   concatMap emitCaseBranch branches ++
   ["    default:"
-  ,"        panic(\"invalid discriminant\");"
+  ,"        unreachable(\"invalid discriminant\");"
   ,"    }"]
   where
     emitCaseBranch :: CaseAlt -> [String]
@@ -512,7 +512,7 @@ emitIntCase x branches =
   ["    switch(" ++ emitName x ++ "->value) {"] ++
   concatMap emitCaseBranch branches ++
   ["    default:"
-  ,"        panic(\"invalid value for case analysis\");"
+  ,"        unreachable(\"invalid discriminant\");"
   ,"    }"]
   where
     emitCaseBranch (i, ty, k) =

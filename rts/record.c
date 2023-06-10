@@ -151,7 +151,7 @@ size_t lookup_index(struct record_value *rec, struct label l) {
     }
 
     // Unreachable, type system guarantees that label 'l' exists in this record.
-    panic("label not present in record");
+    unreachable("label not present in record");
 }
 
 void trace_record(struct alloc_header *alloc) {
@@ -207,7 +207,7 @@ struct record_value *extend_record(struct record_value *rec, struct label l, str
     // copy everything to the right of 'l', possibly incrementing 'depth'.
     // (this is kind of subtle?)
     size_t idx = lookup_index(rec, l);
-    panic("not implemented: record extension");
+    internal_error("not implemented: record extension");
 }
 
 struct record_value *restrict_record(struct record_value *rec, struct label l) {

@@ -259,7 +259,7 @@ struct int64_value *prim_strlen(struct string_value *x) {
 struct char_value *prim_strindex(struct string_value *x, struct int64_value *idx) {
     int64_t i = idx->value;
     if (i < 0 || i >= x->len) {
-        panic("runtime error: string index out of bounds");
+        runtime_error("string index out of bounds");
     }
     char c = x->contents[i];
     return allocate_char((uint32_t)c);
@@ -290,4 +290,10 @@ void prim_putLine(struct token *x, struct string_value *msg, struct token **out_
     printf("%s\n", msg->contents);
     *out_x = x;
     *out_y = allocate_unit();
+}
+
+struct alloc_header *prim_runtime_error(struct string_value *msg) {
+    // Note: requires null terminator on msg->contents
+    runtime_error(msg->contents);
+    return NULL; // unreachable
 }

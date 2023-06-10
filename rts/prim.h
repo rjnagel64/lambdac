@@ -125,8 +125,11 @@ struct int64_value *prim_strlen(struct string_value *x);
 struct char_value *prim_strindex(struct string_value *x, struct int64_value *idx);
 
 // IO primitives
-// Note: I/O primitives desparately need better error handling strategies.
+// Note: I/O primitives desperately need better error handling strategies.
 void prim_getLine(struct token *x, struct token **out_x, struct string_value **out_y);
 void prim_putLine(struct token *x, struct string_value *msg, struct token **out_x, struct unit **out_y);
+
+// runtime_error# : forall (a : *). string -> a
+struct alloc_header *prim_runtime_error(struct string_value *msg);
 
 #endif
