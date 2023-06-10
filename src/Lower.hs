@@ -246,7 +246,7 @@ lowerValue H.WorldToken = pure WorldToken
 lowerValue (H.RecordValH fields) = RecordH <$> traverse lowerField fields
   where lowerField (f, x) = (,) <$> lowerFieldLabel f <*> lowerName x
 lowerValue (H.CtorAppH c ss xs) = 
-  CtorAppH <$> lowerCtor c <*> traverse lowerName xs
+  CtorAppH <$> lowerCtor c <*> traverse lowerSort ss <*> traverse lowerName xs
 
 lowerTyConApp :: H.TyConApp -> M TyConApp
 lowerTyConApp (H.TyConApp tc ss) = TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss
@@ -721,7 +721,7 @@ data ValueH
   | NilH
   | WorldToken
   | RecordH [(FieldLabel, Name)]
-  | CtorAppH Ctor [Name]
+  | CtorAppH Ctor [Sort] [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -997,8 +997,8 @@ pprintValue WorldToken = "WORLD#"
 pprintValue (RecordH []) = "{}"
 pprintValue (RecordH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
   where pprintField (f, x) = show f ++ " = " ++ show x
-pprintValue (CtorAppH c xs) = 
-  show c ++ "(" ++ intercalate ", " (map show xs) ++ ")"
+pprintValue (CtorAppH c ss xs) = 
+  show c ++ "(" ++ intercalate ", @" (map pprintSort ss) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"

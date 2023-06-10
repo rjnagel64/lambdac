@@ -431,7 +431,7 @@ emitClosureEnter tns envTyCon cns ty =
 
 emitTerm :: DataEnv -> TermH -> [Line]
 emitTerm denv (LetValH x v e) =
-  emitValueDefinition denv x v ++
+  ["    " ++ emitPlace x ++ " = " ++ emitValue denv v ++ ";"] ++
   emitTerm denv e
 emitTerm denv (LetProjectH x y ProjectFst e) =
   ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName y ++ "->fst") ++ ";"] ++
@@ -523,34 +523,6 @@ emitIntCase x branches =
         ,"        " ++ method ++ "(" ++ emitName k ++ ");"
         ,"        break;"]
 
-emitValueDefinition :: DataEnv -> Place -> ValueH -> [Line]
--- emitValueDefinition denv p v = ["    " ++ emitPlace p ++ " = " ++ emitValue denv v ++ ";"]
-emitValueDefinition _ p (IntH i) =
-  defineLocal p ("allocate_int64(" ++ show i ++ ")")
-emitValueDefinition _ p (BoolH b) =
-  defineLocal p (if b then "allocate_bool_value(1)" else "allocate_bool_value(0)")
-emitValueDefinition _ p (StringValH s) =
-  defineLocal p ("allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")")
-emitValueDefinition _ p (CharValH c) =
-  defineLocal p ("allocate_char(" ++ show c ++ ")")
-emitValueDefinition _ p (PairH x y) =
-  defineLocal p ("allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ asAlloc (emitName y) ++ ")")
-emitValueDefinition _ p NilH =
-  defineLocal p "allocate_unit()"
-emitValueDefinition _ p WorldToken =
-  defineLocal p "allocate_token()"
-emitValueDefinition _ p (RecordH fields) =
-  defineLocal p ("allocate_record(" ++ show (length fields) ++ ", (struct field_init[]){" ++ commaSep fieldInits ++ "})")
-  where
-    fieldInits = map initField fields
-    initField (FieldLabel f, x) = "{" ++ show f ++ ", " ++ show (length f) ++ ", " ++ asAlloc (emitName x) ++ "}"
-emitValueDefinition denv p (CtorAppH c xs) =
-  case asTyConApp (placeSort p) of
-    Nothing -> error "not a constructed type"
-    Just tcapp ->
-      let desc = dataDescFor denv tcapp in
-      defineLocal p (emitCtorAlloc desc (c, xs))
-
 emitValue :: DataEnv -> ValueH -> String
 emitValue _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValue _ (BoolH b) = if b then "allocate_bool_value(1)" else "allocate_bool_value(0)"
@@ -560,28 +532,18 @@ emitValue _ (PairH x y) = "allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ as
 emitValue _ NilH = "allocate_unit()"
 emitValue _ WorldToken = "allocate_token()"
 emitValue _ (RecordH fields) =
-  "allocate_record(" ++ show (length fields) ++ ", (struct field_init[]){" ++ commaSep fieldInits ++ "})"
+  "allocate_record(" ++ show (length fields) ++
+  ", (struct field_init[]){" ++ commaSep (map initField fields) ++ "})"
   where
-    fieldInits = map initField fields
-    initField (FieldLabel f, x) =
-      "{" ++ show f ++ ", " ++ show (length f) ++ ", " ++ asAlloc (emitName x) ++ "}"
--- emitValue denv (CtorAppH capp) =
---   -- aargh. Need to know tyargs to figure out ctorArgCasts
---   -- currently, tyargs come from the sort of the destination place.
---   -- Can probably refactor CtorApp to allow recovering tcapp? might be messy elsewhere.
---   -- (e.g., store tycon+tyargs in capp? would be more complicated for GADTs,
---   -- but I only have regular ADTs right now, so it should work.)
---   case asTyConApp _ of
---     Nothing -> error "not a constructed type"
---     Just tcapp ->
---       let desc = dataDescFor denv tcapp in
---       emitCtorAlloc desc capp
--- 
--- hmm. Lookup (TyCon, Ctor) in DataEnv. Use argument telescope to compute argCasts?
--- emitValue denv (CtorApp c tyargs xs) =
---   let tcapp = TyConApp (ctorTyCon c) tyargs in
---   let desc = dataDescFor denv tcapp in
---   emitCtorAlloc desc (CtorApp c tyargs xs)
+    initField (FieldLabel f, x) = "{" ++ commaSep [show f, show (length f), asAlloc (emitName x)] ++ "}"
+emitValue denv (CtorAppH c ss xs) =
+  -- We need to know the type of ctor 'c', so that we know which arguments need
+  -- to be cast with 'asAlloc'. This is the 'ctorArgCasts' in 'DataDesc'.
+  -- Thus, we construct 'tcapp' from 'c's type constructor and the fact that
+  -- 'ss' is the list of universal type arguments to this constructor.
+  let tcapp = TyConApp (ctorTyCon c) ss in
+  let desc = dataDescFor denv tcapp in
+  emitCtorAlloc desc (c, xs)
 
 
 emitCtorAlloc :: DataDesc -> (Ctor, [Name]) -> String
@@ -726,10 +688,6 @@ patchEnv recNames (EnvAlloc envPlace _ fields) = mapMaybe patchField fields
         Just ("    " ++ emitName envf ++ " = " ++ emitName x ++ ";") 
       else
         Nothing
-
-defineLocal :: Place -> String -> [Line]
-defineLocal p initVal =
-  ["    " ++ emitPlace p ++ " = " ++ initVal ++ ";"]
 
 -- Hmm. Consider breaking up into semantically distinct operations:
 -- (Would still be effectively identical code, though.
