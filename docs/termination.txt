@@ -1,0 +1,229 @@
+
+Some references:
+* https://outerproduct.net/boring/2023-02-11_term-loop.html
+* https://www.reddit.com/r/ProgrammingLanguages/comments/tdlff4/infinite_loops_a_sideeffect_or_an_implementation/
+
+On Termination and Optimization
+===============================
+
+My language is pure. Side effects are not observable from within the language.
+So, I have a significant degree of flexibility about transforming programs.
+IO: use data dependencies to represent control dependencies.
+
+However, nontermination is an externally visible side effect.
+
+Consider this:
+
+  letrec loop : int -> int = \x -> loop x in
+  fst (5, loop 3)
+
+This program will loop, because both components of a pair must be evaluated
+before the first field can be projected.
+
+If we (the optimizer) reduce the redex 'fst (e1, e2) ~> e1', the program
+becomes
+
+  letrec loop : int -> int = \x -> loop x in
+  5
+
+(and the loop will be discarded, since it is unused).
+
+This program terminates when the original did not.
+
+Is this acceptable?
+
+
+Probably. The optimizer may make more programs terminate, but it will never
+turn a terminating program into a non-terminating program.
+
+
+
+Preserving Termination Dependencies
+===================================
+
+Suppose we don't want to change termination behaviour of a program.
+
+The crux of the issue is that in the program 'fst (5, loop 3)', not only is
+there a data dependency, there is also a termination dependency.
+
+fst (5, loop 3) requires the value of (5, loop 3) requires the values of 5 and of loop 3
+fst (5, loop 3) requires termination of (5, loop 3) requires termination of 5
+(trivial) and of loop 3 (nonterminating)
+
+When rewriting the program, we should somehow preserve the termination dependency.
+
+proposal: 'seq(e1, ..., en) in e' evaluates 'e1' through 'en' but discards
+their values before evaluating 'e' and returning its result.
+
+Beta-reduction for projections now becomes:
+
+  fst (e1, e2) ~> seq(e2) in e1
+
+
+Runtime errors (with the runtime_error# primop) should probably also require
+termination dependencies.
+
+  { foo = 7, bar = runtime_error# "failed" }.foo ~> seq(runtime_error# "failed") in 7
+
+Somewhere, there's a statement that GHC's optimizer is willing to turn
+nontermination into termination, but I can't find it...
+
+Possibly related: -fpedantic-bottoms, -fno-state-hack
+
+
+One potentially tricky problem here is the issue of preserving termination
+dependencies through code generation. C is notorious about making infinite
+loops terminate. I *could* implement this by passing around a state token
+(similar to IO and other effects: emulate an effect dependency with a data
+dependency), but this is messy and probably also slow.
+
+Writing my own backend would give me significantly better control over this.
+
+Alternately, it's possible that because translation to CPS fixes the evaluation
+order, termination dependencies are already implicitly encoded in the IR. That
+actually seems plausible.
+
+
+Optimizing Termination Dependencies
+===================================
+
+By itself, this seems disappointing: the primary goal of shrinking reductions
+like projection elimination is to reduce the amount of work that must be done,
+yet 'e2' and 'e1' must both still be evaluated.
+
+Thus, we need extra optimization rules to remove useless termination dependencies.
+
+  ei definitely terminates
+  ---------------------------------------------------------------------
+  seq(e1, ..., en) in e ~> seq(e1, ..., e_{i-1}, e_{i+1}, ..., en) in e
+
+When an expression has no remaining termination dependencies, it can be
+simplified.
+
+  ---------------
+  seq() in e ~> e
+
+The judgement 'e definitely terminates' needs to be investigated.
+
+* constants and literals obviously terminate
+* strict evaluation means that (local) variables in the context always terminate
+* application, tupling, primops, projections: terminate if all subterms terminate
+* non-recursive functions: terminate if body terminates
+* recursive functions: tricky, tricky.
+  * structural termination checking
+  * sized types
+  * measures
+
+This probably needs a typing context with information about what variables terminate.
+
+
+
+Hmm. If I can remove definitely-terminating dependencies, do
+definitely-nonterminating dependencies absorb their context? That is, can the program
+
+  seq(x, runtime_error# "bad", z) in x + z
+
+be rewritten to just
+
+  runtime_error# "bad"
+
+?
+
+Possibly.
+
+
+Another important question is about the ordering of dependencies in 'seq()'.
+Does 'seq(e1, e2, e3) in e' require evaluation of 'e1', then 'e2', then 'e3',
+then 'e'? That seems too stringent.
+
+However, if 'e2' and 'e3' both depend on 'e1' (but are otherwise independent),
+that would be modelled as
+
+  seq(e1, seq(e1) in e2, seq(e1) in e3) in e
+
+: with common subexpressions. You can probably deduplicate this to
+
+  let x = e1 in seq(x, seq(x) in e2, seq(x) in e3) in e
+
+. This is because a let-expression requires evaluation of its definition,
+followed by evaluating the body.
+
+An argument in favor of ordered dependencies is function arguments. My
+semantics specify that arguments are evaluated left to right, so termination
+dependencies must reflect that.
+
+  e1 e2 e3 e4
+  ==>
+  let f = e1 in
+  seq(f) in
+  let x1 = e2 in
+  seq(x1) in
+  let x2 = e3 in
+  seq(x2) in
+  let x3 = e4 in
+  seq(x3) in
+  f x1 x2 x3
+
+
+An IR for Termination Dependencies
+==================================
+
+The source language leaves termination dependencies implicit. In order to
+reason about them, I need termination to be reflected in the IR.
+
+source: let x = e1 in e2 requires evaluation of e1 in all cases
+  if x not in FV(e2), e1 still has to be evaluated
+
+term-ir: let x = e1 in e2 does not require evaluation of e1
+  if x not in FV(e2), it is valid to discard x and e1.
+
+Instead, Source.(let x = e1 in e2) is translated to TermIR.(let x = e1 in seq(x) in e2)
+
+If analysis can prune dependency of e2 on 'x', no further occurrences of
+'x' mean that 'e1' can be safely discarded.
+
+Similarly, source lambdas require their arguments to evaluate fully before
+calling. TermIR separates "calling the function" from "evaluating the
+arguments". (Functions in TermIR are CBN/Lazy/something?)
+
+  Source.(λx. e) ==> TermIR.(λx. seq(x) in e)
+
+Hmm. Primops such as (+) have value dependencies on both arguments, and
+therefore implicit termination dependencies. However, there is not
+(necessarily) a dependency between the two arguments.
+
+Likewise, a case analysis needs the value of its scrutinee, so it implicitly
+needs the scrutinee to terminate.
+
+
+equational theory?
+seq(seq(e1) in e2) in e3 === seq(e1) in seq(e2) in e3 -- de-nesting?
+seq(e1, e1) in e2 === seq(e1) in e2 -- idempotency of evaluation
+seq(e1, e2) in e3 === seq(e2, e1) in e3 -- dependencies are unordered?
+seq(e1) in seq(e2) in e3 === let x = e1 in seq(x, seq(x) in e2) in e3
+(this is because A -> B -> C implies A -> C)
+Can dependencies be general expressions, or must they be names?
+
+
+Random Idea: Pseudo-Dependent Evidence Passing
+==============================================
+
+What if evaluating an expression produces not just a value, but also a token
+stating that the expression has terminated? This is another manifestation of
+"represent dependencies as data dependencies".
+
+I.E., instead of e ~> v : t, we have e ~> v : t, tok : total e. 
+
+A function takes its original parameter, but also a termination parameter that
+proves its argument has terminated. Primops take termination tokens as extra
+arguments.
+
+  λ (x : t) (tok : total x). e
+  -- hmm. does 'total p' imply 'total (fst p)' and 'total (snd p)'?
+  -- How do I preserve the dependence on 'total (snd p)' here?
+  -- maybe fstTotal : total p -> total (fst p) basically reduces to seq(p.snd) in p.fst
+  fst : (p : t * s) -> _
+
+
+The downside: requires (restricted) dependent types, other weirdness.
+... Eh, this probably wouldn't work. Worth a shot, though.
