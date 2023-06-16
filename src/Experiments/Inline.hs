@@ -15,6 +15,17 @@ module Experiments.Inline where
 -- in the paper, but I will have to revise things dramatically to implement it
 -- for real.
 
+-- TODO: Consider breaking this out into its own repository.
+-- Aside from splitting RawTerm from Term, I also expect that I may implement
+-- several variations of the algorithm, and it would be helpful to have its own
+-- directory. Furthermore, this experiment is entirely disconnected from
+-- lambdac, so it doesn't really belong here.
+
+-- TODO: This algorithm is in CPS, and not terribly easy to understand.
+-- The paper claims that it can also be cast in direct style, with side effects
+-- occurring in "applicative order". I think this means that I could probably
+-- recast this as a direct-style algorithm with Reader and State monads.
+
 import qualified Data.IntMap as IM
 import Data.IntMap (IntMap)
 import qualified Data.Map as Map
@@ -238,9 +249,9 @@ data Context
   -- Evaluate something in operator position, and evaluate its result in another context
   -- Generalization to multi-argument: lisps are usually uncurried, so this
   -- would probably take a [Operand] instead of just one?
-  | Applied Operand Context ContextLoc
+  | Applied AppContext
 
--- data AppContext = AppContext Operand Context ContextLoc
+data AppContext = AppContext Operand Context ContextLoc
 
 data ContextFlags = ContextFlags { cfInlined :: Bool }
 
@@ -337,7 +348,7 @@ inline (TmIf e1 e2 e3) g r k s = inline e1 Test r (Cont k1) s
                 (TmConst c1, TmConst c2) | c1 == c2 -> runCont k (sequence e1' e2') s''
                 _ -> runCont k (TmIf e1' e2' e3') s''
     g1 = case g of
-      Applied _ _ _ -> Value
+      Applied _ -> Value
       _ -> g
 inline (TmAssign ix e) g r k s =
   let ix'@(IVar x' op flags lx') = lookupEnv ix r in
@@ -351,7 +362,7 @@ inline (TmAssign ix e) g r k s =
 inline (TmCall e1 e2) g r k s = inline e1 g1 r (Cont k1) s1
   where
     op = Operand { opndExp = e2, opndEnv = r, opndLoc = le2 }
-    g1 = Applied op g lg1
+    g1 = Applied (AppContext op g lg1)
     (le2, lg1, s1) = addOperandToStore s
     k1 e1' s2 =
       let cf = getContextFlags lg1 s2 in
@@ -364,7 +375,7 @@ inline (TmPrimRef p) g r k s = case g of
   Test -> runCont k (TmConst ConstTrue) s
   Effect -> runCont k (TmConst ConstVoid) s
   Value -> runCont k (TmPrimRef p) s
-  Applied _ _ _ -> foldPrimRef p g r k s
+  Applied app -> foldPrimRef p app r k s
 inline (TmLam ix@(IVar x Nothing _ lx) e) g r k s = case g of
   Test -> runCont k (TmConst ConstTrue) s
   Effect -> runCont k (TmConst ConstVoid) s
@@ -374,7 +385,7 @@ inline (TmLam ix@(IVar x Nothing _ lx) e) g r k s = case g of
       ix' = IVar x' Nothing (getVarFlags lx s) lx'
       r1 = extendEnv ix ix' r
       k1 e' s' = runCont k (TmLam ix' e') s'
-  Applied _ _ _ -> foldLam ix e g r k s
+  Applied app -> foldLam ix e app r k s
 inline (TmRef ix) g r k s = case g of
   Effect -> runCont k (TmConst ConstVoid) s
   _ -> case lookupEnv ix r of
@@ -410,19 +421,19 @@ visit (Operand e r le) g k s =
       where k1 e' s' = runCont k e' (recordOperand le e' s')
     Just e' -> runCont k e' s
 
-fold :: Term -> Context -> Env -> Cont -> Store -> Term
-fold (TmPrimRef p) (Applied op g1 lg) r k s = foldPrimRef p (Applied op g1 lg) r k s
-fold (TmLam ix e) (Applied op g1 lg) r k s = foldLam ix e (Applied op g1 lg) r k s
+-- fold :: Term -> Context -> Env -> Cont -> Store -> Term
+-- fold (TmPrimRef p) (Applied app) r k s = foldPrimRef p app r k s
+-- fold (TmLam ix e) (Applied app) r k s = foldLam ix e app r k s
 
-foldPrimRef :: PrimOp -> Context -> Env -> Cont -> Store -> Term
-foldPrimRef p (Applied op g1 lg) r k s = visit op Value (Cont k1) s
+foldPrimRef :: PrimOp -> AppContext -> Env -> Cont -> Store -> Term
+foldPrimRef p (AppContext op g1 lg) r k s = visit op Value (Cont k1) s
   where
     k1 e1' s1 = case result e1' of
       TmConst c -> let c' = applyPrim p c in runCont k (TmConst c') (setContextInlinedFlag lg s1)
       _ -> runCont k (TmPrimRef p) s1
 
-foldLam :: IVar -> Term -> Context -> Env -> Cont -> Store -> Term
-foldLam ix@(IVar x Nothing vf lx) e (Applied op g1 lg) r k s = inline e g1 r1 (Cont k1) s1
+foldLam :: IVar -> Term -> AppContext -> Env -> Cont -> Store -> Term
+foldLam ix@(IVar x Nothing vf lx) e (AppContext op g1 lg) r k s = inline e g1 r1 (Cont k1) s1
   where
     (x', lx', s1) = freshenParameter x s
     ix' = IVar x' Nothing (getVarFlags lx s) lx'
@@ -448,8 +459,8 @@ copy ix'@(IVar x' op vf lx') e g k s = case (e, g) of
   -- because constants are closed, we can materialize an empty env to inline this constant
   (TmConst c, _) -> inline (TmConst c) g emptyEnv k s
   (TmRef ix1@(IVar x1 op1 (VarFlags { vfAssign = False }) lx1), _) -> runCont k (TmRef ix1) s
-  (TmPrimRef p, Applied op1 g1 lg) -> foldPrimRef p (Applied op1 g1 lg) emptyEnv k s -- primrefs are closed, no need for env
-  (TmLam ix1 e1, Applied op1 g1 lg) -> foldLam ix1 e1 (Applied op1 g1 lg) emptyEnv k s -- do we know that this lambda is closed? More pertinently, how do we know that we don't need to do any renaming here?
+  (TmPrimRef p, Applied app) -> foldPrimRef p app emptyEnv k s -- primrefs are closed, no need for env
+  (TmLam ix1 e1, Applied app) -> foldLam ix1 e1 app emptyEnv k s -- do we know that this lambda is closed? More pertinently, how do we know that we don't need to do any renaming here?
   (TmPrimRef p, Test) -> runCont k (TmConst ConstTrue) s
   (TmAssign x1 e1, Test) -> runCont k (TmConst ConstTrue) s
   (TmLam x1 e1, Test) -> runCont k (TmConst ConstTrue) s
