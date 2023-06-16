@@ -65,7 +65,9 @@ data Term
 data Const = ConstInt Int | ConstTrue | ConstFalse | ConstVoid
   deriving Eq
 
-data PrimOp = PrimInc -- Unclear how to implement multi-argument primops
+-- Current version only supports one-argument functions and primops.
+-- Extending to multi-arg primops should be straightforward.
+data PrimOp = PrimInc
 
 -- primops in lisp are uncurried. For multiple arguments, take [Const] instead of just Const
 applyPrim :: PrimOp -> Const -> Const
@@ -238,6 +240,8 @@ data Context
   -- would probably take a [Operand] instead of just one?
   | Applied Operand Context ContextLoc
 
+-- data AppContext = AppContext Operand Context ContextLoc
+
 data ContextFlags = ContextFlags { cfInlined :: Bool }
 
 -- The environment maps source-program (inlining) variables to residual-program inlining variables
@@ -248,7 +252,7 @@ emptyEnv = Env []
 lookupEnv :: IVar -> Env -> IVar
 lookupEnv ix@(IVar x _ _ lx) (Env xs) = go xs
   where
-    go [] = error "ivar not in env"
+    go [] = error "ivar not in env" -- alternatively, return ix? The initial env (renaming) is supposed to act like the identity function, I think.
     go (iy@(IVar y _ _ ly, ix') : xs') = if x == y then ix' else go xs' -- compare by name or location? Maybe name?
 
 extendEnv :: IVar -> IVar -> Env -> Env
@@ -360,7 +364,7 @@ inline (TmPrimRef p) g r k s = case g of
   Test -> runCont k (TmConst ConstTrue) s
   Effect -> runCont k (TmConst ConstVoid) s
   Value -> runCont k (TmPrimRef p) s
-  Applied _ _ _ -> fold (TmPrimRef p) g r k s
+  Applied _ _ _ -> foldPrimRef p g r k s
 inline (TmLam ix@(IVar x Nothing _ lx) e) g r k s = case g of
   Test -> runCont k (TmConst ConstTrue) s
   Effect -> runCont k (TmConst ConstVoid) s
@@ -370,7 +374,7 @@ inline (TmLam ix@(IVar x Nothing _ lx) e) g r k s = case g of
       ix' = IVar x' Nothing (getVarFlags lx s) lx'
       r1 = extendEnv ix ix' r
       k1 e' s' = runCont k (TmLam ix' e') s'
-  Applied _ _ _ -> fold (TmLam ix e) g r k s
+  Applied _ _ _ -> foldLam ix e g r k s
 inline (TmRef ix) g r k s = case g of
   Effect -> runCont k (TmConst ConstVoid) s
   _ -> case lookupEnv ix r of
@@ -383,7 +387,7 @@ inline (TmLetRec ixs e) g r k s = error "don't know how to inline letrec"
 
 freshenParameter :: TmVar -> Store -> (TmVar, VarLoc, Store)
 freshenParameter x (Store vars contexts exps) =
-  let x' = x in -- renaming: who needs it? (Probably me.) Hmm. I don't have easy access to in-scope set.
+  let x' = x in -- renaming: who needs it? (Probably me.) Hmm. I don't have easy access to the in-scope set.
   let lx' = VarLoc (IM.size vars) in
   (x', lx', Store (IM.insert (IM.size vars) emptyVarFlags vars) contexts exps)
 
@@ -406,16 +410,19 @@ visit (Operand e r le) g k s =
       where k1 e' s' = runCont k e' (recordOperand le e' s')
     Just e' -> runCont k e' s
 
--- I can basically split this into two functions: foldLam and foldPrimRef.
--- Should be simpler. And better defined. (current version is a partial function)
--- specifically, this is only defined for TmLam and TmPrimRef in Applied context
 fold :: Term -> Context -> Env -> Cont -> Store -> Term
-fold (TmPrimRef p) (Applied op g1 lg) r k s = visit op Value (Cont k1) s
+fold (TmPrimRef p) (Applied op g1 lg) r k s = foldPrimRef p (Applied op g1 lg) r k s
+fold (TmLam ix e) (Applied op g1 lg) r k s = foldLam ix e (Applied op g1 lg) r k s
+
+foldPrimRef :: PrimOp -> Context -> Env -> Cont -> Store -> Term
+foldPrimRef p (Applied op g1 lg) r k s = visit op Value (Cont k1) s
   where
     k1 e1' s1 = case result e1' of
       TmConst c -> let c' = applyPrim p c in runCont k (TmConst c') (setContextInlinedFlag lg s1)
       _ -> runCont k (TmPrimRef p) s1
-fold (TmLam ix@(IVar x Nothing vf lx) e) (Applied op g1 lg) r k s = inline e g1 r1 (Cont k1) s1
+
+foldLam :: IVar -> Term -> Context -> Env -> Cont -> Store -> Term
+foldLam ix@(IVar x Nothing vf lx) e (Applied op g1 lg) r k s = inline e g1 r1 (Cont k1) s1
   where
     (x', lx', s1) = freshenParameter x s
     ix' = IVar x' Nothing (getVarFlags lx s) lx'
@@ -441,13 +448,19 @@ copy ix'@(IVar x' op vf lx') e g k s = case (e, g) of
   -- because constants are closed, we can materialize an empty env to inline this constant
   (TmConst c, _) -> inline (TmConst c) g emptyEnv k s
   (TmRef ix1@(IVar x1 op1 (VarFlags { vfAssign = False }) lx1), _) -> runCont k (TmRef ix1) s
-  (TmPrimRef p, Applied op1 g1 lg) -> fold (TmPrimRef p) (Applied op1 g1 lg) emptyEnv k s -- primrefs are closed, no need for env
-  (TmLam ix1 e1, Applied op1 g1 lg) -> fold (TmLam ix1 e1) (Applied op1 g1 lg) emptyEnv k s -- do we know that this lambda is closed?
+  (TmPrimRef p, Applied op1 g1 lg) -> foldPrimRef p (Applied op1 g1 lg) emptyEnv k s -- primrefs are closed, no need for env
+  (TmLam ix1 e1, Applied op1 g1 lg) -> foldLam ix1 e1 (Applied op1 g1 lg) emptyEnv k s -- do we know that this lambda is closed? More pertinently, how do we know that we don't need to do any renaming here?
   (TmPrimRef p, Test) -> runCont k (TmConst ConstTrue) s
   (TmAssign x1 e1, Test) -> runCont k (TmConst ConstTrue) s
   (TmLam x1 e1, Test) -> runCont k (TmConst ConstTrue) s
   (_, _) -> runCont k (TmRef ix') (setVarRefFlag lx' s)
 
+
+-- Hrrm. The IR as it stands is almost to sparse to give meaningful examples
+-- ALSO, there's the whole thing about effort counter and size counter that I
+-- need to start caring about.
+-- raw :: RawTerm
+-- raw = _
 
 main :: IO ()
 main = putStrLn "Hello, World!"
