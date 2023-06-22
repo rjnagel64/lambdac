@@ -61,13 +61,21 @@ sortOf C.Character = pure CharH
 sortOf (C.Pair t s) = ProductH <$> sortOf t <*> sortOf s
 sortOf (C.Record fields) = RecordH <$> traverse sortOfField fields
   where sortOfField (f, t) = (,) (hoistFieldLabel f) <$> sortOf t
-sortOf (C.Closure ss) = (ClosureH . ClosureTele) <$> traverse f ss
-  where
-    f (C.ValueTele s) = ValueTele <$> sortOf s
-    f (C.TypeTele aa k) = TypeTele (asTyVar aa) <$> kindOf k -- hmm. needs scoping
-sortOf (C.Alloc aa) = pure (AllocH (asTyVar aa)) -- hmm. needs scoping
+sortOf (C.Closure ss) = withClosureTele ss $ \ss' -> pure (ClosureH (ClosureTele ss'))
+sortOf (C.Alloc aa) = AllocH <$> hoistTyVarOcc aa
 sortOf (C.TyConOcc tc) = TyConH <$> hoistTyConOcc tc
 sortOf (C.TyApp t s) = TyAppH <$> sortOf t <*> sortOf s
+
+withClosureTele :: [C.TeleEntry] -> ([TeleEntry] -> HoistM a) -> HoistM a
+withClosureTele [] cont = cont []
+withClosureTele (C.ValueTele s : ss) cont = do
+  s' <- sortOf s
+  withClosureTele ss $ \ss' ->
+    cont (ValueTele s' : ss')
+withClosureTele (C.TypeTele aa k : ss) cont = do
+  withTyVar aa k $ \aa' k' ->
+    withClosureTele ss $ \ss' ->
+      cont (TypeTele aa' k' : ss')
 
 kindOf :: C.Kind -> HoistM Kind
 kindOf C.Star = pure Star
@@ -313,7 +321,7 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
   --
   -- (I think I take care of this in LetFunC? That's where the recursive group
   -- is)
-  let tyFields = map (\ (aa, k) -> AllocH (asTyVar aa)) tyfields
+  tyFields <- traverse (\ (aa, k) -> AllocH <$> hoistTyVarOcc aa) tyfields
   allocFields <- for fields $ \ (x, s) -> do
     p <- asPlace s x
     x' <- hoistVarOcc x
@@ -421,6 +429,9 @@ hoistVarOcc x = do
 
 hoistTyConOcc :: C.TyCon -> HoistM TyCon
 hoistTyConOcc (C.TyCon tc) = pure (TyCon tc)
+
+hoistTyVarOcc :: C.TyVar -> HoistM TyVar
+hoistTyVarOcc aa = pure (asTyVar aa)
 
 lookupSort :: C.Name -> HoistM Sort
 lookupSort x = do
