@@ -44,37 +44,37 @@ import Hoist.IR hiding (Subst, singleSubst, substSort)
 insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
-asPlace' :: C.Sort -> C.Name -> HoistM Place
-asPlace' s (C.Name x i) = (\s' -> Place s' (Id (x ++ show i))) <$> sortOf' s
+asPlace :: C.Sort -> C.Name -> HoistM Place
+asPlace s (C.Name x i) = (\s' -> Place s' (Id (x ++ show i))) <$> sortOf s
 
 -- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
 asTyVar :: C.TyVar -> TyVar
 asTyVar (C.TyVar aa) = TyVar (Id aa)
 
-sortOf' :: C.Sort -> HoistM Sort
-sortOf' C.Integer = pure IntegerH
-sortOf' C.Boolean = pure BooleanH
-sortOf' C.Unit = pure UnitH
-sortOf' C.Token = pure TokenH
-sortOf' C.String = pure StringH
-sortOf' C.Character = pure CharH
-sortOf' (C.Pair t s) = ProductH <$> sortOf' t <*> sortOf' s
-sortOf' (C.Record fields) = RecordH <$> traverse sortOfField fields
-  where sortOfField (f, t) = (,) (hoistFieldLabel f) <$> sortOf' t
-sortOf' (C.Closure ss) = (ClosureH . ClosureTele) <$> traverse f ss
+sortOf :: C.Sort -> HoistM Sort
+sortOf C.Integer = pure IntegerH
+sortOf C.Boolean = pure BooleanH
+sortOf C.Unit = pure UnitH
+sortOf C.Token = pure TokenH
+sortOf C.String = pure StringH
+sortOf C.Character = pure CharH
+sortOf (C.Pair t s) = ProductH <$> sortOf t <*> sortOf s
+sortOf (C.Record fields) = RecordH <$> traverse sortOfField fields
+  where sortOfField (f, t) = (,) (hoistFieldLabel f) <$> sortOf t
+sortOf (C.Closure ss) = (ClosureH . ClosureTele) <$> traverse f ss
   where
-    f (C.ValueTele s) = ValueTele <$> sortOf' s
-    f (C.TypeTele aa k) = pure $ TypeTele (asTyVar aa) (kindOf k) -- hmm. needs scoping
-sortOf' (C.Alloc aa) = pure (AllocH (asTyVar aa)) -- hmm. needs scoping
-sortOf' (C.TyConOcc tc) = TyConH <$> hoistTyConOcc tc
-sortOf' (C.TyApp t s) = TyAppH <$> sortOf' t <*> sortOf' s
+    f (C.ValueTele s) = ValueTele <$> sortOf s
+    f (C.TypeTele aa k) = TypeTele (asTyVar aa) <$> kindOf k -- hmm. needs scoping
+sortOf (C.Alloc aa) = pure (AllocH (asTyVar aa)) -- hmm. needs scoping
+sortOf (C.TyConOcc tc) = TyConH <$> hoistTyConOcc tc
+sortOf (C.TyApp t s) = TyAppH <$> sortOf t <*> sortOf s
 
-kindOf :: C.Kind -> Kind
-kindOf C.Star = Star
-kindOf (C.KArr k1 k2) = KArr (kindOf k1) (kindOf k2)
+kindOf :: C.Kind -> HoistM Kind
+kindOf C.Star = pure Star
+kindOf (C.KArr k1 k2) = KArr <$> kindOf k1 <*> kindOf k2
 
 caseKind :: C.TyConApp -> HoistM TyConApp
-caseKind (C.TyConApp tc args) = TyConApp <$> hoistTyConOcc tc <*> traverse sortOf' args
+caseKind (C.TyConApp tc args) = TyConApp <$> hoistTyConOcc tc <*> traverse sortOf args
 
 
 
@@ -133,8 +133,8 @@ runHoist =
 
 withDataDecls :: [C.DataDecl] -> ([DataDecl] -> HoistM a) -> HoistM a
 withDataDecls [] cont = cont []
-withDataDecls (C.DataDecl (C.TyCon tc) kind ctors : ds) cont =
-  let kind' = kindOf kind in
+withDataDecls (C.DataDecl (C.TyCon tc) kind ctors : ds) cont = do
+  kind' <- kindOf kind
   withCtorDecls ctors $ \ctors' ->
     let d' = DataDecl (TyCon tc) kind' ctors' in
     withDataDecls ds $ \ds' ->
@@ -148,7 +148,7 @@ hoistCtorDecl (C.CtorDecl (C.Ctor c) params args) =
   withTyVars params $ \params' -> (CtorDecl (Ctor c) params' <$> (traverse makeField (zip [0..] args)))
   where
     makeField :: (Int, C.Sort) -> HoistM (Id, Sort)
-    makeField (i, s) = (,) (Id ("arg" ++ show i)) <$> sortOf' s
+    makeField (i, s) = (,) (Id ("arg" ++ show i)) <$> sortOf s
 
 
 
@@ -232,7 +232,7 @@ hoist (C.LetContC ks e) = do
 withFunClosures :: [C.FunClosureDef] -> ([ClosureAlloc] -> HoistM a) -> HoistM a
 withFunClosures fs cont = do
   (fbinds, fs') <- fmap unzip $ for fs $ \def@(C.FunClosureDef f _ _ _) -> do
-    p <- asPlace' (C.funClosureSort def) f
+    p <- asPlace (C.funClosureSort def) f
     pure ((f, p), (p, def))
 
   let fnames = [(f, LocalName (placeName f')) | (f, f') <- fbinds]
@@ -274,7 +274,7 @@ hoistFunClosure p (C.FunClosureDef f env params body) = do
 
 hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
 hoistContClosure k def@(C.ContClosureDef env params body) = do
-  kplace <- asPlace' (C.contClosureSort def) k
+  kplace <- asPlace (C.contClosureSort def) k
   -- Pick a name for the closure's code
   kcode <- nameClosureCode k
   envp <- pickEnvironmentPlace (placeName kplace)
@@ -315,7 +315,7 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
   -- is)
   let tyFields = map (\ (aa, k) -> AllocH (asTyVar aa)) tyfields
   allocFields <- for fields $ \ (x, s) -> do
-    p <- asPlace' s x
+    p <- asPlace s x
     x' <- hoistVarOcc x
     pure (placeName p, x')
   let enva = EnvAlloc tyFields allocFields
@@ -334,7 +334,7 @@ hoistValue C.WorldTokenC = pure WorldToken
 hoistValue (C.StringC s) = pure (StringValH s)
 hoistValue (C.CharC c) = pure (CharValH c)
 hoistValue (C.CtorAppC (C.Ctor c) tyargs args) =
-  CtorAppH (Ctor c) <$> traverse sortOf' tyargs <*> traverse hoistVarOcc args
+  CtorAppH (Ctor c) <$> traverse sortOf tyargs <*> traverse hoistVarOcc args
 
 hoistArith :: C.ArithC -> HoistM PrimOp
 hoistArith (C.AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -433,7 +433,7 @@ lookupSort x = do
 hoistArgList :: [C.Argument] -> HoistM [ClosureArg]
 hoistArgList xs = traverse f xs
   where
-    f (C.TypeArg t) = TypeArg <$> sortOf' t
+    f (C.TypeArg t) = TypeArg <$> sortOf t
     f (C.ValueArg x) = ValueArg <$> hoistVarOcc x
 
 -- | Extend the local scope with a new place with the given name and sort.
@@ -452,12 +452,14 @@ withPlace x s cont = do
     -- environment references are guarded by 'env->'.
     go :: C.Name -> Set C.Name -> HoistM Place
     go v ps = case Set.member v ps of
-      False -> asPlace' s v
+      False -> asPlace s v
       True -> go (C.prime v) ps
 
 -- I don't have scoping for tyvars yet, but this is where it would go.
 withTyVar :: C.TyVar -> C.Kind -> (TyVar -> Kind -> HoistM a) -> HoistM a
-withTyVar aa k cont = cont (asTyVar aa) (kindOf k)
+withTyVar aa k cont = do
+  k' <- kindOf k
+  cont (asTyVar aa) k'
 
 withTyVars :: [(C.TyVar, C.Kind)] -> ([(TyVar, Kind)] -> HoistM a) -> HoistM a
 withTyVars [] cont = cont []
@@ -468,7 +470,7 @@ withTyVars ((aa, k) : aas) cont =
 
 withEnvFields :: [(C.Name, C.Sort)] -> ([(Id, Sort)] -> HoistM a) -> HoistM a
 withEnvFields fields cont = do
-  binds <- for fields $ \ (x, s) -> (,) x <$> asPlace' s x
+  binds <- for fields $ \ (x, s) -> (,) x <$> asPlace s x
   let fields' = [(placeName x', placeSort x') | (_x, x') <- binds]
   let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- binds]
   let newEnvSorts = [(x, placeSort x') | (x, x') <- binds]
