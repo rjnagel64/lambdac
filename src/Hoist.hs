@@ -47,6 +47,9 @@ insertMany xs m = foldr (uncurry Map.insert) m xs
 asPlace :: C.Sort -> C.Name -> Place
 asPlace s (C.Name x i) = Place (sortOf s) (Id (x ++ show i))
 
+asPlace' :: C.Sort -> C.Name -> HoistM Place
+asPlace' s x = pure (asPlace s x)
+
 -- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
 asTyVar :: C.TyVar -> TyVar
 asTyVar (C.TyVar aa) = TyVar (Id aa)
@@ -231,10 +234,9 @@ hoist (C.LetContC ks e) = do
 
 withFunClosures :: [C.FunClosureDef] -> ([ClosureAlloc] -> HoistM a) -> HoistM a
 withFunClosures fs cont = do
-  let
-    (fbinds, fs') = unzip $ map (\def@(C.FunClosureDef f _ _ _) -> 
-      let p = asPlace (C.funClosureSort def) f in
-      ((f, p), (p, def))) fs
+  (fbinds, fs') <- fmap unzip $ for fs $ \def@(C.FunClosureDef f _ _ _) -> do
+    p <- asPlace' (C.funClosureSort def) f
+    pure ((f, p), (p, def))
 
   let fnames = [(f, LocalName (placeName f')) | (f, f') <- fbinds]
   let fsorts = [(f, placeSort f') | (f, f') <- fbinds]
@@ -275,7 +277,7 @@ hoistFunClosure p (C.FunClosureDef f env params body) = do
 
 hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
 hoistContClosure k def@(C.ContClosureDef env params body) = do
-  let kplace = asPlace (C.contClosureSort def) k
+  kplace <- asPlace' (C.contClosureSort def) k
   -- Pick a name for the closure's code
   kcode <- nameClosureCode k
   envp <- pickEnvironmentPlace (placeName kplace)
@@ -315,8 +317,10 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
   -- (I think I take care of this in LetFunC? That's where the recursive group
   -- is)
   let tyFields = map (\ (aa, k) -> AllocH (asTyVar aa)) tyfields
-  allocFields <- for fields $ \ (x, s) ->
-    (,) (placeName (asPlace s x)) <$> hoistVarOcc x
+  allocFields <- for fields $ \ (x, s) -> do
+    p <- asPlace' s x
+    x' <- hoistVarOcc x
+    pure (placeName p, x')
   let enva = EnvAlloc tyFields allocFields
   pure enva
 
@@ -436,7 +440,7 @@ hoistArgList xs = traverse f xs
 withPlace :: C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
 withPlace x s cont = do
   inScope <- asks (Map.keysSet . nameRefs)
-  let x' = go x inScope
+  x' <- go x inScope
   let xname = LocalName (placeName x')
   let xsort = placeSort x'
   let
@@ -446,9 +450,9 @@ withPlace x s cont = do
   where
     -- I think this is fine. We might shadow local names, which is bad, but
     -- environment references are guarded by 'env->'.
-    go :: C.Name -> Set C.Name -> Place
+    go :: C.Name -> Set C.Name -> HoistM Place
     go v ps = case Set.member v ps of
-      False -> asPlace s v
+      False -> asPlace' s v
       True -> go (C.prime v) ps
 
 -- I don't have scoping for tyvars yet, but this is where it would go.
@@ -464,7 +468,7 @@ withTyVars ((aa, k) : aas) cont =
 
 withEnvFields :: [(C.Name, C.Sort)] -> ([(Id, Sort)] -> HoistM a) -> HoistM a
 withEnvFields fields cont = do
-  let binds = [(x, asPlace s x) | (x, s) <- fields]
+  binds <- for fields $ \ (x, s) -> (,) x <$> asPlace' s x
   let fields' = [(placeName x', placeSort x') | (_x, x') <- binds]
   let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- binds]
   let newEnvSorts = [(x, placeSort x') | (x, x') <- binds]
