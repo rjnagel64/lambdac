@@ -44,40 +44,37 @@ import Hoist.IR hiding (Subst, singleSubst, substSort)
 insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
-asPlace :: C.Sort -> C.Name -> Place
-asPlace s (C.Name x i) = Place (sortOf s) (Id (x ++ show i))
-
 asPlace' :: C.Sort -> C.Name -> HoistM Place
-asPlace' s x = pure (asPlace s x)
+asPlace' s (C.Name x i) = (\s' -> Place s' (Id (x ++ show i))) <$> sortOf' s
 
 -- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
 asTyVar :: C.TyVar -> TyVar
 asTyVar (C.TyVar aa) = TyVar (Id aa)
 
-sortOf :: C.Sort -> Sort
-sortOf C.Integer = IntegerH
-sortOf C.Boolean = BooleanH
-sortOf C.Unit = UnitH
-sortOf C.Token = TokenH
-sortOf C.String = StringH
-sortOf C.Character = CharH
-sortOf (C.Pair t s) = ProductH (sortOf t) (sortOf s)
-sortOf (C.Record fields) = RecordH (map sortOfField fields)
-  where sortOfField (f, t) = (hoistFieldLabel f, sortOf t)
-sortOf (C.Closure ss) = ClosureH (ClosureTele (map f ss))
+sortOf' :: C.Sort -> HoistM Sort
+sortOf' C.Integer = pure IntegerH
+sortOf' C.Boolean = pure BooleanH
+sortOf' C.Unit = pure UnitH
+sortOf' C.Token = pure TokenH
+sortOf' C.String = pure StringH
+sortOf' C.Character = pure CharH
+sortOf' (C.Pair t s) = ProductH <$> sortOf' t <*> sortOf' s
+sortOf' (C.Record fields) = RecordH <$> traverse sortOfField fields
+  where sortOfField (f, t) = (,) (hoistFieldLabel f) <$> sortOf' t
+sortOf' (C.Closure ss) = (ClosureH . ClosureTele) <$> traverse f ss
   where
-    f (C.ValueTele s) = ValueTele (sortOf s)
-    f (C.TypeTele aa k) = TypeTele (asTyVar aa) (kindOf k)
-sortOf (C.Alloc aa) = AllocH (asTyVar aa)
-sortOf (C.TyConOcc (C.TyCon tc)) = TyConH (TyCon tc)
-sortOf (C.TyApp t s) = TyAppH (sortOf t) (sortOf s)
+    f (C.ValueTele s) = ValueTele <$> sortOf' s
+    f (C.TypeTele aa k) = pure $ TypeTele (asTyVar aa) (kindOf k) -- hmm. needs scoping
+sortOf' (C.Alloc aa) = pure (AllocH (asTyVar aa)) -- hmm. needs scoping
+sortOf' (C.TyConOcc tc) = TyConH <$> hoistTyConOcc tc
+sortOf' (C.TyApp t s) = TyAppH <$> sortOf' t <*> sortOf' s
 
 kindOf :: C.Kind -> Kind
 kindOf C.Star = Star
 kindOf (C.KArr k1 k2) = KArr (kindOf k1) (kindOf k2)
 
-caseKind :: C.TyConApp -> TyConApp
-caseKind (C.TyConApp (C.TyCon tc) args) = TyConApp (TyCon tc) (map sortOf args)
+caseKind :: C.TyConApp -> HoistM TyConApp
+caseKind (C.TyConApp tc args) = TyConApp <$> hoistTyConOcc tc <*> traverse sortOf' args
 
 
 
@@ -148,10 +145,10 @@ withCtorDecls ctors cont = traverse hoistCtorDecl ctors >>= cont
 
 hoistCtorDecl :: C.CtorDecl -> HoistM CtorDecl
 hoistCtorDecl (C.CtorDecl (C.Ctor c) params args) =
-  withTyVars params $ \params' -> pure (CtorDecl (Ctor c) params' (zipWith makeField [0..] args))
+  withTyVars params $ \params' -> (CtorDecl (Ctor c) params' <$> (traverse makeField (zip [0..] args)))
   where
-    makeField :: Int -> C.Sort -> (Id, Sort)
-    makeField i s = (Id ("arg" ++ show i), sortOf s)
+    makeField :: (Int, C.Sort) -> HoistM (Id, Sort)
+    makeField (i, s) = (,) (Id ("arg" ++ show i)) <$> sortOf' s
 
 
 
@@ -178,7 +175,7 @@ hoist (C.IfC x k1 k2) = do
   pure $ IfH x' k1' k2'
 hoist (C.CaseC x t ks) = do
   x' <- hoistVarOcc x
-  let kind = caseKind t
+  kind <- caseKind t
   ks' <- traverse (\ (C.Ctor c, k) -> (,) <$> pure (Ctor c) <*> hoistVarOcc k) ks
   pure $ CaseH x' kind ks'
 hoist (C.LetValC (x, s) v e) = do
@@ -337,7 +334,7 @@ hoistValue C.WorldTokenC = pure WorldToken
 hoistValue (C.StringC s) = pure (StringValH s)
 hoistValue (C.CharC c) = pure (CharValH c)
 hoistValue (C.CtorAppC (C.Ctor c) tyargs args) =
-  CtorAppH (Ctor c) <$> traverse (pure . sortOf) tyargs <*> traverse hoistVarOcc args
+  CtorAppH (Ctor c) <$> traverse sortOf' tyargs <*> traverse hoistVarOcc args
 
 hoistArith :: C.ArithC -> HoistM PrimOp
 hoistArith (C.AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -422,6 +419,9 @@ hoistVarOcc x = do
     Nothing -> error ("var not in scope: " ++ show x)
     Just x' -> pure x'
 
+hoistTyConOcc :: C.TyCon -> HoistM TyCon
+hoistTyConOcc (C.TyCon tc) = pure (TyCon tc)
+
 lookupSort :: C.Name -> HoistM Sort
 lookupSort x = do
   env <- asks nameSorts
@@ -433,7 +433,7 @@ lookupSort x = do
 hoistArgList :: [C.Argument] -> HoistM [ClosureArg]
 hoistArgList xs = traverse f xs
   where
-    f (C.TypeArg t) = pure (TypeArg (sortOf t))
+    f (C.TypeArg t) = TypeArg <$> sortOf' t
     f (C.ValueArg x) = ValueArg <$> hoistVarOcc x
 
 -- | Extend the local scope with a new place with the given name and sort.
