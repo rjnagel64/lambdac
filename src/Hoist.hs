@@ -47,10 +47,6 @@ insertMany xs m = foldr (uncurry Map.insert) m xs
 asPlace :: C.Sort -> C.Name -> HoistM Place
 asPlace s (C.Name x i) = (\s' -> Place s' (Id (x ++ show i))) <$> sortOf s
 
--- TODO: Be principled about CC.TyVar <-> Hoist.TyVar conversions
-asTyVar :: C.TyVar -> TyVar
-asTyVar (C.TyVar aa) = TyVar (Id aa)
-
 sortOf :: C.Sort -> HoistM Sort
 sortOf C.Integer = pure IntegerH
 sortOf C.Boolean = pure BooleanH
@@ -106,6 +102,7 @@ data HoistEnv =
   , envScope :: Map C.Name Place
   , nameRefs :: Map C.Name Name
   , nameSorts :: Map C.Name Sort
+  , tyVarRefs :: Map C.TyVar TyVar
   }
 
 -- Hmm. Might consider using a DList here. I think there might be a left-nested
@@ -137,7 +134,7 @@ runHoist =
   flip runReaderT emptyEnv .
   runHoistM
   where
-    emptyEnv = HoistEnv { localScope = Map.empty, envScope = Map.empty, nameRefs = Map.empty, nameSorts = Map.empty }
+    emptyEnv = HoistEnv { localScope = Map.empty, envScope = Map.empty, nameRefs = Map.empty, nameSorts = Map.empty, tyVarRefs = Map.empty }
 
 withDataDecls :: [C.DataDecl] -> ([DataDecl] -> HoistM a) -> HoistM a
 withDataDecls [] cont = cont []
@@ -431,7 +428,11 @@ hoistTyConOcc :: C.TyCon -> HoistM TyCon
 hoistTyConOcc (C.TyCon tc) = pure (TyCon tc)
 
 hoistTyVarOcc :: C.TyVar -> HoistM TyVar
-hoistTyVarOcc aa = pure (asTyVar aa)
+hoistTyVarOcc aa = do
+  env <- asks tyVarRefs
+  case Map.lookup aa env of
+    Nothing -> error ("tyvar not in scope: " ++ show aa)
+    Just aa' -> pure aa'
 
 lookupSort :: C.Name -> HoistM Sort
 lookupSort x = do
@@ -470,7 +471,13 @@ withPlace x s cont = do
 withTyVar :: C.TyVar -> C.Kind -> (TyVar -> Kind -> HoistM a) -> HoistM a
 withTyVar aa k cont = do
   k' <- kindOf k
-  cont (asTyVar aa) k'
+  let aa' = asTyVar aa
+  let extend env = env { tyVarRefs = Map.insert aa aa' (tyVarRefs env) }
+  local extend $ cont aa' k'
+  where
+    asTyVar :: C.TyVar -> TyVar
+    asTyVar (C.TyVar aa) = TyVar (Id aa)
+
 
 withTyVars :: [(C.TyVar, C.Kind)] -> ([(TyVar, Kind)] -> HoistM a) -> HoistM a
 withTyVars [] cont = cont []
