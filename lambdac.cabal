@@ -33,7 +33,6 @@ library
       -- Experiments.F
       -- Experiments.Monomorphise
       Experiments.Inference
-      Experiments.Inline
       Lexer
       Parser
       Resolve
