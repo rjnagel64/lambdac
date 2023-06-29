@@ -187,10 +187,6 @@ data TermK
   -- Block terminators
   -- k x..., goto k(x...)
   | JumpK CoVar [TmVar]
-  -- f x+ k+, call f(x+, k+)
-  | CallK TmVar [TmVar] [CoValueK]
-  -- f @t+ k+
-  | InstK TmVar [TypeK] [CoValueK]
   -- f arg+ k+
   | CallK' TmVar [Argument] [CoValueK]
   -- if x then k1 else k2
@@ -223,21 +219,12 @@ contDefType (ContDef xs _) = ContK (map snd xs)
 
 -- | Function definitions: either term functions @f (x:τ) (k:σ) := e@,
 -- or type functions @f \@a (k:σ) := e@
-data FunDef
-  -- TODO: Merge FunDef, AbsDef. Need a telescope for this.
-  = FunDef TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] TermK
-  | AbsDef TmVar [(TyVar, KindK)] [(CoVar, CoTypeK)] TermK
-  | FunDef' TmVar [FunParam] [(CoVar, CoTypeK)] TermK
+data FunDef = FunDef' TmVar [FunParam] [(CoVar, CoTypeK)] TermK
 
 funDefName :: FunDef -> TmVar
-funDefName (FunDef f _ _ _) = f
-funDefName (AbsDef f _ _ _) = f
 funDefName (FunDef' f _ _ _) = f
 
 funDefType :: FunDef -> TypeK
-funDefType (FunDef _ xs ks _) = FunK' (map (ValueTele . snd) xs) (map snd ks)
-funDefType (AbsDef _ as ks _) = FunK' (map (uncurry TypeTele) as) (map snd ks)
--- FunK' subsumes FunK and AllK, just as FunDef' subsumes FunDef and AbsDef.
 funDefType (FunDef' _ xs ks _) = FunK' (map f xs) (map snd ks)
   where
     f (ValueParam _x s) = ValueTele s
@@ -305,10 +292,6 @@ data TypeK
   | ProdK TypeK TypeK
   -- { (l : τ)+ }
   | RecordK [(FieldLabel, TypeK)]
-  -- (τ+) => (σ+)
-  | FunK [TypeK] [CoTypeK]
-  -- forall aa+. (σ+)
-  | AllK [(TyVar, KindK)] [CoTypeK]
   -- A function type can have a mix of value and type arguments, so the input is a telescope.
   -- (Δ) => (σ+)
   | FunK' [TeleEntry] [CoTypeK]
@@ -361,9 +344,6 @@ eqTypeK' sc (TyVarOccK aa) (TyVarOccK bb) = varAlpha aa bb sc
 eqTypeK' _ (TyVarOccK _) _ = False
 eqTypeK' _ (TyConOccK tc1) (TyConOccK tc2) = tc1 == tc2
 eqTypeK' _ (TyConOccK _) _ = False
-eqTypeK' sc (AllK aas ts) (AllK bbs ss) =
-  bindAlpha sc aas bbs $ \sc' -> allEqual (eqCoTypeK' sc') ts ss
-eqTypeK' _ (AllK _ _) _ = False
 eqTypeK' _ UnitK UnitK = True
 eqTypeK' _ UnitK _ = False
 eqTypeK' _ TokenK TokenK = True
@@ -383,9 +363,6 @@ eqTypeK' sc (RecordK fs1) (RecordK fs2) = allEqual f fs1 fs2
 eqTypeK' _ (RecordK _) _ = False
 eqTypeK' sc (TyAppK t1 s1) (TyAppK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
 eqTypeK' _ (TyAppK _ _) _ = False
-eqTypeK' sc (FunK ts1 ss1) (FunK ts2 ss2) =
-  allEqual (eqTypeK' sc) ts1 ts2 && allEqual (eqCoTypeK' sc) ss1 ss2
-eqTypeK' _ (FunK _ _) _ = False
 eqTypeK' sc (FunK' tele1 ss1) (FunK' tele2 ss2) =
   eqTele sc tele1 tele2 $ \sc' -> allEqual (eqCoTypeK' sc') ss1 ss2
 eqTypeK' _ (FunK' _ _) _ = False
@@ -434,8 +411,6 @@ allEqual _ _ _ = False
 -- | Compute the free type variables of a type.
 typeFV :: TypeK -> Set TyVar
 typeFV (TyVarOccK aa) = Set.singleton aa
-typeFV (AllK aas ss) = Set.unions (map coTypeFV ss) Set.\\ Set.fromList (map fst aas)
-typeFV (FunK ts ss) = Set.unions (map typeFV ts) <> Set.unions (map coTypeFV ss)
 typeFV (FunK' tele ss) = teleFV tele (Set.unions (map coTypeFV ss))
 typeFV (ProdK t s) = typeFV t <> typeFV s
 typeFV (RecordK fields) = foldMap (typeFV . snd) fields
@@ -463,10 +438,6 @@ coTypeFV (ContK ts) = Set.unions (map typeFV ts)
 -- | Apply a substitution to a type.
 substTypeK :: Subst -> TypeK -> TypeK
 substTypeK sub (TyVarOccK aa) = substVar sub aa
-substTypeK sub (AllK aas ss) =
-  let (sub', aas') = bindSubst sub aas in
-  AllK aas' (map (substCoTypeK sub') ss)
-substTypeK sub (FunK ts ss) = FunK (map (substTypeK sub) ts) (map (substCoTypeK sub) ss)
 substTypeK sub (FunK' tele ss) =
   let (sub', tele') = substTele sub tele in
   FunK' tele' (map (substCoTypeK sub') ss)
@@ -565,15 +536,11 @@ pprintCtorDecl n (CtorDecl c tyargs args) =
 pprintTerm :: Int -> TermK -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
-pprintTerm n (CallK f xs ks) =
-  indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map pprintCoValue ks) ++ ";\n"
 pprintTerm n (CallK' f args ks) =
   indent n $ show f ++ " " ++ intercalate " " (map pprintArg args ++ map pprintCoValue ks) ++ ";\n"
   where
     pprintArg (ValueArg x) = show x
     pprintArg (TypeArg t) = pprintType t
-pprintTerm n (InstK f ts ks) =
-  indent n $ intercalate " @" (show f : map pprintType ts) ++ " " ++ intercalate " " (map pprintCoValue ks) ++ ";\n"
 pprintTerm n (IfK x k1 k2) =
   indent n $ "if " ++ show x ++ " then " ++ pprintContDef k1 ++ " else " ++ pprintContDef k2
 pprintTerm n (CaseK x tcapp ks) =
@@ -646,19 +613,12 @@ pprintPrimIO (PrimGetLine x) = "getLine " ++ show x
 pprintPrimIO (PrimPutLine x y) = "putLine " ++ show x ++ " " ++ show y
 
 pprintFunDef :: Int -> FunDef -> String
-pprintFunDef n (FunDef f xs ks e) =
-  indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
+pprintFunDef n (FunDef' f params ks e) =
+  indent n (show f ++ " " ++ params' ++ " =\n") ++ pprintTerm (n+2) e
   where
-    -- One parameter list or two?
-    params = "(" ++ intercalate ", " (map pprintTmParam xs ++ map pprintCoParam ks) ++ ")"
-    pprintTmParam (x, t) = show x ++ " : " ++ pprintType t
-    pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
-pprintFunDef n (AbsDef f as ks e) =
-  indent n (show f ++ " " ++ params ++ " =\n") ++ pprintTerm (n+2) e
-  where
-    -- One parameter list or two?
-    params = "(" ++ intercalate ", " (map pprintTyParam as ++ map pprintCoParam ks) ++ ")"
-    pprintTyParam (aa, kk) = "@" ++ show aa ++ " :: " ++ pprintKind kk
+    params' = "(" ++ intercalate ", " (map pprintParam params ++ map pprintCoParam ks)
+    pprintParam (ValueParam x t) = show x ++ " : " ++ pprintType t
+    pprintParam (TypeParam aa k) = "@" ++ show aa ++ " : " ++ pprintKind k
     pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
 
 pprintContDef :: ContDef -> String
@@ -680,11 +640,6 @@ pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s
 pprintType (RecordK []) = "{}"
 pprintType (RecordK xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
   where pprintField (f, t) = show f ++ " : " ++ pprintType t
-pprintType (FunK ts ss) =
-  "(" ++ intercalate ", " tmParams ++ ") -> (" ++ intercalate ", " coParams ++ ")"
-  where
-    tmParams = map pprintType ts
-    coParams = map pprintCoType ss
 pprintType (FunK' tele ss) =
   "(" ++ intercalate ", " params ++ ") -> (" ++ intercalate ", " coParams ++ ")"
   where
@@ -699,9 +654,6 @@ pprintType BoolK = "bool"
 pprintType StringK = "string"
 pprintType CharK = "char"
 pprintType (TyVarOccK aa) = show aa
-pprintType (AllK aas ss) =
-  "forall (" ++ intercalate ", " (map f aas) ++ "). (" ++ intercalate ", " (map pprintCoType ss) ++ ") -> 0"
-  where f (aa, kk) = show aa ++ " :: " ++ pprintKind kk
 pprintType (TyConOccK tc) = show tc
 pprintType (TyAppK t1 t2) = pprintType t1 ++ " " ++ pprintType t2
 

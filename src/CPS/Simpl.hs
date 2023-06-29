@@ -114,11 +114,11 @@ simplify env (JumpK k xs) =
   -- A more sophisticated analysis would require iterating to a fixpoint.
   let xs' = map (rename env) xs in
   (JumpK k xs', recordList xs')
-simplify env (CallK f xs ks) =
+simplify env (CallK' f xs ks) =
   -- Note: This assumes that a function call uses all its arguments.
   -- A more sophisticated analysis would require iterating to a fixpoint.
-  let xs' = map (rename env) xs in
-  (CallK f xs' ks, recordList xs')
+  let xs' = map (rename env) [x | ValueArg x <- xs] in
+  (CallK' f (map ValueArg xs') ks, recordList xs') -- this is incorrect. do not discard type arguments.
 simplify env (CaseK x t ks) = simplifyCase env x t ks
 -- If there is a binding y := (z, w), substitute x := z in e
 simplify env (LetFstK x t y e) = 

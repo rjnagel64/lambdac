@@ -164,11 +164,6 @@ cconvCtorDecl (K.CtorDecl (K.Ctor c) params args) =
 
 cconvType :: K.TypeK -> ConvM Sort
 cconvType (K.TyVarOccK aa) = Alloc <$> cconvTyVar aa
-cconvType (K.AllK aas ss) = do
-  withTys aas $ \aas' -> do
-    ss' <- traverse cconvCoType ss
-    let tele = map (uncurry TypeTele) aas' ++ map ValueTele ss'
-    pure (Closure tele)
 cconvType K.UnitK = pure Unit
 cconvType K.TokenK = pure Token
 cconvType K.IntK = pure Integer
@@ -178,8 +173,6 @@ cconvType K.CharK = pure Character
 cconvType (K.ProdK t1 t2) = Pair <$> cconvType t1 <*> cconvType t2
 cconvType (K.RecordK fields) = Record <$> traverse cconvField fields
   where cconvField (f, t) = (,) <$> cconvFieldLabel f <*> cconvType t
-cconvType (K.FunK ts ss) = f <$> traverse cconvType ts <*> traverse cconvCoType ss
-  where f ts' ss' = Closure (map ValueTele ts' ++ map ValueTele ss')
 cconvType (K.FunK' tele ss) = withTypeTele tele $ \tele' -> do
   ss' <- traverse cconvCoType ss
   pure (Closure (tele' ++ map ValueTele ss'))
@@ -216,24 +209,6 @@ cconv (K.JumpK k xs) = do
   (kbinds, Identity k') <- cconvCoArgs (Identity (K.CoVarK k))
   xs' <- traverse cconvTmVar xs
   let term = JumpC k' xs'
-  if null kbinds then
-    pure term
-  else
-    pure (LetContC kbinds term)
-cconv (K.CallK f xs ks) = do
-  f' <- cconvTmVar f
-  xs' <- traverse (fmap ValueArg . cconvTmVar) xs
-  (kbinds, ks') <- cconvCoArgs ks
-  let term = CallC f' xs' ks'
-  if null kbinds then
-    pure term
-  else
-    pure (LetContC kbinds term)
-cconv (K.InstK f ts ks) = do
-  f' <- cconvTmVar f
-  ts' <- traverse (fmap TypeArg . cconvType) ts
-  (kbinds, ks') <- cconvCoArgs ks
-  let term = CallC f' ts' ks'
   if null kbinds then
     pure term
   else
@@ -290,24 +265,6 @@ cconv (K.LetContK ks e) = do
   withCos contBinds $ \_ -> LetContC <$> traverse cconvContBind ks <*> cconv e
 
 cconvFunDef :: K.FunDef -> ConvM FunClosureDef
-cconvFunDef (K.FunDef f xs ks e) = do
-  ((params', e'), flds) <- listen $
-    withTms xs $ \xs' -> do
-      withCos ks $ \ks' -> do
-        e' <- cconv e
-        pure (makeClosureParams [] (xs' ++ ks'), e')
-  env <- makeClosureEnv flds
-  let fnName (K.TmVar x i) = Name x i
-  pure (FunClosureDef (fnName f) env params' e')
-cconvFunDef (K.AbsDef f as ks e) = do
-  ((params', e'), flds) <- listen $
-    withTys as $ \as' -> do
-      withCos ks $ \ks' -> do
-        e' <- cconv e
-        pure (makeClosureParams as' ks', e')
-  env <- makeClosureEnv flds
-  let fnName (K.TmVar x i) = Name x i
-  pure (FunClosureDef (fnName f) env params' e')
 cconvFunDef (K.FunDef' f params ks e) = do
   ((params', e'), flds) <- listen $
     withFunParams params $ \params' ->

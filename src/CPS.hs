@@ -188,7 +188,7 @@ cps (S.TmTLam aa ki e) k =
       (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
         (e', retTy) <- cps e (ObjCont k')
         s' <- cpsCoType retTy
-        let def = AbsDef f bs [(k', s')] e'
+        let def = FunDef' f (map (uncurry TypeParam) bs) [(k', s')] e'
         pure (def, S.TyAll aa ki retTy)
       (e'', t'') <- applyCont k f ty
       pure (LetFunAbsK [def] e'', t'')
@@ -576,7 +576,7 @@ makeCtorWrapper tc c ctorparams ctorargs e = do
       freshTm "w" $ \newName ->
         freshCo "k" $ \newCont -> do
           (inner, innerTy) <- go newName (tyargs, tmargs) (tyarglist ++ [TyVarOccK aa], tmarglist) (JumpK newCont [newName])
-          let fun = AbsDef name [(aa, k)] [(newCont, ContK [innerTy])] inner
+          let fun = FunDef' name [TypeParam aa k] [(newCont, ContK [innerTy])] inner
           let wrapper = LetFunAbsK [fun] body
           pure (wrapper, FunK' [TypeTele aa k] [ContK [innerTy]])
     go name ([], argTy : tmargs) (tyarglist, tmarglist) body = do
