@@ -173,7 +173,7 @@ cconvType K.CharK = pure Character
 cconvType (K.ProdK t1 t2) = Pair <$> cconvType t1 <*> cconvType t2
 cconvType (K.RecordK fields) = Record <$> traverse cconvField fields
   where cconvField (f, t) = (,) <$> cconvFieldLabel f <*> cconvType t
-cconvType (K.FunK' tele ss) = withTypeTele tele $ \tele' -> do
+cconvType (K.FunK tele ss) = withTypeTele tele $ \tele' -> do
   ss' <- traverse cconvCoType ss
   pure (Closure (tele' ++ map ValueTele ss'))
 cconvType (K.TyConOccK (K.TyCon tc)) = pure (TyConOcc (TyCon tc))
@@ -213,7 +213,7 @@ cconv (K.JumpK k xs) = do
     pure term
   else
     pure (LetContC kbinds term)
-cconv (K.CallK' f args ks) = do
+cconv (K.CallK f args ks) = do
   f' <- cconvTmVar f
   args' <- traverse cconvArgument args
   (kbinds, ks') <- cconvCoArgs ks
@@ -233,7 +233,7 @@ cconv (K.IfK x contf contt) = do
 cconv (K.CaseK x kind ks) = do
   x' <- cconvTmVar x
   kind' <- cconvTyConApp kind
-  -- Not quite the same as CallK/InstK because each co-"argument" is paired
+  -- Not quite the same as CallK because each co-"argument" is paired
   -- with a constructor (and the constructor also needs to be translated)
   (kbinds, ks0') <- cconvCoArgs (Compose ks)
   let ks' = map (\ (K.Ctor c, k') -> (Ctor c, k')) (getCompose ks0')
@@ -255,7 +255,7 @@ cconv (K.LetBindK x y prim e) = do
   (prim', ansTy) <- cconvPrimIO prim
   withTm (x, K.TokenK) $ \b1 -> withTm (y, ansTy) $ \b2 ->
     LetBindC b1 b2 prim' <$> cconv e
-cconv (K.LetFunAbsK fs e) = do
+cconv (K.LetFunK fs e) = do
   let funBinds = map (\f -> (K.funDefName f, K.funDefType f)) fs
   withTms funBinds $ \_ -> LetFunC <$> traverse cconvFunDef fs <*> cconv e
 cconv (K.LetContK ks e) = do
@@ -265,7 +265,7 @@ cconv (K.LetContK ks e) = do
   withCos contBinds $ \_ -> LetContC <$> traverse cconvContBind ks <*> cconv e
 
 cconvFunDef :: K.FunDef -> ConvM FunClosureDef
-cconvFunDef (K.FunDef' f params ks e) = do
+cconvFunDef (K.FunDef f params ks e) = do
   ((params', e'), flds) <- listen $
     withFunParams params $ \params' ->
       withCos ks $ \ks' -> do

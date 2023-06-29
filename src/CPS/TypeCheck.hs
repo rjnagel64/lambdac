@@ -224,9 +224,9 @@ check (HaltK x) = do
 check (JumpK k xs) = do
   ContK ss <- lookupCoVar k
   checkTmArgs xs ss
-check (CallK' f args ks) = do
+check (CallK f args ks) = do
   (tele, ss) <- lookupTmVar f >>= \case
-    FunK' tele ss -> pure (tele, ss)
+    FunK tele ss -> pure (tele, ss)
     t -> throwError (CannotCall f t)
   sub <- checkArguments args tele
   let ss' = map (substCoTypeK sub) ss
@@ -241,10 +241,10 @@ check (LetContK ks e) = do
     s <- inferContDef cont
     pure (k, s)
   withCoVars defs $ check e
-check (LetFunAbsK fs e) = do
+check (LetFunK fs e) = do
   let defs = map (\f -> (funDefName f, funDefType f)) fs
   withTmVars defs $ do
-    for_ fs $ \ (FunDef' f params ks e') ->
+    for_ fs $ \ (FunDef f params ks e') ->
       withFunParams params $ withCoVars ks $ check e'
     check e
 check (LetValK x t v e) = do
@@ -422,7 +422,7 @@ checkArguments = go idSubst
 inferType :: TypeK -> TC KindK
 inferType (TyVarOccK aa) = lookupTyVar aa
 inferType (TyConOccK tc) = lookupTyCon tc
-inferType (FunK' tele ss) =
+inferType (FunK tele ss) =
   withTypeTele tele (traverse_ (\s -> checkCoType s StarK) ss) *>
   pure StarK
 inferType (ProdK t s) = checkType t StarK *> checkType s StarK *> pure StarK

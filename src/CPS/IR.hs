@@ -182,13 +182,13 @@ data TermK
   -- let ks in e
   | LetContK [(CoVar, ContDef)] TermK
   -- let rec fs in e
-  | LetFunAbsK [FunDef] TermK
+  | LetFunK [FunDef] TermK
 
   -- Block terminators
   -- k x..., goto k(x...)
   | JumpK CoVar [TmVar]
   -- f arg+ k+
-  | CallK' TmVar [Argument] [CoValueK]
+  | CallK TmVar [Argument] [CoValueK]
   -- if x then k1 else k2
   | IfK TmVar ContDef ContDef
   -- case x : s of c1 -> k1 | c2 -> k2 | ..., branch
@@ -219,13 +219,13 @@ contDefType (ContDef xs _) = ContK (map snd xs)
 
 -- | Function definitions: either term functions @f (x:τ) (k:σ) := e@,
 -- or type functions @f \@a (k:σ) := e@
-data FunDef = FunDef' TmVar [FunParam] [(CoVar, CoTypeK)] TermK
+data FunDef = FunDef TmVar [FunParam] [(CoVar, CoTypeK)] TermK
 
 funDefName :: FunDef -> TmVar
-funDefName (FunDef' f _ _ _) = f
+funDefName (FunDef f _ _ _) = f
 
 funDefType :: FunDef -> TypeK
-funDefType (FunDef' _ xs ks _) = FunK' (map f xs) (map snd ks)
+funDefType (FunDef _ xs ks _) = FunK (map f xs) (map snd ks)
   where
     f (ValueParam _x s) = ValueTele s
     f (TypeParam aa k) = TypeTele aa k
@@ -294,7 +294,7 @@ data TypeK
   | RecordK [(FieldLabel, TypeK)]
   -- A function type can have a mix of value and type arguments, so the input is a telescope.
   -- (Δ) => (σ+)
-  | FunK' [TeleEntry] [CoTypeK]
+  | FunK [TeleEntry] [CoTypeK]
   -- aa
   | TyVarOccK TyVar
   -- T
@@ -363,9 +363,9 @@ eqTypeK' sc (RecordK fs1) (RecordK fs2) = allEqual f fs1 fs2
 eqTypeK' _ (RecordK _) _ = False
 eqTypeK' sc (TyAppK t1 s1) (TyAppK t2 s2) = eqTypeK' sc t1 t2 && eqTypeK' sc s1 s2
 eqTypeK' _ (TyAppK _ _) _ = False
-eqTypeK' sc (FunK' tele1 ss1) (FunK' tele2 ss2) =
+eqTypeK' sc (FunK tele1 ss1) (FunK tele2 ss2) =
   eqTele sc tele1 tele2 $ \sc' -> allEqual (eqCoTypeK' sc') ss1 ss2
-eqTypeK' _ (FunK' _ _) _ = False
+eqTypeK' _ (FunK _ _) _ = False
 
 eqTele :: Alpha -> [TeleEntry] -> [TeleEntry] -> (Alpha -> Bool) -> Bool
 eqTele sc [] [] k = k sc
@@ -411,7 +411,7 @@ allEqual _ _ _ = False
 -- | Compute the free type variables of a type.
 typeFV :: TypeK -> Set TyVar
 typeFV (TyVarOccK aa) = Set.singleton aa
-typeFV (FunK' tele ss) = teleFV tele (Set.unions (map coTypeFV ss))
+typeFV (FunK tele ss) = teleFV tele (Set.unions (map coTypeFV ss))
 typeFV (ProdK t s) = typeFV t <> typeFV s
 typeFV (RecordK fields) = foldMap (typeFV . snd) fields
 typeFV (TyAppK t s) = typeFV t <> typeFV s
@@ -438,9 +438,9 @@ coTypeFV (ContK ts) = Set.unions (map typeFV ts)
 -- | Apply a substitution to a type.
 substTypeK :: Subst -> TypeK -> TypeK
 substTypeK sub (TyVarOccK aa) = substVar sub aa
-substTypeK sub (FunK' tele ss) =
+substTypeK sub (FunK tele ss) =
   let (sub', tele') = substTele sub tele in
-  FunK' tele' (map (substCoTypeK sub') ss)
+  FunK tele' (map (substCoTypeK sub') ss)
 substTypeK sub (ProdK t s) = ProdK (substTypeK sub t) (substTypeK sub s)
 substTypeK sub (RecordK fields) = RecordK (map (\ (f, t) -> (f, substTypeK sub t)) fields)
 substTypeK sub (TyAppK t s) = TyAppK (substTypeK sub t) (substTypeK sub s)
@@ -536,7 +536,7 @@ pprintCtorDecl n (CtorDecl c tyargs args) =
 pprintTerm :: Int -> TermK -> String
 pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
-pprintTerm n (CallK' f args ks) =
+pprintTerm n (CallK f args ks) =
   indent n $ show f ++ " " ++ intercalate " " (map pprintArg args ++ map pprintCoValue ks) ++ ";\n"
   where
     pprintArg (ValueArg x) = show x
@@ -549,7 +549,7 @@ pprintTerm n (CaseK x tcapp ks) =
   indent n $ "case " ++ show x ++ " : " ++ pprintType t  ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValK x t v e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
-pprintTerm n (LetFunAbsK fs e) =
+pprintTerm n (LetFunK fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContK ks e) =
   indent n "letcont\n" ++ concatMap (pprintContBind (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
@@ -613,7 +613,7 @@ pprintPrimIO (PrimGetLine x) = "getLine " ++ show x
 pprintPrimIO (PrimPutLine x y) = "putLine " ++ show x ++ " " ++ show y
 
 pprintFunDef :: Int -> FunDef -> String
-pprintFunDef n (FunDef' f params ks e) =
+pprintFunDef n (FunDef f params ks e) =
   indent n (show f ++ " " ++ params' ++ " =\n") ++ pprintTerm (n+2) e
   where
     params' = "(" ++ intercalate ", " (map pprintParam params ++ map pprintCoParam ks)
@@ -640,7 +640,7 @@ pprintType (ProdK t s) = pprintAType t ++ " * " ++ pprintAType s
 pprintType (RecordK []) = "{}"
 pprintType (RecordK xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
   where pprintField (f, t) = show f ++ " : " ++ pprintType t
-pprintType (FunK' tele ss) =
+pprintType (FunK tele ss) =
   "(" ++ intercalate ", " params ++ ") -> (" ++ intercalate ", " coParams ++ ")"
   where
     params = map pprintTele tele

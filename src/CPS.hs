@@ -72,7 +72,7 @@ cpsType (S.TyVarOcc aa) = do
     Just (aa', _) -> pure (TyVarOccK aa')
 cpsType (S.TyAll aa k t) =
   freshenTyVarBinds [(aa, k)] $ \bs ->
-    (\t' -> FunK' (map (uncurry TypeTele) bs) [t']) <$> cpsCoType t
+    (\t' -> FunK (map (uncurry TypeTele) bs) [t']) <$> cpsCoType t
 cpsType S.TyUnit = pure UnitK
 cpsType S.TyInt = pure IntK
 cpsType S.TyString = pure StringK
@@ -81,10 +81,10 @@ cpsType S.TyBool = pure BoolK
 cpsType (S.TyProd a b) = ProdK <$> cpsType a <*> cpsType b
 cpsType (S.TyRecord fields) = RecordK <$> traverse cpsFieldType fields
   where cpsFieldType (S.FieldLabel f, t) = (,) <$> pure (FieldLabel f) <*> cpsType t
-cpsType (S.TyArr a b) = (\a' b' -> FunK' [ValueTele a'] [b']) <$> cpsType a <*> cpsCoType b
+cpsType (S.TyArr a b) = (\a' b' -> FunK [ValueTele a'] [b']) <$> cpsType a <*> cpsCoType b
 cpsType (S.TyConOcc (S.TyCon tc)) = pure (TyConOccK (TyCon tc))
 cpsType (S.TyApp a b) = TyAppK <$> cpsType a <*> cpsType b
-cpsType (S.TyIO a) = (\a' -> FunK' [ValueTele TokenK] [ContK [TokenK, a']]) <$> cpsType a
+cpsType (S.TyIO a) = (\a' -> FunK [ValueTele TokenK] [ContK [TokenK, a']]) <$> cpsType a
 
 cpsCoType :: S.Type -> CPS CoTypeK
 cpsCoType s = (\s' -> ContK [s']) <$> cpsType s
@@ -178,20 +178,20 @@ cps (S.TmLam x argTy e) k =
       (fun, ty) <- freshenVarBinds [(x, argTy)] $ \bs -> do
         (e', retTy) <- cps e (ObjCont k')
         s' <- cpsCoType retTy
-        let fun = FunDef' f (map (uncurry ValueParam) bs) [(k', s')] e'
+        let fun = FunDef f (map (uncurry ValueParam) bs) [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
       (e'', t'') <- applyCont k f ty
-      pure (LetFunAbsK [fun] e'', t'')
+      pure (LetFunK [fun] e'', t'')
 cps (S.TmTLam aa ki e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
       (def, ty) <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
         (e', retTy) <- cps e (ObjCont k')
         s' <- cpsCoType retTy
-        let def = FunDef' f (map (uncurry TypeParam) bs) [(k', s')] e'
+        let def = FunDef f (map (uncurry TypeParam) bs) [(k', s')] e'
         pure (def, S.TyAll aa ki retTy)
       (e'', t'') <- applyCont k f ty
-      pure (LetFunAbsK [def] e'', t'')
+      pure (LetFunK [def] e'', t'')
 cps (S.TmFst e) k = 
   cps e $ MetaCont $ \z t -> do
     (ta, _tb) <- case t of
@@ -291,7 +291,7 @@ cps (S.TmLetRec fs e) k =
   freshenRecBinds fs $ \fs' -> do
     fs'' <- traverse cpsFun fs'
     (e', t') <- cps e k
-    let res = LetFunAbsK fs'' e'
+    let res = LetFunK fs'' e'
     pure (res, t')
 cps (S.TmApp e1 e2) k =
   cps e1 $ MetaCont $ \fv t1 -> do
@@ -300,7 +300,7 @@ cps (S.TmApp e1 e2) k =
         S.TyArr _argTy retTy -> pure retTy
         _ -> error "type error"
       (cont, t') <- reifyCont k retTy
-      let res = CallK' fv [ValueArg xv] [cont]
+      let res = CallK fv [ValueArg xv] [cont]
       pure (res, t')
 cps (S.TmTApp e ty) k =
   cps e $ MetaCont $ \fv t1 -> do
@@ -309,7 +309,7 @@ cps (S.TmTApp e ty) k =
       S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa ty) t1')
       _ -> error "type error"
     (cont, t') <- reifyCont k instTy
-    let res = CallK' fv [TypeArg ty'] [cont]
+    let res = CallK fv [TypeArg ty'] [cont]
     pure (res, t')
 cps (S.TmPure e) k =
   -- let fun f (s : token#) (k2 : (token#, t) -> !) = k2 s z; in k f
@@ -320,10 +320,10 @@ cps (S.TmPure e) k =
           freshCo "k" $ \k' -> do
             let body = JumpK k' [s, z]
             t' <- cpsType t
-            let fun = FunDef' f [ValueParam s TokenK] [(k', ContK [TokenK, t'])] body
+            let fun = FunDef f [ValueParam s TokenK] [(k', ContK [TokenK, t'])] body
             pure fun
       (e', t') <- applyCont k (funDefName fun) (S.TyIO t)
-      let res = LetFunAbsK [fun] e'
+      let res = LetFunK [fun] e'
       pure (res, t')
 cps (S.TmBind x t e1 e2) k =
   cps e1 $ MetaCont $ \m1 _it1 ->
@@ -335,18 +335,18 @@ cps (S.TmBind x t e1 e2) k =
               freshenVarBinds [(x, t)] $ \bs -> do
                 -- I don't understand what I'm doing here. I hope it works.
                 (e', it2) <- cps e2 $ MetaCont $ \m2 it2 -> do
-                  let contBody = CallK' m2 [ValueArg s2] [CoVarK k1]
+                  let contBody = CallK m2 [ValueArg s2] [CoVarK k1]
                   pure (contBody, it2)
                 pure (ContDef ((s2, TokenK) : bs) e', it2)
             t2' <- case it2 of
               S.TyIO t2 -> cpsType t2
               _ -> error "body of bind is not monadic"
-            let funBody = CallK' m1 [ValueArg s1] [ContValK contDef]
-            let funDef = FunDef' f [ValueParam s1 TokenK] [(k1, ContK [TokenK, t2'])] funBody
+            let funBody = CallK m1 [ValueArg s1] [ContValK contDef]
+            let funDef = FunDef f [ValueParam s1 TokenK] [(k1, ContK [TokenK, t2'])] funBody
             pure (funDef, it2)
       -- dubious about the type here, but it seems to work.
       (e', t') <- applyCont k (funDefName fun) it2
-      let res = LetFunAbsK [fun] e'
+      let res = LetFunK [fun] e'
       pure (res, t')
 cps S.TmGetLine k = do
   -- let fun f (s : token#) (k2 : (token#, t) -> !) = let s2, msg <- getLine s in k2 s2 msg; k f
@@ -357,10 +357,10 @@ cps S.TmGetLine k = do
           freshTm "s" $ \s2 ->
             freshTm "x" $ \msg -> do
               let body = LetBindK s2 msg (PrimGetLine s1) (JumpK k1 [s2, msg])
-              let fun = FunDef' f [ValueParam s1 TokenK] [(k1, ContK [TokenK, StringK])] body
+              let fun = FunDef f [ValueParam s1 TokenK] [(k1, ContK [TokenK, StringK])] body
               pure fun
     (e', t') <- applyCont k (funDefName fun) (S.TyIO S.TyString)
-    let res = LetFunAbsK [fun] e'
+    let res = LetFunK [fun] e'
     pure (res, t')
 cps (S.TmPutLine e) k = do
   cps e $ MetaCont $ \z _t -> do
@@ -371,10 +371,10 @@ cps (S.TmPutLine e) k = do
             freshTm "s" $ \s2 ->
               freshTm "u" $ \u -> do
                 let body = LetBindK s2 u (PrimPutLine s1 z) (JumpK k1 [s2, u])
-                let fun = FunDef' f [ValueParam s1 TokenK] [(k1, ContK [TokenK, UnitK])] body
+                let fun = FunDef f [ValueParam s1 TokenK] [(k1, ContK [TokenK, UnitK])] body
                 pure fun
       (e', t') <- applyCont k (funDefName fun) (S.TyIO S.TyUnit)
-      let res = LetFunAbsK [fun] e'
+      let res = LetFunK [fun] e'
       pure (res, t')
 cps (S.TmRunIO e) k = do
   cps e $ MetaCont $ \m it -> do
@@ -386,7 +386,7 @@ cps (S.TmRunIO e) k = do
       (e', t') <- applyCont k xv retTy
       pure (ContDef [(sv, TokenK), (xv, retTy')] e', t')
     freshTm "s" $ \s0 -> do
-      let res = LetValK s0 TokenK WorldTokenK (CallK' m [ValueArg s0] [ContValK cont])
+      let res = LetValK s0 TokenK WorldTokenK (CallK m [ValueArg s0] [ContValK cont])
       pure (res, t')
 cps (S.TmIf e s et ef) k = do
   (coval, _) <- reifyCont k s
@@ -472,7 +472,7 @@ cpsFun (TmFun f x t s e) =
     fun <- freshenVarBinds [(x, t)] $ \bs -> do
       (e', _s') <- cps e (ObjCont k)
       s' <- cpsCoType s
-      pure (FunDef' f' (map (uncurry ValueParam) bs) [(k, s')] e')
+      pure (FunDef f' (map (uncurry ValueParam) bs) [(k, s')] e')
     pure fun
 cpsFun (TmTFun f aa ki s e) =
   freshCo "k" $ \k -> do
@@ -484,7 +484,7 @@ cpsFun (TmTFun f aa ki s e) =
     fun <- freshenTyVarBinds [(aa, ki)] $ \bs -> do
       (e', _s') <- cps e (ObjCont k)
       s' <- cpsCoType s
-      pure (FunDef' f' (map (uncurry TypeParam) bs) [(k, s')] e')
+      pure (FunDef f' (map (uncurry TypeParam) bs) [(k, s')] e')
     pure fun
 
 -- | CPS-transform a case expression.
@@ -576,17 +576,17 @@ makeCtorWrapper tc c ctorparams ctorargs e = do
       freshTm "w" $ \newName ->
         freshCo "k" $ \newCont -> do
           (inner, innerTy) <- go newName (tyargs, tmargs) (tyarglist ++ [TyVarOccK aa], tmarglist) (JumpK newCont [newName])
-          let fun = FunDef' name [TypeParam aa k] [(newCont, ContK [innerTy])] inner
-          let wrapper = LetFunAbsK [fun] body
-          pure (wrapper, FunK' [TypeTele aa k] [ContK [innerTy]])
+          let fun = FunDef name [TypeParam aa k] [(newCont, ContK [innerTy])] inner
+          let wrapper = LetFunK [fun] body
+          pure (wrapper, FunK [TypeTele aa k] [ContK [innerTy]])
     go name ([], argTy : tmargs) (tyarglist, tmarglist) body = do
       freshTm "w" $ \newName ->
         freshTm "arg" $ \newArg ->
           freshCo "k" $ \newCont -> do
             (inner, innerTy) <- go newName ([], tmargs) (tyarglist, tmarglist ++ [newArg]) (JumpK newCont [newName])
-            let fun = FunDef' name [ValueParam newArg argTy] [(newCont, ContK [innerTy])] inner
-            let wrapper = LetFunAbsK [fun] body
-            pure (wrapper, FunK' [ValueTele argTy] [ContK [innerTy]])
+            let fun = FunDef name [ValueParam newArg argTy] [(newCont, ContK [innerTy])] inner
+            let wrapper = LetFunK [fun] body
+            pure (wrapper, FunK [ValueTele argTy] [ContK [innerTy]])
 
 makeDataWrapper :: DataDecl -> TermK -> CPS TermK
 makeDataWrapper (DataDecl tc _ ctors) e = go ctors e
