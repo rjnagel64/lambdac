@@ -54,10 +54,6 @@ import Data.List (intercalate)
 -- (See 'Making a Faster Curry with Extensional Types')
 -- (See also 'Kinds are Calling Conventions')
 
--- TODO: Move Source and TypeCheck to Source.IR and Source.TypeCheck
--- Also, once I have a name resolution and/or elaboration pass, it may make
--- more sense to call this Core instead of Source.
-
 -- | Term variables stand for values.
 newtype TmVar = TmVar String
   deriving (Eq, Ord)
@@ -362,8 +358,6 @@ pprintType _ (TyConOcc c) = show c
 pprintType p (TyAll x ki t) =
   parensIf (p > 0) $ "forall (" ++ show x ++ " : " ++ pprintKind ki ++ "). " ++ pprintType 0 t
 
--- TODO: Decide textual representation for kind of inhabited types: '*' is
--- ambiguous with product.
 pprintKind :: Kind -> String
 pprintKind KiStar = "*"
 pprintKind (KiArr KiStar k2) = "* -> " ++ pprintKind k2
