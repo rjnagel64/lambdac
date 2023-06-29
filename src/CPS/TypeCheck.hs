@@ -35,8 +35,15 @@ data TypeError
   | InvalidCtor Ctor TyCon
   | BadProjection TypeK
   | CannotCall TmVar TypeK
+  | WrongKindOfArgument ArgumentKind ArgumentKind
   | CannotInst TmVar TypeK
   | CannotTyApp TypeK
+
+data ArgumentKind = ValueArgKind | TypeArgKind
+
+instance Show ArgumentKind where
+  show ValueArgKind = "value argument"
+  show TypeArgKind = "type argument"
 
 instance Show TypeError where
   show (TmVarNotInScope x) = "term variable " ++ show x ++ " not in scope"
@@ -72,6 +79,8 @@ instance Show TypeError where
   show (CannotCall f t) = 
     "variable " ++ show f ++ " is applied to arguments but its type is not a function: "
     ++ pprintType t
+  show (WrongKindOfArgument expected actual) =
+    "wrong kind of argument: expected a " ++ show expected ++ " but got a " ++ show actual
   show (CannotInst f t) = 
     "variable " ++ show f ++ " is applied to type arguments but its type is not a forall: "
     ++ pprintType t
@@ -228,6 +237,13 @@ check (InstK f ts ks) = do
   sub <- makeSubst aas ts
   let ss' = map (substCoTypeK sub) ss
   checkCoArgs ks ss'
+check (CallK' f args ks) = do
+  (tele, ss) <- lookupTmVar f >>= \case
+    FunK' tele ss -> pure (tele, ss)
+    t -> throwError (CannotCall f t)
+  sub <- checkArguments args tele
+  let ss' = map (substCoTypeK sub) ss
+  checkCoArgs ks ss'
 check (IfK x k1 k2) = do
   checkTmVar x BoolK
   checkCoValue (ContValK k1) (ContK [])
@@ -246,6 +262,8 @@ check (LetFunAbsK fs e) = do
         withTmVars xs $ withCoVars ks $ check e'
       AbsDef _ as ks e' ->
         withTyVars as $ withCoVars ks $ check e'
+      FunDef' f params ks e' ->
+        withFunParams params $ withCoVars ks $ check e'
     check e
 check (LetValK x t v e) = do
   checkValue v t
@@ -405,6 +423,18 @@ checkCoValue (ContValK cont) s = do
   s' <- inferContDef cont
   equalCoTypes s s'
 
+checkArguments :: [Argument] -> [TeleEntry] -> TC Subst
+checkArguments = go idSubst
+  where
+    go sub [] [] = pure sub
+    go sub (ValueArg x : args) (ValueTele t : tele) =
+      checkTmVar x (substTypeK sub t) *> go sub args tele
+    go sub (TypeArg t : args) (TypeTele aa k : tele) =
+      checkType t k *> go (extendSubst aa t sub) args tele
+    go _ (TypeArg _ : _) (ValueTele _ : _) = throwError (WrongKindOfArgument ValueArgKind TypeArgKind)
+    go _ (ValueArg _ : _) (TypeTele _ _ : _) = throwError (WrongKindOfArgument TypeArgKind ValueArgKind)
+    go _ _ _ = throwError ArityMismatch
+
 
 -- | Check that a type has the given kind.
 inferType :: TypeK -> TC KindK
@@ -416,6 +446,9 @@ inferType (AllK aas ss) =
 inferType (FunK ts ss) =
   traverse_ (\t -> checkType t StarK) ts *>
   traverse_ (\s -> checkCoType s StarK) ss *>
+  pure StarK
+inferType (FunK' tele ss) =
+  withTypeTele tele (traverse_ (\s -> checkCoType s StarK) ss) *>
   pure StarK
 inferType (ProdK t s) = checkType t StarK *> checkType s StarK *> pure StarK
 -- Hmm. Check that field labels are unique?
@@ -447,3 +480,13 @@ checkCoType t k = inferCoType t >>= equalKinds k
 checkKind :: KindK -> TC ()
 checkKind StarK = pure ()
 checkKind (KArrK k1 k2) = checkKind k1 *> checkKind k2
+
+withFunParams :: [FunParam] -> TC a -> TC a
+withFunParams [] m = m
+withFunParams (ValueParam x t : params) m = withTmVars [(x, t)] $ withFunParams params m
+withFunParams (TypeParam aa k : params) m = withTyVars [(aa, k)] $ withFunParams params m
+
+withTypeTele :: [TeleEntry] -> TC a -> TC a
+withTypeTele [] m = m
+withTypeTele (ValueTele t : tele) m = checkType t StarK *> withTypeTele tele m
+withTypeTele (TypeTele aa k : tele) m = withTyVars [(aa, k)] $ withTypeTele tele m

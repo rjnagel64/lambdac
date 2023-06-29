@@ -5,6 +5,7 @@ module CPS.IR
     , CtorDecl(..)
 
     , TermK(..)
+    , Argument(..)
     , ArithK(..)
     , CmpK(..)
     , StringOpK(..)
@@ -20,12 +21,14 @@ module CPS.IR
     , FieldLabel(..)
 
     , FunDef(..)
+    , FunParam(..)
     , funDefName
     , funDefType
     , ContDef(..)
     , contDefType
 
     , TypeK(..)
+    , TeleEntry(..)
     , eqTypeK
     , CoTypeK(..)
     , eqCoTypeK
@@ -37,6 +40,9 @@ module CPS.IR
 
     , Subst
     , listSubst
+    , idSubst
+    , composeSubst
+    , extendSubst
     , substTypeK
     , substCoTypeK
     , substTyConApp
@@ -55,6 +61,48 @@ import Data.Set (Set)
 
 import Data.List (intercalate)
 import Data.Traversable (mapAccumL)
+import Data.Functor.Identity
+
+-- Note: Function Definitions and Telescopes
+--
+-- Starting from CPS.IR, functions are uncurried and can accept a mix of term
+-- and type arguments. Because the type of a value parameter can depend on a
+-- preceding type parameter, I need to treat function parameter lists as (a
+-- restricted form of) dependent telescopes.
+--
+-- There are three places where a telescope is relevant:
+-- * At the definition of a function
+-- * In the type of a function
+-- * At the call site of a function
+--
+-- Unfortunately, these three cases have slightly different requirements, so I
+-- end up needing three different types to describe them.
+--
+-- The definition is closest to a traditional telescope, though it diverges in
+-- the fact that only type parameters (not value parameters) are dependent.
+-- (Well, technically I *could* make value parameters dependent, but there's
+-- nothing that could ever refer to a dependent value, so it's a waste of
+-- bookkeeping.) I call this a "Parameter Telescope"
+--
+-- data FunParam = ValueParam TmVar TypeK | TypeParam TyVar KindK
+--
+-- The second use case is describing the type of a function with such a
+-- parameter telescope: a "Type Telescope". It's sort of like a compressed
+-- sequence of 'forall' and '->' constructors. It diverges from the parameter
+-- telescope because names of value parameters do not appear in the type of a
+-- function.
+--
+-- data TypeTele = ValueTele TypeK | TypeTele TyVar KindK
+--
+-- Finally, we have the call site of a function: the "Argument Telescope". We
+-- do not care about parameter names at the call site, only the values of the
+-- arguments.
+--
+-- data Argument = ValueArg TmVar | TypeArg TypeK
+--
+-- All of my IRs from this point onward have some manifestation of these three
+-- types of telescope, sometimes in a more ad-hoc manner than others.
+
 
 -- All sorts of variables exist in the same namespace.
 -- Continuations are second-class, so they get a different type. (I collapse
@@ -139,16 +187,20 @@ data TermK
   -- Block terminators
   -- k x..., goto k(x...)
   | JumpK CoVar [TmVar]
-  -- f x k, call f(x, k)
+  -- f x+ k+, call f(x+, k+)
   | CallK TmVar [TmVar] [CoValueK]
-  -- f @t k
+  -- f @t+ k+
   | InstK TmVar [TypeK] [CoValueK]
+  -- f arg+ k+
+  | CallK' TmVar [Argument] [CoValueK]
   -- if x then k1 else k2
   | IfK TmVar ContDef ContDef
   -- case x : s of c1 -> k1 | c2 -> k2 | ..., branch
   | CaseK TmVar TyConApp [(Ctor, CoValueK)]
   -- halt x
   | HaltK TmVar
+
+data Argument = ValueArg TmVar | TypeArg TypeK
 
 -- Hmm. Idle thought:
 -- (in the long run) I think I should merge FunDef and AbsDef, using a
@@ -172,16 +224,26 @@ contDefType (ContDef xs _) = ContK (map snd xs)
 -- | Function definitions: either term functions @f (x:τ) (k:σ) := e@,
 -- or type functions @f \@a (k:σ) := e@
 data FunDef
+  -- TODO: Merge FunDef, AbsDef. Need a telescope for this.
   = FunDef TmVar [(TmVar, TypeK)] [(CoVar, CoTypeK)] TermK
   | AbsDef TmVar [(TyVar, KindK)] [(CoVar, CoTypeK)] TermK
+  | FunDef' TmVar [FunParam] [(CoVar, CoTypeK)] TermK
 
 funDefName :: FunDef -> TmVar
 funDefName (FunDef f _ _ _) = f
 funDefName (AbsDef f _ _ _) = f
+funDefName (FunDef' f _ _ _) = f
 
 funDefType :: FunDef -> TypeK
-funDefType (FunDef _ xs ks _) = FunK (map snd xs) (map snd ks)
-funDefType (AbsDef _ as ks _) = AllK as (map snd ks)
+funDefType (FunDef _ xs ks _) = FunK' (map (ValueTele . snd) xs) (map snd ks)
+funDefType (AbsDef _ as ks _) = FunK' (map (uncurry TypeTele) as) (map snd ks)
+-- FunK' subsumes FunK and AllK, just as FunDef' subsumes FunDef and AbsDef.
+funDefType (FunDef' _ xs ks _) = FunK' (map f xs) (map snd ks)
+  where
+    f (ValueParam _x s) = ValueTele s
+    f (TypeParam aa k) = TypeTele aa k
+
+data FunParam = ValueParam TmVar TypeK | TypeParam TyVar KindK
 
 -- | Values require no evaluation.
 data ValueK
@@ -239,20 +301,25 @@ data TypeK
   | StringK
   -- char
   | CharK
-  -- σ × τ
+  -- τ1 × τ2
   | ProdK TypeK TypeK
   -- { (l : τ)+ }
   | RecordK [(FieldLabel, TypeK)]
-  -- (τ+) => ((σ+) -> !)+
+  -- (τ+) => (σ+)
   | FunK [TypeK] [CoTypeK]
-  -- forall aa+. ((σ+) -> !)+
+  -- forall aa+. (σ+)
   | AllK [(TyVar, KindK)] [CoTypeK]
+  -- A function type can have a mix of value and type arguments, so the input is a telescope.
+  -- (Δ) => (σ+)
+  | FunK' [TeleEntry] [CoTypeK]
   -- aa
   | TyVarOccK TyVar
   -- T
   | TyConOccK TyCon
   -- τ σ
   | TyAppK TypeK TypeK
+
+data TeleEntry = ValueTele TypeK | TypeTele TyVar KindK
 
 -- | A co-type is the type of a continuation.
 -- @(τ+) -> !@
@@ -319,6 +386,16 @@ eqTypeK' _ (TyAppK _ _) _ = False
 eqTypeK' sc (FunK ts1 ss1) (FunK ts2 ss2) =
   allEqual (eqTypeK' sc) ts1 ts2 && allEqual (eqCoTypeK' sc) ss1 ss2
 eqTypeK' _ (FunK _ _) _ = False
+eqTypeK' sc (FunK' tele1 ss1) (FunK' tele2 ss2) =
+  eqTele sc tele1 tele2 $ \sc' -> allEqual (eqCoTypeK' sc') ss1 ss2
+eqTypeK' _ (FunK' _ _) _ = False
+
+eqTele :: Alpha -> [TeleEntry] -> [TeleEntry] -> (Alpha -> Bool) -> Bool
+eqTele sc [] [] k = k sc
+eqTele sc (ValueTele t1 : tele1) (ValueTele t2 : tele2) k = eqTypeK' sc t1 t2 && eqTele sc tele1 tele2 k
+eqTele sc (TypeTele aa k1 : tele1) (TypeTele bb k2 : tele2) k =
+  bindAlpha sc [(aa, k1)] [(bb, k2)] $ \sc' -> eqTele sc' tele1 tele2 k
+eqTele _ _ _ _ = False
 
 eqCoTypeK' :: Alpha -> CoTypeK -> CoTypeK -> Bool
 eqCoTypeK' sc (ContK ts) (ContK ss) = allEqual (eqTypeK' sc) ts ss
@@ -359,6 +436,7 @@ typeFV :: TypeK -> Set TyVar
 typeFV (TyVarOccK aa) = Set.singleton aa
 typeFV (AllK aas ss) = Set.unions (map coTypeFV ss) Set.\\ Set.fromList (map fst aas)
 typeFV (FunK ts ss) = Set.unions (map typeFV ts) <> Set.unions (map coTypeFV ss)
+typeFV (FunK' tele ss) = teleFV tele (Set.unions (map coTypeFV ss))
 typeFV (ProdK t s) = typeFV t <> typeFV s
 typeFV (RecordK fields) = foldMap (typeFV . snd) fields
 typeFV (TyAppK t s) = typeFV t <> typeFV s
@@ -369,6 +447,11 @@ typeFV BoolK = Set.empty
 typeFV StringK = Set.empty
 typeFV CharK = Set.empty
 typeFV (TyConOccK _) = Set.empty
+
+teleFV :: [TeleEntry] -> Set TyVar -> Set TyVar
+teleFV [] vs = vs
+teleFV (ValueTele t : tele) vs = typeFV t <> teleFV tele vs
+teleFV (TypeTele aa _ : tele) vs = Set.delete aa (teleFV tele vs)
 
 -- | Compute the free type variables of a co-type.
 coTypeFV :: CoTypeK -> Set TyVar
@@ -384,6 +467,9 @@ substTypeK sub (AllK aas ss) =
   let (sub', aas') = bindSubst sub aas in
   AllK aas' (map (substCoTypeK sub') ss)
 substTypeK sub (FunK ts ss) = FunK (map (substTypeK sub) ts) (map (substCoTypeK sub) ss)
+substTypeK sub (FunK' tele ss) =
+  let (sub', tele') = substTele sub tele in
+  FunK' tele' (map (substCoTypeK sub') ss)
 substTypeK sub (ProdK t s) = ProdK (substTypeK sub t) (substTypeK sub s)
 substTypeK sub (RecordK fields) = RecordK (map (\ (f, t) -> (f, substTypeK sub t)) fields)
 substTypeK sub (TyAppK t s) = TyAppK (substTypeK sub t) (substTypeK sub s)
@@ -411,6 +497,19 @@ listSubst xs = Subst (Map.fromList xs) sc
     -- range of the substitution.
     sc = Set.unions (map (\ (_, t) -> typeFV t) xs)
 
+idSubst :: Subst
+idSubst = Subst Map.empty Set.empty
+
+extendSubst :: TyVar -> TypeK -> Subst -> Subst
+extendSubst aa t sub = composeSubst (listSubst [(aa, t)]) sub
+
+-- applySubst (composeSubst s2 s1) = applySubst s2 . applySubst s1
+composeSubst :: Subst -> Subst -> Subst
+composeSubst s2@(Subst sub2 scope2) (Subst sub1 scope1) = Subst sub scope
+  where
+    sub = Map.union sub2 (Map.map (substTypeK s2) sub1)
+    scope = Set.union scope2 (scope1 Set.\\ Map.keysSet sub2)
+
 substVar :: Subst -> TyVar -> TypeK
 substVar (Subst sub _) aa = case Map.lookup aa sub of
   Nothing -> TyVarOccK aa
@@ -433,6 +532,16 @@ bindSubst = mapAccumL bindOne
       -- always need to increment at least once.
       let bb = TyVar aa (i+1) in
       if Set.member bb sc then freshen sc bb else bb
+
+substTele :: Subst -> [TeleEntry] -> (Subst, [TeleEntry])
+substTele sub [] = (sub, [])
+substTele sub (ValueTele t : tele) =
+  let (sub', tele') = substTele sub tele in
+  (sub', ValueTele (substTypeK sub t) : tele')
+substTele sub (TypeTele aa k : tele) =
+  let (sub', Identity (aa', k')) = bindSubst sub (Identity (aa, k)) in
+  let (sub'', tele') = substTele sub' tele in
+  (sub'', TypeTele aa' k' : tele')
 
 
 -- Pretty-printing
@@ -458,6 +567,11 @@ pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
 pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
 pprintTerm n (CallK f xs ks) =
   indent n $ show f ++ " " ++ intercalate " " (map show xs ++ map pprintCoValue ks) ++ ";\n"
+pprintTerm n (CallK' f args ks) =
+  indent n $ show f ++ " " ++ intercalate " " (map pprintArg args ++ map pprintCoValue ks) ++ ";\n"
+  where
+    pprintArg (ValueArg x) = show x
+    pprintArg (TypeArg t) = pprintType t
 pprintTerm n (InstK f ts ks) =
   indent n $ intercalate " @" (show f : map pprintType ts) ++ " " ++ intercalate " " (map pprintCoValue ks) ++ ";\n"
 pprintTerm n (IfK x k1 k2) =
@@ -571,6 +685,13 @@ pprintType (FunK ts ss) =
   where
     tmParams = map pprintType ts
     coParams = map pprintCoType ss
+pprintType (FunK' tele ss) =
+  "(" ++ intercalate ", " params ++ ") -> (" ++ intercalate ", " coParams ++ ")"
+  where
+    params = map pprintTele tele
+    coParams = map pprintCoType ss
+    pprintTele (ValueTele t) = pprintType t
+    pprintTele (TypeTele aa k) = "@" ++ show aa ++ " : " ++ pprintKind k
 pprintType IntK = "int"
 pprintType UnitK = "unit"
 pprintType TokenK = "token"

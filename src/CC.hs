@@ -140,6 +140,9 @@ withTys aas k = do
 withTm :: (K.TmVar, K.TypeK) -> ((Name, Sort) -> ConvM a) -> ConvM a
 withTm b k = withTms (Identity b) (k . runIdentity)
 
+withTy :: (K.TyVar, K.KindK) -> ((TyVar, Kind) -> ConvM a) -> ConvM a
+withTy b k = withTys (Identity b) (k . runIdentity)
+
 
 cconvProgram :: K.Program -> Program
 cconvProgram (K.Program ds e) = runConv $ do
@@ -177,8 +180,22 @@ cconvType (K.RecordK fields) = Record <$> traverse cconvField fields
   where cconvField (f, t) = (,) <$> cconvFieldLabel f <*> cconvType t
 cconvType (K.FunK ts ss) = f <$> traverse cconvType ts <*> traverse cconvCoType ss
   where f ts' ss' = Closure (map ValueTele ts' ++ map ValueTele ss')
+cconvType (K.FunK' tele ss) = withTypeTele tele $ \tele' -> do
+  ss' <- traverse cconvCoType ss
+  pure (Closure (tele' ++ map ValueTele ss'))
 cconvType (K.TyConOccK (K.TyCon tc)) = pure (TyConOcc (TyCon tc))
 cconvType (K.TyAppK t1 t2) = TyApp <$> cconvType t1 <*> cconvType t2
+
+withTypeTele :: [K.TeleEntry] -> ([TeleEntry] -> ConvM a) -> ConvM a
+withTypeTele [] cont = cont []
+withTypeTele (K.ValueTele t : tele) cont = do
+  t' <- cconvType t
+  withTypeTele tele $ \tele' ->
+    cont (ValueTele t' : tele')
+withTypeTele (K.TypeTele aa k : tele) cont = do
+  withTy (aa, k) $ \ (aa', k') ->
+    withTypeTele tele $ \tele' ->
+      cont (TypeTele aa' k' : tele')
 
 cconvCoType :: K.CoTypeK -> ConvM Sort
 cconvCoType (K.ContK ss) = do
@@ -217,6 +234,15 @@ cconv (K.InstK f ts ks) = do
   ts' <- traverse (fmap TypeArg . cconvType) ts
   (kbinds, ks') <- cconvCoArgs ks
   let term = CallC f' ts' ks'
+  if null kbinds then
+    pure term
+  else
+    pure (LetContC kbinds term)
+cconv (K.CallK' f args ks) = do
+  f' <- cconvTmVar f
+  args' <- traverse cconvArgument args
+  (kbinds, ks') <- cconvCoArgs ks
+  let term = CallC f' args' ks'
   if null kbinds then
     pure term
   else
@@ -282,6 +308,26 @@ cconvFunDef (K.AbsDef f as ks e) = do
   env <- makeClosureEnv flds
   let fnName (K.TmVar x i) = Name x i
   pure (FunClosureDef (fnName f) env params' e')
+cconvFunDef (K.FunDef' f params ks e) = do
+  ((params', e'), flds) <- listen $
+    withFunParams params $ \params' ->
+      withCos ks $ \ks' -> do
+        e' <- cconv e
+        pure (params' ++ map (uncurry ValueParam) ks', e')
+  env <- makeClosureEnv flds
+  let fnName (K.TmVar x i) = Name x i
+  pure (FunClosureDef (fnName f) env params' e')
+
+withFunParams :: [K.FunParam] -> ([ClosureParam] -> ConvM a) -> ConvM a
+withFunParams [] cont = cont []
+withFunParams (K.ValueParam x t : params) cont =
+  withTm (x, t) $ \ (x', t') ->
+    withFunParams params $ \params' ->
+      cont (ValueParam x' t' : params')
+withFunParams (K.TypeParam aa k : params) cont =
+  withTy (aa, k) $ \ (aa', k') ->
+    withFunParams params $ \params' ->
+      cont (TypeParam aa' k' : params')
 
 cconvContDef :: (K.ContDef) -> ConvM (ContClosureDef)
 cconvContDef (K.ContDef xs e) = do
@@ -378,6 +424,10 @@ cconvCoVar x = do
   case Map.lookup x cos of
     Nothing -> error ("variable not in scope: " ++ show x)
     Just (x', s) -> writer (x', singleOcc x' s)
+
+cconvArgument :: K.Argument -> ConvM Argument
+cconvArgument (K.ValueArg x) = ValueArg <$> cconvTmVar x
+cconvArgument (K.TypeArg t) = TypeArg <$> cconvType t
 
 cconvCoArgs :: Traversable t => t K.CoValueK -> ConvM ([(Name, ContClosureDef)], t Name)
 cconvCoArgs ks = do
