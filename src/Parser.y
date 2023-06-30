@@ -149,7 +149,6 @@ Term :: { Term }
      | Term '>=' Term { TmCmp $1 TmCmpGe $3 }
      | Term '^' Term { TmStringOp $1 TmConcat $3 }
 
-     | Term '.' ID { TmFieldProj $1 (fieldLabel $3) }
      | '-' ATerm %prec UMINUS { TmNegate $2 }
 
      -- These are basically AppTerm:s, aren't they?
@@ -166,6 +165,7 @@ AppTerm :: { Term }
         : ATerm { $1 }
         | AppTerm ATerm { TmApp $1 $2 }
         | AppTerm '@' AType { TmTApp $1 $3 }
+	| AppTerm '.' ID { TmFieldProj $1 (fieldLabel $3) }
 
 ATerm :: { Term }
      : '(' Term ')' { $2 }
