@@ -1,0 +1,264 @@
+
+Simple Uncurrying
+=================
+
+So far, I've been thinking that I need arity analysis or smarter CPS
+translation to avoid excessive chains of closures and continuations when
+applying arguments to curried functions.
+
+However, the thesis "Verified Optimizations for Functional Languages" (section
+4.3.3) reveals a more straightforward approach that works directly on the
+CPS/ANF IR.
+
+CPS translation of curried function applications and curried lambdas produces a
+distinctive pattern.
+
+By matching on that pattern, and rewriting it to a multi-argument function, we
+can significantly reduce the amount of currying. The thesis comments about
+needing to know all call sites, but I think that this can be handled by simply
+leaving a wrapper function behind.
+
+
+Rule:
+
+
+let fun f x+ k =
+  let fun g y+ = e1
+  in
+  k g
+in
+e2
+~~>
+let fun f' (x+; y+) = e1
+in
+let fun f x+ k =
+  let fun g y+ = f' (x+; y+)
+  in
+  k g
+in
+e2
+Provided that g not in FV(e1) and k not in FV(e1)
+
+The side condition ensures that the inner function 'g' is non-recursive, and
+that it doesn't make use of the outer continuation. This lets us hoist 'e1' out
+into a worker function outside of 'f'.
+
+Note that x+; y+ is concatentation of argument/parameter lists.
+Note also that in this rule, y+ includes the continuation parameter of 'g'.
+
+This transformation can be applied recursively to uncurry all functions in a
+single pass, by recursing on the new worker (f') (and the body (e2)?).
+
+This transformation does not eliminate the wrappers, but they are non-recursive
+and can probably be inlined away.
+
+
+
+Here is an example:
+CPS[\x -> \y -> x + y]
+==
+let fun f0 (x : int, k0 : ((int) => (int)) -> !) =
+  let fun f1 (y : int, k1 : (int) -> !) =
+    let z : int = x + y in
+    k1 z
+  in
+  k0 f1
+in
+f0
+~~>
+let fun f0'(x : int, y : int, k1 : (int) -> !) =
+  let z : int = x + y in
+  k1 z
+in
+let fun f0 (x : int, k0 : ((int) => (int)) -> !) =
+  let fun f1 (y : int, k1 : (int) -> !) =
+    f0'(x, y, k1)
+  in
+  k0 f1
+in
+f0
+
+
+
+Here is a recursive function:
+letrec sum = \ (xs : list int) -> \ (acc : int) -> case xs of {
+  nil -> acc;
+  cons y ys -> sum ys (y + acc)
+}
+in
+sum
+===>
+let fun sum (xs : list int, k0 : ((int) => (int)) -> !) =
+  let fun f0 (acc : int) (k1 : (int) -> !) =
+    let cont knil () = 
+      k1 acc
+    in
+    let cont kcons (y : int, ys : list int) =
+      let cont kapp1 (sum_ys : (int) => (int)) =
+        let acc' : int = y + acc in
+        sum_ys(acc', k1)
+      in
+      sum(ys, kapp1)
+    in
+    case xs of nil -> knil; cons -> kcons
+  in
+  k0 f0
+in
+sum
+-- Does uncurrying work here? Yes. f0 does not appear in body; k0 does not appear in body.
+~~~>
+let
+  -- Note: both functions need to be in the same bind group, because the
+  -- wrapper ('sum') can appear in the body of the worker.
+  fun sum_worker (xs : list int, acc : int, k1 : (int) -> !) =
+    let cont knil () = 
+      k1 acc
+    in
+    let cont kcons (y : int, ys : list int) =
+      let cont kapp1 (sum_ys : (int) => (int)) =
+        let acc' : int = y + acc in
+        sum_ys(acc', k1)
+      in
+      sum(ys, kapp1) -- reference to the wrapper
+    in
+    case xs of nil -> knil; cons -> kcons
+
+  fun sum (xs : list int, k0 : ((int) => (int)) -> !) =
+    let fun f0 (acc : int) (k1 : (int) -> !) =
+      sum_worker(xs, acc, k1)
+    in
+    k0 f0
+in
+sum
+
+
+Mutually-recursive functions:
+letrec
+  even2 : int -> bool -> bool = \ (x : int) -> \ (b : bool) -> if x == 0 then b else odd2 (x - 1) b
+  odd2 : int -> bool -> bool = \ (x : int) -> \ (b : bool) -> if x == 0 then b else even2 (x - 1) b
+in
+even2 24 true
+===>
+let
+  fun even2 (x : int, k0 : ((bool) => (bool)) -> !) =
+    let fun f0 (b : bool, k1 : (bool) -> !) =
+      let cont ktrue () =
+        k1 b
+      in
+      let cont kfalse () =
+        let y = x - 1 in
+        let cont kapp (odd2_y : (bool) => (bool)) =
+          odd2_y b k1
+        in
+        odd2 y kapp
+      in
+      let z = x == 0 in
+      if z then ktrue else kfalse
+    in
+    k0 f0
+  fun odd2 (x : int, k0 : ((bool) => (bool)) -> !) =
+    let fun f0 (b : bool, k1 : (bool) -> !) =
+      let cont ktrue () =
+        k1 b
+      in
+      let cont kfalse () =
+        let y = x - 1 in
+        let cont kapp (even2_y : (bool) => (bool)) =
+          even2_y b k1
+        in
+        even2 y kapp
+      in
+      let z = x == 0 in
+      if z then ktrue else kfalse
+    in
+    k0 f0
+in
+let cont kapp (even2_24 : (bool) => (bool)) =
+  let cont khalt (res : bool) =
+    halt res
+  in
+  even2_24 true khalt
+in
+even2 24 kapp
+-- Uncurrying rule can be applied, as we only need to check for use of the
+-- continuation and the inner wrapper, not the top-level functions in the bind
+-- group.
+~~>
+let
+  fun even2_worker(x : int, b : bool, k1 : (bool) -> !) =
+    let cont ktrue () =
+      k1 b
+    in
+    let cont kfalse () =
+      let y = x - 1 in
+      let cont kapp (odd2_y : (bool) => (bool)) =
+        odd2_y b k1
+      in
+      odd2 y kapp
+    in
+    let z = x == 0 in
+    if z then ktrue else kfalse
+  fun even2(x : int, k0 : ((bool) => (bool)) -> !) =
+    let fun f0 (b : bool, k1 : (bool) -> !) =
+      even2_worker(x, b, k1)
+    in
+    k0 f0
+  fun odd2_worker(x : int, b : bool, k1 : (bool) -> !) =
+    let cont ktrue () =
+      k1 b
+    in
+    let cont kfalse () =
+      let y = x - 1 in
+      let cont kapp (even2_y : (bool) => (bool)) =
+        even2_y b k1
+      in
+      even2 y kapp
+    in
+    let z = x == 0 in
+    if z then ktrue else kfalse
+  fun odd2 (x : int, k0 : ((bool) => (bool)) -> !) =
+    let fun f0 (b : bool, k1 : (bool) -> !) =
+      odd2_worker(x, b, k1)
+    in
+    k0 f0
+in
+let cont kapp (even2_24 : (bool) => (bool)) =
+  let cont khalt (res : bool) =
+    halt res
+  in
+  even2_24 true khalt
+in
+even2 24 kapp
+
+
+
+Here is an example that uncurries multiple arguments.
+CPS[\x -> \y -> \z -> e]
+==
+let fun f0 (x : A, k0 : CPS-Ty[B -> C -> D] -> !) =
+  let fun f1 (y : B, k1 : CPS-Ty[C -> D] -> !) =
+    let fun f2 (z : C, k2 : D -> !) =
+      CPS[e]
+    in
+    k1 f2
+  in
+  k0 f1
+in
+f0
+~~>
+let fun f0_worker(x : A, y : B, k1 : _) = _
+====>
+let fun f_worker(x : A, y : B, z : C, k2 : D -> !) =
+  CPS[e]
+in
+let fun f0 (x : A, k0 : CPS-Ty[B -> C -> D] -> !) =
+  let fun f1 (y : B, k1 : CPS-Ty[C -> D] -> !) =
+    let fun f2(z : C, k2 : D -> !) =
+      f_worker(x, y, z, k2)
+    in
+    k1 f2
+  in
+  k0 f1
+in
+f0
+
