@@ -1,4 +1,51 @@
 
+Rules for Existential Types
+===========================
+
+First, let's recap the rules for existential types in a standard, direct-style
+System F dialect.
+
+Type formation:
+
+Γ, α:κ |- τ : *
+---------------
+Γ |- ∃α:κ.τ : *
+
+Introduction:
+
+Γ |- τ : κ
+Γ |- e : τ'[α := τ]
+-------------------------------------------
+Γ |- pack <τ, e> as ∃α:κ.τ'[α] : ∃α:κ.τ'[α]
+
+Elimination:
+
+Γ |- e1 : ∃α:κ.τ[α]
+Γ, β:κ, x:τ[α := β] |- e2 : τ'
+--------------------------------------
+Γ |- let <β, x> = unpack e1 in e2 : τ'
+
+Computation:
+
+let <β, x> = unpack (pack <τ, e> as _) in e' ~~> e'[β := τ, x := e]
+
+
+Now, let's put it in ANF.
+
+The type formation rule does not change.
+
+Γ |- τ : κ
+Γ |- y : τ'[α := τ]
+Γ, x : ∃α:κ.τ'[α] |- e OK
+---------------------------------------------
+Γ |- let x : ∃α:κ.τ'[α] = pack <τ, y> in e OK
+
+Γ |- y : ∃α:κ.τ[α]
+Γ, β : κ, x : τ[α := β] |- e OK
+----------------------------------
+Γ |- let <β, x> = unpack y in e OK
+
+
 zero-cost existentials?
 =======================
 
@@ -34,3 +81,111 @@ from the kinding rule for existentials:
 Γ |- ∃α:κ. t[α] : *
 
 It requires t[α] : *, i.e., that the underlying type is boxed.
+
+
+
+
+∃α.t
+let y : ∃α.t'[α] = pack <t, x> in e
+let <α, x : t'[α]> = unpack y in e
+
+using exists_value = alloc_header;
+struct exists_value *y = PACK(x); [[e]]
+-- hmm. No. 'x' is not necessarily an alloc_header, just a boxed value.
+struct alloc_header *x = UNPACK(y); [[e]]
+-- try again:
+struct [[t']] *x = CAST(y, t'); [[e]]
+
+#define PACK(x) ((struct alloc_header *)(x))
+#define UNPACK(x) (x)
+
+
+
+
+Example: simple Showable
+let type Showable = exists a. { val : a, show : a -> string } in
+let opaque : Showable = pack <int, { val = 9, show = \x -> string_of_int# x }> in
+let <t_abs, fields> = unpack opaque in
+fields.show fields.val
+===> CPS
+let t0 : int = 9 in
+let fun f0 (x : int, k0 : (string) -> !) =
+  let s0 = string_of_int# x in
+  k0 s0
+in
+let t1 : { val : int, show : (int) => ((string) -> !) } = { val = t0, show = f0 } in
+let opaque : exists a:*. { val : a, show : (a) => ((string) -> !) } = pack <int, t1> in
+let <t_abs, fields> = unpack opaque : exists a:*. { val : a, show : (a) => ((string) -> !) } in
+let val0 : t_abs = fields.val in
+let show0 : (t_abs) => ((string) -> !) = fields.show in
+let cont k1 (s1 : string) =
+  halt s1
+in
+show0 val0 k1
+===> Hoist
+code #f0(envp : {}, x : int, k0 : closure(string)) =
+  let s0 = string_of_int# x in
+  k0 s0
+code #k1(envp : {}, s1 : string) =
+  halt @string s1
+let t0 : int = 9 in
+let f0 : closure(int, closure(string)) = #f0 {} in
+let t1 : { val : int, show : closure(int, closure(string))) } = { val = t0, show = f0 } in
+let opaque : exists a:*. { val : a, show : closure(a, closure(string)) } = pack <int, t1> in
+let <t_abs, fields> = unpack opaque : exists a:*. { val : a, show : closure(a, closure(string)) } in
+let val0 : t_abs = fields.val in
+let show0 : closure(t_abs, closure(string)) = fields.show in
+let k1 : closure(string) = #k1 {} in
+show0 val0 k1
+===> Emit
+void f0_code(struct unit_value *envp, struct int64_value *x, struct closure *k0) {
+  struct string_value *s0 = prim_string_of_int(x);
+  suspend_T(k0, s0);
+}
+void k1_code(struct unit_value *envp, struct string_value *s1) {
+  halt_with(s1);
+}
+void program_entry(void) {
+  struct int64_value *t0 = allocate_int64(9);
+  struct unit_value *empty_env = allocate_nil(); // don't bother with custom env structs
+  struct closure *f0 = allocate_closure(empty_env, f0_code);
+  struct record *t1 = allocate_record(2, {{"val",3,t0}, {"show",4,f0}});
+  struct alloc_header *opaque = AS_ALLOC(t1); // hiding means casting to a box
+  // un-hiding means casting to the inner type.
+  // However, the inner type has changed. Before, it was
+  // { val : int, show : int -> string },
+  // now it is
+  // t_abs : * |- { val : t_abs, show : t_abs -> string }
+  struct record *fields = AS_RECORD(opaque);
+  struct alloc_header *val0 = project_field(fields, "val", 3);
+  struct closure *show0 = project_field(fields, "show", 4);
+  struct closure *k1 = allocate_closure(empty_env, k1_code);
+  // The closure is now invoked with polymorphic suspend.
+  // The entry code mechanism should make sure this still works, though.
+  suspend_AC(show0, val0, k1);
+}
+
+
+
+Example: multi Showable
+let type Showable = exists a. { val : a, show : a -> string } in
+let showable1 : Showable = pack <int, { val = 17, show = \x -> string_of_int# x }> in
+let showable2 : Showable =
+  let v : bool = false in
+  pack <bool, { val = v, show = \x -> if v then "true" else "false" }>
+in
+let <t_abs1, ops1> = unpack showable1 in
+let <t_abs2, ops2> = unpack showable2 in
+ops2.show ops2.val ^ " " ^ ops1.show ops1.val
+
+
+
+
+Example: "module" with abstract type
+let mod : exists a. { inj : int -> a, join : a -> a -> a, proj : a -> bool }
+  = pack <int, { inj = \x -> x, join = \x -> \y -> x + y, proj = \x -> x > 0 }>
+in
+let <num_t, ops> = unpack mod in
+ops.proj (ops.join (ops.inj 17) (ops.inj -5))
+
+
