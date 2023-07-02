@@ -1,0 +1,214 @@
+
+
+Code Pointers
+=============
+
+Currently, the lowest-level function primitive I have is the 'closure' type,
+implementing an arbitrary first-class, lexically-scoped function. Every closure
+is bundled with a heap-allocated argument and is itself allocated on the heap.
+
+However, in many cases, this is overkill. Other, cheaper mechanisms can be
+employed if we know enough about a functions definition and uses.
+
+In the source IR, a function type is 'A -> B' and behaves conventionally.
+
+After CPS, this becomes '(A) => ((B) -> !)', converting the return type to the
+argument type of its continuation.
+
+After Closure Conversion, the type is '(A, (B) -> !) -> !', but is interpreted
+differently. The arrow type now stands for the product of an
+existentially-hidden environment and a function that accepts that environment
+as an extra parameter. Importantly, that function hidden inside the function
+type is closed, without free variables, and can be implemented on targets like
+C without direct support for lexically-scoped closures.
+
+Invoking a closure is tantamount to unpacking an existential type, projecting
+the fields of the underlying product, and then calling the inner function with
+the environment.
+
+However, In many cases, this work is redundant, as we know exactly what
+function and environment will be used. Replacing the closure opening process
+with a direct call to a code pointer can be significantly faster and can even
+avoid allocating the closure in the first place.
+
+[[example of a known function call and how to replace it with a direct known call]]
+
+In order to do this, we need to be able to talk about these "code pointers"
+independently of their containing closure.
+
+
+The Code Pointer Type
+=====================
+
+Thus, we introduce the 'code' type. It denotes a function without free
+variables, that accepts arguments of the specified number and type.
+
+Γ |- S OK
+----------------
+Γ |- code(S) : *
+
+[[Note: decide syntax/metavariable for param/arg/type telescope]]
+
+As with closures, code pointers can accept a mixed sequence of term and type
+arguments. Likewise, code pointers are introduced by a function definition and
+eliminated by tail-calling them with all the required arguments.
+
+Γ, f : code(P), P |- e1 OK
+Γ, f : code(P) |- e2 OK
+----------------------------
+Γ |- let code f (P) = e1 in e2 OK
+
+Note: abuse of notation: The parameter telescope P is implicitly converted to a
+type telescope in code(P) by erasing the names of term paramters.
+
+Γ |- f : code(S)
+Γ |- A : S
+----------------
+Γ |- f(A) OK
+
+
+Closure as an existential product
+=================================
+
+Understanding this, we can see that the closure type '(S) -> !' is effectively
+syntactic sugar for an existential type: '∃env:*. env × code(env, S)'.
+
+Constructing a closure bundles the environment with the code pointer. (Omitted,
+as the closure declaraction/closure construction distinction makes more sense
+in Hoist). Calling a closure is sugar for unpacking the environment and passing
+it as an extra parameter.
+
+call f(A) -- call a closure
+===
+let <env : *, cl : env × code(env, S)> = unpack f in
+let f_env = fst cl in
+let f_code = snd cl in
+f_code(f_env, A)
+
+
+Unboxed Code Pointers
+=====================
+
+There is one benefit of the current model of closures that should not be
+glossed over: the code pointer is stored directly in the closure. This stands
+in contrast to the pair type and record types, which must box all their fields
+(introducing another layer of indirection and GC metadata)
+
+struct closure {
+  struct alloc_header header;
+  struct alloc_header *env;
+  void (*enter)(void);
+};
+
+Even when standalone, code pointers are a good candidate for being an unboxed type.
+* Code is statically allocated, and lives for the duration of the program. It
+  cannot be collected by the GC.
+* Code contains no fields. It cannot keep any other objects live either.
+
+Therefore, I propose that code pointers be represented by a simple C type:
+
+struct code {
+  void (*enter)(void);
+};
+
+I still need to think about how unboxed types fit into my type system.
+
+
+[[hypothetical: closure as existential named record, with the code pointer field unboxed]]
+As a corollary to the idea that code pointers should be unboxed, a closure type
+can be implemented as a record-like type.
+
+Using a named record theoretically allows me to precompute field offsets:
+
+type int_bool_closure = exists envTy:*. int_bool_code envTy
+
+record int_bool_code (envTy : *) = { env : envTy, code : code(envTy, int, bool) }
+
+However, I cannot be polymorphic over a telescope, so I would need to
+monomorphize closure types into individual named records, which is
+inconveniently complicated.
+
+
+Random C Prototyping
+====================
+
+Idea: code pointers:
+
+struct code {
+  // code is an unboxed type.
+  // it does not need to be marked or traced.
+  void (*enter)(void);
+};
+
+struct closure {
+  // closure is now a product type, where one of its fields is unboxed
+  struct alloc_header header;
+  struct code code;
+  struct alloc_header *env
+};
+
+
+struct args_C {
+  // before: the first field was the closure. Now it is just the env.
+  // I'm not all that happy about having the implicit closure/env field, not
+  // reflected in the thunk type.
+  // I think I can change that, but I need to think about how to do that
+  // without breaking compatibility in the middle.
+  struct alloc_header *env;
+  struct closure *arg0;
+};
+
+
+void foo_code(struct foo_env *env0, struct int64_value *x) {
+  struct closure *bar = env0->bar;
+  // calling a closure now involves unpacking code+env, then tail-calling the code
+  struct code code = bar->code;
+  struct alloc_header *env = bar->env;
+  // suspend_BCD is basically unpack env, then tailcall_ABCD?
+  tailcall_ABCD(code, env, ??, ??, ??);
+}
+
+// need better naming convention
+const struct code foo_code_code
+
+
+
+// TODO: work through adder.lamc as an example of what this would look like.
+// This is what Hoist.IR looks like right now
+code #__anon_cont0[](env0 : {}; x1 : int) =
+  HALT @int x1;
+code #j1[](env0 : {}; add30 : closure(int, closure(int))) =
+  let x0 : int = 5;
+  let
+    __anon_cont0 : closure(int) = #__anon_cont0 {}
+  in
+  add30 x0 __anon_cont0;
+code #j0[](env0 : {}; adder0 : closure(int, closure(closure(int, closure(int))))) =
+  let
+    j0 : closure(closure(int, closure(int))) = #j1 {}
+  in
+  let x0 : int = 3;
+  adder0 x0 j0;
+code #f1[](env0 : {x0 : int}; y0 : int, k1 : closure(int)) =
+  let z0 : int = prim_addint64(@.x0, y0);
+  k1 z0;
+code #f0[](env0 : {}; x0 : int, k0 : closure(closure(int, closure(int)))) =
+  let
+    f1 : closure(int, closure(int)) = #f1 {x0 = x0}
+  in
+  k0 f1;
+;;
+let
+  j0 : closure(closure(int, closure(closure(int, closure(int))))) = #j0 {}
+in
+let
+  f0 : closure(int, closure(closure(int, closure(int)))) = #f0 {}
+in
+j0 f0;
+
+// The enhanced version of Lower (that unboxes code pointers) would look like this:
+// ...
+// Problem: environment types are still not real types.
+// They're closer now (TyCon instead of list of field types), but a TyCon is
+// still not a Sort, so I can't properly create the type annotation when
+// projecting the environment from the closure.
