@@ -29,7 +29,7 @@ import Data.Traversable (for)
 
 import qualified CC.IR as C
 
-import Hoist.IR hiding (Subst, singleSubst, substSort)
+import Hoist.IR hiding (Subst, singleSubst, substType)
 
 
 -- Note: Part of the confusion between type places and info places is that when
@@ -44,10 +44,10 @@ import Hoist.IR hiding (Subst, singleSubst, substSort)
 insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
-asPlace :: C.Sort -> C.Name -> HoistM Place
+asPlace :: C.Type -> C.Name -> HoistM Place
 asPlace s (C.Name x i) = (\s' -> Place s' (Id (x ++ show i))) <$> sortOf s
 
-sortOf :: C.Sort -> HoistM Sort
+sortOf :: C.Type -> HoistM Type
 sortOf C.Integer = pure IntegerH
 sortOf C.Boolean = pure BooleanH
 sortOf C.Unit = pure UnitH
@@ -95,7 +95,7 @@ deriving newtype instance MonadState (Set CodeLabel) HoistM
 data HoistEnv =
   HoistEnv {
     nameRefs :: Map C.Name Name
-  , nameSorts :: Map C.Name Sort
+  , nameTypes :: Map C.Name Type
   , tyVarRefs :: Map C.TyVar TyVar
   }
 
@@ -128,7 +128,7 @@ runHoist =
   flip runReaderT emptyEnv .
   runHoistM
   where
-    emptyEnv = HoistEnv { nameRefs = Map.empty, nameSorts = Map.empty, tyVarRefs = Map.empty }
+    emptyEnv = HoistEnv { nameRefs = Map.empty, nameTypes = Map.empty, tyVarRefs = Map.empty }
 
 withDataDecls :: [C.DataDecl] -> ([DataDecl] -> HoistM a) -> HoistM a
 withDataDecls [] cont = cont []
@@ -146,7 +146,7 @@ hoistCtorDecl :: C.CtorDecl -> HoistM CtorDecl
 hoistCtorDecl (C.CtorDecl (C.Ctor c) params args) =
   withTyVars params $ \params' -> (CtorDecl (Ctor c) params' <$> (traverse makeField (zip [0..] args)))
   where
-    makeField :: (Int, C.Sort) -> HoistM (Id, Sort)
+    makeField :: (Int, C.Type) -> HoistM (Id, Type)
     makeField (i, s) = (,) (Id ("arg" ++ show i)) <$> sortOf s
 
 
@@ -157,7 +157,7 @@ hoistCtorDecl (C.CtorDecl (C.Ctor c) params args) =
 hoist :: C.TermC -> HoistM TermH
 hoist (C.HaltC x) = do
   x' <- hoistVarOcc x
-  s <- lookupSort x
+  s <- lookupType x
   pure (HaltH s x')
 hoist (C.JumpC k xs) = do
   k' <- hoistVarOcc k
@@ -231,12 +231,12 @@ hoist (C.LetContC ks e) = do
 withFunClosures :: [C.FunClosureDef] -> ([ClosureAlloc] -> HoistM a) -> HoistM a
 withFunClosures fs cont = do
   (fbinds, fs') <- fmap unzip $ for fs $ \def@(C.FunClosureDef f _ _ _) -> do
-    p <- asPlace (C.funClosureSort def) f
+    p <- asPlace (C.funClosureType def) f
     pure ((f, p), (p, def))
 
   let fnames = [(f, LocalName (placeName f')) | (f, f') <- fbinds]
-  let fsorts = [(f, placeSort f') | (f, f') <- fbinds]
-  let extend env = env { nameRefs = insertMany fnames (nameRefs env), nameSorts = insertMany fsorts (nameSorts env) }
+  let fsorts = [(f, placeType f') | (f, f') <- fbinds]
+  let extend env = env { nameRefs = insertMany fnames (nameRefs env), nameTypes = insertMany fsorts (nameTypes env) }
   local extend $ do
     allocs <- traverse (\ (p, def) -> hoistFunClosure p def) fs'
     cont allocs
@@ -247,8 +247,8 @@ withContClosures ks cont = do
   -- simpler than the case for LetFunC.
   (kbinds, allocs) <- fmap unzip $ traverse (\ (k, def) -> hoistContClosure k def) ks
   let knames = [(k, LocalName (placeName k')) | (k, k') <- kbinds]
-  let ksorts = [(k, placeSort k') | (k, k') <- kbinds]
-  let extend env = env { nameRefs = insertMany knames (nameRefs env), nameSorts = insertMany ksorts (nameSorts env) }
+  let ksorts = [(k, placeType k') | (k, k') <- kbinds]
+  let extend env = env { nameRefs = insertMany knames (nameRefs env), nameTypes = insertMany ksorts (nameTypes env) }
   local extend $ cont allocs
 
 hoistFunClosure :: Place -> C.FunClosureDef -> HoistM ClosureAlloc
@@ -273,7 +273,7 @@ hoistFunClosure p (C.FunClosureDef f env params body) = do
 
 hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
 hoistContClosure k def@(C.ContClosureDef env params body) = do
-  kplace <- asPlace (C.contClosureSort def) k
+  kplace <- asPlace (C.contClosureType def) k
   -- Pick a name for the closure's code
   kcode <- nameClosureCode k
   envp <- pickEnvironmentPlace (placeName kplace)
@@ -428,9 +428,9 @@ hoistTyVarOcc aa = do
     Nothing -> error ("tyvar not in scope: " ++ show aa)
     Just aa' -> pure aa'
 
-lookupSort :: C.Name -> HoistM Sort
-lookupSort x = do
-  env <- asks nameSorts
+lookupType :: C.Name -> HoistM Type
+lookupType x = do
+  env <- asks nameTypes
   case Map.lookup x env of
     Nothing -> error ("var not in scope: " ++ show x)
     Just s -> pure s
@@ -443,15 +443,15 @@ hoistArgList xs = traverse f xs
     f (C.ValueArg x) = ValueArg <$> hoistVarOcc x
 
 -- | Extend the local scope with a new place with the given name and sort.
-withPlace :: C.Name -> C.Sort -> (Place -> HoistM a) -> HoistM a
+withPlace :: C.Name -> C.Type -> (Place -> HoistM a) -> HoistM a
 withPlace x s cont = do
   inScope <- asks (Map.keysSet . nameRefs)
   x' <- go x inScope
   let xname = LocalName (placeName x')
-  let xsort = placeSort x'
+  let xsort = placeType x'
   let
     extend env =
-      env { nameRefs = Map.insert x xname (nameRefs env), nameSorts = Map.insert x xsort (nameSorts env) }
+      env { nameRefs = Map.insert x xname (nameRefs env), nameTypes = Map.insert x xsort (nameTypes env) }
   local extend $ cont x'
   where
     -- I think this is fine. We might shadow local names, which is bad, but
@@ -480,13 +480,13 @@ withTyVars ((aa, k) : aas) cont =
     withTyVars aas $ \aas' ->
       cont ((aa', k') : aas')
 
-withEnvFields :: [(C.Name, C.Sort)] -> ([(Id, Sort)] -> HoistM a) -> HoistM a
+withEnvFields :: [(C.Name, C.Type)] -> ([(Id, Type)] -> HoistM a) -> HoistM a
 withEnvFields fields cont = do
   binds <- for fields $ \ (x, s) -> (,) x <$> asPlace s x
-  let fields' = [(placeName x', placeSort x') | (_x, x') <- binds]
+  let fields' = [(placeName x', placeType x') | (_x, x') <- binds]
   let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- binds]
-  let newEnvSorts = [(x, placeSort x') | (x, x') <- binds]
+  let newEnvType = [(x, placeType x') | (x, x') <- binds]
 
-  let extend env = env { nameRefs = insertMany newEnvRefs (nameRefs env), nameSorts = insertMany newEnvSorts (nameSorts env) }
+  let extend env = env { nameRefs = insertMany newEnvRefs (nameRefs env), nameTypes = insertMany newEnvType (nameTypes env) }
   local extend $ cont fields'
 

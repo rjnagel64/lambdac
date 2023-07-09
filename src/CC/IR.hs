@@ -20,13 +20,13 @@ module CC.IR
   , Argument(..)
   , TyConApp(..)
   , FunClosureDef(..)
-  , funClosureSort
+  , funClosureType
   , ClosureParam(..)
   , makeClosureParams
   , ContClosureDef(..)
-  , contClosureSort
+  , contClosureType
   , EnvDef(..)
-  , Sort(..)
+  , Type(..)
   , TeleEntry(..)
 
   , Kind(..)
@@ -112,24 +112,22 @@ newtype FieldLabel = FieldLabel String
 instance Show FieldLabel where
   show (FieldLabel f) = f
 
--- | 'Sort' is really just the CC equivalent of a type.
--- (The different name exists mostly for historical reasons)
-data Sort
+data Type
   = Closure [TeleEntry]
   | Integer
   | Alloc TyVar
   | String
   | Character
-  | Pair Sort Sort
-  | Record [(FieldLabel, Sort)]
+  | Pair Type Type
+  | Record [(FieldLabel, Type)]
   | Unit
   | Boolean
   | TyConOcc TyCon
-  | TyApp Sort Sort
+  | TyApp Type Type
   | Token
 
 data TeleEntry
-  = ValueTele Sort
+  = ValueTele Type
   | TypeTele TyVar Kind
 
 data Kind
@@ -142,19 +140,19 @@ data DataDecl
   = DataDecl TyCon Kind [CtorDecl]
 
 data CtorDecl
-  = CtorDecl Ctor [(TyVar, Kind)] [Sort]
+  = CtorDecl Ctor [(TyVar, Kind)] [Type]
 
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
 data TermC
-  = LetValC (Name, Sort) ValueC TermC -- let x = v in e, allocation
-  | LetFstC (Name, Sort) Name TermC -- let x = fst y in e, projection
-  | LetSndC (Name, Sort) Name TermC
-  | LetFieldC (Name, Sort) Name FieldLabel TermC -- let x = y#field in e, projection
-  | LetArithC (Name, Sort) ArithC TermC
-  | LetCompareC (Name, Sort) CmpC TermC
-  | LetStringOpC (Name, Sort) StringOpC TermC
-  | LetBindC (Name, Sort) (Name, Sort) PrimIO TermC
+  = LetValC (Name, Type) ValueC TermC -- let x = v in e, allocation
+  | LetFstC (Name, Type) Name TermC -- let x = fst y in e, projection
+  | LetSndC (Name, Type) Name TermC
+  | LetFieldC (Name, Type) Name FieldLabel TermC -- let x = y#field in e, projection
+  | LetArithC (Name, Type) ArithC TermC
+  | LetCompareC (Name, Type) CmpC TermC
+  | LetStringOpC (Name, Type) StringOpC TermC
+  | LetBindC (Name, Type) (Name, Type) PrimIO TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [(Name, ContClosureDef)] TermC
   -- Invoke a closure by providing values for the remaining arguments.
@@ -164,9 +162,9 @@ data TermC
   | IfC Name Name Name -- if x then k1 else k2
   | CaseC Name TyConApp [(Ctor, Name)] -- case x of c1 -> k1 | c2 -> k2 | ...
 
-data Argument = ValueArg Name | TypeArg Sort
+data Argument = ValueArg Name | TypeArg Type
 
-data TyConApp = TyConApp TyCon [Sort]
+data TyConApp = TyConApp TyCon [Type]
 
 data ArithC
   = AddC Name Name
@@ -202,16 +200,16 @@ data FunClosureDef
   , funClosureBody :: TermC
   }
 
-funClosureSort :: FunClosureDef -> Sort
-funClosureSort (FunClosureDef _ _ params _) = paramsSort params
+funClosureType :: FunClosureDef -> Type
+funClosureType (FunClosureDef _ _ params _) = paramsType params
 
-data ClosureParam = TypeParam TyVar Kind | ValueParam Name Sort
+data ClosureParam = TypeParam TyVar Kind | ValueParam Name Type
 
-makeClosureParams :: [(TyVar, Kind)] -> [(Name, Sort)] -> [ClosureParam]
+makeClosureParams :: [(TyVar, Kind)] -> [(Name, Type)] -> [ClosureParam]
 makeClosureParams aas xs = map (uncurry TypeParam) aas ++ map (uncurry ValueParam) xs
 
-paramsSort :: [ClosureParam] -> Sort
-paramsSort params = Closure (map f params)
+paramsType :: [ClosureParam] -> Type
+paramsType params = Closure (map f params)
   where
     f (TypeParam aa k) = TypeTele aa k
     f (ValueParam _ s) = ValueTele s
@@ -226,19 +224,19 @@ data ContClosureDef
   -- parameter telescope is the correct way to go.
   -- In particular, I *think* we should always be able to segregate it into a
   -- type params, followed by value params.
-  , contClosureParams :: [(Name, Sort)]
+  , contClosureParams :: [(Name, Type)]
   , contClosureBody :: TermC
   }
 
-contClosureSort :: ContClosureDef -> Sort
-contClosureSort (ContClosureDef _ params _) = paramsSort (makeClosureParams [] params)
+contClosureType :: ContClosureDef -> Type
+contClosureType (ContClosureDef _ params _) = paramsType (makeClosureParams [] params)
 
 -- | Closures environments capture two sets of names: those from outer scopes,
 -- and those from the same recursive bind group.
 data EnvDef
   = EnvDef {
     envFreeTypes :: [(TyVar, Kind)]
-  , envFreeNames :: [(Name, Sort)]
+  , envFreeNames :: [(Name, Type)]
   }
 
 data ValueC
@@ -250,7 +248,7 @@ data ValueC
   | BoolC Bool
   | StringC String
   | CharC Char
-  | CtorAppC Ctor [Sort] [Name]
+  | CtorAppC Ctor [Type] [Name]
 
 
 indent :: Int -> String -> String
@@ -266,7 +264,7 @@ pprintDataDecl n (DataDecl tc kind ctors) =
 
 pprintCtorDecl :: Int -> CtorDecl -> String
 pprintCtorDecl n (CtorDecl c typarams args) =
-  indent n $ show c ++ "[" ++ intercalate ", " (map pprintTyBind typarams) ++ "](" ++ intercalate ", " (map pprintSort args) ++ ")"
+  indent n $ show c ++ "[" ++ intercalate ", " (map pprintTyBind typarams) ++ "](" ++ intercalate ", " (map pprintType args) ++ ")"
   where
     pprintTyBind (aa, k) = "@" ++ show aa ++ " : " ++ pprintKind k
 
@@ -277,7 +275,7 @@ pprintTerm n (CallC f xs ks) =
   indent n $ show f ++ " " ++ intercalate " " (map pprintArg xs ++ map show ks) ++ ";\n"
   where
     pprintArg (ValueArg x) = show x
-    pprintArg (TypeArg t) = pprintSort t
+    pprintArg (TypeArg t) = pprintType t
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContC ks e) =
@@ -304,24 +302,24 @@ pprintTerm n (LetStringOpC x op e) =
 pprintTerm n (LetBindC x y prim e) =
   indent n ("let " ++ pprintPlace x ++ ", " ++ pprintPlace y ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
 
-pprintSort :: Sort -> String
-pprintSort (Closure ss) = "(" ++ intercalate ", " (map pprintTele ss) ++ ") -> !"
-pprintSort Integer = "int"
-pprintSort (Alloc aa) = "alloc(" ++ show aa ++ ")"
-pprintSort String = "string"
-pprintSort Character = "char"
-pprintSort Boolean = "bool"
-pprintSort (Pair s t) = "pair " ++ pprintSort s ++ " " ++ pprintSort t
-pprintSort (Record []) = "{}"
-pprintSort (Record fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
-  where pprintField (f, t) = show f ++ " : " ++ pprintSort t
-pprintSort Unit = "unit"
-pprintSort Token = "token#"
-pprintSort (TyConOcc tc) = show tc
-pprintSort (TyApp s t) = pprintSort s ++ " " ++ pprintSort t
+pprintType :: Type -> String
+pprintType (Closure ss) = "(" ++ intercalate ", " (map pprintTele ss) ++ ") -> !"
+pprintType Integer = "int"
+pprintType (Alloc aa) = "alloc(" ++ show aa ++ ")"
+pprintType String = "string"
+pprintType Character = "char"
+pprintType Boolean = "bool"
+pprintType (Pair s t) = "pair " ++ pprintType s ++ " " ++ pprintType t
+pprintType (Record []) = "{}"
+pprintType (Record fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
+  where pprintField (f, t) = show f ++ " : " ++ pprintType t
+pprintType Unit = "unit"
+pprintType Token = "token#"
+pprintType (TyConOcc tc) = show tc
+pprintType (TyApp s t) = pprintType s ++ " " ++ pprintType t
 
 pprintTele :: TeleEntry -> String
-pprintTele (ValueTele s) = pprintSort s
+pprintTele (ValueTele s) = pprintType s
 pprintTele (TypeTele aa k) = '@' : show aa ++ " : " ++ pprintKind k
 
 pprintKind :: Kind -> String
@@ -329,8 +327,8 @@ pprintKind Star = "*"
 pprintKind (KArr Star k2) = "* -> " ++ pprintKind k2
 pprintKind (KArr k1 k2) = "(" ++ pprintKind k1 ++ ") -> " ++ pprintKind k2
 
-pprintPlace :: (Name, Sort) -> String
-pprintPlace (x, s) = show x ++ " : " ++ pprintSort s
+pprintPlace :: (Name, Type) -> String
+pprintPlace (x, s) = show x ++ " : " ++ pprintType s
 
 pprintValue :: ValueC -> String
 pprintValue NilC = "()"
@@ -343,7 +341,7 @@ pprintValue (IntC i) = show i
 pprintValue (BoolC b) = if b then "true" else "false"
 pprintValue (StringC s) = show s
 pprintValue (CharC c) = show c
-pprintValue (CtorAppC c ts xs) = show c ++ "(" ++ intercalate ", @" (map pprintSort ts) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
+pprintValue (CtorAppC c ts xs) = show c ++ "(" ++ intercalate ", @" (map pprintType ts) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
 
 pprintArith :: ArithC -> String
 pprintArith (AddC x y) = show x ++ " + " ++ show y

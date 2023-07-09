@@ -8,7 +8,7 @@ module Lower
     , CodeLabel(..)
     , FieldLabel(..)
 
-    , Sort(..)
+    , Type(..)
     , ClosureTele(..)
     , TeleEntry(..)
     , TyConApp(..)
@@ -21,7 +21,7 @@ module Lower
     , singleSubst
     , listSubst
     , lookupSubst
-    , substSort
+    , substType
     , substTele
 
     , EnvDecl(..)
@@ -50,7 +50,7 @@ module Lower
     , Program(..)
     , Decl(..)
     , pprintProgram
-    , pprintSort
+    , pprintType
     , pprintKind
 
     , ThunkType(..)
@@ -121,18 +121,18 @@ withCodeDecl (H.CodeDecl l (envName, H.EnvDecl aas fields) params body) k = do
           pure (envd, coded)
     k ed' cd'
 
-withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [(Id, Sort)] -> M a) -> M a
+withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [(Id, Type)] -> M a) -> M a
 withEnvironment (envName, H.EnvDecl aas fields) k = do
   withTyVars aas $ \aas' -> do
     withEnvPtr envName $ \envName' -> do
       withEnvFields envName' fields $ \fields' -> do
         k aas' envName' fields'
 
-withEnvFields :: Id -> [(H.Id, H.Sort)] -> ([(Id, Sort)] -> M a) -> M a
+withEnvFields :: Id -> [(H.Id, H.Type)] -> ([(Id, Type)] -> M a) -> M a
 withEnvFields envp fields k = do
   (fields', binds, thunkBindsMaybe) <- fmap unzip3 $ for fields $ \ (x, s) -> do
     x' <- lowerId x
-    s' <- lowerSort s
+    s' <- lowerType s
     let field' = (x', s')
     let bind = (H.EnvName x, EnvName envp x')
     case s' of
@@ -162,7 +162,7 @@ withCtorDecl :: TyCon -> (Int, H.CtorDecl) -> (CtorDecl -> M a) -> M a
 withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
   withCtor tc' i c $ \c' -> do
     cd <- withTyVars tys $ \tys' -> do
-      xs' <- traverse (\ (l, s) -> (,) <$> lowerId l <*> lowerSort s) xs
+      xs' <- traverse (\ (l, s) -> (,) <$> lowerId l <*> lowerType s) xs
       pure (CtorDecl c' tys' xs')
     k cd
 
@@ -187,7 +187,7 @@ lowerFieldLabel :: H.FieldLabel -> M FieldLabel
 lowerFieldLabel (H.FieldLabel f) = pure (FieldLabel f)
 
 lowerTerm :: H.TermH -> M TermH
-lowerTerm (H.HaltH s x) = HaltH <$> lowerSort s <*> lowerName x
+lowerTerm (H.HaltH s x) = HaltH <$> lowerType s <*> lowerName x
 lowerTerm (H.OpenH f xs) =
   OpenH <$> lookupThunkType f <*> lowerName f <*> traverse lowerClosureArg xs
 lowerTerm (H.IfH x k1 k2) = do
@@ -228,7 +228,7 @@ lowerTerm (H.AllocClosure cs e) = do
 
 lowerClosureArg :: H.ClosureArg -> M ClosureArg
 lowerClosureArg (H.ValueArg x) = ValueArg <$> lowerName x
-lowerClosureArg (H.TypeArg s) = TypeArg <$> lowerSort s
+lowerClosureArg (H.TypeArg s) = TypeArg <$> lowerType s
 
 lowerProjection :: H.Projection -> M Projection
 lowerProjection H.ProjectFst = pure ProjectFst
@@ -246,10 +246,10 @@ lowerValue H.WorldToken = pure WorldToken
 lowerValue (H.RecordValH fields) = RecordH <$> traverse lowerField fields
   where lowerField (f, x) = (,) <$> lowerFieldLabel f <*> lowerName x
 lowerValue (H.CtorAppH c ss xs) = 
-  CtorAppH <$> lowerCtor c <*> traverse lowerSort ss <*> traverse lowerName xs
+  CtorAppH <$> lowerCtor c <*> traverse lowerType ss <*> traverse lowerName xs
 
 lowerTyConApp :: H.TyConApp -> M TyConApp
-lowerTyConApp (H.TyConApp tc ss) = TyConApp <$> lowerTyCon tc <*> traverse lowerSort ss
+lowerTyConApp (H.TyConApp tc ss) = TyConApp <$> lowerTyCon tc <*> traverse lowerType ss
 
 lowerPrimOp :: H.PrimOp -> M PrimOp
 lowerPrimOp (H.PrimAddInt64 x y) = PrimAddInt64 <$> lowerName x <*> lowerName y
@@ -275,20 +275,20 @@ lowerCaseAlt :: (H.Ctor, H.Name) -> M CaseAlt
 lowerCaseAlt (c, k) =
   CaseAlt <$> lowerCtor c <*> lookupThunkType k <*> lowerName k
 
-lowerSort :: H.Sort -> M Sort
-lowerSort (H.AllocH aa) = AllocH <$> lowerTyVar aa
-lowerSort H.IntegerH = pure IntegerH
-lowerSort H.BooleanH = pure BooleanH
-lowerSort H.UnitH = pure UnitH
-lowerSort H.StringH = pure StringH
-lowerSort H.CharH = pure CharH
-lowerSort (H.ProductH t s) = ProductH <$> lowerSort t <*> lowerSort s
-lowerSort (H.ClosureH tele) = ClosureH <$> lowerClosureTele tele
-lowerSort (H.RecordH fields) = TyRecordH <$> traverse lowerField fields
-  where lowerField (f, t) = (,) <$> lowerFieldLabel f <*> lowerSort t
-lowerSort (H.TyConH tc) = TyConH <$> lowerTyCon tc
-lowerSort (H.TyAppH t s) = TyAppH <$> lowerSort t <*> lowerSort s
-lowerSort H.TokenH = pure TokenH
+lowerType :: H.Type -> M Type
+lowerType (H.AllocH aa) = AllocH <$> lowerTyVar aa
+lowerType H.IntegerH = pure IntegerH
+lowerType H.BooleanH = pure BooleanH
+lowerType H.UnitH = pure UnitH
+lowerType H.StringH = pure StringH
+lowerType H.CharH = pure CharH
+lowerType (H.ProductH t s) = ProductH <$> lowerType t <*> lowerType s
+lowerType (H.ClosureH tele) = ClosureH <$> lowerClosureTele tele
+lowerType (H.RecordH fields) = TyRecordH <$> traverse lowerField fields
+  where lowerField (f, t) = (,) <$> lowerFieldLabel f <*> lowerType t
+lowerType (H.TyConH tc) = TyConH <$> lowerTyCon tc
+lowerType (H.TyAppH t s) = TyAppH <$> lowerType t <*> lowerType s
+lowerType H.TokenH = pure TokenH
 
 lowerClosureTele :: H.ClosureTele -> M ClosureTele
 lowerClosureTele (H.ClosureTele tele) = withTele tele $ \tele' -> pure (ClosureTele tele')
@@ -296,7 +296,7 @@ lowerClosureTele (H.ClosureTele tele) = withTele tele $ \tele' -> pure (ClosureT
 withTele :: [H.TeleEntry] -> ([TeleEntry] -> M a) -> M a
 withTele [] k = k []
 withTele (H.ValueTele s : tele) k = do
-  s' <- lowerSort s
+  s' <- lowerType s
   withTele tele $ \tele' -> k (ValueTele s' : tele')
 withTele (H.TypeTele aa kk : tele) k =
   withTyVar aa kk $ \aa' kk' ->
@@ -402,7 +402,7 @@ lowerClosureAlloc (p', H.ClosureAlloc _p l envp (H.EnvAlloc tys xs)) = do
   l' <- lowerCodeLabel l
   tc <- lookupEnvTyCon l
   envp' <- lowerId envp
-  tys' <- traverse lowerSort tys
+  tys' <- traverse lowerType tys
   xs' <- traverse (\ (fld, x) -> (,) <$> lowerId fld <*> lowerName x) xs
   let enva = EnvAlloc envp' tc xs'
   let closa = ClosureAlloc p' l' tys' envp'
@@ -411,7 +411,7 @@ lowerClosureAlloc (p', H.ClosureAlloc _p l envp (H.EnvAlloc tys xs)) = do
 
 withPlace :: H.Place -> (Place -> M a) -> M a
 withPlace (H.Place s x) k = do
-  s' <- lowerSort s
+  s' <- lowerType s
   x' <- lowerId x
   let p' = Place s' x'
   let (occ, occ') = (H.LocalName x, LocalName x')
@@ -483,7 +483,7 @@ lookupThunkType x = do
 data ThunkType = ThunkType { thunkArgs :: [ThunkArg] }
 
 data ThunkArg
-  = ThunkValueArg Sort
+  = ThunkValueArg Type
   | ThunkTypeArg -- Arguably, I should include a kind here.
 
 instance Eq ThunkType where (==) = (==) `on` thunkTypeCode
@@ -501,7 +501,7 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
   where
     argcode ThunkTypeArg = "I"
     argcode (ThunkValueArg s) = tycode s
-    tycode :: Sort -> String
+    tycode :: Type -> String
     tycode IntegerH = "V"
     tycode BooleanH = "B"
     tycode StringH = "T"
@@ -543,7 +543,7 @@ instance Show Name where
 
 -- | A 'Place' is a location that can hold a value. It has an identifier and a
 -- sort that specifies what values can be stored there.
-data Place = Place { placeSort :: Sort, placeName :: Id }
+data Place = Place { placeType :: Type, placeName :: Id }
 
 data TyVar = TyVar Id
   deriving (Eq, Ord)
@@ -590,7 +590,7 @@ data Decl
 
 
 data EnvDecl
-  = EnvDecl TyCon [(Id, Sort)]
+  = EnvDecl TyCon [(Id, Type)]
 
 data CodeDecl
   = CodeDecl CodeLabel [(TyVar, Kind)] (Id, TyCon) [ClosureParam] TermH
@@ -601,7 +601,7 @@ codeDeclName (CodeDecl c _ _ _ _) = c
 codeDeclTele :: CodeDecl -> ClosureTele
 codeDeclTele (CodeDecl _ _ _ params _) = ClosureTele (map f params)
   where
-    f (PlaceParam p) = ValueTele (placeSort p)
+    f (PlaceParam p) = ValueTele (placeType p)
     f (TypeParam aa k) = TypeTele aa k
 
 data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
@@ -620,22 +620,22 @@ data CtorDecl
   -- Third, I require each ctor argument to have a name (for fields in the ctor's struct),
   -- which doesn't fit in a 'ClosureTele' (but maybe 'ClosureParam' would work?
   -- Isomorphic, but semantically distinct, so not really.)
-  = CtorDecl Ctor [(TyVar, Kind)] [(Id, Sort)]
+  = CtorDecl Ctor [(TyVar, Kind)] [(Id, Type)]
 
 
--- | A 'Sort' describes the runtime layout of a value. It is static information.
-data Sort
+-- | A 'Type' describes the runtime layout of a value. It is static information.
+data Type
   = AllocH TyVar
   | IntegerH
   | BooleanH
   | UnitH
   | StringH
   | CharH
-  | ProductH Sort Sort
+  | ProductH Type Type
   | ClosureH ClosureTele
-  | TyRecordH [(FieldLabel, Sort)]
+  | TyRecordH [(FieldLabel, Type)]
   | TyConH TyCon
-  | TyAppH Sort Sort
+  | TyAppH Type Type
   | TokenH
 
 -- It's a bit unfortunate, but I do need to have separate telescopes for
@@ -645,16 +645,16 @@ data Sort
 newtype ClosureTele = ClosureTele [TeleEntry]
 
 data TeleEntry
-  = ValueTele Sort
+  = ValueTele Type
   | TypeTele TyVar Kind
 
-instance Eq Sort where
-  (==) = equalSort emptyAE
+instance Eq Type where
+  (==) = equalType emptyAE
 
 data Kind = Star | KArr Kind Kind
   deriving (Eq)
 
-asTyConApp :: Sort -> Maybe TyConApp
+asTyConApp :: Type -> Maybe TyConApp
 asTyConApp (TyConH tc) = Just (TyConApp tc [])
 asTyConApp (TyAppH t s) = go t [s]
   where
@@ -665,10 +665,10 @@ asTyConApp (TyAppH t s) = go t [s]
     go _ _ = Nothing
 asTyConApp _ = Nothing
 
-fromTyConApp :: TyConApp -> Sort
+fromTyConApp :: TyConApp -> Type
 fromTyConApp (TyConApp tc args) = foldl TyAppH (TyConH tc) args
 
-data TyConApp = TyConApp TyCon [Sort]
+data TyConApp = TyConApp TyCon [Type]
 
 
 
@@ -686,7 +686,7 @@ data TermH
   -- Closures may be mutually recursive, so they are allocated as a group.
   | AllocClosures [EnvAlloc] [ClosureAlloc] TermH
   -- 'halt @bool x'
-  | HaltH Sort Name
+  | HaltH Type Name
   -- 'call f (x, @int, z)', annotated with calling convention
   | OpenH ThunkType Name [ClosureArg]
   -- 'case x of { c1 -> k1 | c2 -> k2 | ... }'
@@ -696,7 +696,7 @@ data TermH
 
 data Projection = ProjectFst | ProjectSnd | ProjectField FieldLabel
 
-data ClosureArg = ValueArg Name | TypeArg Sort
+data ClosureArg = ValueArg Name | TypeArg Type
 
 data CaseAlt = CaseAlt Ctor ThunkType Name
 
@@ -704,7 +704,7 @@ data ClosureAlloc
   = ClosureAlloc {
     closurePlace :: Place
   , closureDecl :: CodeLabel
-  , closureCodeInst :: [Sort]
+  , closureCodeInst :: [Type]
   , closureEnvRef :: Id
   }
 
@@ -721,7 +721,7 @@ data ValueH
   | NilH
   | WorldToken
   | RecordH [(FieldLabel, Name)]
-  | CtorAppH Ctor [Sort] [Name]
+  | CtorAppH Ctor [Type] [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -768,10 +768,10 @@ instance Semigroup FV where
 instance Monoid FV where
   mempty = FV $ \_ acc -> acc
 
-freeTyVars :: Sort -> Set TyVar
+freeTyVars :: Type -> Set TyVar
 freeTyVars s = runFV (ftv s) Set.empty Set.empty
 
-ftv :: Sort -> FV
+ftv :: Type -> FV
 ftv (AllocH aa) = unitFV aa
 ftv (TyConH _) = mempty
 ftv UnitH = mempty
@@ -811,41 +811,41 @@ bindAE :: TyVar -> TyVar -> AE -> AE
 bindAE aa bb (AE l lhs rhs) = AE (l+1) (Map.insert aa l lhs) (Map.insert bb l rhs)
 
 -- | Test alpha-equality of two sorts.
-equalSort :: AE -> Sort -> Sort -> Bool
-equalSort ae (AllocH aa) (AllocH bb) = lookupAE ae aa bb
-equalSort _ (AllocH _) _ = False
-equalSort _e (TyConH tc1) (TyConH tc2) = tc1 == tc2
-equalSort _ (TyConH _) _ = False
-equalSort _ IntegerH IntegerH = True
-equalSort _ IntegerH _ = False
-equalSort _ BooleanH BooleanH = True
-equalSort _ BooleanH _ = False
-equalSort _ UnitH UnitH = True
-equalSort _ UnitH _ = False
-equalSort _ StringH StringH = True
-equalSort _ StringH _ = False
-equalSort _ CharH CharH = True
-equalSort _ CharH _ = False
-equalSort _ TokenH TokenH = True
-equalSort _ TokenH _ = False
-equalSort ae (ProductH s1 s2) (ProductH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
-equalSort _ (ProductH _ _) _ = False
-equalSort ae (TyRecordH fs1) (TyRecordH fs2) = go fs1 fs2
+equalType :: AE -> Type -> Type -> Bool
+equalType ae (AllocH aa) (AllocH bb) = lookupAE ae aa bb
+equalType _ (AllocH _) _ = False
+equalType _e (TyConH tc1) (TyConH tc2) = tc1 == tc2
+equalType _ (TyConH _) _ = False
+equalType _ IntegerH IntegerH = True
+equalType _ IntegerH _ = False
+equalType _ BooleanH BooleanH = True
+equalType _ BooleanH _ = False
+equalType _ UnitH UnitH = True
+equalType _ UnitH _ = False
+equalType _ StringH StringH = True
+equalType _ StringH _ = False
+equalType _ CharH CharH = True
+equalType _ CharH _ = False
+equalType _ TokenH TokenH = True
+equalType _ TokenH _ = False
+equalType ae (ProductH s1 s2) (ProductH t1 t2) = equalType ae s1 t1 && equalType ae s2 t2
+equalType _ (ProductH _ _) _ = False
+equalType ae (TyRecordH fs1) (TyRecordH fs2) = go fs1 fs2
   where
     go [] [] = True
-    go ((f1, t1):fs1') ((f2, t2):fs2') = f1 == f2 && equalSort ae t1 t2 && go fs1' fs2'
+    go ((f1, t1):fs1') ((f2, t2):fs2') = f1 == f2 && equalType ae t1 t2 && go fs1' fs2'
     go _ _ = False
-equalSort _ (TyRecordH _) _ = False
-equalSort ae (TyAppH s1 s2) (TyAppH t1 t2) = equalSort ae s1 t1 && equalSort ae s2 t2
-equalSort _ (TyAppH _ _) _ = False
-equalSort ae (ClosureH ss) (ClosureH ts) = equalTele ae ss ts
-equalSort _ (ClosureH _) _ = False
+equalType _ (TyRecordH _) _ = False
+equalType ae (TyAppH s1 s2) (TyAppH t1 t2) = equalType ae s1 t1 && equalType ae s2 t2
+equalType _ (TyAppH _ _) _ = False
+equalType ae (ClosureH ss) (ClosureH ts) = equalTele ae ss ts
+equalType _ (ClosureH _) _ = False
 
 equalTele :: AE -> ClosureTele -> ClosureTele -> Bool
 equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
   where
     go _ [] [] = True
-    go ae (ValueTele s : ls) (ValueTele t : rs) = equalSort ae s t && go ae ls rs
+    go ae (ValueTele s : ls) (ValueTele t : rs) = equalType ae s t && go ae ls rs
     go _ (ValueTele _ : _) (_ : _) = False
     go ae (TypeTele aa k1 : ls) (TypeTele bb k2 : rs) =
       k1 == k2 && go (bindAE aa bb ae) ls rs
@@ -856,16 +856,16 @@ equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'
 
 -- | A substitution maps free type variables to sorts, avoiding free variable
 -- capture when it passes under type variable binders.
-data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Sort }
+data Subst = Subst { substScope :: Set TyVar, substMapping :: Map TyVar Type }
 
 -- | Construct a singleton substitution, @[aa := s]@.
-singleSubst :: TyVar -> Sort -> Subst
+singleSubst :: TyVar -> Type -> Subst
 singleSubst aa s =
   -- We must not capture any free variable of 's', so the scope is intially set
   -- to 'FTV(s)'.
   Subst { substScope = freeTyVars s, substMapping = Map.singleton aa s }
 
-listSubst :: [(TyVar, Sort)] -> Subst
+listSubst :: [(TyVar, Type)] -> Subst
 listSubst xs = Subst { substScope = foldMap (freeTyVars . snd) xs, substMapping = Map.fromList xs }
 
 -- | Pass a substitution under a variable binder, returning the updated
@@ -885,31 +885,31 @@ substBind (Subst sc sub) aa =
       else
         go (i+1)
 
-lookupSubst :: TyVar -> Subst -> Maybe Sort
+lookupSubst :: TyVar -> Subst -> Maybe Type
 lookupSubst aa (Subst _ sub) = Map.lookup aa sub
 
 -- | Apply a substitution to a sort.
-substSort :: Subst -> Sort -> Sort
-substSort sub (AllocH aa) = case lookupSubst aa sub of
+substType :: Subst -> Type -> Type
+substType sub (AllocH aa) = case lookupSubst aa sub of
   Nothing -> AllocH aa
   Just s -> s
-substSort _ (TyConH tc) = TyConH tc
-substSort _ IntegerH = IntegerH
-substSort _ BooleanH = BooleanH
-substSort _ UnitH = UnitH
-substSort _ StringH = StringH
-substSort _ CharH = CharH
-substSort _ TokenH = TokenH
-substSort sub (ProductH s t) = ProductH (substSort sub s) (substSort sub t)
-substSort sub (TyRecordH fs) = TyRecordH (map (second (substSort sub)) fs)
-substSort sub (TyAppH s t) = TyAppH (substSort sub s) (substSort sub t)
-substSort sub (ClosureH tele) = ClosureH (substTele sub tele)
+substType _ (TyConH tc) = TyConH tc
+substType _ IntegerH = IntegerH
+substType _ BooleanH = BooleanH
+substType _ UnitH = UnitH
+substType _ StringH = StringH
+substType _ CharH = CharH
+substType _ TokenH = TokenH
+substType sub (ProductH s t) = ProductH (substType sub s) (substType sub t)
+substType sub (TyRecordH fs) = TyRecordH (map (second (substType sub)) fs)
+substType sub (TyAppH s t) = TyAppH (substType sub s) (substType sub t)
+substType sub (ClosureH tele) = ClosureH (substTele sub tele)
 
 substTele :: Subst -> ClosureTele -> ClosureTele
 substTele subst (ClosureTele tele) = ClosureTele (go subst tele)
   where
     go _ [] = []
-    go sub (ValueTele s : tele') = ValueTele (substSort sub s) : go sub tele'
+    go sub (ValueTele s : tele') = ValueTele (substType sub s) : go sub tele'
     go sub (TypeTele aa k : tele') = case substBind sub aa of
       (sub', aa') -> TypeTele aa' k : go sub' tele'
 
@@ -932,7 +932,7 @@ pprintDecls ds = concatMap pprintDecl ds
 pprintEnvDecl :: Int -> EnvDecl -> String
 pprintEnvDecl n (EnvDecl l fields) =
   indent n ("environment " ++ show l ++ "::Env = {" ++ intercalate ", " (map pprintEnvField fields) ++ "}\n")
-  where pprintEnvField (x, s) = show x ++ " : " ++ pprintSort s
+  where pprintEnvField (x, s) = show x ++ " : " ++ pprintType s
 
 pprintClosureDecl :: Int -> CodeDecl -> String
 pprintClosureDecl n (CodeDecl f aas (envName, envTyCon) params e) =
@@ -953,11 +953,11 @@ pprintCtorDecl :: Int -> CtorDecl -> String
 pprintCtorDecl n (CtorDecl c tys args) =
   indent n (show c ++ "[" ++ intercalate ", " (map g tys) ++ "](" ++ intercalate ", " (map f args) ++ ");")
   where
-    f (x, s) = show x ++ " : " ++ pprintSort s
+    f (x, s) = show x ++ " : " ++ pprintType s
     g (aa, k) = "@" ++ show aa ++ " : " ++ pprintKind k
 
 pprintTerm :: Int -> TermH -> String
-pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintSort s ++ " " ++ show x ++ ";\n"
+pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintType s ++ " " ++ show x ++ ";\n"
 pprintTerm n (OpenH _ty c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind ks) =
@@ -983,7 +983,7 @@ pprintTerm n (AllocClosures es cs e) =
   indent n "let\n" ++ concatMap (pprintEnvAlloc (n+2)) es ++ concatMap (pprintClosureAlloc (n+2)) cs ++ indent n "in\n" ++ pprintTerm n e
 
 pprintClosureArg :: ClosureArg -> String
-pprintClosureArg (TypeArg s) = '@' : pprintSort s
+pprintClosureArg (TypeArg s) = '@' : pprintType s
 pprintClosureArg (ValueArg x) = show x
 
 pprintValue :: ValueH -> String
@@ -998,7 +998,7 @@ pprintValue (RecordH []) = "{}"
 pprintValue (RecordH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
   where pprintField (f, x) = show f ++ " = " ++ show x
 pprintValue (CtorAppH c ss xs) = 
-  show c ++ "(" ++ intercalate ", @" (map pprintSort ss) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
+  show c ++ "(" ++ intercalate ", @" (map pprintType ss) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String
 pprintPrim (PrimAddInt64 x y) = "prim_addint64(" ++ show x ++ ", " ++ show y ++ ")"
@@ -1021,7 +1021,7 @@ pprintPrimIO (PrimGetLine x) = "prim_getLine(" ++ show x ++ ")"
 pprintPrimIO (PrimPutLine x y) = "prim_putLine(" ++ show x ++ ", " ++ show y ++ ")"
 
 pprintPlace :: Place -> String
-pprintPlace (Place s x) = show x ++ " : " ++ pprintSort s
+pprintPlace (Place s x) = show x ++ " : " ++ pprintType s
 
 pprintParam :: ClosureParam -> String
 pprintParam (PlaceParam p) = pprintPlace p
@@ -1033,31 +1033,31 @@ pprintEnvAlloc n (EnvAlloc p tc fs) =
 
 pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p d tys env) =
-  indent n $ pprintPlace p ++ " = <<" ++ show d ++ " " ++ intercalate " @" (map pprintSort tys) ++ ", " ++ show env ++ ">>\n"
+  indent n $ pprintPlace p ++ " = <<" ++ show d ++ " " ++ intercalate " @" (map pprintType tys) ++ ", " ++ show env ++ ">>\n"
 
 pprintAllocArg :: (Id, Name) -> String
 pprintAllocArg (field, x) = show field ++ " = " ++ show x
 
-pprintSort :: Sort -> String
-pprintSort IntegerH = "int"
-pprintSort BooleanH = "bool"
-pprintSort UnitH = "unit"
-pprintSort StringH = "string"
-pprintSort CharH = "char"
-pprintSort TokenH = "token#"
-pprintSort (ProductH t s) = "pair " ++ pprintSort t ++ " " ++ pprintSort s
-pprintSort (TyRecordH []) = "{}"
-pprintSort (TyRecordH fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
-  where pprintField (f, t) = show f ++ " : " ++ pprintSort t
-pprintSort (TyAppH t s) = pprintSort t ++ " " ++ pprintSort s
-pprintSort (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
-pprintSort (AllocH aa) = show aa
-pprintSort (TyConH tc) = show tc
+pprintType :: Type -> String
+pprintType IntegerH = "int"
+pprintType BooleanH = "bool"
+pprintType UnitH = "unit"
+pprintType StringH = "string"
+pprintType CharH = "char"
+pprintType TokenH = "token#"
+pprintType (ProductH t s) = "pair " ++ pprintType t ++ " " ++ pprintType s
+pprintType (TyRecordH []) = "{}"
+pprintType (TyRecordH fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
+  where pprintField (f, t) = show f ++ " : " ++ pprintType t
+pprintType (TyAppH t s) = pprintType t ++ " " ++ pprintType s
+pprintType (ClosureH tele) = "closure(" ++ pprintTele tele ++ ")"
+pprintType (AllocH aa) = show aa
+pprintType (TyConH tc) = show tc
 
 pprintTele :: ClosureTele -> String
 pprintTele (ClosureTele ss) = intercalate ", " (map f ss)
   where
-    f (ValueTele s) = pprintSort s
+    f (ValueTele s) = pprintType s
     f (TypeTele aa k) = "forall " ++ show aa ++ " : " ++ pprintKind k
 
 pprintKind :: Kind -> String

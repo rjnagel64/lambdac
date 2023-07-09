@@ -26,15 +26,15 @@ import CC.IR
 
 data Context
   = Context {
-    ctxTms :: Map K.TmVar (Name, Sort)
-  , ctxCos :: Map K.CoVar (Name, Sort)
+    ctxTms :: Map K.TmVar (Name, Type)
+  , ctxCos :: Map K.CoVar (Name, Type)
   , ctxTys :: Map K.TyVar (TyVar, Kind)
   }
 
 emptyContext :: Context
 emptyContext = Context Map.empty Map.empty Map.empty
 
-data FreeOcc = FreeOcc { freeOccName :: Name, freeOccSort :: Sort }
+data FreeOcc = FreeOcc { freeOccName :: Name, freeOccType :: Type }
 
 instance Eq FreeOcc where
   (==) = (==) `on` freeOccName
@@ -58,13 +58,13 @@ instance Semigroup Fields where
 instance Monoid Fields where
   mempty = Fields (Set.empty, Set.empty)
 
-singleOcc :: Name -> Sort -> Fields
+singleOcc :: Name -> Type -> Fields
 singleOcc x s = Fields (Set.singleton (FreeOcc x s), Set.empty)
 
 singleTyOcc :: TyVar -> Kind -> Fields
 singleTyOcc aa k = Fields (Set.empty, Set.singleton (TyOcc aa k))
 
-bindOccs :: Foldable t => t (Name, Sort) -> Fields -> Fields
+bindOccs :: Foldable t => t (Name, Type) -> Fields -> Fields
 bindOccs bs flds =
   let (occs, tys) = getFields flds in
   let bound = Set.fromList $ fmap (uncurry FreeOcc) (toList bs) in
@@ -94,7 +94,7 @@ insertMany xs m = foldr (uncurry Map.insert) m xs
 -- | Bind a sequence of term variables: both extending the typing context on
 -- the way down, and removing them from the free variable set on the way back
 -- up.
-withTms :: Traversable t => t (K.TmVar, K.TypeK) -> (t (Name, Sort) -> ConvM a) -> ConvM a
+withTms :: Traversable t => t (K.TmVar, K.TypeK) -> (t (Name, Type) -> ConvM a) -> ConvM a
 withTms xs k = do
   xs' <- traverse (\ (x, t) -> cconvType t >>= \t' -> pure (x, (tmVar x, t'))) xs
   let bs = fmap snd xs'
@@ -109,7 +109,7 @@ withTms xs k = do
 -- | Bind a sequence of coterm variables: both extending the typing context on
 -- the way down, and removing them from the free variable set on the way back
 -- up.
-withCos :: Traversable t => t (K.CoVar, K.CoTypeK) -> (t (Name, Sort) -> ConvM a) -> ConvM a
+withCos :: Traversable t => t (K.CoVar, K.CoTypeK) -> (t (Name, Type) -> ConvM a) -> ConvM a
 withCos ks k = do
   ks' <- traverse (\ (x, t) -> cconvCoType t >>= \t' -> pure (x, (coVar x, t'))) ks
   let bs = fmap snd ks'
@@ -137,7 +137,7 @@ withTys aas k = do
     tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
 
 -- | A special case of 'withTms', for binding a single term variable.
-withTm :: (K.TmVar, K.TypeK) -> ((Name, Sort) -> ConvM a) -> ConvM a
+withTm :: (K.TmVar, K.TypeK) -> ((Name, Type) -> ConvM a) -> ConvM a
 withTm b k = withTms (Identity b) (k . runIdentity)
 
 withTy :: (K.TyVar, K.KindK) -> ((TyVar, Kind) -> ConvM a) -> ConvM a
@@ -162,7 +162,7 @@ cconvCtorDecl :: K.CtorDecl -> ConvM CtorDecl
 cconvCtorDecl (K.CtorDecl (K.Ctor c) params args) =
   withTys params $ \params' -> CtorDecl (Ctor c) params' <$> traverse cconvType args
 
-cconvType :: K.TypeK -> ConvM Sort
+cconvType :: K.TypeK -> ConvM Type
 cconvType (K.TyVarOccK aa) = Alloc <$> cconvTyVar aa
 cconvType K.UnitK = pure Unit
 cconvType K.TokenK = pure Token
@@ -190,7 +190,7 @@ withTypeTele (K.TypeTele aa k : tele) cont = do
     withTypeTele tele $ \tele' ->
       cont (TypeTele aa' k' : tele')
 
-cconvCoType :: K.CoTypeK -> ConvM Sort
+cconvCoType :: K.CoTypeK -> ConvM Type
 cconvCoType (K.ContK ss) = do
   ss' <- traverse cconvType ss
   let tele = map ValueTele ss'
@@ -306,7 +306,7 @@ makeClosureEnv flds = do
   pure (EnvDef envTyFields envFields)
   where
     -- This isn't terribly elegant, but it works.
-    ftv :: Map TyVar Kind -> Sort -> Set TyOcc
+    ftv :: Map TyVar Kind -> Type -> Set TyOcc
     ftv ctx (Alloc aa) = case Map.lookup aa ctx of
       Nothing -> error ("makeClosureEnv: not in scope: " ++ show aa)
       Just k -> Set.singleton (TyOcc aa k)

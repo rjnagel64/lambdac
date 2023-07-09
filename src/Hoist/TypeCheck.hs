@@ -34,20 +34,20 @@ data Signature
 
 -- | Represents the type of a closure, a code pointer with environment
 -- @code(@aa+, { (l : s)+ }; S)@.
-data ClosureDeclType = ClosureDeclType [(TyVar, Kind)] [(Id, Sort)] ClosureTele
+data ClosureDeclType = ClosureDeclType [(TyVar, Kind)] [(Id, Type)] ClosureTele
 
 -- | The typing context contains the type of each item in scope, plus the type
 -- of the environment parameter.
 data Context
   = Context {
-    ctxPlaces :: Map Id Sort
+    ctxPlaces :: Map Id Type
   , ctxTypes :: Map TyVar Kind
-  , ctxEnvFields :: [(Id, Sort)]
+  , ctxEnvFields :: [(Id, Type)]
   }
 
 -- | Ways in which a Hoist IR program can be invalid.
 data TCError
-  = TypeMismatch Sort Sort
+  = TypeMismatch Type Type
   | KindMismatch Kind Kind
   | ArgumentCountMismatch
   | WrongClosureArg
@@ -62,17 +62,17 @@ data TCError
   | DuplicateLabels [String]
   | BadValue
   | BadCtorApp
-  | BadProjection Sort Projection
+  | BadProjection Type Projection
   | BadCase TyConApp [(Ctor, Name)]
   | BadCaseLabels
-  | BadOpen Name Sort
+  | BadOpen Name Type
   | BadTyApp
 
 instance Show TCError where
   show (TypeMismatch expected actual) = unlines
     [ "type mismatch:"
-    , "expected type: " ++ pprintSort expected
-    , "actual type:   " ++ pprintSort actual
+    , "expected type: " ++ pprintType expected
+    , "actual type:   " ++ pprintType actual
     ]
   show (KindMismatch expected actual) = unlines
     [ "kind mismatch:"
@@ -111,7 +111,7 @@ runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignatur
     emptySignature = Signature { sigClosures = Map.empty, sigTyCons = Map.empty }
 
 
-lookupName :: Name -> TC Sort
+lookupName :: Name -> TC Type
 lookupName (LocalName x) = do
   ctx <- asks ctxPlaces
   case Map.lookup x ctx of
@@ -145,8 +145,8 @@ lookupCodeDecl c = do
     Just t -> pure t
     Nothing -> throwError $ CodeNotInScope c
 
-equalSorts :: Sort -> Sort -> TC ()
-equalSorts expected actual =
+equalType :: Type -> Type -> TC ()
+equalType expected actual =
   when (expected /= actual) $
     throwError (TypeMismatch expected actual)
 
@@ -157,7 +157,7 @@ equalKinds expected actual =
 
 withPlace :: Place -> TC a -> TC a
 withPlace (Place s x) m = do
-  checkSort s Star
+  checkType s Star
   local extend m
   where extend (Context places tys env) = Context (Map.insert x s places) tys env
 
@@ -178,11 +178,11 @@ withParams (TypeParam aa k : params) m = withTyVar aa k $ withParams params m
 
 -- | Construct a well-kinded substitution by zipping a list of type parameters
 -- with a list of argument types.
-parameterSubst :: [(TyVar, Kind)] -> [Sort] -> TC Subst
+parameterSubst :: [(TyVar, Kind)] -> [Type] -> TC Subst
 parameterSubst params args = listSubst <$> go params args
   where
     go [] [] = pure []
-    go ((aa, k) : aas) (t : ts) = checkSort t k *> fmap ((aa, t) :) (go aas ts)
+    go ((aa, k) : aas) (t : ts) = checkType t k *> fmap ((aa, t) :) (go aas ts)
     go _ _ = throwError ArgumentCountMismatch
 
 -- | Use a Map to count muliplicity of each label.
@@ -215,7 +215,7 @@ checkDataDecl (DataDecl tc kind ctors) = do
 checkCtorDecl :: CtorDecl -> TC ()
 checkCtorDecl (CtorDecl _c tys args) = do
   checkUniqueLabels (map fst args)
-  withTyVars tys $ traverse_ (\ (_x, s) -> checkSort s Star) args
+  withTyVars tys $ traverse_ (\ (_x, s) -> checkType s Star) args
 
 -- | Type-check a top-level code declaration and add it to the signature.
 checkCodeDecl :: CodeDecl -> TC ()
@@ -233,7 +233,7 @@ checkCodeDecl decl@(CodeDecl cl (_envp, envd) params body) = do
 withEnvDecl :: EnvDecl -> TC a -> TC a
 withEnvDecl (EnvDecl tys fields) m = do
   checkUniqueLabels [x | (x, _) <- fields]
-  withTyVars tys $ traverse_ (\ (_x, s) -> checkSort s Star) fields
+  withTyVars tys $ traverse_ (\ (_x, s) -> checkType s Star) fields
   let extend (Context _ _ _) = Context Map.empty (Map.fromList tys) fields
   local extend $ m
 
@@ -241,33 +241,33 @@ codeDeclType :: CodeDecl -> ClosureDeclType
 codeDeclType (CodeDecl _cl (_envp, (EnvDecl typarams recordparam)) params _body) =
   ClosureDeclType typarams recordparam (ClosureTele (map f params))
   where
-    f (PlaceParam p) = ValueTele (placeSort p)
+    f (PlaceParam p) = ValueTele (placeType p)
     f (TypeParam aa k) = TypeTele aa k
 
 
 -- | Type-check a term, with the judgement @Σ; Γ |- e OK@.
 checkTerm :: TermH -> TC ()
 checkTerm (LetValH p v e) = do
-  checkSort (placeSort p) Star
-  checkValue v (placeSort p)
+  checkType (placeType p) Star
+  checkValue v (placeType p)
   withPlace p $ checkTerm e
 checkTerm (LetPrimH p prim e) = do
   s <- checkPrimOp prim
-  equalSorts (placeSort p) s
+  equalType (placeType p) s
   withPlace p $ checkTerm e
 checkTerm (LetBindH p1 p2 prim e) = do
   s <- checkPrimIO prim
-  equalSorts (placeSort p1) TokenH
-  equalSorts (placeSort p2) s
+  equalType (placeType p1) TokenH
+  equalType (placeType p2) s
   withPlace p1 $ withPlace p2 $ checkTerm e
 checkTerm (LetProjectH p x proj e) = do
   s <- lookupName x
   case (s, proj) of
-    (ProductH s' _, ProjectFst) -> equalSorts (placeSort p) s'
-    (ProductH _ t', ProjectSnd) -> equalSorts (placeSort p) t'
+    (ProductH s' _, ProjectFst) -> equalType (placeType p) s'
+    (ProductH _ t', ProjectSnd) -> equalType (placeType p) t'
     (RecordH fs, ProjectField f) -> case lookup f fs of
       Nothing -> throwError (BadProjection s proj)
-      Just s' -> equalSorts (placeSort p) s'
+      Just s' -> equalType (placeType p) s'
     (_, _) -> throwError (BadProjection s proj)
   withPlace p $ checkTerm e
 checkTerm (HaltH s x) = do
@@ -290,13 +290,13 @@ checkTerm (AllocClosure cs e) = do
     for_ cs $ \ (ClosureAlloc p c envPlace env) -> do
       ClosureDeclType typarams recordparam tele <- lookupCodeDecl c
       tele' <- checkEnvAlloc (ClosureDeclType typarams recordparam tele) env
-      equalSorts (placeSort p) (ClosureH tele')
+      equalType (placeType p) (ClosureH tele')
     checkTerm e
 
-checkName :: Name -> Sort -> TC ()
+checkName :: Name -> Type -> TC ()
 checkName x s = do
   s' <- lookupName x
-  equalSorts s s'
+  equalType s s'
 
 checkEnvAlloc :: ClosureDeclType -> EnvAlloc -> TC ClosureTele
 checkEnvAlloc (ClosureDeclType typarams fields tele) (EnvAlloc tyargs valArgs) = do
@@ -305,14 +305,14 @@ checkEnvAlloc (ClosureDeclType typarams fields tele) (EnvAlloc tyargs valArgs) =
   -- Record equality: are fields required to be in same order?
   -- Probably??? Records are just labelled tuples, right???
   sub <- parameterSubst typarams tyargs
-  let fieldTys = map (\ (x, s) -> (x, substSort sub s)) fields
+  let fieldTys = map (\ (x, s) -> (x, substType sub s)) fields
   checkFieldTys valArgs fieldTys
 
   pure (substTele sub tele)
 
 -- Note: I eventually might want to generalize checkFieldTys to
 -- checkRecordValue, as a closure environment is basically just a record.
-checkFieldTys :: [(Id, Name)] -> [(Id, Sort)] -> TC ()
+checkFieldTys :: [(Id, Name)] -> [(Id, Type)] -> TC ()
 checkFieldTys [] [] = pure ()
 checkFieldTys ((f', x) : fields) ((f, s) : fieldTys) = do
   when (f /= f') $
@@ -329,7 +329,7 @@ checkFieldTys _ _ = throwError ArgumentCountMismatch
 -- values currently have to look up their field offsets at runtime.
 -- I hope to mitigate this in the future by making record values more
 -- efficient, but I can't yet.
-checkRecordValue :: [(FieldLabel, Name)] -> [(FieldLabel, Sort)] -> TC ()
+checkRecordValue :: [(FieldLabel, Name)] -> [(FieldLabel, Type)] -> TC ()
 checkRecordValue [] [] = pure ()
 checkRecordValue ((f', x) : fields) ((f, s) : fieldTys) = do
   when (f /= f') $
@@ -347,7 +347,7 @@ checkCallArgs (ValueTele s : tele) (ValueArg x : args) = do
   checkCallArgs tele args
 checkCallArgs (ValueTele _ : _) (_ : _) = throwError WrongClosureArg
 checkCallArgs (TypeTele aa k : tele) (TypeArg s : args) = do
-  checkSort s k
+  checkType s k
   let ClosureTele tele' = substTele (singleSubst aa s) (ClosureTele tele)
   checkCallArgs tele' args
 checkCallArgs (TypeTele _ _ : _) (_ : _) = throwError WrongClosureArg
@@ -356,7 +356,7 @@ checkCallArgs (_ : _) [] = throwError ArgumentCountMismatch
 
 -- | Check that a primitive operation has correct argument sorts, and yield its
 -- return sort.
-checkPrimOp :: PrimOp -> TC Sort
+checkPrimOp :: PrimOp -> TC Type
 checkPrimOp (PrimAddInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure IntegerH
 checkPrimOp (PrimSubInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure IntegerH
 checkPrimOp (PrimMulInt64 x y) = checkName x IntegerH *> checkName y IntegerH *> pure IntegerH
@@ -373,12 +373,12 @@ checkPrimOp (PrimStrlen x) = checkName x StringH *> pure IntegerH
 checkPrimOp (PrimIndexStr x y) = checkName x StringH *> checkName y IntegerH *> pure CharH
 
 -- | Check an I/O primitive operation, and compute its return sort.
-checkPrimIO :: PrimIO -> TC Sort
+checkPrimIO :: PrimIO -> TC Type
 checkPrimIO (PrimGetLine x) = checkName x TokenH *> pure StringH
 checkPrimIO (PrimPutLine x y) = checkName x TokenH *> checkName y StringH *> pure UnitH
 
 -- | Check that a value has the given sort.
-checkValue :: ValueH -> Sort -> TC ()
+checkValue :: ValueH -> Type -> TC ()
 checkValue (IntH _) IntegerH = pure ()
 checkValue (IntH _) _ = throwError BadValue
 checkValue (BoolH _) BooleanH = pure ()
@@ -445,30 +445,30 @@ instantiateTyConApp (TyConApp tc tys) = do
   ctors <- snd <$> lookupTyCon tc
   cs <- fmap Map.fromList $ for ctors $ \ (CtorDecl c typarams argTys) -> do
     sub <- parameterSubst typarams tys
-    pure (c, map (ValueTele . substSort sub . snd) argTys)
+    pure (c, map (ValueTele . substType sub . snd) argTys)
   pure cs
 
 -- | Check that a sort is well-formed w.r.t. the context
-inferSort :: Sort -> TC Kind
-inferSort (AllocH aa) = lookupTyVar aa
-inferSort (TyConH tc) = fst <$> lookupTyCon tc
-inferSort (TyAppH t s) = do
-  inferSort t >>= \case
-    KArr k1 k2 -> checkSort s k1 *> pure k2
+inferType :: Type -> TC Kind
+inferType (AllocH aa) = lookupTyVar aa
+inferType (TyConH tc) = fst <$> lookupTyCon tc
+inferType (TyAppH t s) = do
+  inferType t >>= \case
+    KArr k1 k2 -> checkType s k1 *> pure k2
     Star -> throwError BadTyApp
-inferSort UnitH = pure Star
-inferSort IntegerH = pure Star
-inferSort BooleanH = pure Star
-inferSort StringH = pure Star
-inferSort CharH = pure Star
-inferSort TokenH = pure Star
-inferSort (ProductH t s) = checkSort t Star *> checkSort s Star *> pure Star
-inferSort (RecordH fs) = traverse_ (\ (f, t) -> checkSort t Star) fs *> pure Star
-inferSort (ClosureH tele) = checkTele tele *> pure Star
+inferType UnitH = pure Star
+inferType IntegerH = pure Star
+inferType BooleanH = pure Star
+inferType StringH = pure Star
+inferType CharH = pure Star
+inferType TokenH = pure Star
+inferType (ProductH t s) = checkType t Star *> checkType s Star *> pure Star
+inferType (RecordH fs) = traverse_ (\ (f, t) -> checkType t Star) fs *> pure Star
+inferType (ClosureH tele) = checkTele tele *> pure Star
 
 -- | Check that a sort has the specified kind.
-checkSort :: Sort -> Kind -> TC ()
-checkSort s k = inferSort s >>= equalKinds k
+checkType :: Type -> Kind -> TC ()
+checkType s k = inferType s >>= equalKinds k
 
 -- | Check that a telescope is well-formed w.r.t the context.
 -- @Γ |- S@
@@ -476,6 +476,6 @@ checkTele :: ClosureTele -> TC ()
 checkTele (ClosureTele ss) = go ss
   where
     go [] = pure ()
-    go (ValueTele s : ss') = checkSort s Star *> go ss'
+    go (ValueTele s : ss') = checkType s Star *> go ss'
     go (TypeTele aa k : ss') = withTyVar aa k $ go ss'
 

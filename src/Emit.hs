@@ -91,7 +91,8 @@ namesForThunk ty =
   }
 
 
-typeForSort :: Sort -> String
+-- TODO: Rename typeForSort now that Sort is named Type
+typeForSort :: Type -> String
 typeForSort (AllocH _) = "struct alloc_header *"
 typeForSort (ClosureH _) = "struct closure *"
 typeForSort IntegerH = "struct int64_value *"
@@ -105,19 +106,19 @@ typeForSort TokenH = "struct token *"
 typeForSort (TyConH tc) = "struct " ++ show tc ++ " *"
 typeForSort (TyAppH t _) = typeForSort t
 
-asSort :: Sort -> String -> String
-asSort (AllocH _) x = asAlloc x
-asSort IntegerH x = "CAST_INT64(" ++ x ++ ")"
-asSort (ClosureH _) x = "CAST_CLOSURE(" ++ x ++ ")"
-asSort StringH x = "CAST_STRING(" ++ x ++ ")"
-asSort CharH x = "CAST_CHAR(" ++ x ++ ")"
-asSort BooleanH x = "CAST_BOOL(" ++ x ++ ")"
-asSort (ProductH _ _) x = "CAST_PAIR(" ++ x ++ ")"
-asSort (TyRecordH _) x = "CAST_RECORD(" ++ x ++ ")"
-asSort UnitH x = "CAST_UNIT(" ++ x ++ ")"
-asSort TokenH x = "CAST_TOKEN(" ++ x ++ ")"
-asSort (TyAppH t _) x = asSort t x
-asSort (TyConH tc) x = "CAST_" ++ show tc ++ "(" ++ x ++ ")"
+asType :: Type -> String -> String
+asType (AllocH _) x = asAlloc x
+asType IntegerH x = "CAST_INT64(" ++ x ++ ")"
+asType (ClosureH _) x = "CAST_CLOSURE(" ++ x ++ ")"
+asType StringH x = "CAST_STRING(" ++ x ++ ")"
+asType CharH x = "CAST_CHAR(" ++ x ++ ")"
+asType BooleanH x = "CAST_BOOL(" ++ x ++ ")"
+asType (ProductH _ _) x = "CAST_PAIR(" ++ x ++ ")"
+asType (TyRecordH _) x = "CAST_RECORD(" ++ x ++ ")"
+asType UnitH x = "CAST_UNIT(" ++ x ++ ")"
+asType TokenH x = "CAST_TOKEN(" ++ x ++ ")"
+asType (TyAppH t _) x = asType t x
+asType (TyConH tc) x = "CAST_" ++ show tc ++ "(" ++ x ++ ")"
 
 asAlloc :: String -> String
 asAlloc x = "AS_ALLOC(" ++ x ++ ")"
@@ -223,7 +224,7 @@ emitThunkDecl t =
   emitThunkSuspend ns t
   where ns = namesForThunk t
 
-foldThunk :: (Int -> Sort -> b) -> ThunkType -> [b]
+foldThunk :: (Int -> Type -> b) -> ThunkType -> [b]
 foldThunk consValue ty = go 0 (thunkArgs ty)
   where
     -- Not quite mapWithIndex because we discard/ignore info arguments.
@@ -356,7 +357,7 @@ emitClosureEnv (EnvDecl tc fields) =
   emitEnvInfo ns fields ++
   emitEnvAlloc ns fields
 
-emitEnvDecl :: EnvNames -> [(Id, Sort)] -> [Line]
+emitEnvDecl :: EnvNames -> [(Id, Type)] -> [Line]
 emitEnvDecl ns fs =
   ["struct " ++ envTypeName ns ++ " {"
   ,"    struct alloc_header header;"] ++
@@ -365,7 +366,7 @@ emitEnvDecl ns fs =
   where
     mkField (x, s) = "    " ++ emitPlace (Place s x) ++ ";"
 
-emitEnvAlloc :: EnvNames -> [(Id, Sort)] -> [Line]
+emitEnvAlloc :: EnvNames -> [(Id, Type)] -> [Line]
 emitEnvAlloc ns fs =
   ["struct " ++ envTypeName ns ++ " *" ++ envAllocName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ envTypeName ns ++ " *_env = malloc(sizeof(struct " ++ envTypeName ns ++ "));"]++
@@ -378,7 +379,7 @@ emitEnvAlloc ns fs =
     params = map (\ (x, s) -> emitPlace (Place s x)) fs
     assignField (x, _) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
 
-emitEnvInfo :: EnvNames -> [(Id, Sort)] -> [Line]
+emitEnvInfo :: EnvNames -> [(Id, Type)] -> [Line]
 emitEnvInfo ns fs =
   ["void " ++ envTraceName ns ++ "(struct alloc_header *alloc) {"
   ,"    " ++ envTy ++ show envName ++ " = (" ++ envTy ++ ")alloc;"] ++
@@ -434,13 +435,13 @@ emitTerm denv (LetValH x v e) =
   ["    " ++ emitPlace x ++ " = " ++ emitValue denv v ++ ";"] ++
   emitTerm denv e
 emitTerm denv (LetProjectH x y ProjectFst e) =
-  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName y ++ "->fst") ++ ";"] ++
+  ["    " ++ emitPlace x ++ " = " ++ asType (placeType x) (emitName y ++ "->fst") ++ ";"] ++
   emitTerm denv e
 emitTerm denv (LetProjectH x y ProjectSnd e) =
-  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) (emitName y ++ "->snd") ++ ";"] ++
+  ["    " ++ emitPlace x ++ " = " ++ asType (placeType x) (emitName y ++ "->snd") ++ ";"] ++
   emitTerm denv e
 emitTerm denv (LetProjectH x y (ProjectField (FieldLabel f)) e) =
-  ["    " ++ emitPlace x ++ " = " ++ asSort (placeSort x) ("project_field(" ++ emitName y ++ ", " ++ show f ++ ", " ++ show (length f) ++ ")") ++ ";"] ++
+  ["    " ++ emitPlace x ++ " = " ++ asType (placeType x) ("project_field(" ++ emitName y ++ ", " ++ show f ++ ", " ++ show (length f) ++ ")") ++ ";"] ++
   emitTerm denv e
 emitTerm denv (LetPrimH x p e) =
   ["    " ++ emitPlace x ++ " = " ++ emitPrimOp p ++ ";"] ++
@@ -501,7 +502,7 @@ emitCase desc x branches =
         method = thunkSuspendName (namesForThunk ty)
         args = emitName k : map mkArg argCasts
         mkArg (argName, Nothing) = ctorVal ++ "->" ++ argName
-        mkArg (argName, Just argSort) = asSort argSort (ctorVal ++ "->" ++ argName)
+        mkArg (argName, Just argType) = asType argType (ctorVal ++ "->" ++ argName)
       in
         ["    case " ++ show i ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
@@ -575,9 +576,9 @@ data DataDesc
 -- aa', then that field should be cast to 't', where the case kind specifies
 -- that '[aa := t]'
 data CtorDesc
-  = CtorDesc { ctorArgCasts :: [(String, Maybe Sort)] }
+  = CtorDesc { ctorArgCasts :: [(String, Maybe Type)] }
 
-dataDesc :: DataDecl -> [Sort] -> DataDesc
+dataDesc :: DataDecl -> [Type] -> DataDesc
 dataDesc (DataDecl _tycon ctors) tyargs =
   DataDesc {
     dataCtors = Map.fromList $ map ctorDesc ctors
@@ -655,7 +656,7 @@ allocEnv :: Set Id -> EnvAlloc -> Line
 allocEnv recNames (EnvAlloc envPlace tc fields) =
   "    " ++ emitPlace (Place (TyConH tc) envPlace) ++ " = " ++ call ++ ";"
   where
-    -- Hrrm. I would like to replace 'tc' with a general 'Sort', so that
+    -- Hrrm. I would like to replace 'tc' with a general 'Type, so that
     -- environment allocations are very similar to value allocations (and so
     -- that I could theoretically have an environment value that *isn't* a
     -- named record type -- e.g. if there's only one field, store that field
