@@ -91,20 +91,19 @@ namesForThunk ty =
   }
 
 
--- TODO: Rename typeForSort now that Sort is named Type
-typeForSort :: Type -> String
-typeForSort (AllocH _) = "struct alloc_header *"
-typeForSort (ClosureH _) = "struct closure *"
-typeForSort IntegerH = "struct int64_value *"
-typeForSort StringH = "struct string_value *"
-typeForSort CharH = "struct char_value *"
-typeForSort (ProductH _ _) = "struct pair *"
-typeForSort (TyRecordH _) = "struct record *"
-typeForSort UnitH = "struct unit *"
-typeForSort BooleanH = "struct bool_value *"
-typeForSort TokenH = "struct token *"
-typeForSort (TyConH tc) = "struct " ++ show tc ++ " *"
-typeForSort (TyAppH t _) = typeForSort t
+typeFor :: Type -> String
+typeFor (AllocH _) = "struct alloc_header *"
+typeFor (ClosureH _) = "struct closure *"
+typeFor IntegerH = "struct int64_value *"
+typeFor StringH = "struct string_value *"
+typeFor CharH = "struct char_value *"
+typeFor (ProductH _ _) = "struct pair *"
+typeFor (TyRecordH _) = "struct record *"
+typeFor UnitH = "struct unit *"
+typeFor BooleanH = "struct bool_value *"
+typeFor TokenH = "struct token *"
+typeFor (TyConH tc) = "struct " ++ show tc ++ " *"
+typeFor (TyAppH t _) = typeFor t
 
 asType :: Type -> String -> String
 asType (AllocH _) x = asAlloc x
@@ -164,7 +163,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
 -- RecordTrie has empty, singleton, union
 -- Once collected, use traverse to assign ids/type names
 -- While doing codegen, lookup record type in trie to determine name of type.
--- (typeForSort requires extra parameter, though... that will require plumbing)
+-- (typeFor requires extra parameter, though... that will require plumbing)
 
 
 -- Hmm. Two ideas:
@@ -698,7 +697,7 @@ patchEnv recNames (EnvAlloc envPlace _ fields) = mapMaybe patchField fields
 -- * declareLocal place = <type> <ident> ;
 -- * assignLocal place initializer = <type> <ident> = <init.exp>; <init.body>
 emitPlace :: Place -> String
-emitPlace (Place s x) = typeForSort s ++ show x
+emitPlace (Place s x) = typeFor s ++ show x
 
 emitName :: Name -> String
 emitName (LocalName x) = show x
