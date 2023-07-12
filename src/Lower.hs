@@ -121,17 +121,17 @@ withCodeDecl (H.CodeDecl l (envName, H.EnvDecl aas fields) params body) k = do
           pure (envd, coded)
     k ed' cd'
 
-withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [(Id, Type)] -> M a) -> M a
+withEnvironment :: (H.Id, H.EnvDecl) -> ([(TyVar, Kind)] -> Id -> [(FieldLabel, Type)] -> M a) -> M a
 withEnvironment (envName, H.EnvDecl aas fields) k = do
   withTyVars aas $ \aas' -> do
     withEnvPtr envName $ \envName' -> do
       withEnvFields envName' fields $ \fields' -> do
         k aas' envName' fields'
 
-withEnvFields :: Id -> [(H.Id, H.Type)] -> ([(Id, Type)] -> M a) -> M a
+withEnvFields :: Id -> [(H.Id, H.Type)] -> ([(FieldLabel, Type)] -> M a) -> M a
 withEnvFields envp fields k = do
   (fields', binds, thunkBindsMaybe) <- fmap unzip3 $ for fields $ \ (x, s) -> do
-    x' <- lowerId x
+    x' <- lowerFieldName x
     s' <- lowerType s
     let field' = (x', s')
     let bind = (H.EnvName x, EnvName envp x')
@@ -185,6 +185,9 @@ lookupEnvTyCon l = do
 
 lowerFieldLabel :: H.FieldLabel -> M FieldLabel
 lowerFieldLabel (H.FieldLabel f) = pure (FieldLabel f)
+
+lowerFieldName :: H.Id -> M FieldLabel
+lowerFieldName (H.Id f) = pure (FieldLabel f)
 
 lowerTerm :: H.TermH -> M TermH
 lowerTerm (H.HaltH s x) = HaltH <$> lowerType s <*> lowerName x
@@ -337,6 +340,12 @@ lowerTyCon tc = do
     Nothing -> error "tycon not in scope"
     Just tc' -> pure tc'
 
+-- TODO: It is (should be) the responsibility of Lower to ensure that all local
+-- names are distinct.
+--
+-- (This is because the "no duplicate names, even with shadowing" restriction
+-- only exists because of the C backend, and Lower is responsible for prepping
+-- Hoist for code generation)
 newtype M a = M { getM :: Reader LowerEnv a }
 deriving newtype instance Functor M
 deriving newtype instance Applicative M
@@ -403,7 +412,7 @@ lowerClosureAlloc (p', H.ClosureAlloc _p l envp (H.EnvAlloc tys xs)) = do
   tc <- lookupEnvTyCon l
   envp' <- lowerId envp
   tys' <- traverse lowerType tys
-  xs' <- traverse (\ (fld, x) -> (,) <$> lowerId fld <*> lowerName x) xs
+  xs' <- traverse (\ (fld, x) -> (,) <$> lowerFieldName fld <*> lowerName x) xs
   let enva = EnvAlloc envp' tc xs'
   let closa = ClosureAlloc p' l' tys' envp'
   pure (enva, closa)
@@ -530,11 +539,10 @@ newtype Id = Id String
 instance Show Id where
   show (Id x) = x
 
--- | A 'Name' refers to a 'Place'. It is either a 'Place' in the local
--- scope, or in the environment scope.
---
--- An 'EnvName' contains the environment pointer that it dereferences
-data Name = LocalName Id | EnvName Id Id
+-- | A 'Name' references some in-scope value binding. It can be either a name
+-- in the local scope, or it can be a reference to some field from the
+-- environment. 
+data Name = LocalName Id | EnvName Id FieldLabel
   deriving (Eq, Ord)
 
 instance Show Name where
@@ -574,7 +582,7 @@ instance Show Ctor where
   show (Ctor tc c _) = show tc ++ "::" ++ show c
 
 newtype FieldLabel = FieldLabel String
-  deriving (Eq)
+  deriving (Eq, Ord)
 
 instance Show FieldLabel where
   show (FieldLabel f) = f
@@ -589,8 +597,10 @@ data Decl
   | DeclCode CodeDecl
 
 
+-- TODO: This should use [(FieldLabel, Type)]
+-- This means that EnvName needs to be Id -> FieldLabel -> Name
 data EnvDecl
-  = EnvDecl TyCon [(Id, Type)]
+  = EnvDecl TyCon [(FieldLabel, Type)]
 
 data CodeDecl
   = CodeDecl CodeLabel [(TyVar, Kind)] (Id, TyCon) [ClosureParam] TermH
@@ -709,7 +719,7 @@ data ClosureAlloc
   }
 
 data EnvAlloc
-  = EnvAlloc Id TyCon [(Id, Name)]
+  = EnvAlloc Id TyCon [(FieldLabel, Name)]
 
 
 data ValueH
@@ -1035,7 +1045,7 @@ pprintClosureAlloc :: Int -> ClosureAlloc -> String
 pprintClosureAlloc n (ClosureAlloc p d tys env) =
   indent n $ pprintPlace p ++ " = <<" ++ show d ++ " " ++ intercalate " @" (map pprintType tys) ++ ", " ++ show env ++ ">>\n"
 
-pprintAllocArg :: (Id, Name) -> String
+pprintAllocArg :: (FieldLabel, Name) -> String
 pprintAllocArg (field, x) = show field ++ " = " ++ show x
 
 pprintType :: Type -> String

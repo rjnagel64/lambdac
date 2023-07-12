@@ -356,16 +356,16 @@ emitClosureEnv (EnvDecl tc fields) =
   emitEnvInfo ns fields ++
   emitEnvAlloc ns fields
 
-emitEnvDecl :: EnvNames -> [(Id, Type)] -> [Line]
+emitEnvDecl :: EnvNames -> [(FieldLabel, Type)] -> [Line]
 emitEnvDecl ns fs =
   ["struct " ++ envTypeName ns ++ " {"
   ,"    struct alloc_header header;"] ++
   map mkField fs ++
   ["};"]
   where
-    mkField (x, s) = "    " ++ emitPlace (Place s x) ++ ";"
+    mkField (FieldLabel x, s) = "    " ++ emitPlace (Place s (Id x)) ++ ";"
 
-emitEnvAlloc :: EnvNames -> [(Id, Type)] -> [Line]
+emitEnvAlloc :: EnvNames -> [(FieldLabel, Type)] -> [Line]
 emitEnvAlloc ns fs =
   ["struct " ++ envTypeName ns ++ " *" ++ envAllocName ns ++ "(" ++ paramList ++ ") {"
   ,"    struct " ++ envTypeName ns ++ " *_env = malloc(sizeof(struct " ++ envTypeName ns ++ "));"]++
@@ -375,10 +375,10 @@ emitEnvAlloc ns fs =
   ,"}"]
   where
     paramList = if null params then "void" else commaSep params
-    params = map (\ (x, s) -> emitPlace (Place s x)) fs
+    params = map (\ (FieldLabel x, s) -> emitPlace (Place s (Id x))) fs
     assignField (x, _) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
 
-emitEnvInfo :: EnvNames -> [(Id, Type)] -> [Line]
+emitEnvInfo :: EnvNames -> [(FieldLabel, Type)] -> [Line]
 emitEnvInfo ns fs =
   ["void " ++ envTraceName ns ++ "(struct alloc_header *alloc) {"
   ,"    " ++ envTy ++ show envName ++ " = (" ++ envTy ++ ")alloc;"] ++
@@ -666,7 +666,7 @@ allocEnv recNames (EnvAlloc envPlace tc fields) =
     -- don't really fit into an expression spot)
     call = "allocate_" ++ show tc ++ "(" ++ commaSep args ++ ")"
     args = map emitAllocArg fields
-    emitAllocArg (f, x) = if Set.member f recNames then "NULL" else emitName x
+    emitAllocArg (FieldLabel f, x) = if Set.member (Id f) recNames then "NULL" else emitName x
 
 allocClosure :: ClosureAlloc -> Line
 allocClosure (ClosureAlloc p l _tys envRef) =
@@ -682,9 +682,9 @@ patchEnv recNames (EnvAlloc envPlace _ fields) = mapMaybe patchField fields
     -- here, x should only ever be a LocalName, because patching only involves
     -- names in a single recursive bind group. However, it doesn't hurt
     -- anything to accept any NameRef here.
-    patchField (f, x) =
-      if Set.member f recNames then
-        let envf = EnvName envPlace f in
+    patchField (FieldLabel f, x) =
+      if Set.member (Id f) recNames then
+        let envf = EnvName envPlace (FieldLabel f) in
         Just ("    " ++ emitName envf ++ " = " ++ emitName x ++ ";") 
       else
         Nothing
