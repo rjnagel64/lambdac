@@ -307,7 +307,7 @@ emitCtorStruct (CtorDecl (Ctor tc c _i) _tys args) =
   map makeField args ++
   ["};"
   ,"#define CAST_" ++ ctorId ++ "(v) ((struct " ++ ctorId ++ " *)(v))"]
-  where makeField (x, s) = "    " ++ emitPlace (Place s x) ++ ";"
+  where makeField (FieldLabel x, s) = "    " ++ emitPlace (Place s (Id x)) ++ ";"
 
 emitCtorInfo :: CtorDecl -> [Line]
 emitCtorInfo (CtorDecl (Ctor tc c _i) _tys args) =
@@ -342,7 +342,7 @@ emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
   ,"    return CAST_" ++ show tc ++ "(ctor);"
   ,"}"]
   where
-    params = [emitPlace (Place s x) | (x, s) <- args]
+    params = [emitPlace (Place s (Id x)) | (FieldLabel x, s) <- args]
     assignField (x, _s) = "    ctor->" ++ show x ++ " = " ++ show x ++ ";"
 
 

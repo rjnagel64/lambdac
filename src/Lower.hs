@@ -162,7 +162,7 @@ withCtorDecl :: TyCon -> (Int, H.CtorDecl) -> (CtorDecl -> M a) -> M a
 withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
   withCtor tc' i c $ \c' -> do
     cd <- withTyVars tys $ \tys' -> do
-      xs' <- traverse (\ (l, s) -> (,) <$> lowerId l <*> lowerType s) xs
+      xs' <- traverse (\ (l, s) -> (,) <$> lowerFieldName l <*> lowerType s) xs
       pure (CtorDecl c' tys' xs')
     k cd
 
@@ -630,7 +630,7 @@ data CtorDecl
   -- Third, I require each ctor argument to have a name (for fields in the ctor's struct),
   -- which doesn't fit in a 'ClosureTele' (but maybe 'ClosureParam' would work?
   -- Isomorphic, but semantically distinct, so not really.)
-  = CtorDecl Ctor [(TyVar, Kind)] [(Id, Type)]
+  = CtorDecl Ctor [(TyVar, Kind)] [(FieldLabel, Type)]
 
 
 -- | A 'Type' describes the runtime layout of a value. It is static information.
