@@ -440,7 +440,7 @@ withPlace (H.Place s x) k = do
 
 withTyVar :: H.TyVar -> H.Kind -> (TyVar -> Kind -> M a) -> M a
 withTyVar aa@(H.TyVar i) kk k = do
-  aa' <- TyVar <$> lowerId i
+  aa' <- (\ (Id i') -> TyVar i') <$> lowerId i
   kk' <- lowerKind kk
   let extend env = env { envTyVars = Map.insert aa aa' (envTyVars env) }
   local extend $ k aa' kk'
@@ -553,11 +553,11 @@ instance Show Name where
 -- sort that specifies what values can be stored there.
 data Place = Place { placeType :: Type, placeName :: Id }
 
-data TyVar = TyVar Id
+data TyVar = TyVar String
   deriving (Eq, Ord)
 
 instance Show TyVar where
-  show (TyVar aa) = show aa
+  show (TyVar aa) = aa
 
 -- | 'CodeLabel's are used to reference top-level code definitions. In
 -- particular, a closure is constructed by pairing a code name with an
@@ -886,8 +886,8 @@ substBind (Subst sc sub) aa =
     go (0 :: Int)
   where
     go i =
-      let TyVar (Id aa') = aa in
-      let bb = TyVar (Id (aa' ++ show i)) in
+      let TyVar aa' = aa in
+      let bb = TyVar (aa' ++ show i) in
       if Set.notMember bb sc then
         (Subst (Set.insert bb sc) (Map.insert aa (AllocH bb) sub), bb)
       else
