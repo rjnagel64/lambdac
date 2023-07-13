@@ -597,8 +597,6 @@ data Decl
   | DeclCode CodeDecl
 
 
--- TODO: This should use [(FieldLabel, Type)]
--- This means that EnvName needs to be Id -> FieldLabel -> Name
 data EnvDecl
   = EnvDecl TyCon [(FieldLabel, Type)]
 
