@@ -169,7 +169,7 @@ withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
     k cd
 
 lowerId :: H.Id -> M Id
-lowerId (H.Id x) = pure (Id x)
+lowerId (H.Id x i) = pure (Id (x ++ show i))
 
 lowerCodeLabel :: H.CodeLabel -> M CodeLabel
 lowerCodeLabel l = do
@@ -189,7 +189,7 @@ lowerFieldLabel :: H.FieldLabel -> M FieldLabel
 lowerFieldLabel (H.FieldLabel f) = pure (FieldLabel f)
 
 lowerFieldName :: H.Id -> M FieldLabel
-lowerFieldName (H.Id f) = pure (FieldLabel f)
+lowerFieldName (H.Id f i) = pure (FieldLabel (f ++ show i))
 
 lowerTerm :: H.TermH -> M TermH
 lowerTerm (H.HaltH s x) = HaltH <$> lowerType s <*> lowerName x
@@ -382,8 +382,8 @@ runM = flip runReader emptyEnv . getM
 -- directly to withEnvFields, but it's still semi-useful to indicate that the
 -- env ptr is "in scope".
 withEnvPtr :: H.Id -> (Id -> M a) -> M a
-withEnvPtr (H.Id envName) k = do
-  let envName' = Id envName
+withEnvPtr (H.Id envName i) k = do
+  let envName' = Id (envName ++ show i)
   k envName'
 
 -- Problem: this needs to be in scope for all subsequent closures, not just the

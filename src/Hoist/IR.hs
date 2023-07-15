@@ -62,11 +62,11 @@ import Data.List (intercalate)
 
 
 -- | An 'Id' is any type of identifier.
-newtype Id = Id String
+data Id = Id String Int
   deriving (Eq, Ord)
 
 instance Show Id where
-  show (Id x) = x
+  show (Id x i) = x ++ show i
 
 -- | A 'Name' refers to a 'Place'. It is either a 'Place' in the local
 -- scope, or in the environment scope.
@@ -242,6 +242,7 @@ data ClosureAlloc
 -- '∃aa+.{ (l : s)+ }',
 -- constructing a closure environment involves providing a sequence of type and
 -- values for each field.
+-- 'pack <t+, { (l = x)+ }> as _'
 data EnvAlloc
   = EnvAlloc {
     envAllocTypeArgs :: [Type]

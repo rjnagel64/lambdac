@@ -45,7 +45,7 @@ insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
 asPlace :: C.Type -> C.Name -> HoistM Place
-asPlace s (C.Name x i) = (\s' -> Place s' (Id (x ++ show i))) <$> sortOf s
+asPlace s (C.Name x i) = (\s' -> Place s' (Id x i)) <$> sortOf s
 
 sortOf :: C.Type -> HoistM Type
 sortOf C.Integer = pure IntegerH
@@ -147,7 +147,7 @@ hoistCtorDecl (C.CtorDecl (C.Ctor c) params args) =
   withTyVars params $ \params' -> (CtorDecl (Ctor c) params' <$> (traverse makeField (zip [0..] args)))
   where
     makeField :: (Int, C.Type) -> HoistM (Id, Type)
-    makeField (i, s) = (,) (Id ("arg" ++ show i)) <$> sortOf s
+    makeField (i, s) = (,) (Id "arg" i) <$> sortOf s
 
 
 
@@ -388,7 +388,7 @@ pickEnvironmentName = do
     nameId (LocalName x) = x
     nameId (EnvName x) = x
   scope <- foldMap (Set.singleton . nameId) <$> asks nameRefs
-  let go i = let envp = Id ("env" ++ show i) in if Set.member envp scope then go (i+1) else envp
+  let go i = let envp = Id "env" i in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
 
 withEnvironmentName :: (Id -> HoistM a) -> HoistM a
@@ -397,12 +397,12 @@ withEnvironmentName cont = do
   cont envn
 
 pickEnvironmentPlace :: Id -> HoistM Id
-pickEnvironmentPlace (Id cl) = do
+pickEnvironmentPlace cl = do
   let
     nameId (LocalName x) = x
     nameId (EnvName x) = x
   scope <- foldMap (Set.singleton . nameId) <$> asks nameRefs
-  let go i = let envp = Id (cl ++ "_env" ++ show i) in if Set.member envp scope then go (i+1) else envp
+  let go i = let envp = Id (show cl ++ "_env") i in if Set.member envp scope then go (i+1) else envp
   pure (go (0 :: Int))
 
 
