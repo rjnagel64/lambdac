@@ -648,9 +648,13 @@ emitClosureGroup envs closures =
   map (allocEnv recNames) envs ++
   map allocClosure closures ++
   concatMap (patchEnv recNames) envs
-  where recNames = Set.fromList [placeName p | ClosureAlloc p _ _ _ <- closures]
+  where
+    -- If constructing an environment references a name in the bind group
+    -- (which is necessarily a LocalName), we must initialize it with NULL and
+    -- patch it afterwards.
+    recNames = Set.fromList [LocalName (placeName p) | ClosureAlloc p _ _ _ <- closures]
 
-allocEnv :: Set Id -> EnvAlloc -> Line
+allocEnv :: Set Name -> EnvAlloc -> Line
 allocEnv recNames (EnvAlloc envPlace tc fields) =
   "    " ++ emitPlace (Place (TyConH tc) envPlace) ++ " = " ++ call ++ ";"
   where
@@ -665,7 +669,7 @@ allocEnv recNames (EnvAlloc envPlace tc fields) =
     -- don't really fit into an expression spot)
     call = "allocate_" ++ show tc ++ "(" ++ commaSep args ++ ")"
     args = map emitAllocArg fields
-    emitAllocArg (FieldLabel f, x) = if Set.member (Id f) recNames then "NULL" else emitName x
+    emitAllocArg (_f, x) = if Set.member x recNames then "NULL" else emitName x
 
 allocClosure :: ClosureAlloc -> Line
 allocClosure (ClosureAlloc p l _tys envRef) =
@@ -675,16 +679,13 @@ allocClosure (ClosureAlloc p l _tys envRef) =
     envArg = asAlloc (emitName (LocalName envRef))
     enterArg = closureEnterName ns
 
-patchEnv :: Set Id -> EnvAlloc -> [Line]
+patchEnv :: Set Name -> EnvAlloc -> [Line]
 patchEnv recNames (EnvAlloc envPlace _ fields) = mapMaybe patchField fields
   where
-    -- here, x should only ever be a LocalName, because patching only involves
-    -- names in a single recursive bind group. However, it doesn't hurt
-    -- anything to accept any NameRef here.
-    patchField (FieldLabel f, x) =
-      if Set.member (Id f) recNames then
-        let envf = EnvName envPlace (FieldLabel f) in
-        Just ("    " ++ emitName envf ++ " = " ++ emitName x ++ ";") 
+    patchField (f, x) =
+      if Set.member x recNames then
+        let envf = EnvName envPlace f in
+        Just ("    " ++ emitName envf ++ " = " ++ emitName x ++ ";")
       else
         Nothing
 
