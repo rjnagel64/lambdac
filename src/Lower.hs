@@ -162,6 +162,8 @@ withCtorDecl :: TyCon -> (Int, H.CtorDecl) -> (CtorDecl -> M a) -> M a
 withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
   withCtor tc' i c $ \c' -> do
     cd <- withTyVars tys $ \tys' -> do
+      -- TODO: It makes more sense to name ctor fields in Lower instead of Hoist
+      -- It's a C-backend specific restriction, so it should go here.
       xs' <- traverse (\ (l, s) -> (,) <$> lowerFieldName l <*> lowerType s) xs
       pure (CtorDecl c' tys' xs')
     k cd
@@ -439,8 +441,8 @@ withPlace (H.Place s x) k = do
   local extend $ k p'
 
 withTyVar :: H.TyVar -> H.Kind -> (TyVar -> Kind -> M a) -> M a
-withTyVar aa@(H.TyVar i) kk k = do
-  aa' <- (\ (Id i') -> TyVar i') <$> lowerId i
+withTyVar aa@(H.TyVar x) kk k = do
+  let aa' = TyVar x
   kk' <- lowerKind kk
   let extend env = env { envTyVars = Map.insert aa aa' (envTyVars env) }
   local extend $ k aa' kk'

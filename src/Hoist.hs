@@ -463,14 +463,11 @@ withPlace x s cont = do
 
 -- I don't have scoping for tyvars yet, but this is where it would go.
 withTyVar :: C.TyVar -> C.Kind -> (TyVar -> Kind -> HoistM a) -> HoistM a
-withTyVar aa k cont = do
+withTyVar aa@(C.TyVar x) k cont = do
   k' <- kindOf k
-  let aa' = asTyVar aa
+  let aa' = TyVar x
   let extend env = env { tyVarRefs = Map.insert aa aa' (tyVarRefs env) }
   local extend $ cont aa' k'
-  where
-    asTyVar :: C.TyVar -> TyVar
-    asTyVar (C.TyVar x) = TyVar (Id x)
 
 
 withTyVars :: [(C.TyVar, C.Kind)] -> ([(TyVar, Kind)] -> HoistM a) -> HoistM a
