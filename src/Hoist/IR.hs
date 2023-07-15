@@ -2,6 +2,7 @@
 -- | A module describing the structure and syntactic operations on the Hoist IR.
 module Hoist.IR
     ( Id(..)
+    , primeId
     , Name(..)
     , Place(..)
     , TyVar(..)
@@ -67,6 +68,9 @@ data Id = Id String Int
 
 instance Show Id where
   show (Id x i) = x ++ show i
+
+primeId :: Id -> Id
+primeId (Id x i) = Id x (i+1)
 
 -- | A 'Name' refers to a 'Place'. It is either a 'Place' in the local
 -- scope, or in the environment scope.

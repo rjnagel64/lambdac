@@ -301,18 +301,18 @@ emitCtorDecl cd =
 
 emitCtorStruct :: CtorDecl -> [Line]
 emitCtorStruct (CtorDecl (Ctor tc c _i) _tys args) =
-  let ctorId = show tc ++ "_" ++ show c in
+  let ctorId = show tc ++ "_" ++ c in
   ["struct " ++ ctorId ++ " {"
   ,"    struct " ++ show tc ++ " header;"] ++
   map makeField args ++
   ["};"
   ,"#define CAST_" ++ ctorId ++ "(v) ((struct " ++ ctorId ++ " *)(v))"]
-  where makeField (FieldLabel x, s) = "    " ++ emitPlace (Place s (Id x)) ++ ";"
+  where makeField (f, s) = "    " ++ emitField f s ++ ";"
 
 emitCtorInfo :: CtorDecl -> [Line]
 emitCtorInfo (CtorDecl (Ctor tc c _i) _tys args) =
   -- Hmm. May need DataNames and CtorNames
-  let ctorId = show tc ++ "_" ++ show c in
+  let ctorId = show tc ++ "_" ++ c in
   let ctorCast = "CAST_" ++ ctorId in
   ["void trace_" ++ ctorId ++ "(struct alloc_header *alloc) {"
   ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ "(alloc);"] ++
@@ -320,20 +320,19 @@ emitCtorInfo (CtorDecl (Ctor tc c _i) _tys args) =
   ["}"
   ,"void display_" ++ ctorId ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
   ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ "(alloc);"
-  ,"    string_buf_push_slice(sb, " ++ show cname ++ ", " ++ show (length cname) ++ ");"
+  ,"    string_buf_push_slice(sb, " ++ show c ++ ", " ++ show (length c) ++ ");"
   ,"    string_buf_push_slice(sb, \"(\", 1);"] ++
   intersperse "string_buf_push_slice(sb, \", \", 2);" (map displayField args) ++
   ["    string_buf_push_slice(sb, \")\", 1);"
   ,"}"
   ,"const type_info " ++ ctorId ++ "_info = { trace_" ++ ctorId ++ ", display_" ++ ctorId ++ " };"]
   where
-    cname = show c
     traceField (x, _s) = "    mark_gray(AS_ALLOC(ctor->" ++ show x ++ "));"
     displayField (x, _s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(AS_ALLOC(ctor->" ++ show x ++ "), sb);"
 
 emitCtorAllocate :: CtorDecl -> [Line]
 emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
-  let ctorId = show tc ++ "_" ++ show c in
+  let ctorId = show tc ++ "_" ++ c in
   ["struct " ++ show tc ++ " *allocate_" ++ ctorId ++ "(" ++ commaSep params ++ ") {"
   ,"    struct " ++ ctorId ++ " *ctor = malloc(sizeof(struct " ++ ctorId ++ "));"
   ,"    ctor->header.discriminant = " ++ show i ++ ";"] ++
@@ -342,7 +341,7 @@ emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
   ,"    return CAST_" ++ show tc ++ "(ctor);"
   ,"}"]
   where
-    params = [emitPlace (Place s (Id x)) | (FieldLabel x, s) <- args]
+    params = [emitField f s | (f, s) <- args]
     assignField (x, _s) = "    ctor->" ++ show x ++ " = " ++ show x ++ ";"
 
 
@@ -363,7 +362,7 @@ emitEnvDecl ns fs =
   map mkField fs ++
   ["};"]
   where
-    mkField (FieldLabel x, s) = "    " ++ emitPlace (Place s (Id x)) ++ ";"
+    mkField (f, s) = "    " ++ emitField f s ++ ";"
 
 emitEnvAlloc :: EnvNames -> [(FieldLabel, Type)] -> [Line]
 emitEnvAlloc ns fs =
@@ -375,7 +374,7 @@ emitEnvAlloc ns fs =
   ,"}"]
   where
     paramList = if null params then "void" else commaSep params
-    params = map (\ (FieldLabel x, s) -> emitPlace (Place s (Id x))) fs
+    params = map (\ (f, s) -> emitField f s) fs
     assignField (x, _) = "    _env->" ++ show x ++ " = " ++ show x ++ ";"
 
 emitEnvInfo :: EnvNames -> [(FieldLabel, Type)] -> [Line]
@@ -497,7 +496,7 @@ emitCase desc x branches =
     emitCaseBranch (CaseAlt c@(Ctor tc ctor i) ty k) =
       let
         argCasts = ctorArgCasts (dataCtors desc Map.! c)
-        ctorVal = "CAST_" ++ show tc ++ "_" ++ show ctor ++ "(" ++ emitName x ++ ")"
+        ctorVal = "CAST_" ++ show tc ++ "_" ++ ctor ++ "(" ++ emitName x ++ ")"
         method = thunkSuspendName (namesForThunk ty)
         args = emitName k : map mkArg argCasts
         mkArg (argName, Nothing) = ctorVal ++ "->" ++ argName
@@ -549,7 +548,7 @@ emitValue denv (CtorAppH c ss xs) =
 emitCtorAlloc :: DataDesc -> (Ctor, [Name]) -> String
 emitCtorAlloc desc (ctor, xs) = method ++ "(" ++ commaSep args' ++ ")"
   where
-    method = "allocate_" ++ show (ctorTyCon ctor) ++ "_" ++ show (ctorName ctor)
+    method = "allocate_" ++ show (ctorTyCon ctor) ++ "_" ++ ctorName ctor
 
     argCasts = ctorArgCasts (dataCtors desc Map.! ctor)
     args' = zipWith makeArg xs argCasts
@@ -703,3 +702,5 @@ emitName :: Name -> String
 emitName (LocalName x) = show x
 emitName (EnvName envp x) = show envp ++ "->" ++ show x
 
+emitField :: FieldLabel -> Type -> String
+emitField f s = typeFor s ++ show f

@@ -472,7 +472,7 @@ withTyCon tc@(H.TyCon x) k = do
 
 withCtor :: TyCon -> Int -> H.Ctor -> (Ctor -> M a) -> M a
 withCtor tc' i c@(H.Ctor x) k = do
-  let c' = Ctor tc' (Id x) i
+  let c' = Ctor tc' x i
   let extend env = env { envCtors = Map.insert c c' (envCtors env) }
   local extend $ k c'
 
@@ -580,11 +580,11 @@ newtype TyCon = TyCon String
 instance Show TyCon where
   show (TyCon tc) = tc
 
-data Ctor = Ctor { ctorTyCon :: TyCon, ctorName :: Id, ctorDiscriminant :: Int }
+data Ctor = Ctor { ctorTyCon :: TyCon, ctorName :: String, ctorDiscriminant :: Int }
   deriving (Eq, Ord)
 
 instance Show Ctor where
-  show (Ctor tc c _) = show tc ++ "::" ++ show c
+  show (Ctor tc c _) = show tc ++ "::" ++ c
 
 newtype FieldLabel = FieldLabel String
   deriving (Eq, Ord)

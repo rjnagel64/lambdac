@@ -388,22 +388,24 @@ pickEnvironmentName = do
     nameId (LocalName x) = x
     nameId (EnvName x) = x
   scope <- foldMap (Set.singleton . nameId) <$> asks nameRefs
-  let go i = let envp = Id "env" i in if Set.member envp scope then go (i+1) else envp
-  pure (go (0 :: Int))
+  let go envp = if Set.member envp scope then go (primeId envp) else envp
+  pure (go (Id "env" 0))
 
 withEnvironmentName :: (Id -> HoistM a) -> HoistM a
 withEnvironmentName cont = do
   envn <- pickEnvironmentName
   cont envn
 
+-- | Given the name of a closure allocation, produce a name for the
+-- corresponding closure environment.
 pickEnvironmentPlace :: Id -> HoistM Id
 pickEnvironmentPlace cl = do
   let
     nameId (LocalName x) = x
     nameId (EnvName x) = x
   scope <- foldMap (Set.singleton . nameId) <$> asks nameRefs
-  let go i = let envp = Id (show cl ++ "_env") i in if Set.member envp scope then go (i+1) else envp
-  pure (go (0 :: Int))
+  let go envp = if Set.member envp scope then go (primeId envp) else envp
+  pure (go (Id (show cl ++ "_env") 0))
 
 
 hoistFieldLabel :: C.FieldLabel -> FieldLabel
