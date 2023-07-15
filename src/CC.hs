@@ -134,7 +134,7 @@ withTys aas k = do
     -- Hmm. I'm pretty sure I don't have to worry about shadowing, but I should
     -- double-check that.
     tyVar :: K.TyVar -> TyVar
-    tyVar (K.TyVar aa i) = TyVar (aa ++ show i)
+    tyVar (K.TyVar aa i) = TyVar aa i
 
 -- | A special case of 'withTms', for binding a single term variable.
 withTm :: (K.TmVar, K.TypeK) -> ((Name, Type) -> ConvM a) -> ConvM a

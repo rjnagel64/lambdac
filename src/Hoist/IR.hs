@@ -81,11 +81,14 @@ instance Show Name where
 -- sort that specifies what values can be stored there.
 data Place = Place { placeType :: Type, placeName :: Id }
 
-data TyVar = TyVar String
+data TyVar = TyVar String Int
   deriving (Eq, Ord)
 
 instance Show TyVar where
-  show (TyVar aa) = aa
+  show (TyVar aa i) = aa ++ show i
+
+prime :: TyVar -> TyVar
+prime (TyVar aa i) = TyVar aa (i+1)
 
 -- | 'CodeLabel's are used to reference top-level code definitions. In
 -- particular, a closure is constructed by pairing a code name with an
@@ -408,15 +411,13 @@ substBind (Subst sc sub) aa =
   if Set.notMember aa sc then
     (Subst (Set.insert aa sc) (Map.delete aa sub), aa)
   else
-    go (0 :: Int)
+    go (prime aa)
   where
-    go i =
-      let TyVar aa' = aa in
-      let bb = TyVar (aa' ++ show i) in
-      if Set.notMember bb sc then
-        (Subst (Set.insert bb sc) (Map.insert aa (AllocH bb) sub), bb)
+    go aa' =
+      if Set.notMember aa' sc then
+        (Subst (Set.insert aa' sc) (Map.insert aa (AllocH aa') sub), aa')
       else
-        go (i+1)
+        go (prime aa')
 
 lookupSubst :: TyVar -> Subst -> Maybe Type
 lookupSubst aa (Subst _ sub) = Map.lookup aa sub

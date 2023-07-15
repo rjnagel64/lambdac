@@ -91,11 +91,11 @@ instance Show Name where
 prime :: Name -> Name
 prime (Name x i) = Name x (i+1)
 
-data TyVar = TyVar String
+data TyVar = TyVar String Int
   deriving (Eq, Ord)
 
 instance Show TyVar where
-  show (TyVar aa) = aa
+  show (TyVar aa i) = aa ++ show i
 
 data TyCon = TyCon String
 
