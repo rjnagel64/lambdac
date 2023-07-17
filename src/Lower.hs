@@ -169,7 +169,7 @@ withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
     k cd
 
 lowerId :: H.Id -> M Id
-lowerId (H.Id x i) = pure (Id (x ++ show i))
+lowerId (H.Id x i) = pure (Id x i)
 
 lowerCodeLabel :: H.CodeLabel -> M CodeLabel
 lowerCodeLabel l = do
@@ -383,7 +383,7 @@ runM = flip runReader emptyEnv . getM
 -- env ptr is "in scope".
 withEnvPtr :: H.Id -> (Id -> M a) -> M a
 withEnvPtr (H.Id envName i) k = do
-  let envName' = Id (envName ++ show i)
+  let envName' = Id envName i
   k envName'
 
 -- Problem: this needs to be in scope for all subsequent closures, not just the
@@ -535,11 +535,11 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
 
 
 -- | An 'Id' is any type of identifier.
-newtype Id = Id String
+data Id = Id String Int
   deriving (Eq, Ord)
 
 instance Show Id where
-  show (Id x) = x
+  show (Id x i) = x ++ show i
 
 -- | A 'Name' references some in-scope value binding. It can be either a name
 -- in the local scope, or it can be a reference to some field from the

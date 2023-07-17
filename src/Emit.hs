@@ -241,7 +241,7 @@ emitThunkArgs ns ty =
     declareFields = foldThunk consValue
       where
         consValue i s =
-          let p = Place s (Id ("arg" ++ show i)) in
+          let p = Place s (Id "arg" i) in
           "    " ++ emitPlace p ++ ";"
 
 emitThunkTrace :: ThunkNames -> ThunkType -> [Line]
@@ -270,9 +270,9 @@ emitThunkSuspend ns ty =
     paramList = "struct closure *closure" : foldThunk consValue ty
       where
         consValue i s@(AllocH _) =
-          let p = Place s (Id ("arg" ++ show i)) in
+          let p = Place s (Id "arg" i) in
           emitPlace p
-        consValue i s = let p = Place s (Id ("arg" ++ show i)) in emitPlace p
+        consValue i s = let p = Place s (Id "arg" i) in emitPlace p
     assignFields = foldThunk consValue
       where
         consValue i _ =
@@ -385,7 +385,7 @@ emitEnvInfo ns fs =
   ["}"
   ,"const type_info " ++ envInfoName ns ++ " = { " ++ envTraceName ns ++ ", display_env };"]
   where
-    envName = Id "env"
+    envName = Id "env" 0
     envTy = "struct " ++ envTypeName ns ++ " *"
     traceField (x, _) =
       let field = asAlloc (emitName (EnvName envName x)) in
