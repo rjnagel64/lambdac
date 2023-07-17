@@ -625,15 +625,15 @@ emitPrimIO (PrimPutLine x y) p1 p2 =
   "prim_putLine(" ++ commaSep [emitName x, emitName y, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
 
 emitPrimCall :: String -> [Name] -> String
-emitPrimCall fn xs = emitBuiltinCall (Id fn) xs
+emitPrimCall fn xs = emitBuiltinCall fn xs
 
 -- Hmm. I can't quite use this for emitValueAlloc, because I cannot specify
 -- primitives like unboxed integers or c string literals.
 --
 -- I also can't use this for emitValueAlloc because if the sort of a parameter
 -- is 'AllocH', I need to cast the argument with AS_ALLOC.
-emitBuiltinCall :: Id -> [Name] -> String
-emitBuiltinCall fn args = show fn ++ "(" ++ commaSep (map emitName args) ++ ")"
+emitBuiltinCall :: String -> [Name] -> String
+emitBuiltinCall fn args = fn ++ "(" ++ commaSep (map emitName args) ++ ")"
 
 -- | Allocate a group of (mutually recursive) closures.
 --
