@@ -74,6 +74,7 @@ import Data.Traversable (for)
 import qualified Hoist.IR as H
 
 import Control.Monad.Reader
+import Control.Monad.State
 
 
 -- TODO: Avoid shadowing names when preparing to Emit
@@ -88,6 +89,9 @@ import Control.Monad.Reader
 
 insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
+
+mapAccumLM :: (Monad m, Traversable t) => (a -> s -> m (b, s)) -> t a -> s -> m (t b, s)
+mapAccumLM f xs s = flip runStateT s $ traverse (StateT . f) xs
 
 
 lowerProgram :: H.Program -> Program
@@ -167,9 +171,6 @@ withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
       xs' <- traverse (\ (l, s) -> (,) <$> lowerFieldName l <*> lowerType s) xs
       pure (CtorDecl c' tys' xs')
     k cd
-
-lowerId :: H.Id -> M Id
-lowerId (H.Id x i) = pure (Id x i)
 
 lowerCodeLabel :: H.CodeLabel -> M CodeLabel
 lowerCodeLabel l = do
@@ -357,6 +358,7 @@ deriving newtype instance MonadReader LowerEnv M
 data LowerEnv
   = LowerEnv {
     envNames :: Map H.Name Name
+  , envScope :: Set Id
   , envTyVars :: Map H.TyVar TyVar
   , envTyCons :: Map H.TyCon TyCon
   , envCtors :: Map H.Ctor Ctor
@@ -370,6 +372,7 @@ runM = flip runReader emptyEnv . getM
   where
     emptyEnv = LowerEnv {
         envNames = Map.empty
+      , envScope = Set.empty
       , envTyVars = Map.empty
       , envTyCons = Map.empty
       , envCtors = Map.empty
@@ -381,10 +384,13 @@ runM = flip runReader emptyEnv . getM
 -- This isn't actually a scoping operation anymore, since I pass the env ptr
 -- directly to withEnvFields, but it's still semi-useful to indicate that the
 -- env ptr is "in scope".
+-- (It actually is a scoping operation now, because it adds the env ptr to the
+-- set of names in the local scope)
 withEnvPtr :: H.Id -> (Id -> M a) -> M a
-withEnvPtr (H.Id envName i) k = do
-  let envName' = Id envName i
-  k envName'
+withEnvPtr envp k = withFreshPlace envp k
+-- withEnvPtr (H.Id envName i) k = do
+--   let envName' = Id envName i
+--   k envName'
 
 -- Problem: this needs to be in scope for all subsequent closures, not just the
 -- body of the current closure. Think about how to do this.
@@ -404,57 +410,81 @@ withParams (H.TypeParam aa kk : ps) k =
 
 withClosures :: [H.ClosureAlloc] -> ([EnvAlloc] -> [ClosureAlloc] -> M a) -> M a
 withClosures cs k = do
-  withPlaces (map H.closurePlace cs) $ \ps' -> do
-    (es', cs') <- unzip <$> traverse lowerClosureAlloc (zip ps' cs)
+  withClosurePlaces cs $ \pcs -> do
+    (es', cs') <- fmap unzip $ traverse lowerClosureAlloc pcs
     k es' cs'
 
-lowerClosureAlloc :: (Place, H.ClosureAlloc) -> M (EnvAlloc, ClosureAlloc)
-lowerClosureAlloc (p', H.ClosureAlloc _p l envp (H.EnvAlloc tys xs)) = do
+-- | Given a collection of closure allocations, ensure that each closure and
+-- each closure environment has a unique name. The continuation is invoked in
+-- an environment extended with the new closure and environment names.
+withClosurePlaces :: [H.ClosureAlloc] -> ([(Place, Id, H.ClosureAlloc)] -> M a) -> M a
+withClosurePlaces cs k = do
+  scope <- asks envScope
+  thunkTypes <- asks envThunkTypes
+  names <- asks envNames
+
+  (pcs, (scope', thunkTypes', names')) <- mapAccumLM m cs (scope, thunkTypes, names)
+
+  let extend env = env { envScope = scope', envThunkTypes = thunkTypes', envNames = names' }
+  local extend $ k pcs
+  where
+    m c@(H.ClosureAlloc (H.Place s x) _l envp _enva) (sc, th, ns) = do
+      -- Ensure the closure has a unique name
+      let (sc', x') = freshenId sc x
+      -- Ensure the environment pointer has a unique name
+      let (sc'', envp') = freshenId sc' envp
+      -- The closure has a closure type, so record its calling convention
+      s' <- lowerType s
+      th' <- case s' of
+        ClosureH tele -> pure (Map.insert (H.LocalName x) (teleThunkType tele) th)
+        _ -> pure th
+      -- Occurrences of 'x' in the Hoist program are translated to occurrences
+      -- of 'x'' in the Lower program.
+      let ns' = Map.insert (H.LocalName x) (LocalName x') ns
+      pure ((Place s' x', envp', c), (sc'', th', ns'))
+
+
+-- This should take a Place for the closure an Id (pseudo-Place) for the
+-- environment, and the closure alloc itself.
+lowerClosureAlloc :: (Place, Id, H.ClosureAlloc) -> M (EnvAlloc, ClosureAlloc)
+lowerClosureAlloc (p', envp', H.ClosureAlloc _p l _envp (H.EnvAlloc tys xs)) = do
   l' <- lowerCodeLabel l
   tc <- lookupEnvTyCon l
-  envp' <- lowerId envp
   tys' <- traverse lowerType tys
   xs' <- traverse (\ (fld, x) -> (,) <$> lowerFieldName fld <*> lowerName x) xs
   let enva = EnvAlloc envp' tc xs'
   let closa = ClosureAlloc p' l' tys' envp'
   pure (enva, closa)
 
-
+-- TODO: withPlace has duplication with withClosurePlaces. Find a way to unify them.
 withPlace :: H.Place -> (Place -> M a) -> M a
 withPlace (H.Place s x) k = do
   s' <- lowerType s
-  x' <- freshPlace x
-  let
-    (occ, occ') = (H.LocalName x, LocalName x')
-    -- Occurrences of the Hoist name 'occ' will be mapped to occurrences of the
-    -- new Lower name 'occ''.
-    extendNames env = env { envNames = Map.insert occ occ' (envNames env) }
-    -- Places that have a closure type are associated with a Thunk Type: the
-    -- calling convention used to invoke that closure.
-    extendThunk env = case s' of
-      ClosureH tele ->
-        env { envThunkTypes = Map.insert occ (teleThunkType tele) (envThunkTypes env) }
-      _ -> env
-  local (extendNames . extendThunk) $ k (Place s' x')
+  withFreshPlace x $ \x' -> do
+    let
+      (occ, occ') = (H.LocalName x, LocalName x')
+      -- Occurrences of the Hoist name 'occ' will be mapped to occurrences of the
+      -- new Lower name 'occ''.
+      extendNames env = env { envNames = Map.insert occ occ' (envNames env) }
+      -- Places that have a closure type are associated with a Thunk Type: the
+      -- calling convention used to invoke that closure.
+      extendThunk env = case s' of
+        ClosureH tele ->
+          env { envThunkTypes = Map.insert occ (teleThunkType tele) (envThunkTypes env) }
+        _ -> env
+    local (extendNames . extendThunk) $ k (Place s' x')
 
--- | Given a Hoist variable binder x, we want to pick a Lower variable
--- binder whose name is distinct from all names in scope.
-freshPlace :: H.Id -> M Id
-freshPlace (H.Id x i) = do
-  let
-    -- 'x' should always be the environment pointer
-    -- tricky possible bug: if there are no envNames in scope, the
-    -- environment pointer will not be added to 'scope'.
-    --
-    -- Even though there are no uses of the envptr, names in C cannot be
-    -- shadowed, so a codegen error may occur.
-    --
-    -- If that ever occurs, find a way to deal with it.
-    nameId (EnvName y f) = Set.singleton y
-    nameId (LocalName y) = Set.singleton y
-  scope <- foldMap nameId <$> asks envNames
-  let go x' = if Set.member x' scope then go (primeId x') else pure x'
-  go (Id x i)
+freshenId :: Set Id -> H.Id -> (Set Id, Id)
+freshenId scope (H.Id x i) = go (Id x i)
+  where
+    go x' = if Set.member x' scope then go (primeId x') else (Set.insert x' scope, x')
+
+withFreshPlace :: H.Id -> (Id -> M a) -> M a
+withFreshPlace x k = do
+  scope <- asks envScope
+  let (scope', x') = freshenId scope x
+  let extend env = env { envScope = scope' }
+  local extend $ k x'
 
 withTyVar :: H.TyVar -> H.Kind -> (TyVar -> Kind -> M a) -> M a
 withTyVar aa@(H.TyVar x i) kk k = do
@@ -462,16 +492,6 @@ withTyVar aa@(H.TyVar x i) kk k = do
   kk' <- lowerKind kk
   let extend env = env { envTyVars = Map.insert aa aa' (envTyVars env) }
   local extend $ k aa' kk'
-
--- Hmm. Something to think about:
--- This function implements lowering for a sequence of value bindings.
--- I also need lowering for a group of value bindings (closure allocation)
--- Likewise, ctor decls are basically unordered, and introduced as a group.
-withPlaces :: [H.Place] -> ([Place] -> M a) -> M a
-withPlaces [] k = k []
-withPlaces (p:ps) k = withPlace p $ \p' ->
-  withPlaces ps $ \ps' ->
-    k (p':ps')
 
 withTyVars :: [(H.TyVar, H.Kind)] -> ([(TyVar, Kind)] -> M a) -> M a
 withTyVars [] k = k []

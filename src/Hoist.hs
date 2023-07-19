@@ -238,24 +238,27 @@ withFunClosures fs cont = do
   let fsorts = [(f, placeType f') | (f, f') <- fbinds]
   let extend env = env { nameRefs = insertMany fnames (nameRefs env), nameTypes = insertMany fsorts (nameTypes env) }
   local extend $ do
-    allocs <- traverse (\ (p, def) -> hoistFunClosure p def) fs'
+    allocs <- traverse (\ (n, (p, def)) -> hoistFunClosure n p def) (zip [0..] fs')
     cont allocs
 
 withContClosures :: [(C.Name, C.ContClosureDef)] -> ([ClosureAlloc] -> HoistM a) -> HoistM a
 withContClosures ks cont = do
   -- Continuation closures are necessarily non-recursive, so this case is
   -- simpler than the case for LetFunC.
-  (kbinds, allocs) <- fmap unzip $ traverse (\ (k, def) -> hoistContClosure k def) ks
+  (kbinds, allocs) <- fmap unzip $ traverse (\ (n, (k, def)) -> hoistContClosure n k def) (zip [0..] ks)
   let knames = [(k, LocalName (placeName k')) | (k, k') <- kbinds]
   let ksorts = [(k, placeType k') | (k, k') <- kbinds]
   let extend env = env { nameRefs = insertMany knames (nameRefs env), nameTypes = insertMany ksorts (nameTypes env) }
   local extend $ cont allocs
 
-hoistFunClosure :: Place -> C.FunClosureDef -> HoistM ClosureAlloc
-hoistFunClosure p (C.FunClosureDef f env params body) = do
+hoistFunClosure :: Int -> Place -> C.FunClosureDef -> HoistM ClosureAlloc
+hoistFunClosure n p (C.FunClosureDef f env params body) = do
   -- Pick a name for the closure's code
   fcode <- nameClosureCode f
-  envp <- pickEnvironmentPlace (placeName p)
+  -- Because closure environments are local to this bind group, and shadowing
+  -- is permissible in Hoist, just use numeric suffixes for the environment
+  -- names.
+  envp <- pure (Id "env" n)
 
   -- Extend context with environment
   withEnvDef env $ \envd -> do
@@ -271,12 +274,12 @@ hoistFunClosure p (C.FunClosureDef f env params body) = do
   let alloc = ClosureAlloc p fcode envp enva
   pure alloc
 
-hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
-hoistContClosure k def@(C.ContClosureDef env params body) = do
+hoistContClosure :: Int -> C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
+hoistContClosure n k def@(C.ContClosureDef env params body) = do
   kplace <- asPlace (C.contClosureType def) k
   -- Pick a name for the closure's code
   kcode <- nameClosureCode k
-  envp <- pickEnvironmentPlace (placeName kplace)
+  envp <- pure (Id "env" n)
 
   -- Extend context with environment
   withEnvDef env $ \envd -> do
@@ -395,17 +398,6 @@ withEnvironmentName :: (Id -> HoistM a) -> HoistM a
 withEnvironmentName cont = do
   envn <- pickEnvironmentName
   cont envn
-
--- | Given the name of a closure allocation, produce a name for the
--- corresponding closure environment.
-pickEnvironmentPlace :: Id -> HoistM Id
-pickEnvironmentPlace cl = do
-  let
-    nameId (LocalName x) = x
-    nameId (EnvName x) = x
-  scope <- foldMap (Set.singleton . nameId) <$> asks nameRefs
-  let go envp = if Set.member envp scope then go (primeId envp) else envp
-  pure (go (Id (show cl ++ "_env") 0))
 
 
 hoistFieldLabel :: C.FieldLabel -> FieldLabel
