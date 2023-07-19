@@ -423,22 +423,38 @@ lowerClosureAlloc (p', H.ClosureAlloc _p l envp (H.EnvAlloc tys xs)) = do
 withPlace :: H.Place -> (Place -> M a) -> M a
 withPlace (H.Place s x) k = do
   s' <- lowerType s
-  x' <- lowerId x
-  let p' = Place s' x'
-  let (occ, occ') = (H.LocalName x, LocalName x')
-  -- Places that have a closure type are associated with a Thunk Type: the
-  -- calling convention used to invoke that closure.
+  x' <- freshPlace x
   let
-    extendThunk = case s' of
-      ClosureH tele -> Map.insert occ (teleThunkType tele)
-      _ -> id
+    (occ, occ') = (H.LocalName x, LocalName x')
+    -- Occurrences of the Hoist name 'occ' will be mapped to occurrences of the
+    -- new Lower name 'occ''.
+    extendNames env = env { envNames = Map.insert occ occ' (envNames env) }
+    -- Places that have a closure type are associated with a Thunk Type: the
+    -- calling convention used to invoke that closure.
+    extendThunk env = case s' of
+      ClosureH tele ->
+        env { envThunkTypes = Map.insert occ (teleThunkType tele) (envThunkTypes env) }
+      _ -> env
+  local (extendNames . extendThunk) $ k (Place s' x')
+
+-- | Given a Hoist variable binder x, we want to pick a Lower variable
+-- binder whose name is distinct from all names in scope.
+freshPlace :: H.Id -> M Id
+freshPlace (H.Id x i) = do
   let
-    extend env =
-      env {
-          envNames = Map.insert occ occ' (envNames env)
-        , envThunkTypes = extendThunk (envThunkTypes env)
-        }
-  local extend $ k p'
+    -- 'x' should always be the environment pointer
+    -- tricky possible bug: if there are no envNames in scope, the
+    -- environment pointer will not be added to 'scope'.
+    --
+    -- Even though there are no uses of the envptr, names in C cannot be
+    -- shadowed, so a codegen error may occur.
+    --
+    -- If that ever occurs, find a way to deal with it.
+    nameId (EnvName y f) = Set.singleton y
+    nameId (LocalName y) = Set.singleton y
+  scope <- foldMap nameId <$> asks envNames
+  let go x' = if Set.member x' scope then go (primeId x') else pure x'
+  go (Id x i)
 
 withTyVar :: H.TyVar -> H.Kind -> (TyVar -> Kind -> M a) -> M a
 withTyVar aa@(H.TyVar x i) kk k = do
@@ -540,6 +556,9 @@ data Id = Id String Int
 
 instance Show Id where
   show (Id x i) = x ++ show i
+
+primeId :: Id -> Id
+primeId (Id x i) = Id x (i+1)
 
 -- | A 'Name' references some in-scope value binding. It can be either a name
 -- in the local scope, or it can be a reference to some field from the
