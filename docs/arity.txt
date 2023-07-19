@@ -142,7 +142,7 @@ Arity Analysis on Direct-Style IR
 =================================
 
 CPS makes analysis hard because most control flow is higher-order. So, to gain
-intution, I will not describe rules for arity analysis on a conventional
+intution, I will now describe rules for arity analysis on a conventional
 direct-style IR.
 
 These rules are simplified from [Call Arity], with ideas from [Making a Faster
