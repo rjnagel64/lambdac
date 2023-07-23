@@ -313,3 +313,47 @@ foldl = \f ~> \z ~> \xs ~>
   in
     go xs z
 
+
+
+Why Higher-Order Arity Analysis is Hard
+=======================================
+
+tl;dr: if higher order, analyzing call sites to analyze body means that
+analyzing body may require re-examining all call sites. This leads to at least
+O(n^2) complexity, probably higher since it is similar to CFA.
+
+example program:
+
+let hof f = f 7 32
+in
+hof (\x -> \y -> \z -> x+y+z) 5
+
+analysing body concludes that 'hof' is applied to 2 arguments.
+
+We use this to analyze the body. 'f 7 32' is applied to one argument, so 'f' is
+applied to 3 arguments.
+
+If we are first order, we stop here. 'hof' can be eta-expanded to two
+arguments, but the arguments to 'f' must be passed one at a time, since '\x ->
+\y -> \z -> x+y+z' is in argument position and is considered to be applied to 0
+arguments.
+
+However, from analyzing the body we know that the first argument ('f') is
+applied to 3 arguments. Higher-order arity analysis would tell us to re-examine
+the call site, and examine '\x -> \y -> \z -> x+y+z' now with the assumption
+that it is applied to 3 arguments. This would let us eta-expand the lambda to
+take all three arguments at once.
+
+
+This specific example is fine, but the lambda is still traversed twice. I can
+vaguely imagine a program with lots of nested arguments leading to doubling and
+doubling the number of times a specific argument is traversed.
+
+In conclusion, trying to propagate higher-order arity information from call
+sites to body and back to call sites leads to bad time complexity.
+
+
+Furthermore, this has bad implications for arity analysis of CPSed functions,
+because all control flow in CPS is higher-order. It may yet be possible to
+exploit the second-class nature of continuations to avoid the time complexity
+problem, but I have not yet worked out how.
