@@ -383,21 +383,12 @@ withParameterList (C.TypeParam aa k : params) cont =
     withParameterList params $ \params' ->
       cont (TypeParam aa' k' : params')
 
--- | Pick a name for the environment parameter, that will not clash with
--- anything already in scope.
-pickEnvironmentName :: HoistM Id
-pickEnvironmentName = do
-  let
-    nameId (LocalName x) = x
-    nameId (EnvName x) = x
-  scope <- foldMap (Set.singleton . nameId) <$> asks nameRefs
-  let go envp = if Set.member envp scope then go (primeId envp) else envp
-  pure (go (Id "env" 0))
-
 withEnvironmentName :: (Id -> HoistM a) -> HoistM a
 withEnvironmentName cont = do
-  envn <- pickEnvironmentName
-  cont envn
+  -- In Hoist, there are never actually any references to the environment
+  -- pointer, because 'EnvName' uses the envptr implicitly.
+  -- Thus, it does not matter if the environment name is shadowed.
+  cont (Id "env" 0)
 
 
 hoistFieldLabel :: C.FieldLabel -> FieldLabel

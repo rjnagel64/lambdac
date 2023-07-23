@@ -343,12 +343,6 @@ lowerTyCon tc = do
     Nothing -> error "tycon not in scope"
     Just tc' -> pure tc'
 
--- TODO: It is (should be) the responsibility of Lower to ensure that all local
--- names are distinct.
---
--- (This is because the "no duplicate names, even with shadowing" restriction
--- only exists because of the C backend, and Lower is responsible for prepping
--- Hoist for code generation)
 newtype M a = M { getM :: Reader LowerEnv a }
 deriving newtype instance Functor M
 deriving newtype instance Applicative M
@@ -381,16 +375,8 @@ runM = flip runReader emptyEnv . getM
       , envEnvTyCons = Map.empty
       }
 
--- This isn't actually a scoping operation anymore, since I pass the env ptr
--- directly to withEnvFields, but it's still semi-useful to indicate that the
--- env ptr is "in scope".
--- (It actually is a scoping operation now, because it adds the env ptr to the
--- set of names in the local scope)
 withEnvPtr :: H.Id -> (Id -> M a) -> M a
 withEnvPtr envp k = withFreshPlace envp k
--- withEnvPtr (H.Id envName i) k = do
---   let envName' = Id envName i
---   k envName'
 
 -- Problem: this needs to be in scope for all subsequent closures, not just the
 -- body of the current closure. Think about how to do this.
