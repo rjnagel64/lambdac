@@ -197,12 +197,9 @@ data Type
 instance Eq Type where
   (==) = eqType emptyAE
 
-data TyConApp
-  = CaseBool
-  | TyConApp TyCon [Type]
+data TyConApp = TyConApp TyCon [Type]
 
 asTyConApp :: Type -> Maybe TyConApp
-asTyConApp TyBool = Just CaseBool
 asTyConApp (TyConOcc tc) = Just (TyConApp tc [])
 asTyConApp (TyApp t s) = go t [s]
   where
@@ -212,7 +209,6 @@ asTyConApp (TyApp t s) = go t [s]
 asTyConApp _ = Nothing
 
 fromTyConApp :: TyConApp -> Type
-fromTyConApp CaseBool = TyBool
 fromTyConApp (TyConApp tc tys) = foldl TyApp (TyConOcc tc) tys
 
 data Kind

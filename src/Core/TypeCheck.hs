@@ -60,6 +60,10 @@ instance Show TCError where
   show (CannotProject t) = "cannot project field from value of type " ++ pprintType 0 t
   show (NotMonadic t) = "cannot execute value with non-monadic type " ++ pprintType 0 t
   show (InvalidLetRec f) = "invalid definition " ++ show f ++ " in a letrec binding"
+  show (CannotTyApp t) = "cannot apply type " ++ pprintType 0 t ++ " to an argument"
+  show (CannotScrutinize t) = "cannot perform case analysis on type " ++ pprintType 0 t
+  show BadCaseLabels = "too many/too few/duplicate ctors in a case analysis"
+
 
 newtype TC a = TC { getTC :: StateT Signature (ReaderT TCEnv (Except TCError)) a }
 
@@ -211,9 +215,7 @@ infer (TmStringOp e1 TmConcat e2) = check e1 TyString *> check e2 TyString *> pu
 infer (TmStringOp e1 TmIndexStr e2) = check e1 TyString *> check e2 TyInt *> pure TyChar
 infer (TmStringLength e1) = check e1 TyString *> pure TyInt
 
-infer (TmIf ec s et ef) = do
-  let alts = [(Ctor "false", [], ef), (Ctor "true", [], et)]
-  inferCase ec s alts
+infer (TmIf ec s et ef) = inferIf ec s et ef
 infer (TmCase e s alts) = inferCase e s alts
 
 infer (TmPure e) = do
@@ -231,14 +233,37 @@ infer (TmRunIO e) = do
     TyIO t -> pure t
     t' -> throwError (NotMonadic t')
 
--- | Infer the type of a case analysis.
+-- | Infer the type of an if-expression.
+inferIf :: Term -> Type -> Term -> Term -> TC Type
+inferIf ec s et ef = do
+  let alts = [(Ctor "false", [], ef), (Ctor "true", [], et)]
+  check ec TyBool
+  let branchTys = Map.fromList [(Ctor "false", []), (Ctor "true", [])]
+  checkBranches alts branchTys s
+  pure s
+
+-- | Infer the type of a case-expression .
 inferCase :: Term -> Type -> [(Ctor, [(TmVar, Type)], Term)] -> TC Type
 inferCase e s alts = do
   tcapp <- infer e >>= \t -> case asTyConApp t of
     Just tapp -> pure tapp
     Nothing -> throwError (CannotScrutinize t)
   branchTys <- instantiateTyConApp tcapp
+  checkBranches alts branchTys s
+  pure s
 
+instantiateTyConApp :: TyConApp -> TC (Map Ctor [Type])
+instantiateTyConApp tcapp = case tcapp of
+  TyConApp tc args -> do
+    DataDecl _ params ctors <- lookupTyCon tc
+    let sub = makeSubst (zipWith (\ (aa, _) t -> (aa, t)) params args)
+    pure $ Map.fromList $ map (ctorBranchTy sub) ctors
+  where
+    ctorBranchTy :: Subst -> CtorDecl -> (Ctor, [Type])
+    ctorBranchTy sub (CtorDecl c ctorArgs) = (c, map (substType sub) ctorArgs)
+
+checkBranches :: [(Ctor, [(TmVar, Type)], Term)] -> Map Ctor [Type] -> Type -> TC ()
+checkBranches alts branchTys s = do
   let provided = Set.fromList (map (\ (c, _, _) -> c) alts)
   let required = Map.keysSet branchTys
   when (provided /= required) $
@@ -247,19 +272,6 @@ inferCase e s alts = do
     let argTys = branchTys Map.! c
     checkBinds xs argTys
     withVars xs $ check rhs s
-
-  pure s
-
-instantiateTyConApp :: TyConApp -> TC (Map Ctor [Type])
-instantiateTyConApp tcapp = case tcapp of
-  CaseBool -> pure $ Map.fromList [(Ctor "false", []), (Ctor "true", [])]
-  TyConApp tc args -> do
-    DataDecl _ params ctors <- lookupTyCon tc
-    let sub = makeSubst (zipWith (\ (aa, _) t -> (aa, t)) params args)
-    pure $ Map.fromList $ map (ctorBranchTy sub) ctors
-  where
-    ctorBranchTy :: Subst -> CtorDecl -> (Ctor, [Type])
-    ctorBranchTy sub (CtorDecl c ctorArgs) = (c, map (substType sub) ctorArgs)
 
 checkBinds :: [(TmVar, Type)] -> [Type] -> TC ()
 checkBinds [] [] = pure ()
