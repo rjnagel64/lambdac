@@ -2,37 +2,41 @@
 -- Stress-test: big merge sort
 -- Note: The ZINC Abstract Machine paper has some interesting benchmarks to consider.
 
+data list (a : *) = {
+  nil();
+  cons(a, list a)
+}
 
 letrec countdown : int -> list int =
-  \ (n : int) -> if n == 0 return list int then nil @int else cons n (countdown (n - 1));
+  \ (n : int) -> if n == 0 return list int then nil @int else cons @int n (countdown (n - 1));
 in
 
 letrec merge : list int -> list int -> list int =
   \ (xs : list int) -> \ (ys : list int) ->
-    case uncons xs return list int of {
+    case xs return list int of {
       nil -> ys;
-      cons (x : int) (xs2 : list int) -> case uncons ys return list int of {
+      cons (x : int) (xs2 : list int) -> case ys return list int of {
         nil -> xs;
         cons (y : int) (ys2 : list int) ->
           if x <= y return list int then
-            cons x (merge xs2 ys)
+            cons @int x (merge xs2 ys)
           else
-            cons y (merge xs ys2)
+            cons @int y (merge xs ys2)
       }
     };
 in
 letrec splithalf : list int -> list int * list int =
   \ (xs : list int) ->
   letrec go : list int -> list int -> list int * list int =
-    \ (slow : list int) -> \ (fast : list int) -> case uncons fast return list int * list int of {
+    \ (slow : list int) -> \ (fast : list int) -> case fast return list int * list int of {
       nil -> (nil @int, slow);
-      cons (_ : int) (fast1 : list int) -> case uncons fast1 return list int * list int of {
+      cons (_ : int) (fast1 : list int) -> case fast1 return list int * list int of {
         nil -> (nil @int, slow);
-        cons (_ : int) (fast2 : list int) -> case uncons slow return list int * list int of {
+        cons (_ : int) (fast2 : list int) -> case slow return list int * list int of {
           nil -> (nil @int, slow);
           cons (x : int) (slow1 : list int) ->
             let p : list int * list int = go slow1 fast2 in
-              (cons x (fst p), snd p)
+              (cons @int x (fst p), snd p)
         }
       }
     };
@@ -40,9 +44,9 @@ in
 go xs xs;
 in
 letrec mergesort : list int -> list int =
-  \ (xs : list int) -> case uncons xs return list int of {
+  \ (xs : list int) -> case xs return list int of {
     nil -> xs;
-    cons (y : int) (ys : list int) -> case uncons ys return list int of {
+    cons (y : int) (ys : list int) -> case ys return list int of {
       nil -> xs;
       cons (_ : int) (_ : list int) ->
         let p : list int * list int = splithalf xs in
