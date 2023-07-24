@@ -1,0 +1,3 @@
+let type arr : * = int -> int in
+let f : arr = \ (x : int) -> x+1 in
+f 16

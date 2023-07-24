@@ -69,6 +69,7 @@ import Resolve
   'string_length#' { L _ TokStringLength }
   'then' { L _ TokThen }
   'true' { L _ TokTrue }
+  'type' { L _ TokType }
   'unit' { L _ TokUnit }
 
   ID { L _ (TokID _) }
@@ -134,6 +135,7 @@ Term :: { Term }
      | '\\' '@' ID '->' Term { TmTLam (ident $3) KiStar $5 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (ident $2) $4 $6 $8 }
      | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (ident $2) $4 $6 $8 }
+     | 'let' 'type' ID ':' Kind '=' Type 'in' Term { TmTypeAlias (ident $3) $5 $7 $9 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (DL.toList $2) $4 }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
      | 'case' Term 'return' Type 'of' '{' Alts '}' { TmCase $2 $4 (DL.toList $7) }

@@ -55,6 +55,7 @@ tokens :-
   "string_length#" { simpleToken TokStringLength }
   "then" { simpleToken TokThen }
   "true" { simpleToken TokTrue }
+  "type" { simpleToken TokType }
   "unit" { simpleToken TokUnit }
 
   -- Identifiers and literals
@@ -162,6 +163,7 @@ data Token
   | TokStringLength
   | TokThen
   | TokTrue
+  | TokType
   | TokUnit
   deriving Show
 

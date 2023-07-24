@@ -38,6 +38,7 @@ import Data.Set (Set)
 
 import Data.Bifunctor
 import Data.List (intercalate)
+import Data.Traversable (mapAccumL)
 
 -- In the future, it may be worthwhile to do 'Source'-level optimizations.
 -- At the very least, arity raising/uncurrying is much easier here.
@@ -193,6 +194,9 @@ data Type
   | TyApp Type Type
   | TyRecord [(FieldLabel, Type)]
   | TyIO Type
+  -- TyAliasApp is an applied type synonym.
+  -- It is roughly equivalent to a parallel let-binding, 'let (type ai:ki = ti)+ in t'.
+  | TyAliasApp [(TyVar, Kind)] [Type] Type
 
 instance Eq Type where
   (==) = eqType emptyAE
@@ -236,6 +240,14 @@ bindAE x y (AE l fw bw) = AE (l+1) (Map.insert x l fw) (Map.insert y l bw)
 
 -- | Alpha-equality of two types
 eqType :: AE -> Type -> Type -> Bool
+eqType ae (TyAliasApp params args t1) t2 =
+  let sub = makeSubst [(aa, s) | ((aa, _k), s) <- zip params args] in
+  let t1' = substType sub t1 in
+  eqType ae t1' t2
+eqType ae t1 (TyAliasApp params args t2) =
+  let sub = makeSubst [(aa, s) | ((aa, _k), s) <- zip params args] in
+  let t2' = substType sub t2 in
+  eqType ae t1 t2'
 eqType ae (TyVarOcc x) (TyVarOcc y) = lookupAE ae x y
 eqType _ (TyVarOcc _) _ = False
 eqType _ (TyConOcc c1) (TyConOcc c2) = c1 == c2
@@ -295,6 +307,13 @@ substBind (Subst sc sub) aa =
       else
         go (i+1)
 
+substBinds :: Subst -> [(TyVar, Kind)] -> (Subst, [(TyVar, Kind)])
+substBinds sub binds = mapAccumL f sub binds
+  where
+    f s (aa, ki) =
+      let (s', aa') = substBind s aa in
+      (s', (aa', ki))
+
 substTyVar :: Subst -> TyVar -> Type
 substTyVar sub aa = case Map.lookup aa (substMapping sub) of
   Nothing -> TyVarOcc aa
@@ -302,6 +321,10 @@ substTyVar sub aa = case Map.lookup aa (substMapping sub) of
 
 -- | Apply a substitution to a type, @substType sub t' === t'[sub]@.
 substType :: Subst -> Type -> Type
+substType sub (TyAliasApp params args t) =
+  let args' = map (substType sub) args in
+  let (sub', params') = substBinds sub params in
+  TyAliasApp params' args' (substType sub' t)
 substType sub (TyVarOcc bb) = substTyVar sub bb
 substType sub (TyAll aa ki t) = let (sub', aa') = substBind sub aa in TyAll aa' ki (substType sub' t)
 substType _ TyUnit = TyUnit
@@ -331,6 +354,7 @@ ftv TyChar = Set.empty
 ftv (TyConOcc _) = Set.empty
 ftv (TyApp t1 t2) = ftv t1 <> ftv t2
 ftv (TyIO t1) = ftv t1
+ftv (TyAliasApp params args t) = foldMap ftv args <> (ftv t Set.\\ Set.fromList [aa | (aa, _ki) <- params])
 
 -- something something showsPrec
 pprintType :: Int -> Type -> String
@@ -353,6 +377,11 @@ pprintType _ (TyVarOcc x) = show x
 pprintType _ (TyConOcc c) = show c
 pprintType p (TyAll x ki t) =
   parensIf (p > 0) $ "forall (" ++ show x ++ " : " ++ pprintKind ki ++ "). " ++ pprintType 0 t
+pprintType p (TyAliasApp params args t) = parensIf (p > 10) $
+  "TyAliasApp [" ++ intercalate ", " (map f params) ++ "] [" ++ intercalate ", " (map g args) ++ "] " ++ pprintType 11 t
+  where
+    f (aa, k) = show aa ++ " : " ++ pprintKind k
+    g t = pprintType 0 t
 
 pprintKind :: Kind -> String
 pprintKind KiStar = "*"

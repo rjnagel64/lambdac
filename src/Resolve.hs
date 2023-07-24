@@ -159,6 +159,10 @@ resolveTerm (TmLet x t e1 e2) = do
   withTmVar x t $ \xt' -> do
     e2' <- resolveTerm e2
     pure (uncurry S.TmLet <$> xt' <*> e1' <*> e2')
+resolveTerm (TmTypeAlias x k t e) = do
+  withTypeAlias x k t $ do
+    e' <- resolveTerm e
+    pure e'
 resolveTerm (TmBind x t e1 e2) = do
   e1' <- resolveTerm e1
   withTmVar x t $ \xt' -> do
@@ -188,14 +192,7 @@ resolveTerm (TmIf ec s et ef) = do
   pure (S.TmIf <$> ec' <*> s' <*> et' <*> ef')
 
 resolveType :: Type -> M (Resolved S.Type)
-resolveType (TyNameOcc (L l x)) = do
-  tyVars <- asks ctxTyVars
-  tyCons <- asks ctxTyCons
-  case (Map.lookup x tyVars, Map.lookup x tyCons) of
-    (Nothing, Nothing) -> pure (Error [NameNotInScope l x])
-    (Just x', Nothing) -> pure (Resolved (S.TyVarOcc x'))
-    (Nothing, Just x') -> pure (Resolved (S.TyConOcc x'))
-    (Just _, Just _) -> pure (Error [AmbiguousName l x])
+resolveType (TyNameOcc (L l x)) = resolveTyNameOcc (L l x) []
 resolveType TyUnit = pure (Resolved S.TyUnit)
 resolveType TyInt = pure (Resolved S.TyInt)
 resolveType TyBool = pure (Resolved S.TyBool)
@@ -203,10 +200,10 @@ resolveType TyString = pure (Resolved S.TyString)
 resolveType TyChar = pure (Resolved S.TyChar)
 resolveType (TyProd t s) = liftA2 S.TyProd <$> resolveType t <*> resolveType s
 resolveType (TyArr t s) = liftA2 S.TyArr <$> resolveType t <*> resolveType s
-resolveType (TyApp t s) = liftA2 S.TyApp <$> resolveType t <*> resolveType s
 resolveType (TyIO t) = liftA S.TyIO <$> resolveType t
--- Kind of messy (especially sequenceA?). Not sure how to simplify.
-resolveType (TyRecord fs) = (liftA S.TyRecord . sequenceA) <$> traverse resolveField fs
+resolveType (TyRecord fs) = do
+  fs' <- traverse resolveField fs
+  pure (liftA S.TyRecord (sequenceA fs'))
   where
     resolveField :: (FieldLabel, Type) -> M (Resolved (S.FieldLabel, S.Type))
     resolveField (l, t) = liftA2 (,) <$> resolveFieldLabel l <*> resolveType t
@@ -214,6 +211,55 @@ resolveType (TyAll a k t) = do
   withTyVar a k $ \ak' -> do
     t' <- resolveType t
     pure (uncurry S.TyAll <$> ak' <*> t')
+resolveType (TyApp t s) = go t [s]
+  where
+    go :: Type -> [Type] -> M (Resolved S.Type)
+    -- Search for the head of this sequence of type applications, collecting
+    -- the arguments as we go.
+    go (TyApp t' s') args = go t' (s' : args)
+    -- The head of the argument is a name reference. Resolve it in the context
+    -- of these arguments.
+    go (TyNameOcc x) args = resolveTyNameOcc x args
+    -- If the head of the application isn't a name, just apply the arguments like normal.
+    -- This will probably fail Core.TypeCheck, but name resolution is currently
+    -- separate from type-checking, so that isn't our problem. (yet.)
+    go ty args = do
+      ty' <- resolveType ty
+      args' <- traverse resolveType args
+      pure (tyAppMany <$> ty' <*> sequenceA args')
+
+resolveTyNameOcc :: L ID -> [Type] -> M (Resolved S.Type)
+resolveTyNameOcc (L l x) args = do
+  tyVars <- asks ctxTyVars
+  tyCons <- asks ctxTyCons
+  aliases <- asks ctxAliases
+  case (Map.lookup x tyVars, Map.lookup x tyCons, Map.lookup x aliases) of
+    (Just x', Nothing, Nothing) -> do
+      args' <- traverse resolveType args
+      pure (tyAppMany <$> Resolved (S.TyVarOcc x') <*> sequenceA args')
+    (Nothing, Just x', Nothing) -> do
+      args' <- traverse resolveType args
+      pure (tyAppMany <$> Resolved (S.TyConOcc x') <*> sequenceA args')
+    (Nothing, Nothing, Just (params, body)) -> do
+      let nparams = length params
+      let nargs = length args
+      if nargs < nparams then
+        -- underapplied: error
+        pure (Error [UnderAppliedSynonym l x nparams nargs])
+      else do
+        args' <- traverse resolveType args
+        -- fully applied or overapplied: gather 'nparams' args in a TyAliasApp,
+        -- and tyAppMany the rest.
+        let rFullRest = splitAt nparams <$> sequenceA args'
+        let (fullArgs, restArgs) = (fst <$> rFullRest, snd <$> rFullRest)
+        let ralias = S.TyAliasApp params <$> fullArgs <*> body
+        pure (tyAppMany <$> ralias <*> restArgs)
+    (Nothing, Nothing, Nothing) -> pure (Error [NameNotInScope l x])
+    (_, _, _) -> pure (Error [AmbiguousName l x])
+
+tyAppMany :: S.Type -> [S.Type] -> S.Type
+tyAppMany t ts = foldl (\acc s -> S.TyApp acc s) t ts
+
 
 resolveKind :: Kind -> M (Resolved S.Kind)
 resolveKind KiStar = pure (Resolved S.KiStar)
@@ -278,6 +324,18 @@ withTyCon (L _ tc@(ID ident)) k cont = do
   let extend env = env { ctxTyCons = Map.insert tc tc' (ctxTyCons env) }
   local extend $ cont tc' k'
 
+withTypeAlias :: L ID -> Kind -> Type -> M a -> M a
+withTypeAlias (L _ tc) k t m = do
+  t' <- resolveType t
+  -- hmm. I don't like the fact that I ignore the kind signature.
+  -- Couple that with how Resolve eliminates most of the type alias, does this
+  -- mean that type aliases don't get kind-checked?
+  --
+  -- It might be worthwhile after all to persist type aliases through Core, and
+  -- then eliminate them for CPS.
+  let extend env = env { ctxAliases = Map.insert tc ([], t') (ctxAliases env) }
+  local extend $ m
+
 
 newtype M a = M { getM :: Reader Context a }
 
@@ -292,6 +350,7 @@ data Context
   , ctxCons :: Map ID S.Ctor
   , ctxTyVars :: Map ID S.TyVar
   , ctxTyCons :: Map ID S.TyCon
+  , ctxAliases :: Map ID ([(S.TyVar, S.Kind)], Resolved S.Type)
   }
 
 runM :: M a -> a
@@ -302,6 +361,7 @@ runM = flip runReader emptyContext . getM
       , ctxCons = Map.empty
       , ctxTyVars = Map.empty
       , ctxTyCons = Map.empty
+      , ctxAliases = Map.empty
       }
 
 -- | The result of performing name resolution. It is either something
@@ -315,6 +375,7 @@ data ResolveError
   = NameNotInScope Loc ID
   | AmbiguousName Loc ID
   | DuplicateBinder Loc Loc ID
+  | UnderAppliedSynonym Loc ID Int Int
 
 instance Functor Resolved where
   fmap f (Resolved a) = Resolved (f a)
@@ -369,6 +430,8 @@ data Term
   | TmFieldProj Term FieldLabel
   -- { l1 = e1, ..., ln = en }
   | TmRecord [(FieldLabel, Term)]
+  -- let type x:k = t in e
+  | TmTypeAlias (L ID) Kind Type Term
   -- let x:t = e1 in e2
   | TmLet (L ID) Type Term Term
   -- let rec (x:t = e)+ in e'
@@ -455,6 +518,8 @@ pprintError :: ResolveError -> String
 pprintError (NameNotInScope l x) = displayLoc l ++ ": name not in scope: " ++ show x
 pprintError (AmbiguousName l x) = displayLoc l ++ ": ambiguous name: " ++ show x
 pprintError (DuplicateBinder l l' x) = "multiple binders with same name: " ++ show x
+pprintError (UnderAppliedSynonym l x nparams nargs) =
+  displayLoc l ++ ": underapplied type synonym: " ++ show x ++ " expects " ++ show nparams ++ " arguments but got " ++ show nargs ++ " arguments"
 
 -- something something showsPrec
 pprintType :: Int -> Type -> String

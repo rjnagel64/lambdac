@@ -138,6 +138,16 @@ equalTypes t t' = when (t /= t') $ throwError (TypeMismatch t t')
 equalKinds :: Kind -> Kind -> TC ()
 equalKinds k k' = when (k' /= k) $ throwError (KindMismatch k k')
 
+-- | Push a type alias at the outermost level out of the way, by substituting
+-- it into the body.
+push :: Type -> TC Type
+push (TyAliasApp params args t) = do
+  checkTyArgs params args
+  let sub = makeSubst [(aa, s) | ((aa, k), s) <- zip params args]
+  let t' = substType sub t
+  pure t'
+push t = pure t
+
 
 -- | Infer the type of a term.
 infer :: Term -> TC Type
@@ -165,7 +175,7 @@ infer (TmLam x t e) = do
   t' <- withVars [(x, t)] $ infer e
   pure (TyArr t t')
 infer (TmApp e1 e2) = do
-  infer e1 >>= \case
+  (infer >=> push) e1 >>= \case
     TyArr t1 t2 -> do
       check e2 t1
       pure t2
@@ -175,7 +185,7 @@ infer (TmTLam aa ki e) = do
   t <- withTyVars [(aa, ki)] $ infer e
   pure (TyAll aa ki t)
 infer (TmTApp e t) = do
-  infer e >>= \case
+  (infer >=> push) e >>= \case
     TyAll aa ki t' -> do
       checkType t ki
       pure (substType (singleSubst aa t) t')
@@ -185,15 +195,15 @@ infer TmNil = pure TyUnit
 infer (TmPair e1 e2) = TyProd <$> infer e1 <*> infer e2
 infer (TmRecord fs) = TyRecord <$> traverse (\ (f, e) -> (,) <$> pure f <*> infer e) fs
 infer (TmFst e) = do
-  infer e >>= \case
+  (infer >=> push) e >>= \case
     TyProd t1 _t2 -> pure t1
     t -> throwError (CannotProject t)
 infer (TmSnd e) = do
-  infer e >>= \case
+  (infer >=> push) e >>= \case
     TyProd _t1 t2 -> pure t2
     t -> throwError (CannotProject t)
 infer (TmFieldProj e f) = do
-  infer e >>= \case
+  (infer >=> push) e >>= \case
     t@(TyRecord fs) -> case lookup f fs of
       Nothing -> throwError (CannotProject t)
       Just t' -> pure t'
@@ -229,7 +239,7 @@ infer (TmPutLine e) = do
   check e TyString
   pure (TyIO TyUnit)
 infer (TmRunIO e) = do
-  infer e >>= \case
+  (infer >=> push) e >>= \case
     TyIO t -> pure t
     t' -> throwError (NotMonadic t')
 
@@ -245,7 +255,7 @@ inferIf ec s et ef = do
 -- | Infer the type of a case-expression .
 inferCase :: Term -> Type -> [(Ctor, [(TmVar, Type)], Term)] -> TC Type
 inferCase e s alts = do
-  tcapp <- infer e >>= \t -> case asTyConApp t of
+  tcapp <- (infer >=> push) e >>= \t -> case asTyConApp t of
     Just tapp -> pure tapp
     Nothing -> throwError (CannotScrutinize t)
   branchTys <- instantiateTyConApp tcapp
@@ -273,10 +283,19 @@ checkBranches alts branchTys s = do
     checkBinds xs argTys
     withVars xs $ check rhs s
 
+-- | Check that the variables bound by a case alternative have the types
+-- indicated by the scrutinee.
 checkBinds :: [(TmVar, Type)] -> [Type] -> TC ()
 checkBinds [] [] = pure ()
 checkBinds ((x, t) : binds) (t' : tys) = equalTypes t t' *> checkBinds binds tys
 checkBinds _ _ = throwError ArityMismatch
+
+-- | Check that a sequence of type parameters matches a sequence of type
+-- arguments.
+checkTyArgs :: [(TyVar, Kind)] -> [Type] -> TC ()
+checkTyArgs [] [] = pure ()
+checkTyArgs ((aa, ki) : aas) (t : ts) = checkType t ki *> checkTyArgs aas ts
+checkTyArgs _ _ = throwError ArityMismatch
 
 -- | Check that a term has the specified type.
 check :: Term -> Type -> TC ()
@@ -300,6 +319,9 @@ inferType (TyProd t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 inferType (TyRecord fs) = traverse_ (\ (f, t) -> checkType t KiStar) fs *> pure KiStar
 inferType (TyIO t) = checkType t KiStar *> pure KiStar
 inferType (TyArr t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
+inferType (TyAliasApp params args t) = do
+  checkTyArgs params args
+  withTyVars params $ inferType t
 
 -- | Check that a type has the specified kind.
 checkType :: Type -> Kind -> TC ()

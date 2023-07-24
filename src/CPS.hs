@@ -64,6 +64,14 @@ makeStringOp :: S.TmStringOp -> TmVar -> TmVar -> (StringOpK, S.Type)
 makeStringOp S.TmConcat x y = (ConcatK x y, S.TyString)
 makeStringOp S.TmIndexStr x y = (IndexK x y, S.TyChar)
 
+-- | Push a type alias at the outermost level out of the way, by substituting
+-- it into the body.
+push :: S.Type -> S.Type
+push (S.TyAliasApp params args t) =
+  let sub = S.makeSubst [(aa, s) | ((aa, _), s) <- zip params args] in
+  S.substType sub t
+push t = t
+
 cpsType :: S.Type -> CPS TypeK
 cpsType (S.TyVarOcc aa) = do
   env <- asks cpsEnvTyCtx
@@ -85,6 +93,9 @@ cpsType (S.TyArr a b) = (\a' b' -> FunK [ValueTele a'] [b']) <$> cpsType a <*> c
 cpsType (S.TyConOcc (S.TyCon tc)) = pure (TyConOccK (TyCon tc))
 cpsType (S.TyApp a b) = TyAppK <$> cpsType a <*> cpsType b
 cpsType (S.TyIO a) = (\a' -> FunK [ValueTele TokenK] [ContK [TokenK, a']]) <$> cpsType a
+cpsType (S.TyAliasApp params args t) =
+  let sub = S.makeSubst [(aa, s) | ((aa, _k), s) <- zip params args] in
+  cpsType (S.substType sub t)
 
 cpsCoType :: S.Type -> CPS CoTypeK
 cpsCoType s = (\s' -> ContK [s']) <$> cpsType s
@@ -194,7 +205,7 @@ cps (S.TmTLam aa ki e) k =
       pure (LetFunK [def] e'', t'')
 cps (S.TmFst e) k = 
   cps e $ MetaCont $ \z t -> do
-    (ta, _tb) <- case t of
+    (ta, _tb) <- case push t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
@@ -204,7 +215,7 @@ cps (S.TmFst e) k =
       pure (res, t')
 cps (S.TmSnd e) k = 
   cps e $ MetaCont $ \z t -> do
-    (_ta, tb) <- case t of
+    (_ta, tb) <- case push t of
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
@@ -214,7 +225,7 @@ cps (S.TmSnd e) k =
       pure (res, t')
 cps (S.TmFieldProj e f) k =
   cps e $ MetaCont $ \z t -> do
-    tf <- case t of
+    tf <- case push t of
       S.TyRecord fs -> case lookup f fs of
         Nothing -> error "type error"
         Just tf -> pure tf
@@ -296,7 +307,7 @@ cps (S.TmLetRec fs e) k =
 cps (S.TmApp e1 e2) k =
   cps e1 $ MetaCont $ \fv t1 -> do
     cps e2 $ MetaCont $ \xv _t2 -> do
-      retTy <- case t1 of
+      retTy <- case push t1 of
         S.TyArr _argTy retTy -> pure retTy
         _ -> error "type error"
       (cont, t') <- reifyCont k retTy
@@ -305,7 +316,7 @@ cps (S.TmApp e1 e2) k =
 cps (S.TmTApp e ty) k =
   cps e $ MetaCont $ \fv t1 -> do
     ty' <- cpsType ty
-    instTy <- case t1 of
+    instTy <- case push t1 of
       S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa ty) t1')
       _ -> error "type error"
     (cont, t') <- reifyCont k instTy
@@ -338,7 +349,7 @@ cps (S.TmBind x t e1 e2) k =
                   let contBody = CallK m2 [ValueArg s2] [CoVarK k1]
                   pure (contBody, it2)
                 pure (ContDef ((s2, TokenK) : bs) e', it2)
-            t2' <- case it2 of
+            t2' <- case push it2 of
               S.TyIO t2 -> cpsType t2
               _ -> error "body of bind is not monadic"
             let funBody = CallK m1 [ValueArg s1] [ContValK contDef]
@@ -378,7 +389,7 @@ cps (S.TmPutLine e) k = do
       pure (res, t')
 cps (S.TmRunIO e) k = do
   cps e $ MetaCont $ \m it -> do
-    retTy <- case it of
+    retTy <- case push it of
       S.TyIO t -> pure t
       _ -> error "cannot runIO non-monadic value"
     (cont, t') <- freshTm "s" $ \sv -> freshTm "x" $ \xv -> do
@@ -698,7 +709,7 @@ freshenRecBinds fs k = do
     (sc', binds) = mapAccumL pick scope fs
   let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' (insertMany binds ctx) tys cs
   fs' <- for fs $ \ (f, ty, rhs) -> do
-    case (ty, rhs) of
+    case (push ty, rhs) of
       (S.TyArr _t s, S.TmLam x t' body) -> do
         pure (TmFun f x t' s body)
       (S.TyAll aa _k1 t, S.TmTLam bb k2 body) -> do

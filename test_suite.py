@@ -140,6 +140,7 @@ standard_test("record_proj", "true")
 standard_test("charliteral", "' '")
 standard_test("escapechar", "(('\\n', '\\t'), ('\\\\', '\\''))")
 standard_test("fieldprec", "94")
+standard_test("typealias", "17")
 
 def run_tests(test_filter):
     runner = TestRunner()
