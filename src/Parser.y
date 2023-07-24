@@ -133,6 +133,7 @@ Term :: { Term }
      : AppTerm { $1 }
      | '\\' '(' ID ':' Type ')' '->' Term { TmLam (ident $3) $5 $8 }
      | '\\' '@' ID '->' Term { TmTLam (ident $3) KiStar $5 }
+     | '\\' '@' '(' ID ':' Kind ')' '->' Term { TmTLam (ident $4) $6 $9 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (ident $2) $4 $6 $8 }
      | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (ident $2) $4 $6 $8 }
      | 'let' 'type' ID ':' Kind '=' Type 'in' Term { TmTypeAlias (ident $3) $5 $7 $9 }
@@ -230,6 +231,7 @@ Type :: { Type }
      -- but I would prefer ((x, y), z): (a * b) * c
      | Type '*' Type { TyProd $1 $3 }
      | 'forall' ID '.' Type { TyAll (ident $2) KiStar $4 }
+     | 'forall' '(' ID ':' Kind ')' '.' Type { TyAll (ident $3) $5 $8 }
 
 AppType :: { Type }
         : AType { $1 }
@@ -259,6 +261,7 @@ FieldTy :: { (FieldLabel, Type) }
 
 Kind :: { Kind }
      : '*' { KiStar }
+     | Kind '->' Kind { KiArr $1 $3 }
 
 {
 data ParseError = EOF | ErrorAt Loc String

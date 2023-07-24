@@ -1,0 +1,7 @@
+data either (a : *) (b : *) = {
+  inl(a);
+  inr(b)
+}
+let type error : * -> * = either string in
+let e : error int = inr @string @int 17 in
+()

@@ -141,6 +141,9 @@ standard_test("charliteral", "' '")
 standard_test("escapechar", "(('\\n', '\\t'), ('\\\\', '\\''))")
 standard_test("fieldprec", "94")
 standard_test("typealias", "17")
+standard_test("typealias2", "17")
+standard_test("typealias3", "()")
+standard_test("hkpoly", "single(17)")
 
 def run_tests(test_filter):
     runner = TestRunner()

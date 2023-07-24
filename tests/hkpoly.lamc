@@ -1,0 +1,7 @@
+data one (a : *) = {
+  single(a)
+}
+let foo : forall (f : * -> *). f int -> f int
+  = \ @(f : * -> *) -> \ (x : f int) -> x
+in
+foo @one (single @int 17)

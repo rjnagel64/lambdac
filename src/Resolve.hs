@@ -250,6 +250,9 @@ resolveTyNameOcc (L l x) args = do
         args' <- traverse resolveType args
         -- fully applied or overapplied: gather 'nparams' args in a TyAliasApp,
         -- and tyAppMany the rest.
+        -- TODO: Name resolution errors get accidentally duplicated here
+        -- (because both 'fmap's preserve the errors, and then the two sets of
+        -- errors are combined)
         let rFullRest = splitAt nparams <$> sequenceA args'
         let (fullArgs, restArgs) = (fst <$> rFullRest, snd <$> rFullRest)
         let ralias = S.TyAliasApp params <$> fullArgs <*> body
