@@ -69,7 +69,7 @@ makeStringOp S.TmIndexStr x y = (IndexK x y, S.TyChar)
 push :: S.Type -> S.Type
 push (S.TyAliasApp params args t) =
   let sub = S.makeSubst [(aa, s) | ((aa, _), s) <- zip params args] in
-  S.substType sub t
+  push (S.substType sub t)
 push t = t
 
 cpsType :: S.Type -> CPS TypeK

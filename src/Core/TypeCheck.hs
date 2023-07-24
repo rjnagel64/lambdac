@@ -145,7 +145,7 @@ push (TyAliasApp params args t) = do
   checkTyArgs params args
   let sub = makeSubst [(aa, s) | ((aa, k), s) <- zip params args]
   let t' = substType sub t
-  pure t'
+  push t'
 push t = pure t
 
 
