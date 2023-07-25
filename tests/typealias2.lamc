@@ -1,5 +1,5 @@
 
-let type arr : * = int -> int in
-let type arr2 : * = arr in
-let f : arr2 = \ (x : int) -> x+1 in
-f 16
+let type pair : * = int * int in
+let type pair2 : * = pair in
+let p : pair2 = (17, 32) in
+fst p
