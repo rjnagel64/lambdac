@@ -3,6 +3,7 @@
 from collections import Counter
 import subprocess
 import sys
+import time
 
 # TODO: Move this script into tests/? Might need to adjust the CWD for cabal invocations
 
@@ -28,7 +29,8 @@ class StandardTest:
         self.name = name
         self.result = result
 
-    def run(self, runner):
+    def build(self, runner):
+        runner.report_building(self.name)
         src_path = f"./tests/{self.name}.lamc"
         exe_path = f"./tests/bin/{self.name}"
         compile_command = [compiler_path, src_path, "-o", exe_path]
@@ -38,7 +40,9 @@ class StandardTest:
         proc = subprocess.run(compile_command, capture_output=True, encoding="utf8")
         if proc.returncode != 0:
             runner.report_failure(self.name, proc.stdout, proc.stderr)
-            return
+
+    def run(self, runner):
+        exe_path = f"./tests/bin/{self.name}"
 
         proc = subprocess.run([exe_path], capture_output=True, encoding="utf8")
         if proc.stdout != f"result = {self.result}\n":
@@ -55,11 +59,10 @@ class IOTest:
     def __init__(self, name):
         self.name = name
 
-    def run(self, runner):
+    def build(self, runner):
+        runner.report_building(self.name)
         src_path = f"./tests/{self.name}.lamc"
         exe_path = f"./tests/bin/{self.name}"
-        stdin_path = f"./tests/{self.name}.stdin"
-        stdout_path = f"./tests/{self.name}.stdout"
         compile_command = [compiler_path, src_path, "-o", exe_path]
         compile_command.append("--check-cps")
         # compile_command.append("--check-cc")
@@ -68,6 +71,11 @@ class IOTest:
         if proc.returncode != 0:
             runner.report_failure(self.name, proc.stdout, proc.stderr)
             return
+
+    def run(self, runner):
+        exe_path = f"./tests/bin/{self.name}"
+        stdin_path = f"./tests/{self.name}.stdin"
+        stdout_path = f"./tests/{self.name}.stdout"
 
         def execute(stdin_obj):
             proc = subprocess.run([exe_path], stdin=stdin_obj, capture_output=True, encoding="utf8")
@@ -148,18 +156,29 @@ standard_test("hkpoly", "single(17)")
 
 def run_tests(test_filter):
     runner = TestRunner()
+    start = time.time()
+    for test in tests_to_run:
+        if test_filter is None or test.name in test_filter:
+            test.build(runner)
+        else:
+            runner.report_skipped(test.name)
+    built = time.time()
     for test in tests_to_run:
         if test_filter is None or test.name in test_filter:
             test.run(runner)
-        else:
-            runner.report_skipped(test.name)
+    ran = time.time()
 
     runner.print_summary()
+    print(f"test build time: {built - start:.03f}s")
+    print(f"test exec time: {ran - built:.03f}s")
 
 class TestRunner:
     def __init__(self):
         self.stats = Counter()
         self.failed_tests = []
+
+    def report_building(self, name):
+        print(f"BUILD {name}")
 
     def report_skipped(self, name):
         self.stats["skipped"] += 1
