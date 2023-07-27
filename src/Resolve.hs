@@ -159,8 +159,8 @@ resolveTerm (TmLet x t e1 e2) = do
   withTmVar x t $ \xt' -> do
     e2' <- resolveTerm e2
     pure (uncurry S.TmLet <$> xt' <*> e1' <*> e2')
-resolveTerm (TmTypeAlias x k t e) = do
-  withTypeAlias x k t $ do
+resolveTerm (TmTypeAlias x params k t e) = do
+  withTypeAlias x params k t $ do
     e' <- resolveTerm e
     pure e'
 resolveTerm (TmBind x t e1 e2) = do
@@ -240,23 +240,20 @@ resolveTyNameOcc (L l x) args = do
     (Nothing, Just x', Nothing) -> do
       args' <- traverse resolveType args
       pure (tyAppMany <$> Resolved (S.TyConOcc x') <*> sequenceA args')
-    (Nothing, Nothing, Just (params, body)) -> do
-      let nparams = length params
-      let nargs = length args
-      if nargs < nparams then
-        -- underapplied: error
-        pure (Error [UnderAppliedSynonym l x nparams nargs])
-      else do
-        args' <- traverse resolveType args
-        -- fully applied or overapplied: gather 'nparams' args in a TyAliasApp,
-        -- and tyAppMany the rest.
-        -- TODO: Name resolution errors get accidentally duplicated here
-        -- (because both 'fmap's preserve the errors, and then the two sets of
-        -- errors are combined)
-        let rFullRest = splitAt nparams <$> sequenceA args'
-        let (fullArgs, restArgs) = (fst <$> rFullRest, snd <$> rFullRest)
-        let ralias = S.TyAliasApp params <$> fullArgs <*> body
-        pure (tyAppMany <$> ralias <*> restArgs)
+    (Nothing, Nothing, Just (rparams, rbody)) -> do
+      rargs <- traverse resolveType args
+      pure (collapse (expandAlias <$> rparams <*> sequenceA rargs <*> rbody))
+      where
+        expandAlias :: [(S.TyVar, S.Kind)] -> [S.Type] -> S.Type -> Resolved S.Type
+        expandAlias params args' body = do
+          let nparams = length params
+          let nargs = length args'
+          if nargs < nparams then
+            Error [UnderAppliedSynonym l x nparams nargs]
+          else do
+            let (fullArgs, restArgs) = splitAt nparams args'
+            let alias = S.TyAliasApp params fullArgs body
+            pure (tyAppMany alias restArgs)
     (Nothing, Nothing, Nothing) -> pure (Error [NameNotInScope l x])
     (_, _, _) -> pure (Error [AmbiguousName l x])
 
@@ -327,16 +324,16 @@ withTyCon (L _ tc@(ID ident)) k cont = do
   let extend env = env { ctxTyCons = Map.insert tc tc' (ctxTyCons env) }
   local extend $ cont tc' k'
 
-withTypeAlias :: L ID -> Kind -> Type -> M a -> M a
-withTypeAlias (L _ tc) k t m = do
-  t' <- resolveType t
+withTypeAlias :: L ID -> [(L ID, Kind)] ->  Kind -> Type -> M a -> M a
+withTypeAlias (L _ tc) params k t m = do
+  (params', t') <- withTyVars params $ \params' -> (,) params' <$> resolveType t
   -- hmm. I don't like the fact that I ignore the kind signature.
   -- Couple that with how Resolve eliminates most of the type alias, does this
   -- mean that type aliases don't get kind-checked?
   --
   -- It might be worthwhile after all to persist type aliases through Core, and
   -- then eliminate them for CPS.
-  let extend env = env { ctxAliases = Map.insert tc ([], t') (ctxAliases env) }
+  let extend env = env { ctxAliases = Map.insert tc (params', t') (ctxAliases env) }
   local extend $ m
 
 
@@ -353,7 +350,7 @@ data Context
   , ctxCons :: Map ID S.Ctor
   , ctxTyVars :: Map ID S.TyVar
   , ctxTyCons :: Map ID S.TyCon
-  , ctxAliases :: Map ID ([(S.TyVar, S.Kind)], Resolved S.Type)
+  , ctxAliases :: Map ID (Resolved [(S.TyVar, S.Kind)], Resolved S.Type)
   }
 
 runM :: M a -> a
@@ -391,6 +388,11 @@ instance Applicative Resolved where
   Resolved _ <*> Error es = Error es
   Error es <*> Resolved _ = Error es
   Error es1 <*> Error es2 = Error (es1 <> es2)
+
+collapse :: Resolved (Resolved a) -> Resolved a
+collapse (Error es) = Error es
+collapse (Resolved (Error es)) = Error es
+collapse (Resolved (Resolved a)) = Resolved a
 
 
 -- | A generic identifier, that will be resolved to an appropriate type by this pass.
@@ -434,7 +436,7 @@ data Term
   -- { l1 = e1, ..., ln = en }
   | TmRecord [(FieldLabel, Term)]
   -- let type x:k = t in e
-  | TmTypeAlias (L ID) Kind Type Term
+  | TmTypeAlias (L ID) [(L ID, Kind)] Kind Type Term
   -- let x:t = e1 in e2
   | TmLet (L ID) Type Term Term
   -- let rec (x:t = e)+ in e'

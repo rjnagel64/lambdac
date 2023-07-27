@@ -1,0 +1,4 @@
+
+let type endo (a : *) : * = a -> a in
+let inc : endo int = \ (x : int) -> x+1 in
+inc 16

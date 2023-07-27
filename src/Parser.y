@@ -136,7 +136,8 @@ Term :: { Term }
      | '\\' '@' '(' ID ':' Kind ')' '->' Term { TmTLam (ident $4) $6 $9 }
      | 'let' ID ':' Type '=' Term 'in' Term { TmLet (ident $2) $4 $6 $8 }
      | 'let' ID ':' Type '<-' Term 'in' Term { TmBind (ident $2) $4 $6 $8 }
-     | 'let' 'type' ID ':' Kind '=' Type 'in' Term { TmTypeAlias (ident $3) $5 $7 $9 }
+     | 'let' 'type' ID ':' Kind '=' Type 'in' Term { TmTypeAlias (ident $3) [] $5 $7 $9 }
+     | 'let' 'type' ID TyBinds ':' Kind '=' Type 'in' Term { TmTypeAlias (ident $3) (DL.toList $4) $6 $8 $10 }
      | 'letrec' RecBinds 'in' Term { TmLetRec (DL.toList $2) $4 }
      | 'if' Term 'return' Type 'then' Term 'else' Term { TmIf $2 $4 $6 $8 }
      | 'case' Term 'return' Type 'of' '{' Alts '}' { TmCase $2 $4 (DL.toList $7) }
