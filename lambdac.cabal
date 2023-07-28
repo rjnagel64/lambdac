@@ -49,8 +49,8 @@ library
       Hoist
       Hoist.IR
       Hoist.TypeCheck
-      Lower
-      Emit
+      Backend.Lower
+      Backend.Emit
     default-extensions:
       LambdaCase
       StandaloneDeriving

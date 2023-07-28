@@ -1,5 +1,5 @@
 
-module Emit
+module Backend.Emit
     ( emitProgram
     ) where
 
@@ -13,7 +13,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
-import Lower
+import Backend.Lower
 
 -- TODO: Something smarter than string and list concatenation.
 -- builders? text? environment?

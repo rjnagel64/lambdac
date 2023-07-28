@@ -1,6 +1,6 @@
 
 -- | A module describing the structure and syntactic operations on the Lower IR.
-module Lower
+module Backend.Lower
     ( Id(..)
     , Name(..)
     , Place(..)
@@ -75,6 +75,8 @@ import qualified Hoist.IR as H
 
 import Control.Monad.Reader
 import Control.Monad.State
+
+-- TODO: Separate IR from lowering transformation
 
 
 -- TODO: Avoid shadowing names when preparing to Emit
