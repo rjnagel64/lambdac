@@ -133,7 +133,7 @@ main = do
 
   let srcL = L.lowerProgram srcH
 
-  let obj = unlines $ E.emitProgram srcL
+  let obj = E.emitProgram srcL
   when (driverDumpEmit args) $ do
     putStrLn $ "--- Code Generation ---"
     putStrLn obj

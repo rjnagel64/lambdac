@@ -185,8 +185,8 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
 
 type DataEnv = Map TyCon DataDecl
 
-emitProgram :: Program -> [Line]
-emitProgram pgm@(Program ds e) =
+emitProgram :: Program -> String
+emitProgram pgm@(Program ds e) = unlines $
   prologue ++
   concatMap emitThunkDecl ts ++
   concat decls ++
@@ -206,6 +206,7 @@ emitDecl denv (DeclCode cd) =
 emitDecl denv (DeclData dd@(DataDecl tc _)) =
   let denv' = Map.insert tc dd denv in
   (denv', emitDataDecl dd)
+
 
 emitEntryPoint :: DataEnv -> TermH -> [Line]
 emitEntryPoint denv e =
@@ -705,3 +706,4 @@ emitName (EnvName envp x) = show envp ++ "->" ++ show x
 
 emitField :: FieldLabel -> Type -> String
 emitField f s = typeFor s ++ show f
+
