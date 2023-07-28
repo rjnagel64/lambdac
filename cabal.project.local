@@ -1,0 +1,7 @@
+
+-- applies to all library/executable in 'lambdac.cabal'?
+package lambdac
+  profiling: False
+  library-profiling: False
+  -- profiling: True
+  -- library-profiling: True
