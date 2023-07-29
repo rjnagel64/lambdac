@@ -49,6 +49,7 @@ library
       Hoist
       Hoist.IR
       Hoist.TypeCheck
+      Backend.IR
       Backend.Lower
       Backend.Emit
     default-extensions:
