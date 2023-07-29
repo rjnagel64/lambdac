@@ -160,9 +160,9 @@ resolveTerm (TmLet x t e1 e2) = do
     e2' <- resolveTerm e2
     pure (uncurry S.TmLet <$> xt' <*> e1' <*> e2')
 resolveTerm (TmTypeAlias x params k t e) = do
-  withTypeAlias x params k t $ do
+  withTypeAlias x params k t $ \al ad -> do
     e' <- resolveTerm e
-    pure e'
+    pure (S.TmLetType al <$> ad <*> e')
 resolveTerm (TmBind x t e1 e2) = do
   e1' <- resolveTerm e1
   withTmVar x t $ \xt' -> do
@@ -240,7 +240,7 @@ resolveTyNameOcc (L l x) args = do
     (Nothing, Just x', Nothing) -> do
       args' <- traverse resolveType args
       pure (tyAppMany <$> Resolved (S.TyConOcc x') <*> sequenceA args')
-    (Nothing, Nothing, Just (rparams, rbody)) -> do
+    (Nothing, Nothing, Just (x', rparams, rbody)) -> do
       rargs <- traverse resolveType args
       pure (collapse (expandAlias <$> rparams <*> sequenceA rargs <*> rbody))
       where
@@ -252,7 +252,7 @@ resolveTyNameOcc (L l x) args = do
             Error [UnderAppliedSynonym l x nparams nargs]
           else do
             let (fullArgs, restArgs) = splitAt nparams args'
-            let alias = S.TyAliasApp params fullArgs body
+            let alias = S.TyAliasApp x' fullArgs
             pure (tyAppMany alias restArgs)
     (Nothing, Nothing, Nothing) -> pure (Error [NameNotInScope l x])
     (_, _, _) -> pure (Error [AmbiguousName l x])
@@ -324,17 +324,20 @@ withTyCon (L _ tc@(ID ident)) k cont = do
   let extend env = env { ctxTyCons = Map.insert tc tc' (ctxTyCons env) }
   local extend $ cont tc' k'
 
-withTypeAlias :: L ID -> [(L ID, Kind)] ->  Kind -> Type -> M a -> M a
-withTypeAlias (L _ tc) params k t m = do
+withTypeAlias :: L ID -> [(L ID, Kind)] ->  Kind -> Type -> (S.Alias -> Resolved S.AliasDef -> M a) -> M a
+withTypeAlias (L _ tc@(ID ident)) params k t cont = do
+  let al = S.Alias ident
   (params', t') <- withTyVars params $ \params' -> (,) params' <$> resolveType t
+  k' <- resolveKind k
+  let ad = S.AliasDef <$> params' <*> k' <*> t'
   -- hmm. I don't like the fact that I ignore the kind signature.
   -- Couple that with how Resolve eliminates most of the type alias, does this
   -- mean that type aliases don't get kind-checked?
   --
   -- It might be worthwhile after all to persist type aliases through Core, and
   -- then eliminate them for CPS.
-  let extend env = env { ctxAliases = Map.insert tc (params', t') (ctxAliases env) }
-  local extend $ m
+  let extend env = env { ctxAliases = Map.insert tc (al, params', t') (ctxAliases env) }
+  local extend $ cont al ad
 
 
 newtype M a = M { getM :: Reader Context a }
@@ -350,7 +353,7 @@ data Context
   , ctxCons :: Map ID S.Ctor
   , ctxTyVars :: Map ID S.TyVar
   , ctxTyCons :: Map ID S.TyCon
-  , ctxAliases :: Map ID (Resolved [(S.TyVar, S.Kind)], Resolved S.Type)
+  , ctxAliases :: Map ID (S.Alias, Resolved [(S.TyVar, S.Kind)], Resolved S.Type)
   }
 
 runM :: M a -> a

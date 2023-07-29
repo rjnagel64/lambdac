@@ -66,11 +66,19 @@ makeStringOp S.TmIndexStr x y = (IndexK x y, S.TyChar)
 
 -- | Push a type alias at the outermost level out of the way, by substituting
 -- it into the body.
-push :: S.Type -> S.Type
-push (S.TyAliasApp params args t) =
-  let sub = S.makeSubst [(aa, s) | ((aa, _), s) <- zip params args] in
+push :: S.Type -> CPS S.Type
+push (S.TyAliasApp al args) = do
+  S.AliasDef params _k t <- lookupAlias al
+  let sub = S.makeSubst [(aa, s) | ((aa, _), s) <- zip params args]
   push (S.substType sub t)
-push t = t
+push t = pure t
+
+lookupAlias :: S.Alias -> CPS S.AliasDef
+lookupAlias al = do
+  env <- asks cpsEnvAliases
+  case Map.lookup al env of
+    Nothing -> error "scope error"
+    Just ad -> pure ad
 
 cpsType :: S.Type -> CPS TypeK
 cpsType (S.TyVarOcc aa) = do
@@ -93,8 +101,11 @@ cpsType (S.TyArr a b) = (\a' b' -> FunK [ValueTele a'] [b']) <$> cpsType a <*> c
 cpsType (S.TyConOcc (S.TyCon tc)) = pure (TyConOccK (TyCon tc))
 cpsType (S.TyApp a b) = TyAppK <$> cpsType a <*> cpsType b
 cpsType (S.TyIO a) = (\a' -> FunK [ValueTele TokenK] [ContK [TokenK, a']]) <$> cpsType a
-cpsType (S.TyAliasApp params args t) =
-  let sub = S.makeSubst [(aa, s) | ((aa, _k), s) <- zip params args] in
+cpsType (S.TyAliasApp al args) = do
+  S.AliasDef params _k t <- lookupAlias al
+  -- We assume that the input is well-formed, so length params == length args
+  -- and all kinds match.
+  let sub = S.makeSubst [(aa, s) | ((aa, _k), s) <- zip params args]
   cpsType (S.substType sub t)
 
 cpsCoType :: S.Type -> CPS CoTypeK
@@ -121,7 +132,7 @@ cpsProgram (S.Program ds e) = flip runReader emptyEnv . runCPS $ do
   ds' <- traverse cpsDataDecl ds
 
   let ctorbinds = concatMap ctorWrapperBinds ds
-  let extend (CPSEnv sc tms tys cs) = CPSEnv sc tms tys (insertMany ctorbinds cs)
+  let extend env = env { cpsEnvCtors = insertMany ctorbinds (cpsEnvCtors env) }
 
   -- Unfortunately, I cannot use ObjCont here because 'HaltK' is not a covar.
   -- If I manage the hybrid/fused cps transform, I should revisit this.
@@ -205,7 +216,7 @@ cps (S.TmTLam aa ki e) k =
       pure (LetFunK [def] e'', t'')
 cps (S.TmFst e) k = 
   cps e $ MetaCont $ \z t -> do
-    (ta, _tb) <- case push t of
+    (ta, _tb) <- push t >>= \case
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
@@ -215,7 +226,7 @@ cps (S.TmFst e) k =
       pure (res, t')
 cps (S.TmSnd e) k = 
   cps e $ MetaCont $ \z t -> do
-    (_ta, tb) <- case push t of
+    (_ta, tb) <- push t >>= \case
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
@@ -225,7 +236,7 @@ cps (S.TmSnd e) k =
       pure (res, t')
 cps (S.TmFieldProj e f) k =
   cps e $ MetaCont $ \z t -> do
-    tf <- case push t of
+    tf <- push t >>= \case
       S.TyRecord fs -> case lookup f fs of
         Nothing -> error "type error"
         Just tf -> pure tf
@@ -304,10 +315,12 @@ cps (S.TmLetRec fs e) k =
     (e', t') <- cps e k
     let res = LetFunK fs'' e'
     pure (res, t')
+cps (S.TmLetType al ad e) k =
+  withAlias al ad $ cps e k
 cps (S.TmApp e1 e2) k =
   cps e1 $ MetaCont $ \fv t1 -> do
     cps e2 $ MetaCont $ \xv _t2 -> do
-      retTy <- case push t1 of
+      retTy <- push t1 >>= \case
         S.TyArr _argTy retTy -> pure retTy
         _ -> error "type error"
       (cont, t') <- reifyCont k retTy
@@ -316,7 +329,7 @@ cps (S.TmApp e1 e2) k =
 cps (S.TmTApp e ty) k =
   cps e $ MetaCont $ \fv t1 -> do
     ty' <- cpsType ty
-    instTy <- case push t1 of
+    instTy <- push t1 >>= \case
       S.TyAll aa _ki t1' -> pure (S.substType (S.singleSubst aa ty) t1')
       _ -> error "type error"
     (cont, t') <- reifyCont k instTy
@@ -349,7 +362,7 @@ cps (S.TmBind x t e1 e2) k =
                   let contBody = CallK m2 [ValueArg s2] [CoVarK k1]
                   pure (contBody, it2)
                 pure (ContDef ((s2, TokenK) : bs) e', it2)
-            t2' <- case push it2 of
+            t2' <- push it2 >>= \case
               S.TyIO t2 -> cpsType t2
               _ -> error "body of bind is not monadic"
             let funBody = CallK m1 [ValueArg s1] [ContValK contDef]
@@ -389,7 +402,7 @@ cps (S.TmPutLine e) k = do
       pure (res, t')
 cps (S.TmRunIO e) k = do
   cps e $ MetaCont $ \m it -> do
-    retTy <- case push it of
+    retTy <- push it >>= \case
       S.TyIO t -> pure t
       _ -> error "cannot runIO non-monadic value"
     (cont, t') <- freshTm "s" $ \sv -> freshTm "x" $ \xv -> do
@@ -642,10 +655,16 @@ data CPSEnv
   , cpsEnvCtx :: Map S.TmVar (TmVar, S.Type)
   , cpsEnvTyCtx :: Map S.TyVar (TyVar, S.Kind)
   , cpsEnvCtors :: Map S.Ctor (TmVar, S.Type)
+  , cpsEnvAliases :: Map S.Alias S.AliasDef
   }
 
 emptyEnv :: CPSEnv
-emptyEnv = CPSEnv Map.empty Map.empty Map.empty Map.empty
+emptyEnv = CPSEnv Map.empty Map.empty Map.empty Map.empty Map.empty
+
+withAlias :: S.Alias -> S.AliasDef -> CPS a -> CPS a
+withAlias al ad m = do
+  let extend env = env { cpsEnvAliases = Map.insert al ad (cpsEnvAliases env) }
+  local extend m
 
 -- Hmm. I'm starting to think that maybe I should only be using
 -- 'freshenVarBinds' instead of freshTm directly. (I.E., for reasons of having
@@ -655,7 +674,7 @@ freshTm x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = TmVar x i
-  let extend (CPSEnv sc ctx tys cs) = CPSEnv (Map.insert x (i+1) sc) ctx tys cs
+  let extend env = env { cpsEnvScope = Map.insert x (i+1) (cpsEnvScope env) }
   local extend (k x')
 
 freshCo :: String -> (CoVar -> CPS a) -> CPS a
@@ -663,7 +682,7 @@ freshCo x k = do
   scope <- asks cpsEnvScope
   let i = fromMaybe 0 (Map.lookup x scope)
   let x' = CoVar x i
-  let extend (CPSEnv sc ctx tys cs) = CPSEnv (Map.insert x (i+1) sc) ctx tys cs
+  let extend env = env { cpsEnvScope = Map.insert x (i+1) (cpsEnvScope env) }
   local extend (k x')
 
 insertMany :: Ord k => Foldable t => t (k, v) -> Map k v -> Map k v
@@ -679,7 +698,7 @@ freshenVarBinds bs k = do
       let x' = TmVar x i in
       (Map.insert x (i+1) sc, (S.TmVar x, (x', t)))
     (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' (insertMany bs' ctx) tys cs
+  let extend env = env { cpsEnvScope = sc', cpsEnvCtx = insertMany bs' (cpsEnvCtx env) }
   bs'' <- traverse (\ (_, (x', t)) -> (,) x' <$> cpsType t) bs'
   local extend (k bs'')
 
@@ -693,7 +712,7 @@ freshenTyVarBinds bs k = do
       let aa' = TyVar aa i in
       (Map.insert aa (i+1) sc, (S.TyVar aa, (aa', ki)))
     (sc', bs') = mapAccumL pick scope bs
-  let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' ctx (insertMany bs' tys) cs
+  let extend env = env { cpsEnvScope = sc', cpsEnvTyCtx = insertMany bs' (cpsEnvTyCtx env) }
   bs'' <- traverse (\ (_, (aa', ki)) -> (,) aa' <$> cpsKind ki) bs'
   local extend (k bs'')
 
@@ -707,9 +726,9 @@ freshenRecBinds fs k = do
       let f' = TmVar f i in
       (Map.insert f (i+1) sc, (S.TmVar f, (f', ty)))
     (sc', binds) = mapAccumL pick scope fs
-  let extend (CPSEnv _sc ctx tys cs) = CPSEnv sc' (insertMany binds ctx) tys cs
+  let extend env = env { cpsEnvScope = sc', cpsEnvCtx = insertMany binds (cpsEnvCtx env) }
   fs' <- for fs $ \ (f, ty, rhs) -> do
-    case (push ty, rhs) of
+    push ty >>= \ty' -> case (ty', rhs) of
       (S.TyArr _t s, S.TmLam x t' body) -> do
         pure (TmFun f x t' s body)
       (S.TyAll aa _k1 t, S.TmTLam bb k2 body) -> do

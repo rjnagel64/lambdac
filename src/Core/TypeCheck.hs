@@ -15,12 +15,17 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 
+insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
+insertMany xs m = foldr (uncurry Map.insert) m xs
+
+
 data TCError
   -- Things not in scope
   = NotInScope TmVar
   | CtorNotInScope Ctor
   | TyNotInScope TyVar
   | TyConNotInScope TyCon
+  | AliasNotInScope Alias
 
   -- Mismatch between expected and actual
   | TypeMismatch Type Type -- expected, actual
@@ -46,7 +51,7 @@ instance Show TCError where
     ,"actual:   " ++ pprintType 0 actual
     ]
   show (KindMismatch expected actual) = unlines
-    ["type mismatch:"
+    ["kind mismatch:"
     ,"expected: " ++ pprintKind expected
     ,"actual:   " ++ pprintKind actual
     ]
@@ -55,6 +60,7 @@ instance Show TCError where
   show (CtorNotInScope c) = "constructor not in scope: " ++ show c
   show (TyNotInScope aa) = "type variable not in scope: " ++ show aa
   show (TyConNotInScope tc) = "type constructor not in scope: " ++ show tc
+  show (AliasNotInScope al) = "type alias not in scope: " ++ show al
   show (CannotApply t) = "value of type " ++ pprintType 0 t ++ " cannot have a value applied to it"
   show (CannotInstantiate t) = "value of type " ++ pprintType 0 t ++ " cannot have a type applied to it"
   show (CannotProject t) = "cannot project field from value of type " ++ pprintType 0 t
@@ -70,7 +76,7 @@ newtype TC a = TC { getTC :: StateT Signature (ReaderT TCEnv (Except TCError)) a
 runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyEnv . flip evalStateT emptySig . getTC
   where
-    emptyEnv = TCEnv Map.empty Map.empty
+    emptyEnv = TCEnv Map.empty Map.empty Map.empty
     emptySig = Signature Map.empty Map.empty
 
 deriving newtype instance Functor TC
@@ -84,6 +90,7 @@ data TCEnv
   = TCEnv {
     tcTmVars :: Map TmVar Type
   , tcTyVars :: Map TyVar Kind
+  , tcAliases :: Map Alias AliasDef
   }
 
 data Signature
@@ -97,19 +104,25 @@ withVars xs m = do
   traverse_ (\ (_, t) -> checkType t KiStar) xs
   local f m
   where
-    f (TCEnv tms tys) = TCEnv (foldr (uncurry Map.insert) tms xs) tys
+    f env = env { tcTmVars = insertMany xs (tcTmVars env) }
 
 withTyVars :: [(TyVar, Kind)] -> TC a -> TC a
 withTyVars aas = local f
   where
-    f (TCEnv tms tys) = TCEnv tms (foldr (uncurry Map.insert) tys aas)
+    f env = env { tcTyVars = insertMany aas (tcTyVars env) }
+
+withAlias :: Alias -> AliasDef -> TC a -> TC a
+withAlias al ad m = do
+  checkAliasDef ad
+  let extend env = env { tcAliases = Map.insert al ad (tcAliases env) }
+  local extend m
 
 lookupVar :: TmVar -> TC Type
 lookupVar x = do
   env <- asks tcTmVars
   case Map.lookup x env of
-    Just t -> pure t
     Nothing -> throwError (NotInScope x)
+    Just t -> pure t
 
 lookupTyVar :: TyVar -> TC Kind
 lookupTyVar aa = do
@@ -117,6 +130,13 @@ lookupTyVar aa = do
   case Map.lookup aa env of
     Nothing -> throwError (TyNotInScope aa)
     Just ki -> pure ki
+
+lookupAlias :: Alias -> TC AliasDef
+lookupAlias al = do
+  env <- asks tcAliases
+  case Map.lookup al env of
+    Nothing -> throwError (AliasNotInScope al)
+    Just ad -> pure ad
 
 lookupCtor :: Ctor -> TC Type
 lookupCtor c = do
@@ -133,7 +153,9 @@ lookupTyCon tc = do
     Just dd -> pure dd
 
 equalTypes :: Type -> Type -> TC ()
-equalTypes t t' = when (t /= t') $ throwError (TypeMismatch t t')
+equalTypes t t' = do
+  env <- asks tcAliases
+  unless (eqType (emptyAE env) t t') $ throwError (TypeMismatch t t')
 
 equalKinds :: Kind -> Kind -> TC ()
 equalKinds k k' = when (k' /= k) $ throwError (KindMismatch k k')
@@ -141,11 +163,11 @@ equalKinds k k' = when (k' /= k) $ throwError (KindMismatch k k')
 -- | Push a type alias at the outermost level out of the way, by substituting
 -- it into the body.
 push :: Type -> TC Type
-push (TyAliasApp params args t) = do
+push (TyAliasApp al args) = do
+  AliasDef params k t <- lookupAlias al
   checkTyArgs params args
   let sub = makeSubst [(aa, s) | ((aa, k), s) <- zip params args]
-  let t' = substType sub t
-  push t'
+  push (substType sub t)
 push t = pure t
 
 
@@ -156,6 +178,8 @@ infer (TmCtorOcc c) = lookupCtor c
 infer (TmLet x t e1 e2) = do
   check e1 t
   withVars [(x, t)] $ infer e2
+infer (TmLetType al ad e) = do
+  withAlias al ad $ infer e
 
 infer (TmLetRec bs e) = do
   for_ bs $ \ (x, _, rhs) -> case rhs of
@@ -319,16 +343,22 @@ inferType (TyProd t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
 inferType (TyRecord fs) = traverse_ (\ (f, t) -> checkType t KiStar) fs *> pure KiStar
 inferType (TyIO t) = checkType t KiStar *> pure KiStar
 inferType (TyArr t s) = checkType t KiStar *> checkType s KiStar *> pure KiStar
-inferType (TyAliasApp params args t) = do
+inferType (TyAliasApp al args) = do
+  AliasDef params k _t <- lookupAlias al
   checkTyArgs params args
-  withTyVars params $ inferType t
+  pure k
 
 -- | Check that a type has the specified kind.
 checkType :: Type -> Kind -> TC ()
 checkType t k = inferType t >>= equalKinds k
 
+-- | Compute the kind of a data declaration.
 dataDeclKind :: DataDecl -> Kind
 dataDeclKind (DataDecl _ params _) = foldr (\ (_, k1) k2 -> KiArr k1 k2) KiStar params
+
+checkAliasDef :: AliasDef -> TC ()
+checkAliasDef (AliasDef params k t) = do
+  withTyVars params $ checkType t k
 
 -- | Check a data declaration for validity and extend the declaration signature.
 checkDataDecl :: DataDecl -> TC ()

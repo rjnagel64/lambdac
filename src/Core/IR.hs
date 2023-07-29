@@ -14,6 +14,7 @@ module Core.IR
   , asTyConApp
   , fromTyConApp
 
+  , emptyAE
   , eqType
   , Subst
   , singleSubst
@@ -26,6 +27,9 @@ module Core.IR
   , Program(..)
   , DataDecl(..)
   , CtorDecl(..)
+
+  , Alias(..)
+  , AliasDef(..)
 
   , pprintType
   , pprintKind
@@ -83,6 +87,13 @@ data Ctor = Ctor String
 instance Show Ctor where
   show (Ctor c) = c
 
+data Alias = Alias String
+  deriving (Eq, Ord)
+
+instance Show Alias where
+  show (Alias al) = al
+
+
 newtype FieldLabel = FieldLabel String
   deriving (Eq)
 
@@ -96,6 +107,8 @@ data Program = Program [DataDecl] Term
 data DataDecl = DataDecl TyCon [(TyVar, Kind)] [CtorDecl]
 
 data CtorDecl = CtorDecl Ctor [Type]
+
+data AliasDef = AliasDef [(TyVar, Kind)] Kind Type
 
 
 data Term
@@ -119,6 +132,8 @@ data Term
   | TmLet TmVar Type Term Term
   -- let rec (x:t = e)+ in e'
   | TmLetRec [(TmVar, Type, Term)] Term
+  -- let type T (x:k)+ : k = t in e
+  | TmLetType Alias AliasDef Term
   -- ()
   | TmNil
   -- 17
@@ -194,12 +209,7 @@ data Type
   | TyApp Type Type
   | TyRecord [(FieldLabel, Type)]
   | TyIO Type
-  -- TyAliasApp is an applied type synonym.
-  -- It is roughly equivalent to a parallel let-binding, 'let (type ai:ki = ti)+ in t'.
-  | TyAliasApp [(TyVar, Kind)] [Type] Type
-
-instance Eq Type where
-  (==) = eqType emptyAE
+  | TyAliasApp Alias [Type]
 
 data TyConApp = TyConApp TyCon [Type]
 
@@ -221,13 +231,13 @@ data Kind
   deriving (Eq)
 
 
-data AE = AE Int (Map TyVar Int) (Map TyVar Int)
+data AE = AE Int (Map TyVar Int) (Map TyVar Int) (Map Alias AliasDef)
 
-emptyAE :: AE
-emptyAE = AE 0 Map.empty Map.empty
+emptyAE :: Map Alias AliasDef -> AE
+emptyAE env = AE 0 Map.empty Map.empty env
 
 lookupAE :: AE -> TyVar -> TyVar -> Bool
-lookupAE (AE _ fw bw) x y = case (Map.lookup x fw, Map.lookup y bw) of
+lookupAE (AE _ fw bw _) x y = case (Map.lookup x fw, Map.lookup y bw) of
   -- Both bound: should be bound at the same level
   (Just xl, Just yl) -> xl == yl
   -- Both free: require exact equality
@@ -236,18 +246,45 @@ lookupAE (AE _ fw bw) x y = case (Map.lookup x fw, Map.lookup y bw) of
   _ -> False
 
 bindAE :: TyVar -> TyVar -> AE -> AE
-bindAE x y (AE l fw bw) = AE (l+1) (Map.insert x l fw) (Map.insert y l bw)
+bindAE x y (AE l fw bw defs) = AE (l+1) (Map.insert x l fw) (Map.insert y l bw) defs
+
+aliasAE :: Alias -> AE -> Maybe AliasDef
+aliasAE al (AE _ _ _ defs) = Map.lookup al defs
 
 -- | Alpha-equality of two types
+-- TODO: type equality requires normalization in presence of aliases
+--
+-- Now that type equality involves normalization, I have questions about this
+-- judgement.
+--
+-- In particular, do we know that the inputs are well-kinded? In what context?
+-- It makes some sense to have free type variables (provided that they are
+-- bound in whatever context is relevant here), but does it ever make sense to
+-- have a type alias that isn't in scope?
 eqType :: AE -> Type -> Type -> Bool
-eqType ae (TyAliasApp params args t1) t2 =
-  let sub = makeSubst [(aa, s) | ((aa, _k), s) <- zip params args] in
-  let t1' = substType sub t1 in
-  eqType ae t1' t2
-eqType ae t1 (TyAliasApp params args t2) =
-  let sub = makeSubst [(aa, s) | ((aa, _k), s) <- zip params args] in
-  let t2' = substType sub t2 in
-  eqType ae t1 t2'
+eqType ae (TyAliasApp al1 args1) (TyAliasApp al2 args2) | al1 == al2 = go args1 args2
+  where
+    go [] [] = True
+    go (t1:ts1) (t2:ts2) = eqType ae t1 t2 && go ts1 ts2
+    go _ _ = False
+eqType ae (TyAliasApp al args) t2 = case aliasAE al ae of
+  -- Similar to free variables, we treat aliases without a definition as opaque
+  -- symbols. (Should we, though? Would it be better to signal an error here?)
+  --
+  -- We have already ruled out the case where 't2' is an alias application with
+  -- matching head, so we know that t2 cannot equal the LHS.
+  Nothing -> False
+  Just (AliasDef params k t1) ->
+    -- We assume that the inputs are well-kinded, so parameter and argument
+    -- arities must match.
+    let sub = makeSubst [(aa, s) | ((aa, _k), s) <- zip params args] in
+    eqType ae (substType sub t1) t2
+eqType ae t1 (TyAliasApp al args) = case aliasAE al ae of
+  -- Same concerns and comments as the previous clause.
+  Nothing -> False
+  Just (AliasDef params k t2) ->
+    let sub = makeSubst [(aa, s) | ((aa, _k), s) <- zip params args] in
+    eqType ae t1 (substType sub t2)
 eqType ae (TyVarOcc x) (TyVarOcc y) = lookupAE ae x y
 eqType _ (TyVarOcc _) _ = False
 eqType _ (TyConOcc c1) (TyConOcc c2) = c1 == c2
@@ -321,10 +358,7 @@ substTyVar sub aa = case Map.lookup aa (substMapping sub) of
 
 -- | Apply a substitution to a type, @substType sub t' === t'[sub]@.
 substType :: Subst -> Type -> Type
-substType sub (TyAliasApp params args t) =
-  let args' = map (substType sub) args in
-  let (sub', params') = substBinds sub params in
-  TyAliasApp params' args' (substType sub' t)
+substType sub (TyAliasApp al args) = TyAliasApp al (map (substType sub) args)
 substType sub (TyVarOcc bb) = substTyVar sub bb
 substType sub (TyAll aa ki t) = let (sub', aa') = substBind sub aa in TyAll aa' ki (substType sub' t)
 substType _ TyUnit = TyUnit
@@ -354,7 +388,7 @@ ftv TyChar = Set.empty
 ftv (TyConOcc _) = Set.empty
 ftv (TyApp t1 t2) = ftv t1 <> ftv t2
 ftv (TyIO t1) = ftv t1
-ftv (TyAliasApp params args t) = foldMap ftv args <> (ftv t Set.\\ Set.fromList [aa | (aa, _ki) <- params])
+ftv (TyAliasApp _al args) = foldMap ftv args
 
 -- something something showsPrec
 pprintType :: Int -> Type -> String
@@ -377,11 +411,7 @@ pprintType _ (TyVarOcc x) = show x
 pprintType _ (TyConOcc c) = show c
 pprintType p (TyAll x ki t) =
   parensIf (p > 0) $ "forall (" ++ show x ++ " : " ++ pprintKind ki ++ "). " ++ pprintType 0 t
-pprintType p (TyAliasApp params args t) = parensIf (p > 10) $
-  "TyAliasApp [" ++ intercalate ", " (map f params) ++ "] [" ++ intercalate ", " (map g args) ++ "] " ++ pprintType 11 t
-  where
-    f (aa, k) = show aa ++ " : " ++ pprintKind k
-    g t = pprintType 0 t
+pprintType p (TyAliasApp al args) = parensIf (p > 10) $ show al ++ "[" ++ intercalate ", " (map (pprintType 11) args) ++ "]"
 
 pprintKind :: Kind -> String
 pprintKind KiStar = "*"
