@@ -1,0 +1,373 @@
+
+More miscellaneous design notes
+
+Type Synonyms
+=============
+
+I want to add type synonyms to LamdaC. I think it should be fairly straightforward.
+
+Type synonyms and type synonym declarations are present in the Source IR.
+
+The CPS IR eliminates all synonyms by fully expanding them.
+
+To achieve this, I will need:
+
+* to add a Source.TyCon -> [(Source.TyVar, Source.Kind)], Source.Type mapping to the CPS monad
+* to collect arguments in cpsType, similar to asTyConApp
+  (specifically, a type synonym application is one kind of TyConApp)
+* Type synonyms cannot be underapplied, but potentially can be overapplied?
+  (e.g., when the body of the synonym has a higher kind)
+* arguments of the type synonym are substituted for the parameters of the TyConApp
+* the result is again passed to cpsType, to expand any further synonyms
+
+
+* Type synonyms have a name, and a type parameter list (tyvar+kind)
+* Type synonyms have a return kind
+* Type synonyms must be non-recursive.
+* Type synonyms must be (at least) fully applied
+
+Without type synonyms (or several other features), all types are in normal
+form, and thus can be compared by alpha-equality. Adding type synonyms means
+that we now need some form of normalization to occur when checking type
+equality (such as unfolding the synonyms as necessary).
+
+Example:
+  type foo = int
+  foo =?= int
+Without normalization, error.
+With normalization, the definition is unfolded to get int =?= int, which checks out.
+
+The type equality judgement should take an environment that maps type aliases
+to (normal form) types
+
+STATUS: Fully Implemented (simple, overapplied, with parameters, etc.)
+
+
+Uncurried Kinds for Type Synonyms
+=================================
+
+In order to make type inference for type synonyms practical, they cannot be
+underapplied. This is frequently a syntactic check, but what if we made it part
+of the type/kind system?
+
+Haskell-like type systems have curried kinds: the kind of a binary type
+constructor like 'Either' is '* -> (* -> *)'. However, it is possible to have
+uncurried type constructors, which would instead look like '(*, *) -> *'.
+
+My proposal is this: because type synonyms must be fully applied, their kind
+should be uncurried. Thus, we extend the grammar of kinds, types, and terms
+like so:
+
+kinds k ::= * | * -> * | [k+] -> k -- uncurried kind arrow
+
+types t, s ::= ... | T | t[s+] -- uncurried type application
+
+terms e ::= ... | type T[aa+] = t in e -- type synonyms: could be a toplevel declaration instead
+
+The typing rules look like this:
+
+Γ |- t : [k+] -> k'
+(Γ |- s : k)+
+-------------------
+Γ |- t[s+] : k'
+
+Γ, aa+ |- t : k'
+Γ, T : [k+] -> k' |- e : s
+-----------------------------------
+Γ |- type T[(aa : k)+] = t in e : s
+
+The gist of it is that type synonym declaractions introduce a type constructor
+with an uncurried kind. Uncurried type application is used to eliminate the
+synonym by providing all its arguments at once. Partial applications of a type
+synonym do not type-check.
+
+Note that the return type of an uncurried type constructor can be a curried
+type constructor, so you might have a type expression like 'T[maybe, list] int'.
+
+
+GC Finalizers
+=============
+
+A GC finalizer is a chunk of code that is run when the GC frees an object.
+
+Previously, I've run into a few cases where finalizers would be useful:
+
+* closure environments: originally, a closure's enviromnent was a second-class
+  type whose memory was owned by its closure. This is no longer the case, as
+  closure environments are (bespoke) product types, but the idea was there.
+* record labels: A more recent example is record labels.
+  My current MVP for record values requires storing the name of each field. I
+  originally wanted to have the record "own" the labels and be responsible for
+  their deletion, but lack of GC finalizers stymied this. Instead, I had to
+  make the labels full-sized 'string' values.
+* resources such as file handles
+  * Historically considered a bad idea, since full GC sweeps are irregular
+    enough to cause resource exhaustion for scarce OS resources such as file
+    handles (1024 per process, I think)
+  * could be mitigated by multiple smaller heaps? (too much work/complexity)
+  * I need some way to make sure files get closed, etc. (finalizers,
+    linear/uniqueness types, programmer diligence, etc.)
+
+I think I can implement these by adding a new function pointer to the 'struct type_info_'.
+By default, most values will use 'no_finalizer', which is a no-op function pointer.
+
+The main loop in 'collect()' would invoke info->finalizer before calling free() on an object
+
+
+Named Records
+=============
+
+Currently, my record values are all anonymous. This leads to interesting
+problems with polymorphism, so it's tricky to compile arbitrary records to C
+structs.
+
+The basic problem is that if a function accepts { x: a }, it gets compiled to
+
+struct Record_732 {
+  struct alloc_header header;
+  struct alloc_header *x;
+}
+
+But then if it gets called with { x: int64 }, that record gets compiled to
+
+struct Record_223 {
+  struct alloc_header header;
+  struct int64_value *x;
+}
+
+And these two structs are completely incompatible from the perspective of the C
+compiler. Even pointers to structs cannot really be cast, even though all the
+corresponding fields match/can be cast.
+
+So, I compile anonymous records to dynamic arrays and have to do (expensive)
+field lookups. I think I might be able to partially-evaluate the field lookups,
+but I still need to keep around the strings for the field labels (in the
+display impl)
+
+
+However, named records may be able to circumvent this problem.
+
+record Foo (a : *) = { x: int64, y: a }
+
+let r: Foo bool = Foo.{ x = 17, y = true } in ...
+
+Because the set of fields is fixed and known, and 'Foo a' is exactly the same
+as 'Foo bool', I can compile a single struct:
+
+struct Record_Foo {
+  struct alloc_header header;
+  struct int64_value *x;
+  struct alloc_header *y;
+}
+
+and have it work, just like the polymorphic data types and built-in pair types.
+
+This would introduce a programmer tradeoff, between flexible but less-efficient
+anonymous records and static but more performant named records.
+
+
+Name Resolution Pass
+====================
+
+Consider adding a 'Resolve' pass early in the pipeline. (Raw.IR (no typechecker?) before Source?)
+
+This would distinguish:
+
+* variable vs ctor
+* tyvar vs tctor
+* identify primops
+* resolve built-in sum types
+
+This would let me avoid the ugly %-prefixed ctors and tctors. It would also let
+me decouple the 't + s' syntax from the 'struct sum' in the RTS, and therefore
+eliminate the last vestiges of CaseKind in the last IR stages. Finally, it
+would make defining new primops lighter weight, as I wouldn't need to modify
+the parser and lexer to hard-code primop names.
+
+I could also un-shadow names, but I'm not sure how useful that would be.
+
+
+Raw.IR would have all names be "newtype ID = ID String", all name references
+with a single constructor 'TmNameRef :: ID -> Raw.IR.Term' and 'TyNameRef :: ID
+-> Raw.IR.Type'. The 'resolve' function would turn these into
+'Source.TmVarOcc', 'Source.TmCtorOcc', 'Source.TmInl/TmInr', 'Source.TyVarOcc',
+'Source.TyConOcc', and 'Source.Sum' as appropriate. (Heck, maybe even 't * s'
+once I have support for named records)
+
+The parser would also become simpler, as I wouldn't need the partial functions
+to convert ID to the assorted identifier types.
+
+-- This would tell the resolver to map 'inl e' to 'TmCtorOcc "left" e', or vice versa?
+-- (map builtin syntax to user-defined type, so backend doesnt need to have a builtin type)
+-- inl/inr are unary, so it doesn't really matter if I have a single-arg ctor
+-- wrapper vs the actual argument. (well, except for inlining, but who cares?)
+#[primitive(PRIM_SUM(PRIM_INL, PRIM_INR))]
+data sum (a : *) (b : *) = {
+  left(a),
+  right(b),
+}
+
+Also of note is the fact that Resolve is more of an elaboration-style
+transform, compare to the rest of my passes which separate the validity check
+from the translation. I will need to experiment with how to structure this.
+
+Name resolution and type-checking also tend to be intertwined, such as the
+primitive-sum annotation needing to check that the annotated data type has the
+correct form.
+
+STATUS: Implemented
+
+
+Thought: Arity-Aware CPS Translation and Extensional Function Types
+===================================================================
+
+Reference: Making a Faster Curry with Extensional Types
+Reference: Kinds are Calling Conventions
+(Note: KindCC mostly supersedes ExtCurry)
+
+CPS can be modified to gather a spine of (Source) arguments, and a head (Source) expression.
+
+The head can be examined to determine if it has a known arity.
+(E.G., if the head is a variable or a ctor, look in the context for any
+information, if none default to passing arguments one by one)
+(If the head is something else, like in
+'p : (int -> bool -> int) * string |- fst p 17 true : int', we probably have to
+fall back to one by one arguments.)
+
+That arity can be used to either eta-expand, or to translate all necessary arguments at once.
+
+That paper about extensional function types may be useful.
+
+It reflects the arity of an expression in its type, which is useful for
+multiple reasons. First, it can express ideas like "pass three arguments, then
+pass one, then pass two more". It can also give arity information for
+application heads that are more complex than a function/ctor.
+
+In the example from before, 'p : (int -> bool -> int) * string', so 'fst p 17
+true' has to pass arguments one by one. With extensional functions, we might
+instead have 'p : (int ~> bool ~> int) * string', and 'fst p 17 true' would
+pass both arguments together.
+
+Constructors such as 'cons' would be extensional by default, as 'cons === \x xs
+-> cons x xs' basically by definition. (That is, the arity analysis should
+assign 'cons : forall a. a ~> list a ~> list a'.)
+
+
+Arity analysis could be run after name resolution/type checking. Its job would
+be to replace normal (CBV) function arrows (->) with extensional (CBN) function
+arrows (~>) wherever it could. The CBN function arrow would be a constructor in
+Source, but without user-visible syntax.
+
+
+Note: By definition, if f : a ~> b then f === \x -> f x.
+Thus, f e === f x[x := e] === (\x -> f x) e, which substitutes an arbitrary
+expression for the argument, so ~> uses CBN evaluation semantics.
+
+
+Error Messages for Resolve
+==========================
+
+Obtaining results is monadic, but combining results from subterms is applicative.
+
+something something "errors as values", something something "poison value but
+not needing to add constructor to Term/Type/etc., ..."
+
+So, data Resolved a = Resolved a | Error [ResolveError]. (Basically Validation
+[ResolveError], with Applicative instance)
+
+Instead of 'resolveFoo :: Foo -> M S.Foo', have 'resolveFoo :: Foo -> M
+(Resolved S.Foo)' and 'withBarBinding :: Bar -> (Resolved S.Bar -> M a) -> M a'
+
+This should let me aggregate many errors at once.
+
+This exploits the fact that name resolution errors cannot affect the
+success/failure of other subterms (so applicative rather than monadic errors).
+It also uses the fact that control structures like ExceptT/Validation are still
+values, so I can pass them around and combine them.
+
+It's a bit messier now, since I have two layers of monadic/applicative
+operations in the same expression, but it works fairly well.
+
+STATUS: Implemented (Adds quite a bit of Applicative noise, but works well)
+
+
+Second-Class Continuations
+==========================
+
+Reference: https://compiler.club/compiling-lambda-calculus/
+
+Instead of hoist to toplevel, hoist to enclosing fun closure.
+
+This is because continuations are pretty much parametrized basic blocks.
+
+(TODO: Elaborate on the topic of second-class continuations)
+(hrrm. I suspect there may be a complication here. If the continuations are no
+longer nested, determining in-scope variables becomes more complicated, as in
+"Approaching CPS Soup", Andy Wingo, wingolog.net)  
+
+
+Record Field Lookups
+====================
+
+If the set of labels is closed, I can precompute the index of each field easily.
+
+Currently, fields are ordered by declaration, so I have to do a linear search.
+(currently at runtime, but this could easily be moved to compile time, e.g. in
+lowerFieldProjection)
+
+If I stored fields in sorted order, this could change to a binary search
+(runtime or compile time)
+
+(Side note: right now, I cannot do sorted order, because display_record needs
+to know the original order of labels.)
+(Actually, right now, { l : int, m : bool } is distinct from { m : bool, l :
+int }. If I did sorted labels for bsearch, wouldn't these become the same? I
+think I need to think about the scoped labels thing)
+(Hmm. Not necessarily. They would be the same at runtime, but do not have to be equal types.)
+
+
+It gets tricky, though, once (or if) I add row polymorphism.
+
+I *think* that if I have scoped labels (ref. Daan Leijen paper Extensible
+Records with Scoped Labels), I can still do the sorted list binary search, for
+known labels.
+
+
+e.l requires e : { l : t | rho }
+
+This looks up the index of the leftmost occurrence of l, then projects it.
+
+If fields are sorted, ... [[some relationship between the type of a record and
+how its fields are laid out at runtime]]
+
+Hrrm. Maybe trickier than I thought.
+
+{ l : t | rho } says that there is a field labelled 'l' in the record, and we
+know that labels are sorted. But we don't know how many labels come before 'l'.
+
+
+The Leijen paper sort of discusses this. It suggests splitting field projection
+into field index lookup and field retrieval, then using worker-wrapper to move
+index lookup to call sites. This is because the call sites are more likely to
+have the row variable instantiated, making the record a closed set of labels
+and permitting precomputation of the field index.
+
+This is rather attractive, but it would need a fair amount of work to make it
+type safe. Also, I don't have any optimizations at all, let alone a late-stage
+worker-wrapper pass.
+
+
+Optimizing Closures in O(0) Time
+================================
+
+A set of straightfoward optimizations for lambda-calculus based languages, that
+aim to reduce overhead from constructing closures and referencing environments.
+
+Pretty impressive numbers for simple optimizations.
+
+The paper is written in the context of an R6RS Scheme compiler, and is
+therefore untyped + impure.
+
+I can easily ignore the portions that talk about dealing with mutable reference
+cells, but I do need to figure out typing schemes for these transformations.
+
