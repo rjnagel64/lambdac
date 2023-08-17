@@ -242,15 +242,28 @@ cconv (K.CaseK x kind ks) = do
     pure term
   else
     pure (LetContC kbinds term)
--- Hmm. Technically, this is incorrect scoping.
--- x : T should not be in scope when translating the arguments to the operation.
-cconv (K.LetFstK x t y e) = withTm (x, t) $ \b -> LetFstC b <$> cconvTmVar y <*> cconv e
-cconv (K.LetSndK x t y e) = withTm (x, t) $ \b -> LetSndC b <$> cconvTmVar y <*> cconv e
-cconv (K.LetFieldK x t y f e) = withTm (x, t) $ \b -> LetFieldC b <$> cconvTmVar y <*> cconvFieldLabel f <*> cconv e
-cconv (K.LetValK x t v e) = withTm (x, t) $ \b -> LetValC b <$> cconvValue v <*> cconv e
-cconv (K.LetArithK x op e) = withTm (x, K.IntK) $ \b -> LetArithC b <$> cconvArith op <*> cconv e
-cconv (K.LetCompareK x op e) = withTm (x, K.BoolK) $ \b -> LetCompareC b <$> cconvCmp op <*> cconv e
-cconv (K.LetStringOpK x t op e) = withTm (x, t) $ \b -> LetStringOpC b <$> cconvStringOp op <*> cconv e
+cconv (K.LetFstK x t y e) = do
+  y' <- cconvTmVar y
+  withTm (x, t) $ \b -> LetFstC b y' <$> cconv e
+cconv (K.LetSndK x t y e) = do
+  y' <- cconvTmVar y
+  withTm (x, t) $ \b -> LetSndC b y' <$> cconv e
+cconv (K.LetFieldK x t y f e) = do
+  y' <- cconvTmVar y
+  f' <- cconvFieldLabel f
+  withTm (x, t) $ \b -> LetFieldC b y' f' <$> cconv e
+cconv (K.LetValK x t v e) = do
+  v' <- cconvValue v
+  withTm (x, t) $ \b -> LetValC b v' <$> cconv e
+cconv (K.LetArithK x op e) = do
+  op' <- cconvArith op
+  withTm (x, K.IntK) $ \b -> LetArithC b op' <$> cconv e
+cconv (K.LetCompareK x op e) = do
+  op' <- cconvCmp op
+  withTm (x, K.BoolK) $ \b -> LetCompareC b op' <$> cconv e
+cconv (K.LetStringOpK x t op e) = do
+  op' <- cconvStringOp op
+  withTm (x, t) $ \b -> LetStringOpC b op' <$> cconv e
 cconv (K.LetBindK x y prim e) = do
   (prim', ansTy) <- cconvPrimIO prim
   withTm (x, K.TokenK) $ \b1 -> withTm (y, ansTy) $ \b2 ->
@@ -286,7 +299,7 @@ withFunParams (K.TypeParam aa k : params) cont =
     withFunParams params $ \params' ->
       cont (TypeParam aa' k' : params')
 
-cconvContDef :: (K.ContDef) -> ConvM (ContClosureDef)
+cconvContDef :: K.ContDef -> ConvM (ContClosureDef)
 cconvContDef (K.ContDef xs e) = do
   ((xs', e'), flds) <- listen $
     withTms xs $ \xs' -> do

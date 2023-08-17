@@ -252,7 +252,6 @@ aliasAE :: Alias -> AE -> Maybe AliasDef
 aliasAE al (AE _ _ _ defs) = Map.lookup al defs
 
 -- | Alpha-equality of two types
--- TODO: type equality requires normalization in presence of aliases
 --
 -- Now that type equality involves normalization, I have questions about this
 -- judgement.

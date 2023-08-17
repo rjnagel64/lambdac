@@ -165,6 +165,9 @@ equalKinds k k' = when (k' /= k) $ throwError (KindMismatch k k')
 push :: Type -> TC Type
 push (TyAliasApp al args) = do
   AliasDef params k t <- lookupAlias al
+  -- Hmm. all uses of 'push' are applied to the result of an 'infer'.
+  -- This (should) guarantee that the type is well-formed, so this checkTyArgs
+  -- is redundant.
   checkTyArgs params args
   let sub = makeSubst [(aa, s) | ((aa, k), s) <- zip params args]
   push (substType sub t)
