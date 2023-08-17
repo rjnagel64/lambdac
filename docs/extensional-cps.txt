@@ -1,0 +1,125 @@
+
+CPS with Extensional Function Types?
+====================================
+
+
+"Making a Faster Curry with Extensional Types": Interesting idea: include
+alternate function arrow ~> that can always be eta-expanded.
+
+This permits many arguments to be bundled together and passed at once.
+
+However, the paper is entirely focused on direct-style calculi: either
+interpreters, graph-reduction, small-step semantics, or bytecode VMs.
+
+I want to figure out what translation to continuation-passing style does when
+combined with extensional function arrows.
+
+Addendum: "Kinds are Calling Conventions" seems to subsume and/or build on the
+ideas from "Making a Faster Curry with Extensional Types". Revisit these ideas
+with new context. (In particular, the extensional arrow is still present in
+KCC, and the ordinary arrow 't -> s' has been decomposed into a closure around
+an extensional arrow, '{t ~> s}')
+
+
+
+* how to CPS-Ty[s ~> t]?
+* CPS-Ty[s -> t] = s -> (t -> !) -> !. Should some of these arrows be ~> instead?
+  Almost certainly s -> (t -> !) ~> ! should be valid, because CPS always calls
+  functions with an argument AND a continuation (arity 2).
+  (Does this imply the need for two "noreturn function" types? That is, both
+  't -> !' and 't ~> !'? Probably, like two arrows and two foralls.)
+* I currently bundle s -> (t -> !) -> ! into (s, (t) -> !) -> !. Can I split
+  this apart? Is it helpful?
+
+
+Maybe:
+CPS-Ty[s1 -> s2 ~> s3 ~> t] = s1 -> s2 ~> s3 ~> (t -> !) ~> !
+KindCC syntax:
+CPS-Ty[{s1 ~> s2 ~> s3 ~> t}] = {s1 ~> s2 ~> s3 ~> {t ~> !} ~> !}
+
+unboxing multiple return types:
+CPS-Ty[s -> (t1 * t2)] = s -> ((t1 * t2) -> !) ~> !
+could rewrite (worker-wrapper) this to s -> (t1 -> t2 ~> !) ~> !
+
+
+Consider a variation:
+s -> (t ~> !) ~> !
+The continuation (t ~> !) is extensional/CBN. What does this mean, operationally?
+
+
+Can worker-wrapper be used to unpack KindCC closure types? I think so.
+How is the closure type lev{t} represented at runtime? Any type can be put into
+a closure. The primary use of closures is to turn callable types into
+evaluatable types. A KindCC closure is *not* the same as a environment+code
+closure (i think).
+
+
+let adder : int -> int -> int = \x -> \y -> x + y in
+let add3 : int -> int = adder 3 in
+add3 5
+-- arity analysis:
+-- when 'add3 5' called with 0 args, 'add3' called with 1 arg.
+-- when 'add3' called with 1 arg, 'adder' called with 2 args
+-- done.
+-- add3 always called with 1 arg
+-- adder always called with 2 args
+==>
+let w_adder : int ~> int ~> int = \x ~> \y ~> x + y in
+let adder : int -> int -> int = \x -> \y -> w_adder x y in
+let w_add3 : int ~> int = \z ~> adder 3 z in
+let add3 : int -> int = \z -> w_add3 z in
+add3 5
+-- propagate wrappers
+==>
+let w_adder : int ~> int ~> int = \x ~> \y ~> x + y in
+let w_add3 : int ~> int = \z ~> w_adder 3 z in
+w_add3 5
+-- CPS translation
+-- still uncertain if the continuation should be (int ~> !) or (int -> !)
+-- all continuations only take one argument (because I don't have source-level
+-- support for multiple return values).
+-- Probably (int -> !), because the continuation sometimes appears without
+-- being applied to an argument. (e.g., the occurrence in 'w_adder 3 z k')
+==>
+let w_adder : int ~> int ~> (int -> !) ~> ! = \x ~> \y ~> \k ~> let t0 = x + y in k t0 in
+let w_add3 : int ~> (int -> !) ~> ! = \z ~> \k ~> w_adder 3 z k in
+w_add3 5 (\w -> halt w)
+-- what syntactic restrictions can I put on the CPSed version?
+-- * It should be fully eta-expanded.
+
+
+
+I also need to consider data constructors. I have previously assumed that
+(e.g.) Just === \@a ~> \x ~> Just @a x, which would indicate 'Just :: forall~ a. a
+~> Maybe a', but this is only true if the field is non-strict.
+
+In contrast, consider a strict pair 'P :: !a -> !b -> P a b'
+
+P undefined 5 === undefined =/= (\x ~> \y ~> P x y) undefined 5 (???)
+
+(okay, my syntax has gotten muddled here, between Haskell, my own syntax, and
+syntax from the extensional types paper. Clear it up, and be rigorous about
+what evaluation means)
+
+This situation would instead need something like 'P :: a -> b -> P a b' (CBV for both arguments).
+
+
+
+Rephrasing with terminology from "Kinds are Calling Conventions":
+
+Because the field of 'Just' is non-strict, 'Just @whatever (error "bad")' is in WNHF.
+
+Suppose that 'Just : forall (a : TYPE PtrRep Eval[L]). a ~> Maybe a'
+(in the syntax of the KindCC paper)
+
+By definition, ~> can be eta-expanded, so 'Just == \@a -> \x -> Just @a x'
+
+Does '(\@a -> \x -> Just @a x) @whatever (error "bad")' behave the same way as
+the original term? In my earlier confusion I said "no", but I now think the
+answer is "yes".
+
+The essential thing is that the argument of 'Just' has a non-strict evaluation
+convention, Eval[L].
+
+Thus, the redex '(\x -> Just @whatever x) (error "bad")' can substitute
+'[x := error "bad"]' without needing to first reduce 'error "bad"'.
