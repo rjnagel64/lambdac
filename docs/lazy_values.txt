@@ -1,0 +1,119 @@
+
+
+Lazy Values via Thunks
+======================
+
+example: lazy int box
+
+
+// Basic version: type declaration
+struct int_thunk {
+  struct gc_header header;
+  struct int_value *value;
+  struct int_value * (*force)(const struct int_thunk *self);
+};
+
+// Thunk allocation
+struct int_thunk *make_int_thunk(struct int_value *(*force)(struct int_thunk *self)) {
+  thunk = malloc();
+  thunk->value = NULL;
+  thunk->force = force;
+  register_with_gc(thunk);
+  return thunk;
+}
+
+// Code for a particular thunk
+struct int_value *force_1732(const struct int_thunk *self) {
+  if (self->value != NULL) {
+    return self->value;
+  } else {
+    // actual computation goes here
+    // ...
+
+    // Update thunk by memoizing the return value.
+    self->value = result;
+    return result;
+  }
+}
+
+
+// Advanced version: mutate the entry code to avoid needing to branch upon
+// every deref.
+//
+// Probably more performant, but I have no measurements. (this is similar to
+// what GHC does?)
+//
+// The type declaration is the same, except that 'self' is no longer const.
+struct int_thunk {
+  struct gc_header header;
+  struct int_value *value;
+  struct int_value *(*force)(struct int_thunk *self);
+};
+
+struct int_value *already_forced(struct int_thunk *self) {
+  return self->value;
+}
+
+// IIRC, when GHC enters a thunk, it replaces the entry code with a "black
+// hole" code.
+// If, during the forcing of that thunk, we try to enter the thunk again, it
+// will signal a runtime error.
+// (This can occur with recursive values, for example)
+struct int_value *blackhole(struct int_thunk *self) {
+  runtime_error("infinite loop while forcing thunk");
+}
+
+// Forcing no longer involves a conditional, but we have to mutate 'self'.
+struct int_value *force_1732(struct int_thunk *self) {
+  debug_assert(self->value == NULL);
+
+  // actual computation goes here
+  // ...
+
+  // Update thunk by memoizing the return value and changing the entry code
+  self->value = result;
+  self->force = already_forced;
+  return result;
+}
+
+
+// Thunk as a polymorphic type, 'lazy : * -> *'
+// |- e : t ===> |- delay e : lazy t
+// |- e : lazy t ===> force e : t
+struct lazy {
+  struc gc_header header;
+  struct gc_header *value;
+  struct gc_value *(*force)(struct any_thunk *self);
+};
+
+
+// Make int_value a lifted data type:
+// Instead of a lifted thunk that contains a pointer to an unlifted data type,
+// make the data type itself lifted.
+struct int_value {
+  struct gc_header header;
+  int64_t value;
+  struct int_value *(*force)(struct int_value *self);
+};
+
+struct int_value *already_forced(struct int_value *self) {
+  return self;
+}
+
+struct int_value *force_1732(struct int_value *self) {
+  // actual computation goes here
+  // ...
+
+  self->value = result;
+  self->force = already_forced;
+  return self;
+}
+
+// Example of case analysis/unboxing on a lifted value, as in kindcc
+void program_entry(void) {
+  struct int_value *x3 = ...;
+
+  // If x3 is known to already be forced, then forcing it is unnecessary.
+  struct int_value *tmp = x3->force(x3);
+  int64_t unboxed_value = tmp->value;
+}
