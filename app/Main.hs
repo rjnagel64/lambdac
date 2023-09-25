@@ -3,7 +3,7 @@
 module Main where
 
 import Control.Monad (when)
-import Data.Foldable (traverse_)
+import Data.Foldable (traverse_, foldl')
 import System.Exit
 import Options.Applicative
 import System.Process.Typed
@@ -67,7 +67,7 @@ applyOpt :: OptPass -> K.Program -> K.Program
 applyOpt OptUncurry = KU.uncurryProgram
 
 applyOpts :: [OptPass] -> K.Program -> K.Program
-applyOpts passes program = foldr applyOpt program passes
+applyOpts passes program = foldl' (\prog opt -> applyOpt opt prog) program passes
 
 driver :: Parser DriverArgs
 driver = DriverArgs
