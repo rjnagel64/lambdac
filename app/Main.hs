@@ -14,7 +14,9 @@ import qualified Parser as P
 import qualified Resolve as R
 import qualified Core.TypeCheck as ST
 import qualified CPS as K
+import qualified CPS.IR as K -- for applyOpts :: [OptPass] -> K.Program -> K.Program
 import qualified CPS.TypeCheck as KT
+import qualified CPS.Uncurry as KU
 import qualified CC as C
 import qualified CC.TypeCheck as CT
 import qualified Hoist as H
@@ -55,7 +57,17 @@ data DriverArgs
   , driverCheckCC :: Bool
   , driverCheckHoist :: Bool
   , driverASAN :: Bool
+  , driverOptPasses :: [OptPass]
+  , driverDumpOpt :: Bool
   }
+
+data OptPass = OptUncurry
+
+applyOpt :: OptPass -> K.Program -> K.Program
+applyOpt OptUncurry = KU.uncurryProgram
+
+applyOpts :: [OptPass] -> K.Program -> K.Program
+applyOpts passes program = foldr applyOpt program passes
 
 driver :: Parser DriverArgs
 driver = DriverArgs
@@ -70,6 +82,12 @@ driver = DriverArgs
   <*> switch (long "check-cc" <> help "whether to run the typechecker on CC IR")
   <*> switch (long "check-hoist" <> help "whether to run the typechecker on Hoist IR")
   <*> switch (long "with-asan" <> help "compile binaries with AddressSanitizer (developer tool)")
+  <*> many (option (maybeReader parseOptPass) (long "opt-pass" <> help "apply a CPS optimizaiton pass" <> metavar "PASS"))
+  <*> switch (long "dump-opt" <> help "whether to dump optimized CPS IR")
+
+parseOptPass :: String -> Maybe OptPass
+parseOptPass "uncurry" = Just OptUncurry
+parseOptPass _ = Nothing
 
 opts :: ParserInfo DriverArgs
 opts = info (helper <*> driver) (fullDesc <> progDesc "Compile LambdaC")
@@ -105,7 +123,12 @@ main = do
       Right () -> do
         putStrLn "CPS: typecheck OK"
 
-  let srcC = C.cconvProgram srcK
+  let optSrcK = applyOpts (driverOptPasses args) srcK
+  when (driverDumpOpt args) $ do
+    putStrLn $ "--- Optimized CPS ---"
+    putStrLn $ K.pprintProgram optSrcK
+
+  let srcC = C.cconvProgram optSrcK
   when (driverDumpCC args) $ do
     putStrLn $ "--- Closure Conversion ---"
     putStrLn $ C.pprintProgram srcC

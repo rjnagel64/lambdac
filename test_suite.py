@@ -19,10 +19,10 @@ if proc.returncode != 0:
     sys.exit(1)
 
 
-tests_to_run = []
+all_tests = []
 def standard_test(name, result):
-    global tests_to_run
-    tests_to_run.append(StandardTest(name, result))
+    global all_tests
+    all_tests.append(StandardTest(name, result))
 
 class StandardTest:
     def __init__(self, name, result):
@@ -37,9 +37,13 @@ class StandardTest:
         compile_command.append("--check-cps")
         # compile_command.append("--check-cc")
         compile_command.append("--check-hoist")
+        # compile_command.extend(["--opt-pass", "uncurry"])
         proc = subprocess.run(compile_command, capture_output=True, encoding="utf8")
         if proc.returncode != 0:
             runner.report_failure(self.name, proc.stdout, proc.stderr)
+            return False
+        else:
+            return True
 
     def run(self, runner):
         exe_path = f"./tests/bin/{self.name}"
@@ -52,8 +56,8 @@ class StandardTest:
         runner.report_success(self.name)
 
 def io_test(name):
-    global tests_to_run
-    tests_to_run.append(IOTest(name))
+    global all_tests
+    all_tests.append(IOTest(name))
 
 class IOTest:
     def __init__(self, name):
@@ -67,10 +71,13 @@ class IOTest:
         compile_command.append("--check-cps")
         # compile_command.append("--check-cc")
         compile_command.append("--check-hoist")
+        # compile_command.extend(["--opt-pass", "uncurry"])
         proc = subprocess.run(compile_command, capture_output=True, encoding="utf8")
         if proc.returncode != 0:
             runner.report_failure(self.name, proc.stdout, proc.stderr)
-            return
+            return False
+        else:
+            return True
 
     def run(self, runner):
         exe_path = f"./tests/bin/{self.name}"
@@ -154,18 +161,30 @@ standard_test("typealias3", "()")
 standard_test("typealias4", "17")
 standard_test("hkpoly", "single(17)")
 
-def run_tests(test_filter):
+def run_tests(test_whitelist):
+    if test_whitelist is None:
+        test_filter = lambda x: True
+    else:
+        test_filter = lambda x: x in test_whitelist
     runner = TestRunner()
+
+    # beginning of build phase
     start = time.time()
-    for test in tests_to_run:
-        if test_filter is None or test.name in test_filter:
-            test.build(runner)
-        else:
+
+    tests_to_run = []
+    for test in all_tests:
+        if not test_filter(test.name):
             runner.report_skipped(test.name)
+        elif test.build(runner):
+            tests_to_run.append(test)
+
+    # end of build phase; start of execution phase
     built = time.time()
+
     for test in tests_to_run:
-        if test_filter is None or test.name in test_filter:
-            test.run(runner)
+        test.run(runner)
+
+    # end of execution phase
     ran = time.time()
 
     runner.print_summary()

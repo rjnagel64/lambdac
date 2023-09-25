@@ -43,6 +43,7 @@ library
       CPS.Opt
       CPS.Simpl
       CPS.TypeCheck
+      CPS.Uncurry
       CC.IR
       CC.TypeCheck
       CC
