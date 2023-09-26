@@ -26,6 +26,7 @@ import Control.Monad.Writer
 import Control.Monad.State
 
 import Data.Traversable (for)
+import Data.Functor.Compose
 
 import qualified CC.IR as C
 
@@ -161,22 +162,33 @@ hoist (C.HaltC x) = do
   pure (HaltH s x')
 hoist (C.JumpC k xs) = do
   k' <- hoistVarOcc k
-  ys <- hoistArgList (map C.ValueArg xs)
-  pure (OpenH k' ys)
+  xs' <- hoistArgList (map C.ValueArg xs)
+  pure (OpenH k' xs')
 hoist (C.CallC f xs ks) = do
   f' <- hoistVarOcc f
-  ys <- hoistArgList (xs ++ map C.ValueArg ks)
-  pure (OpenH f' ys)
+  xs' <- hoistArgList xs
+  (allocs, ks') <- hoistCoArgList ks
+  if null allocs then
+    pure (OpenH f' (xs' ++ map ValueArg ks'))
+  else
+    pure (AllocClosure allocs (OpenH f' (xs' ++ map ValueArg ks')))
 hoist (C.IfC x k1 k2) = do
   x' <- hoistVarOcc x
-  k1' <- hoistVarOcc k1
-  k2' <- hoistVarOcc k2
-  pure $ IfH x' k1' k2'
+  (allocs, ks') <- hoistCoArgList [C.ContCoArg k1, C.ContCoArg k2]
+  let [k1', k2'] = ks'
+  if null allocs then
+    pure $ IfH x' k1' k2'
+  else
+    pure $ AllocClosure allocs (IfH x' k1' k2')
 hoist (C.CaseC x t ks) = do
   x' <- hoistVarOcc x
   kind <- caseKind t
-  ks' <- traverse (\ (C.Ctor c, k) -> (,) <$> pure (Ctor c) <*> hoistVarOcc k) ks
-  pure $ CaseH x' kind ks'
+  (allocs, ks0') <- hoistCoArgList (Compose ks)
+  let ks' = [(Ctor c, k) | (C.Ctor c, k) <- getCompose ks0']
+  if null allocs then
+    pure $ CaseH x' kind ks'
+  else
+    pure $ AllocClosure allocs (CaseH x' kind ks')
 hoist (C.LetValC (x, s) v e) = do
   v' <- hoistValue v
   withPlace x s $ \x' -> do
@@ -426,6 +438,23 @@ hoistArgList xs = traverse f xs
   where
     f (C.TypeArg t) = TypeArg <$> sortOf t
     f (C.ValueArg x) = ValueArg <$> hoistVarOcc x
+
+hoistCoArgList :: Traversable t => t C.CoArgument -> HoistM ([ClosureAlloc], t Name)
+hoistCoArgList ks = do
+  (args, (_, allocs)) <- mapAccumLM f ks (0, [])
+  pure (allocs, args)
+  where
+    f (C.VarCoArg k) acc = do
+      k' <- hoistVarOcc k
+      pure (k', acc)
+    f (C.ContCoArg def) (i, allocs) = do
+      let k = C.Name "__anon_cont" i
+      ((_k, kplace), alloc) <- hoistContClosure i k def
+      let k' = LocalName (placeName kplace)
+      pure (k', (i+1, alloc : allocs))
+
+mapAccumLM :: (Monad m, Traversable t) => (a -> s -> m (b, s)) -> t a -> s -> m (t b, s)
+mapAccumLM f xs s = flip runStateT s $ traverse (StateT . f) xs
 
 -- | Extend the local scope with a new place with the given name and sort.
 withPlace :: C.Name -> C.Type -> (Place -> HoistM a) -> HoistM a

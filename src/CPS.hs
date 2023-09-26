@@ -152,12 +152,24 @@ data Cont
 applyCont :: Cont -> TmVar -> S.Type -> CPS (TermK, S.Type)
 applyCont (ObjCont k) x ty = let res = JumpK k [x] in pure (res, ty)
 applyCont (MetaCont f) x ty = f x ty
+-- Hmm. This is kind of the problem, isn't it?
+-- by this point, the value has already been bound to a name, so now we have to
+-- either have a trivial reassignment y := x, or perform a renaming
+-- substitution (ugh), or something.
+--
+-- Maybe instead, have special cases for cps e (LetCont x t e' k), such as ???
+-- This has something to do with cpsValue?
+--
+-- Alternatively, I could try to make it so that applyCont accepts a Value
+-- rather than a TmVar, but that would probably take a major re-write.
+-- applyCont (LetCont y t e2 k) x ty = _ -- assert t ~ ty
 
 -- | A continuation can be /reified/ (turned into a 'CoValueK') by combining it
 -- with the (source) type of the value it expects.
 reifyCont :: Cont -> S.Type -> CPS (CoValueK, S.Type)
 reifyCont (ObjCont k) ty = pure (CoVarK k, ty)
 reifyCont (MetaCont f) ty =
+  -- cont (x : ty) => f(x)
   freshTm "x" $ \x -> do
     ty' <- cpsType ty
     (e', t') <- f x ty

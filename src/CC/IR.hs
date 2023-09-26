@@ -18,6 +18,7 @@ module CC.IR
   , StringOpC(..)
   , PrimIO(..)
   , Argument(..)
+  , CoArgument(..)
   , TyConApp(..)
   , FunClosureDef(..)
   , funClosureType
@@ -157,12 +158,14 @@ data TermC
   | LetContC [(Name, ContClosureDef)] TermC
   -- Invoke a closure by providing values for the remaining arguments.
   | JumpC Name [Name] -- k x...
-  | CallC Name [Argument] [Name] -- f (x | @t)+ k+
+  | CallC Name [Argument] [CoArgument] -- f (x | @t)+ k+
   | HaltC Name
-  | IfC Name Name Name -- if x then k1 else k2
-  | CaseC Name TyConApp [(Ctor, Name)] -- case x of c1 -> k1 | c2 -> k2 | ...
+  | IfC Name ContClosureDef ContClosureDef -- if x then k1 else k2
+  | CaseC Name TyConApp [(Ctor, CoArgument)] -- case x of c1 -> k1 | c2 -> k2 | ...
 
 data Argument = ValueArg Name | TypeArg Type
+
+data CoArgument = VarCoArg Name | ContCoArg ContClosureDef
 
 data TyConApp = TyConApp TyCon [Type]
 
@@ -272,10 +275,14 @@ pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
 pprintTerm n (JumpC k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
 pprintTerm n (CallC f xs ks) =
-  indent n $ show f ++ " " ++ intercalate " " (map pprintArg xs ++ map show ks) ++ ";\n"
+  indent n $ show f ++ " " ++ intercalate " " (map pprintArg xs ++ map pprintCoArg ks) ++ ";\n"
   where
     pprintArg (ValueArg x) = show x
-    pprintArg (TypeArg t) = pprintType t
+    pprintArg (TypeArg t) = pprintType t -- would probably benefit from parentheses
+    -- hrrm. this has become utterly illegible.
+    -- continuation values do *not* fit nicely in a one-line argument list.
+    pprintCoArg (VarCoArg k) = show k
+    pprintCoArg (ContCoArg def) = "(" ++ pprintContClosure 0 def ++ ")"
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContC ks e) =
@@ -289,10 +296,9 @@ pprintTerm n (LetSndC x y e) =
 pprintTerm n (LetFieldC x y f e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ show y ++ "#" ++ show f ++ ";\n") ++ pprintTerm n e
 pprintTerm n (IfC x k1 k2) =
-  indent n $ "if " ++ show x ++ " then " ++ show k1 ++ " else " ++ show k2
-pprintTerm n (CaseC x _ ks) =
-  let branches = intercalate " | " (map show ks) in
-  indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
+  indent n $ "if " ++ show x ++ "\n" ++ concatMap (pprintAlt (n+2)) [(Ctor "false", ContCoArg k1), (Ctor "true", ContCoArg k2)]
+pprintTerm n (CaseC x _ alts) =
+  indent n $ "case " ++ show x ++ " of \n" ++ concatMap (pprintAlt (n+2)) alts
 pprintTerm n (LetArithC x op e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareC x cmp e) =
@@ -301,6 +307,11 @@ pprintTerm n (LetStringOpC x op e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintStringOp op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetBindC x y prim e) =
   indent n ("let " ++ pprintPlace x ++ ", " ++ pprintPlace y ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
+
+pprintAlt :: Int -> (Ctor, CoArgument) -> String
+pprintAlt n (c, VarCoArg k) = indent n ("| " ++ show c ++ " -> " ++ show k ++ "\n")
+pprintAlt n (c, ContCoArg def) =
+  indent n ("| " ++ show c ++ "->\n" ++ pprintContClosure (n+2) def)
 
 pprintType :: Type -> String
 pprintType (Closure ss) = "(" ++ intercalate ", " (map pprintTele ss) ++ ") -> !"
@@ -371,6 +382,13 @@ pprintFunClosureDef :: Int -> FunClosureDef -> String
 pprintFunClosureDef n (FunClosureDef f env params e) =
   pprintEnvDef n env ++
   indent n (show f ++ " (" ++ pprintClosureParams params ++ ") =\n") ++ pprintTerm (n+2) e
+
+pprintContClosure :: Int -> ContClosureDef -> String
+pprintContClosure n (ContClosureDef env xs e) =
+  pprintEnvDef n env ++ indent n ("cont " ++ params ++ " =>\n") ++ pprintTerm (n+2) e
+  where
+    params = "(" ++ intercalate ", " args ++ ")"
+    args = map pprintPlace xs
 
 pprintContClosureDef :: Int -> (Name, ContClosureDef) -> String
 pprintContClosureDef n (k, ContClosureDef env xs e) =

@@ -11,12 +11,10 @@ import Data.Set (Set)
 
 import Control.Monad.Reader
 import Control.Monad.Writer
-import Control.Monad.State
 
 import Data.Foldable (toList)
 import Data.Function (on)
 import Data.Functor.Identity
-import Data.Functor.Compose
 import Prelude hiding (cos)
 
 import qualified CPS.IR as K
@@ -206,42 +204,24 @@ cconvTyConApp (K.TyConApp (K.TyCon tc) args) = TyConApp (TyCon tc) <$> traverse 
 cconv :: K.TermK -> ConvM TermC
 cconv (K.HaltK x) = HaltC <$> cconvTmVar x
 cconv (K.JumpK k xs) = do
-  (kbinds, Identity k') <- cconvCoArgs (Identity (K.CoVarK k))
+  k' <- cconvCoVar k
   xs' <- traverse cconvTmVar xs
-  let term = JumpC k' xs'
-  if null kbinds then
-    pure term
-  else
-    pure (LetContC kbinds term)
+  pure (JumpC k' xs')
 cconv (K.CallK f args ks) = do
   f' <- cconvTmVar f
   args' <- traverse cconvArgument args
-  (kbinds, ks') <- cconvCoArgs ks
-  let term = CallC f' args' ks'
-  if null kbinds then
-    pure term
-  else
-    pure (LetContC kbinds term)
+  ks' <- traverse cconvCoArgument ks
+  pure (CallC f' args' ks')
 cconv (K.IfK x contf contt) = do
   x' <- cconvTmVar x
   contf' <- cconvContDef contf
   contt' <- cconvContDef contt
-  let k1 = Name "__false_cont" 0
-  let k2 = Name "__true_cont" 0
-  let kbinds = [(k1, contf'), (k2, contt')]
-  pure (LetContC kbinds (IfC x' k1 k2))
+  pure (IfC x' contf' contt')
 cconv (K.CaseK x kind ks) = do
   x' <- cconvTmVar x
   kind' <- cconvTyConApp kind
-  -- Not quite the same as CallK because each co-"argument" is paired
-  -- with a constructor (and the constructor also needs to be translated)
-  (kbinds, ks0') <- cconvCoArgs (Compose ks)
-  let ks' = map (\ (K.Ctor c, k') -> (Ctor c, k')) (getCompose ks0')
-  let term = CaseC x' kind' ks'
-  if null kbinds then
-    pure term
-  else
-    pure (LetContC kbinds term)
+  ks' <- traverse (\ (K.Ctor c, k) -> (,) <$> pure (Ctor c) <*> cconvCoArgument k) ks
+  pure (CaseC x' kind' ks')
 cconv (K.LetFstK x t y e) = do
   y' <- cconvTmVar y
   withTm (x, t) $ \b -> LetFstC b y' <$> cconv e
@@ -399,18 +379,9 @@ cconvArgument :: K.Argument -> ConvM Argument
 cconvArgument (K.ValueArg x) = ValueArg <$> cconvTmVar x
 cconvArgument (K.TypeArg t) = TypeArg <$> cconvType t
 
-cconvCoArgs :: Traversable t => t K.CoValueK -> ConvM ([(Name, ContClosureDef)], t Name)
-cconvCoArgs ks = do
-  (args, (_, defs)) <- runStateT (traverse (StateT . f) ks) (0, [])
-  pure (defs, args)
-  where
-    -- Already a variable. Don't need to bind a definition, just convert it.
-    f (K.CoVarK k) (i, defs) = (\k' -> (k', (i, defs))) <$> cconvCoVar k
-    -- Need to generate a name for the cont, convert the cont, etc.
-    f (K.ContValK cont) (i, defs) = do
-      let k' = Name "__anon_cont" i
-      cont' <- cconvContDef cont
-      pure (k', (i+1, (k', cont'):defs))
+cconvCoArgument :: K.CoValueK -> ConvM CoArgument
+cconvCoArgument (K.CoVarK k) = VarCoArg <$> cconvCoVar k
+cconvCoArgument (K.ContValK cont) = ContCoArg <$> cconvContDef cont
 
 cconvTyVar :: K.TyVar -> ConvM TyVar
 cconvTyVar aa = do
