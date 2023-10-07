@@ -42,8 +42,6 @@ dropUnusedTerm (HaltK x) = pure (HaltK x, useTmVar x)
 dropUnusedTerm (JumpK k xs) = transformJumpSite k xs
 dropUnusedTerm (CallK f xs ks) = transformCallSite f xs ks
 dropUnusedTerm (LetContK ks e) = do
-  -- need to collect variable usage from each contDef
-  -- need to pass call-site transformers into the body
   (ks', tfs, usages) <- fmap unzip3 $ for ks $ \ (k, contDef) -> do
     let wk = isWellKnownTerm k e
     (contDef', usage, mtf) <- transformContDef' wk contDef
@@ -124,6 +122,44 @@ transformFunDef' wk (FunDef f xs ks e) = do
       go2 (ValueParam x t : xs') acc = typeUsage t <> bindTmUsage x (go2 xs' acc)
       go2 (TypeParam aa _k : xs') acc = bindTyUsage aa (go2 xs' acc)
 
+transformJumpSite :: CoVar -> [TmVar] -> M (TermK, AllUsage)
+transformJumpSite k xs = do
+  (Map.lookup k <$> asks jumpTFs) >>= \case
+    Nothing -> pure (JumpK k xs, useCoVar k <> foldMap useTmVar xs)
+    Just (JST tf) -> do
+      let (xs', xusages) = unzip (go tf xs)
+      pure (JumpK k xs', useCoVar k <> mconcat xusages)
+  where
+    go NoArgs [] = []
+    go (KeepArg tf') (y : ys) = (y, useTmVar y) : go tf' ys
+    go (DropArg tf') (_y : ys) = go tf' ys
+    go _ _ = error "bad: jump site doesn't match pattern"
+
+transformCallSite :: TmVar -> [Argument] -> [CoValueK] -> M (TermK, AllUsage)
+transformCallSite f xs ks = do
+  (Map.lookup f <$> asks callTFs) >>= \case
+    -- TODO: recursively transform each co-argument
+    -- We can't (easily) change the parameter lists of these continuations, but
+    -- their bodies may have things to reduce.
+    -- (tl;dr: problems with higher-order functions and CFA)
+    Nothing -> do
+      (ks', kusages) <- fmap unzip $ traverse transformCoValue ks
+      pure (CallK f xs ks', useTmVar f <> foldMap argumentUsage xs <> mconcat kusages)
+    Just (CST xtf ktf) -> do
+      let (xs', xusages) = unzip (go1 xtf xs)
+      (ks', kusages) <- fmap unzip $ go2 ktf ks
+      pure (CallK f xs' ks', useTmVar f <> mconcat xusages <> mconcat kusages)
+  where
+    go1 NoArgs [] = []
+    go1 (KeepArg tf') (arg : args) = (arg, argumentUsage arg) : go1 tf' args
+    go1 (DropArg tf') (_arg : args) = go1 tf' args
+    go1 _ _ = error "bad: call site doesn't match pattern"
+
+    go2 NoArgs [] = pure []
+    go2 (KeepArg tf') (coarg : coargs) = (:) <$> transformCoValue coarg <*> go2 tf' coargs
+    go2 (DropArg tf') (_coarg : coargs) = go2 tf' coargs
+    go2 _ _ = error "bad: call co-site doesn't match pattern"
+
 
 newtype JumpSiteTransformer = JST ArgsTransformer
 
@@ -161,44 +197,6 @@ restrictFunValueParams (TypeParam aa k : xs) usage =
     Unused -> (xs', bindTyUsage aa usage', DropArg tf)
     MaybeUsed -> (TypeParam aa k : xs', bindTyUsage aa usage', KeepArg tf)
 
-
-transformJumpSite :: CoVar -> [TmVar] -> M (TermK, AllUsage)
-transformJumpSite k xs = do
-  (Map.lookup k <$> asks jumpTFs) >>= \case
-    Nothing -> pure (JumpK k xs, foldMap useTmVar xs)
-    Just (JST tf) -> do
-      let (xs', xusages) = unzip (go tf xs)
-      pure (JumpK k xs', mconcat xusages)
-  where
-    go NoArgs [] = []
-    go (KeepArg tf') (y : ys) = (y, useTmVar y) : go tf' ys
-    go (DropArg tf') (_y : ys) = go tf' ys
-    go _ _ = error "bad: jump site doesn't match pattern"
-
-transformCallSite :: TmVar -> [Argument] -> [CoValueK] -> M (TermK, AllUsage)
-transformCallSite f xs ks = do
-  (Map.lookup f <$> asks callTFs) >>= \case
-    -- TODO: recursively transform each co-argument
-    -- We can't (easily) change the parameter lists of these continuations, but
-    -- their bodies may have things to reduce.
-    -- (tl;dr: problems with higher-order functions and CFA)
-    Nothing -> do
-      (ks', kusages) <- fmap unzip $ traverse transformCoValue ks
-      pure (CallK f xs ks', foldMap argumentUsage xs <> mconcat kusages)
-    Just (CST xtf ktf) -> do
-      let (xs', xusages) = unzip (go1 xtf xs)
-      (ks', kusages) <- fmap unzip $ go2 ktf ks
-      pure (CallK f xs' ks', mconcat xusages <> mconcat kusages)
-  where
-    go1 NoArgs [] = []
-    go1 (KeepArg tf') (arg : args) = (arg, argumentUsage arg) : go1 tf' args
-    go1 (DropArg tf') (_arg : args) = go1 tf' args
-    go1 _ _ = error "bad: call site doesn't match pattern"
-
-    go2 NoArgs [] = pure []
-    go2 (KeepArg tf') (coarg : coargs) = (:) <$> transformCoValue coarg <*> go2 tf' coargs
-    go2 (DropArg tf') (_coarg : coargs) = go2 tf' coargs
-    go2 _ _ = error "bad: call co-site doesn't match pattern"
 
 transformCoValue :: CoValueK -> M (CoValueK, AllUsage)
 transformCoValue (CoVarK k) = pure (CoVarK k, useCoVar k)

@@ -60,6 +60,7 @@ data DriverArgs
   , driverASAN :: Bool
   , driverOptPasses :: [OptPass]
   , driverDumpOpt :: Bool
+  , driverCheckOpt :: Bool
   }
 
 data OptPass = OptUncurry | OptUnusedParams
@@ -86,6 +87,7 @@ driver = DriverArgs
   <*> switch (long "with-asan" <> help "compile binaries with AddressSanitizer (developer tool)")
   <*> many (option (maybeReader parseOptPass) (long "opt-pass" <> help "apply a CPS optimizaiton pass" <> metavar "PASS"))
   <*> switch (long "dump-opt" <> help "whether to dump optimized CPS IR")
+  <*> switch (long "check-opt" <> help "whether to run the typechecker on optimized CPS IR")
 
 parseOptPass :: String -> Maybe OptPass
 parseOptPass "uncurry" = Just OptUncurry
@@ -130,6 +132,15 @@ main = do
   when (driverDumpOpt args) $ do
     putStrLn $ "--- Optimized CPS ---"
     putStrLn $ K.pprintProgram optSrcK
+
+  when (driverCheckOpt args) $ do
+    case KT.checkProgram optSrcK of
+      Left err -> do
+        putStrLn "CPS-opt: typecheck error:"
+        putStrLn $ show err
+        exitFailure
+      Right () -> do
+        putStrLn "CPS-opt: typecheck OK"
 
   let srcC = C.cconvProgram optSrcK
   when (driverDumpCC args) $ do
