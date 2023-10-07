@@ -40,6 +40,15 @@ int main(void) {
     // Cleanup.
     destroy_args();
 
+    // Aargh. I need some sort of "RTS flag" mechanism to control printing of
+    // GC stats, because otherwise it interferes with the test suite's output
+    // parsing. Print to stderr?
+    struct alloc_stats final_stats;
+    get_alloc_stats(&final_stats);
+    fprintf(stderr, "GC stats: %llu objects allocated, %llu objects live at exit\n",
+            final_stats.lifetime_num_objects,
+            final_stats.num_live_objects);
+
     // Shut down the GC: release all memory and free the locals vector and gray
     // list.
     destroy_gc();

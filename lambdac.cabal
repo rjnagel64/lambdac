@@ -44,6 +44,7 @@ library
       CPS.Simpl
       CPS.TypeCheck
       CPS.Uncurry
+      CPS.UnusedParams
       CC.IR
       CC.TypeCheck
       CC

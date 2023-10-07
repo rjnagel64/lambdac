@@ -6,7 +6,8 @@
 
 // All allocations.
 static struct alloc_header *first_allocation;
-static uint64_t num_allocs = 0;
+static struct alloc_stats gc_stats;
+// static uint64_t num_allocs = 0; // number of currently live objects
 static uint64_t gc_threshold = 256;
 
 // The locals vector serves as an extra set of GC roots, for values allocated
@@ -117,7 +118,7 @@ void collect(void) {
                 prev->next = next;
             }
             free(alloc);
-            num_allocs--;
+            gc_stats.num_live_objects--;
         } else {
             alloc->mark = 0;
             prev = alloc;
@@ -128,7 +129,7 @@ void collect(void) {
     // Set new threshold.
     // By using twice the current number of objects, the GC is sort of
     // "adaptive".
-    gc_threshold = num_allocs * 2;
+    gc_threshold = gc_stats.num_live_objects * 2;
 }
 
 void sweep_all_allocations(void) {
@@ -147,9 +148,9 @@ void cons_new_alloc(struct alloc_header *alloc, const type_info *info) {
     alloc->next = first_allocation;
     alloc->info = info;
     first_allocation = alloc;
-    num_allocs++;
+    gc_stats.num_live_objects++; gc_stats.lifetime_num_objects++;
     push_local(first_allocation);
-    if (debug_stress_gc || (num_allocs > gc_threshold)) {
+    if (debug_stress_gc || (gc_stats.num_live_objects > gc_threshold)) {
         collect();
     }
 }
@@ -173,4 +174,9 @@ void destroy_gc(void) {
     destroy_locals();
 
     sweep_all_allocations();
+}
+
+void get_alloc_stats(struct alloc_stats *out) {
+    out->lifetime_num_objects = gc_stats.lifetime_num_objects;
+    out->num_live_objects = gc_stats.num_live_objects;
 }

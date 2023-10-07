@@ -43,4 +43,12 @@ void mark_gray(struct alloc_header *alloc);
 void sweep_all_allocations(void);
 void cons_new_alloc(struct alloc_header *alloc, const type_info *info);
 
+struct alloc_stats {
+    // Number of objects allocated over the course of the entire program lifetime
+    uint64_t lifetime_num_objects;
+    // Number of objects currently live
+    uint64_t num_live_objects;
+};
+void get_alloc_stats(struct alloc_stats *out);
+
 #endif

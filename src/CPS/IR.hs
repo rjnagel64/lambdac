@@ -616,7 +616,7 @@ pprintFunDef :: Int -> FunDef -> String
 pprintFunDef n (FunDef f params ks e) =
   indent n (show f ++ " " ++ params' ++ " =\n") ++ pprintTerm (n+2) e
   where
-    params' = "(" ++ intercalate ", " (map pprintParam params ++ map pprintCoParam ks)
+    params' = "(" ++ intercalate ", " (map pprintParam params ++ map pprintCoParam ks) ++ ")"
     pprintParam (ValueParam x t) = show x ++ " : " ++ pprintType t
     pprintParam (TypeParam aa k) = "@" ++ show aa ++ " : " ++ pprintKind k
     pprintCoParam (k, s) = show k ++ " : " ++ pprintCoType s
@@ -670,7 +670,7 @@ pprintAType (RecordK xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
 pprintAType t = "(" ++ pprintType t ++ ")"
 
 pprintCoType :: CoTypeK -> String
-pprintCoType (ContK ss) = "(" ++ intercalate ", " (map pprintType ss) ++ ") -> 0"
+pprintCoType (ContK ss) = "(" ++ intercalate ", " (map pprintType ss) ++ ") -> !"
 
 pprintKind :: KindK -> String
 pprintKind StarK = "*"

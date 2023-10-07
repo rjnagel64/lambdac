@@ -14,9 +14,10 @@ import qualified Parser as P
 import qualified Resolve as R
 import qualified Core.TypeCheck as ST
 import qualified CPS as K
-import qualified CPS.IR as K -- for applyOpts :: [OptPass] -> K.Program -> K.Program
+import qualified CPS.IR as K -- for K.Program, for applyOpts :: [OptPass] -> K.Program -> K.Program
 import qualified CPS.TypeCheck as KT
 import qualified CPS.Uncurry as KU
+import qualified CPS.UnusedParams as KU
 import qualified CC as C
 import qualified CC.TypeCheck as CT
 import qualified Hoist as H
@@ -61,10 +62,11 @@ data DriverArgs
   , driverDumpOpt :: Bool
   }
 
-data OptPass = OptUncurry
+data OptPass = OptUncurry | OptUnusedParams
 
 applyOpt :: OptPass -> K.Program -> K.Program
 applyOpt OptUncurry = KU.uncurryProgram
+applyOpt OptUnusedParams = KU.dropUnusedParams
 
 applyOpts :: [OptPass] -> K.Program -> K.Program
 applyOpts passes program = foldl' (\prog opt -> applyOpt opt prog) program passes
@@ -87,6 +89,7 @@ driver = DriverArgs
 
 parseOptPass :: String -> Maybe OptPass
 parseOptPass "uncurry" = Just OptUncurry
+parseOptPass "unused-params" = Just OptUnusedParams
 parseOptPass _ = Nothing
 
 opts :: ParserInfo DriverArgs
