@@ -18,6 +18,7 @@ import qualified CPS.IR as K -- for K.Program, for applyOpts :: [OptPass] -> K.P
 import qualified CPS.TypeCheck as KT
 import qualified CPS.Uncurry as KU
 import qualified CPS.UnusedParams as KU
+import qualified CPS.OneShot as KU
 import qualified CC as C
 import qualified CC.TypeCheck as CT
 import qualified Hoist as H
@@ -63,11 +64,15 @@ data DriverArgs
   , driverCheckOpt :: Bool
   }
 
-data OptPass = OptUncurry | OptUnusedParams
+data OptPass
+  = OptUncurry
+  | OptUnusedParams
+  | OptOneShot
 
 applyOpt :: OptPass -> K.Program -> K.Program
 applyOpt OptUncurry = KU.uncurryProgram
 applyOpt OptUnusedParams = KU.dropUnusedParams
+applyOpt OptOneShot = KU.inlineOneShot
 
 applyOpts :: [OptPass] -> K.Program -> K.Program
 applyOpts passes program = foldl' (\prog opt -> applyOpt opt prog) program passes
@@ -92,6 +97,7 @@ driver = DriverArgs
 parseOptPass :: String -> Maybe OptPass
 parseOptPass "uncurry" = Just OptUncurry
 parseOptPass "unused-params" = Just OptUnusedParams
+parseOptPass "inline-oneshot" = Just OptOneShot
 parseOptPass _ = Nothing
 
 opts :: ParserInfo DriverArgs
