@@ -1,0 +1,220 @@
+
+Hmm. Higher-order constant propagation (minimal CFA)?
+
+* Assign a unique label to each value/covalue binder (The 'BindLoc')
+* maintain a side table, mapping BindLoc to a concrete value, or 'Any'
+  this defines a "flat" lattice, I think?
+  bottom means "no values ever flow to this binding"
+  a concrete value means "this is the only value that flows to this binding"
+  top means "two or more values flow to this binding"
+* use rules to propagate values to binders
+  * let x = v has v flow to x (i.e. table[x] = v, written v --> x)
+  * if 'let z = x + y in e' and Int(i) --> x and Int(j) --> y, then Int(i+j) --> z
+  * f(x, y, z; k1, k2) has xyz flow to the parameters of f, k1k2 to the co-parameters
+
+After all flows have been computed, replace binding sites with assignments to the constant
+problem: scoping.
+let fun f (x : int, k : bool -> !) =
+  ...
+in
+let cont mycont (z : bool) =
+  ...
+in
+let myval = 7 in
+f (myval, mycont)
+
+we have:
+fun_val(#13) --> f
+cont_val(#78) --> mycont
+7 --> myval
+7 --> fun(#13).x
+cont_val(#78) --> fun(#13).k
+
+(Note that functions and continuations have been given unique labels #13, #78)
+
+We would like to rewrite this to
+let fun f (_x : int, _k : bool -> !) =
+  let x = 7 in
+  let cont k = cont_val(#78) in
+  ...
+in
+...
+
+But the problem is that cont_val(#78) (aka mycont) is only defined after 'f'
+is, so it is not in scope for the body of 'f'. We need to rearrange the program
+so that it is. (This is the thing that Andy Wingo (wingolog.org) talks about
+with "tree-based" vs. "domination-based" scoping for continuations, I think --
+CPS soup)
+
+So, we have to transform the program to
+
+let cont mycont (z : bool) =
+  ...
+in
+let fun f (_x : int, _k : bool -> !) =
+  let x = 7 in
+  let cont k = mycont in
+  ...
+in
+let myval = 7 in
+f (myval, mycont)
+
+This transformation is *much* harder to correctly implement, especially in more
+complex cases. It applies any time a value has free variables.
+
+(Actually, let myval = 7 has the same issue, because myval is not in scope for
+the definition of f. I just decided to duplicate the value to avoid this.
+Here's what it "should" look like:
+let myval = 7 in
+let cont mycont (z : bool) =
+  ...
+in
+let fun f (_x : int, _k : bool -> !) =
+  let x = myval in
+  let cont k = mycont in
+  ...
+in
+f(myval, mycont)
+)
+
+(another issue is that this makes the parameters x and k become dead, so they
+could/should be removed. I suspect this would also affect the whole "dominator
+tree for scoping" thing, because the call sites becoming dead means that the
+call arguments are unnecessary, and so the values don't need to be hoisted as
+high:
+let fun f () =
+  let myval = 7 in
+  let cont mycont (z : bool) =
+    ...
+  in
+  let x = myval in
+  let cont k = mycont in
+  ...
+in
+f ()
+)
+
+
+- - - - -
+
+Is this related to that higher-order inlining thing? I think it might.
+
+let rec map f xs = _ in
+let inc x = x + 1 in
+map inc [1, 2, 3]
+
+'inc' is the only value that flows to map::f, so the optimized version should be:
+
+let inc x = x + 1 in
+let rec map xs = let f = inc in _ in
+map [1, 2, 3]
+
+Again, this is where the problem with free variables comes in, with
+dominator-based scoping being the proposed solution (and using the dominator
+tree to extract a lexically-scoped output program?)
+
+
+
+
+- - - - -
+
+CPS Soup
+
+source:
+fun f(x) = x + 1
+
+cps:
+fun f (x, k) =
+  let one = 1 in
+  let z = x + one in
+  k z
+
+cps without implicit straight-line cont:
+fun f (x, k) =
+  constk 1 $ \one ->
+  addk x one $ \z ->
+  k z
+
+eta-contract \z -> k z
+fun f (x, k) =
+  constk 1 $ \one ->
+  addk x one k
+
+cps soup:
+fun f (x, k) =
+  label have_one(one): add(x, one) -> k
+  label main(x): load_const(1) -> have_one
+
+
+
+example 2: cps soup
+fun foo(x, k) =
+  label have_y(y): bar(y) -> k
+  label y_is_2(): const(2) -> have_y
+  label y_is_1(): const(1) -> have_y
+  label main(x): if x then (-> y_is_1) else (-> y_is_2)
+
+hypothetical source for example 2:
+fun (x) => bar (if x then 1 else 2)
+
+cps for example 2:
+fun (x, k) => let cont j0(y) = bar y k in if x then j0 1 else j0 2
+
+
+scoping in cps soup is based on dominators.
+in have_y, both x and y are in scope, because all paths from the entry to
+have_y pass through the definition of x and the definition of y.
+
+
+more complex cps soup example: map
+source:
+let rec map = \f -> \l -> case l of
+  [] -> []
+  x:xs -> f x : map f xs
+in
+let foo = \x -> 2 * x + 1 in
+map foo [1, 2, 3]
+
+conventional cps: (uncurried map)
+let fun map (f, l, k) =
+  case l of
+    | nil -> k nil
+    | cons x xs -> f(x, cont y => map(f, xs, cont ys => k (cons y ys)))
+in
+let fun foo(x, k) =
+  mul(2, x, cont t0 => add(t0, 1, k))
+in
+map(foo, cons 1 (cons 2 (cons 3 nil)), halt)
+
+cps soup:
+fun foo(x, k) -> L1 =
+  label L0(t0) => add(t0, 1) -> k
+  label L1() => mul(2, x) -> L0
+  -- entry point to function is L1. L1 does not have parameters, because it
+  -- does not need parameters? It does not define any new variables upon entry;
+  -- it just uses x and k which are in scope by dominance.
+fun map(f, l, k) -> L1 =
+  label L1() => case l of { nil -> Ln; cons -> Lc }
+  label Ln() => construct(nil) -> k
+  label Lc(x, xs) => call f(x) -> Ly
+  label Ly(y) => call map(f, xs) -> Lys
+  label Lys(ys) => construct(cons, y, ys) -> k
+fun main() -> L1 =
+  -- straight-line code to construct [1, 2, 3]
+  label L0() => construct(nil) -> L1
+  label L1(xs0) => constant(3) -> L2
+  label L2(three) => construct(cons, three, xs0) -> L3
+  label L3(xs1) => constant(2) -> L4
+  label L4(two) => construct(cons, two, xs1) -> L5
+  label L5(xs2) => constant(1) -> L6
+  label L6(one) => construct(cons, 1, xs2) -> have_list
+
+  -- where are "map" and "foo" defined here? how did they become
+  -- values/variables instead of just code?
+  ---label have_list(l) => call map(foo, l) -> halt
+
+  -- Maybe it's more like this:
+  label have_list(l) => fun_value(#map) -> have_map
+  label have_map(map) => fun_value(#foo) -> have_foo
+  label have_foo(foo) => call map(foo, l) -> halt
+
