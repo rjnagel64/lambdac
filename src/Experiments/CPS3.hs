@@ -36,9 +36,8 @@ data Src'
   | SInl Src
   | SInr Src
   | SCase Src (Var, Src) (Var, Src)
-  -- let rec f (x : t) = e1 in e2
-  -- annotation on var is actually necessary, I think.
-  | SLetRec Var (Var, STy) Src Src
+  -- let rec f : t = \x -> e1 in e2
+  | SLetRec Var STy Var Src Src
 
 data Src = Src Src' STy
 
@@ -192,7 +191,14 @@ cps (Src (SLet x e1 e2) t) kont = cps e1 (LetKont x (typeof e1) e2 kont)
 --     Ans e2' <- cps e2 kont
 --     pure (Ans (CLetVal x (cpsTy (typeof e1)) v e'))
 -- TODO: cps LetRec
-cps (Src (SLetRec f (x, t) e1 e2) t') = _
+cps (Src (SLetRec f (SArrTy t1 t2) x e1 e2) t') kont = do
+  -- Should be pretty similar to SLam.
+  (k, e1') <- freshCo $ \k -> do
+    Ans e1' <- cps e1 $ ObjKont k
+    pure (k, e1')
+  Ans e2' <- cps e2 kont
+  pure (Ans (CLetRec f (x, cpsTy t1) (k, cpsCoTy t2) e1' e2'))
+cps (Src (SLetRec _ _ _ _ _) _) _ = error "a letrec-bound function cannot have this type."
 cps (Src (SPair e1 e2) t) kont =
   cps e1 $ MetaKont (typeof e1) $ \v1 ->
     cps e2 $ MetaKont (typeof e2) $ \v2 -> do
@@ -270,6 +276,7 @@ data ANF
   | ALetFst Var Ty Var ANF
   | ALetSnd Var Ty Var ANF
   | ALetBinOp Var Ty BinOp Var Var ANF
+  | ALetRec Var (Var, Ty) (CoVar, CoTy) ANF ANF
 
 data ANFValue
   = AVPair Var Var
@@ -324,6 +331,10 @@ toANF (CLetCoVal k s v e) =
     renameCoVar k j s $ do
       e' <- toANF e
       pure (addJ e')
+toANF (CLetRec f (x, t) (k, s) e1 e2) = do
+  e1' <- toANF e1
+  e2' <- toANF e2
+  pure (ALetRec f (x, t) (k, s) e1' e2')
 toANF (CLetFst x t v e) =
   nameTm v $ \y _t' addY -> do
     e' <- toANF e
@@ -378,7 +389,11 @@ nameTm (VInr t1 t2 v) kont =
     freshTm $ \y ->
       let ty = SumTy t1 t2 in
       kont y ty (\e' -> ALetVal y ty (AVInr t1 t2 x) e')
--- nameTm (VFun (x, t) (k, s) e) kont = _
+nameTm (VFun (x, t) (k, s) body) kont =
+  freshTm $ \f -> do
+    body' <- toANF body
+    let ty = FunTy t s
+    kont f ty (\e' -> ALetRec f (x, t) (k, s) body' e')
 
 nameCo :: CoValue -> (CoVar -> CoTy -> (ANF -> ANF) -> N a) -> N a
 nameCo (CVVar k) kont = do

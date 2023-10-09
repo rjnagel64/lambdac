@@ -138,10 +138,6 @@ transformJumpSite k xs = do
 transformCallSite :: TmVar -> [Argument] -> [CoValueK] -> M (TermK, AllUsage)
 transformCallSite f xs ks = do
   (Map.lookup f <$> asks callTFs) >>= \case
-    -- TODO: recursively transform each co-argument
-    -- We can't (easily) change the parameter lists of these continuations, but
-    -- their bodies may have things to reduce.
-    -- (tl;dr: problems with higher-order functions and CFA)
     Nothing -> do
       (ks', kusages) <- fmap unzip $ traverse transformCoValue ks
       pure (CallK f xs ks', useTmVar f <> foldMap argumentUsage xs <> mconcat kusages)
@@ -356,9 +352,20 @@ primIOUsage (PrimGetLine s) = useTmVar s
 primIOUsage (PrimPutLine s x) = useTmVar s <> useTmVar x
 
 
+-- IsWellKnown is the three-point lattice bot <= well-known <= top
+-- - bot represents a function that is never called. arbitrary properties can be
+--   assumed about its callsites
+-- - well-known represents a function whose call sites are all statically known
+--   (e.g., it is never used in a higher-order manner)
+-- - top represents any function. No properties can be assumed about its
+--   callsites.
 data IsWellKnown = NeverCalled | WellKnown | NotWellKnown
-  deriving (Eq, Ord) -- Ord should be defined w.r.t the lattice, but the autoderive gives an equivalent implementation.
+  deriving (Eq, Ord)
+  -- Strictly speaking, Ord should be defined in terms of the lattice operation
+  -- (that is, 'x <= y <==> (x \/ y) == y'), but autoderive gives an equivalent
+  -- implementation.
 
+-- the lattice join of two IsWellKnown values.
 instance Semigroup IsWellKnown where
   NeverCalled <> x = x
   x <> NeverCalled = x

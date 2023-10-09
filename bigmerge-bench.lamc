@@ -40,8 +40,8 @@ letrec splithalf : list int -> list int * list int =
         }
       }
     };
-in
-go xs xs;
+  in
+  go xs xs;
 in
 letrec mergesort : list int -> list int =
   \ (xs : list int) -> case xs return list int of {

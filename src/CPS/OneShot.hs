@@ -225,6 +225,9 @@ instance CountUses ValueK where
   countUses (CharValK _) = mempty
   countUses (BoolValK _) = mempty
   countUses (StringValK _) = mempty
+  countUses (PairK x y) = oneTmUse x <> oneTmUse y
+  countUses (RecordValK fs) = foldMap (oneTmUse . snd) fs
+  countUses (CtorAppK _c _ts xs) = foldMap oneTmUse xs
 
 instance CountUses ArithK where
   countUses (AddK x y) = oneTmUse x <> oneTmUse y
@@ -274,6 +277,13 @@ makeJumpSubst params args = emptySub { subTms = sub, scopeTms = sc }
   where
     sub = Map.fromList (zipWith (\ (x, _t) y -> (x, y)) params args)
     sc = Set.fromList args
+
+
+
+
+-- TODO: Move substitution machinery back into CPS.IR
+-- (Well, maybe. It certainly works for type substs, but is it general enough
+-- for tm and co substs?)
 
 data Sub
   = Sub {
@@ -431,6 +441,10 @@ instance Subst TermK where
   subst sub (LetStringOpK x t op e) =
     let (x', sub') = underTm sub x in
     LetStringOpK x' (subst sub t) (subst sub op) (subst sub' e)
+  subst sub (LetBindK x y op e) =
+    let (x', sub') = underTm sub x in
+    let (y', sub'') = underTm sub' y in
+    LetBindK x' y' (subst sub op) (subst sub'' e)
 
 instance Subst Argument where
   subst sub (ValueArg x) = ValueArg (substTmVar sub x)
@@ -470,6 +484,10 @@ instance Subst StringOpK where
   subst sub (ConcatK x y) = ConcatK (substTmVar sub x) (substTmVar sub y)
   subst sub (IndexK x y) = IndexK (substTmVar sub x) (substTmVar sub y)
   subst sub (LengthK x) = LengthK (substTmVar sub x)
+
+instance Subst PrimIO where
+  subst sub (PrimGetLine x) = PrimGetLine (substTmVar sub x)
+  subst sub (PrimPutLine x y) = PrimPutLine (substTmVar sub x) (substTmVar sub y)
 
 instance Subst ContDef where
   subst sub (ContDef xs e) =
