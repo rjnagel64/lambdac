@@ -1,10 +1,3 @@
-{-# LANGUAGE
-    StandaloneDeriving
-  , DerivingStrategies
-  , GeneralizedNewtypeDeriving
-  , MultiParamTypeClasses
-  , FlexibleInstances
-  #-}
 
 -- | Hoisting serves two purposes: to split local closure definitions into
 -- top-level code declarations and local closure allocations, and to associate
