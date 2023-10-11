@@ -82,7 +82,7 @@ primeId (Id x i) = Id x (i+1)
 
 -- | A 'Name' refers to a 'Place'. It is either a 'Place' in the local
 -- scope, or in the environment scope.
-data Name = LocalName Id | EnvName Id
+data Name = LocalName Id | EnvName FieldLabel
   deriving (Eq, Ord)
 
 instance Show Name where
@@ -130,7 +130,7 @@ instance Show Ctor where
   show (Ctor c) = c
 
 newtype FieldLabel = FieldLabel String
-  deriving (Eq)
+  deriving (Eq, Ord)
 
 instance Show FieldLabel where
   show (FieldLabel f) = f
@@ -150,7 +150,7 @@ data CodeDecl
 codeDeclName :: CodeDecl -> CodeLabel
 codeDeclName (CodeDecl c _ _ _) = c 
 
-data EnvDecl = EnvDecl [(TyVar, Kind)] [(Id, Type)]
+data EnvDecl = EnvDecl [(TyVar, Kind)] [(FieldLabel, Type)]
 
 data ClosureParam = PlaceParam Place | TypeParam TyVar Kind
 
@@ -263,7 +263,7 @@ data ClosureAlloc
 data EnvAlloc
   = EnvAlloc {
     envAllocTypeArgs :: [Type]
-  , envAllocValueArgs :: [(Id, Name)]
+  , envAllocValueArgs :: [(FieldLabel, Name)]
   }
 
 data ValueH
@@ -581,7 +581,7 @@ pprintEnvAlloc :: EnvAlloc -> String
 pprintEnvAlloc (EnvAlloc tyfields fields) =
   "{" ++ intercalate ", " (map pprintType tyfields ++ map pprintAllocArg fields) ++ "}"
 
-pprintAllocArg :: (Id, Name) -> String
+pprintAllocArg :: (FieldLabel, Name) -> String
 pprintAllocArg (field, x) = show field ++ " = " ++ show x
 
 pprintType :: Type -> String

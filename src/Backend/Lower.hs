@@ -64,10 +64,10 @@ withEnvironment (envName, H.EnvDecl aas fields) k = do
       withEnvFields envName' fields $ \fields' -> do
         k aas' envName' fields'
 
-withEnvFields :: Id -> [(H.Id, H.Type)] -> ([(FieldLabel, Type)] -> M a) -> M a
+withEnvFields :: Id -> [(H.FieldLabel, H.Type)] -> ([(FieldLabel, Type)] -> M a) -> M a
 withEnvFields envp fields k = do
   (fields', binds, thunkBindsMaybe) <- fmap unzip3 $ for fields $ \ (x, s) -> do
-    x' <- lowerFieldName x
+    x' <- lowerFieldLabel x
     s' <- lowerType s
     let field' = (x', s')
     let bind = (H.EnvName x, EnvName envp x')
@@ -369,7 +369,7 @@ lowerClosureAlloc (p', envp', H.ClosureAlloc _p l _envp (H.EnvAlloc tys xs)) = d
   l' <- lowerCodeLabel l
   tc <- lookupEnvTyCon l
   tys' <- traverse lowerType tys
-  xs' <- traverse (\ (fld, x) -> (,) <$> lowerFieldName fld <*> lowerName x) xs
+  xs' <- traverse (\ (fld, x) -> (,) <$> lowerFieldLabel fld <*> lowerName x) xs
   let enva = EnvAlloc envp' tc xs'
   let closa = ClosureAlloc p' l' tys' envp'
   pure (enva, closa)

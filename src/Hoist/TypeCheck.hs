@@ -34,7 +34,7 @@ data Signature
 
 -- | Represents the type of a closure, a code pointer with environment
 -- @code(@aa+, { (l : s)+ }; S)@.
-data ClosureDeclType = ClosureDeclType [(TyVar, Kind)] [(Id, Type)] ClosureTele
+data ClosureDeclType = ClosureDeclType [(TyVar, Kind)] [(FieldLabel, Type)] ClosureTele
 
 -- | The typing context contains the type of each item in scope, plus the type
 -- of the environment parameter.
@@ -42,7 +42,7 @@ data Context
   = Context {
     ctxPlaces :: Map Id Type
   , ctxTypes :: Map TyVar Kind
-  , ctxEnvFields :: [(Id, Type)]
+  , ctxEnvFields :: [(FieldLabel, Type)]
   }
 
 -- | Ways in which a Hoist IR program can be invalid.
@@ -51,10 +51,11 @@ data TCError
   | KindMismatch Kind Kind
   | ArgumentCountMismatch
   | WrongClosureArg
-  | LabelMismatch Id Id
+  -- | LabelMismatch Id Id
   | FieldLabelMismatch FieldLabel FieldLabel
 
   | NameNotInScope Id
+  | EnvNameNotInScope FieldLabel
   | TyVarNotInScope TyVar
   | TyConNotInScope TyCon
   | CodeNotInScope CodeLabel
@@ -80,18 +81,19 @@ instance Show TCError where
     , "actual kind:   " ++ pprintKind actual
     ]
   show ArgumentCountMismatch = "incorrect number of arguments to something"
-  show (LabelMismatch expected actual) = unlines
-    [ "incorrect field label:"
-    , "expected label: " ++ show expected
-    , "actual label:   " ++ show actual
-    ]
+  -- show (LabelMismatch expected actual) = unlines
+  --   [ "incorrect field label:"
+  --   , "expected label: " ++ show expected
+  --   , "actual label:   " ++ show actual
+  --   ]
   show (FieldLabelMismatch expected actual) = unlines
     [ "incorrect field label:"
     , "expected label: " ++ show expected
     , "actual label:   " ++ show actual
     ]
   show WrongClosureArg = "incorrect sort of argument provided to closure (value vs. type)"
-  show (NameNotInScope x) = "variable " ++ show x ++ " not in scope"
+  show (NameNotInScope x) = "variable " ++ show x ++ " not in local scope"
+  show (EnvNameNotInScope x) = "variable " ++ show x ++ " not in environment"
   show (TyVarNotInScope aa) = "type variable " ++ show aa ++ " not in scope"
   show (TyConNotInScope tc) = "type constructor " ++ show tc ++ " not in scope"
   show (CodeNotInScope c) = "code label " ++ show c ++ " not in scope"
@@ -121,7 +123,7 @@ lookupName (EnvName x) = do
   ctx <- asks ctxEnvFields
   case lookup x ctx of
     Just s -> pure s
-    Nothing -> throwError $ NameNotInScope x
+    Nothing -> throwError $ EnvNameNotInScope x
 
 lookupTyVar :: TyVar -> TC Kind
 lookupTyVar aa = do
@@ -312,11 +314,11 @@ checkEnvAlloc (ClosureDeclType typarams fields tele) (EnvAlloc tyargs valArgs) =
 
 -- Note: I eventually might want to generalize checkFieldTys to
 -- checkRecordValue, as a closure environment is basically just a record.
-checkFieldTys :: [(Id, Name)] -> [(Id, Type)] -> TC ()
+checkFieldTys :: [(FieldLabel, Name)] -> [(FieldLabel, Type)] -> TC ()
 checkFieldTys [] [] = pure ()
 checkFieldTys ((f', x) : fields) ((f, s) : fieldTys) = do
   when (f /= f') $
-    throwError (LabelMismatch f f')
+    throwError (FieldLabelMismatch f f')
   checkName x s
   checkFieldTys fields fieldTys
 checkFieldTys _ _ = throwError ArgumentCountMismatch

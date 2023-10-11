@@ -322,9 +322,10 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
   -- is)
   tyFields <- traverse (\ (aa, k) -> AllocH <$> hoistTyVarOcc aa) tyfields
   allocFields <- for fields $ \ (x, s) -> do
-    p <- asPlace s x
+    -- p <- asPlace s x -- TODO: Convert to field name.
+    let f = hoistFieldName x
     x' <- hoistVarOcc x
-    pure (placeName p, x')
+    pure (f, x')
   let enva = EnvAlloc tyFields allocFields
   pure enva
 
@@ -400,6 +401,9 @@ withEnvironmentName cont = do
 
 hoistFieldLabel :: C.FieldLabel -> FieldLabel
 hoistFieldLabel (C.FieldLabel f) = FieldLabel f
+
+hoistFieldName :: C.Name -> FieldLabel
+hoistFieldName (C.Name x i) = FieldLabel (x ++ show i)
 
 -- | Translate a variable reference into either a local reference or an
 -- environment reference.
@@ -486,11 +490,11 @@ withTyVars ((aa, k) : aas) cont =
     withTyVars aas $ \aas' ->
       cont ((aa', k') : aas')
 
-withEnvFields :: [(C.Name, C.Type)] -> ([(Id, Type)] -> HoistM a) -> HoistM a
+withEnvFields :: [(C.Name, C.Type)] -> ([(FieldLabel, Type)] -> HoistM a) -> HoistM a
 withEnvFields fields cont = do
   binds <- for fields $ \ (x, s) -> (,) x <$> asPlace s x
-  let fields' = [(placeName x', placeType x') | (_x, x') <- binds]
-  let newEnvRefs = [(x, EnvName (placeName x')) | (x, x') <- binds]
+  let fields' = [(hoistFieldName x, placeType x') | (x, x') <- binds]
+  let newEnvRefs = [(x, EnvName (hoistFieldName x)) | (x, x') <- binds]
   let newEnvType = [(x, placeType x') | (x, x') <- binds]
 
   let extend env = env { nameRefs = insertMany newEnvRefs (nameRefs env), nameTypes = insertMany newEnvType (nameTypes env) }
