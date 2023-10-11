@@ -77,14 +77,14 @@ caseKind (C.TyConApp tc args) = TyConApp <$> hoistTyConOcc tc <*> traverse sortO
 
 
 -- Hmm. Instead of 'Writer', would an 'Update' monad be applicable here?
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT (Set CodeLabel) (Writer ClosureDecls)) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT Int (Writer ClosureDecls)) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter ClosureDecls HoistM
-deriving newtype instance MonadState (Set CodeLabel) HoistM
+deriving newtype instance MonadState Int HoistM
 
 data HoistEnv =
   HoistEnv {
@@ -118,7 +118,7 @@ hoistProgram (C.Program ds e) =
 runHoist :: HoistM a -> (a, ClosureDecls)
 runHoist =
   runWriter .
-  flip evalStateT Set.empty .
+  flip evalStateT 0 .
   flip runReaderT emptyEnv .
   runHoistM
   where
@@ -369,13 +369,10 @@ hoistPrimIO (C.PutLineC x y) = PrimPutLine <$> hoistVarOcc x <*> hoistVarOcc y
 
 
 nameClosureCode :: C.Name -> HoistM CodeLabel
-nameClosureCode c@(C.Name x i) = do
-  let c' = CodeLabel (x ++ show i)
-  decls <- get
-  if Set.notMember c' decls then
-    put (Set.insert c' decls) *> pure c'
-  else
-    nameClosureCode (C.prime c)
+nameClosureCode (C.Name x i) = do
+  u <- get
+  modify' (+1)
+  pure (CodeLabel (x ++ show i) u)
 
 withParameterList :: [C.ClosureParam] -> ([ClosureParam] -> HoistM a) -> HoistM a
 withParameterList [] cont = cont []
