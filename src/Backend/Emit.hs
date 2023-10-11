@@ -49,10 +49,10 @@ data ClosureNames
   }
 
 namesForClosure :: CodeLabel -> ClosureNames
-namesForClosure (CodeLabel f) =
+namesForClosure (CodeLabel f u) =
   ClosureNames {
-    closureCodeName = f ++ "_code"
-  , closureEnterName = "enter_" ++ f
+    closureCodeName = f ++ "_" ++ show u ++ "_code"
+  , closureEnterName = "enter_" ++ f ++ "_" ++ show u
   }
 
 data EnvNames

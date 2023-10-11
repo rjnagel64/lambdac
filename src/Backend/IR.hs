@@ -153,11 +153,11 @@ prime (TyVar aa i) = TyVar aa (i+1)
 -- | 'CodeLabel's are used to reference top-level code definitions. In
 -- particular, a closure is constructed by pairing a code name with an
 -- appropriate closure environment.
-newtype CodeLabel = CodeLabel String
+data CodeLabel = CodeLabel String Int
   deriving (Eq, Ord)
 
 instance Show CodeLabel where
-  show (CodeLabel d) = '#' : d
+  show (CodeLabel d u) = '#' : d ++ "@" ++ show u
 
 
 newtype TyCon = TyCon String
