@@ -3,6 +3,7 @@
 module Hoist.IR
     ( Id(..)
     , primeId
+    , Unique(..)
     , Name(..)
     , Place(..)
     , TyVar(..)
@@ -62,6 +63,13 @@ import Data.Int (Int64)
 import Data.List (intercalate)
 
 
+newtype Unique = Unique Int
+  deriving (Eq, Ord)
+
+instance Show Unique where
+  show (Unique u) = show u
+
+
 -- | An 'Id' is any type of identifier.
 data Id = Id String Int
   deriving (Eq, Ord)
@@ -97,7 +105,7 @@ prime (TyVar aa i) = TyVar aa (i+1)
 -- | 'CodeLabel's are used to reference top-level code definitions. In
 -- particular, a closure is constructed by pairing a code name with an
 -- appropriate closure environment.
-data CodeLabel = CodeLabel String Int
+data CodeLabel = CodeLabel String Unique
 
 instance Eq CodeLabel where
   CodeLabel _ u1 == CodeLabel _ u2 = u1 == u2

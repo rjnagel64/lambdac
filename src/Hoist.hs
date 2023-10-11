@@ -77,14 +77,14 @@ caseKind (C.TyConApp tc args) = TyConApp <$> hoistTyConOcc tc <*> traverse sortO
 
 
 -- Hmm. Instead of 'Writer', would an 'Update' monad be applicable here?
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT Int (Writer ClosureDecls)) a }
+newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT Unique (Writer ClosureDecls)) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
 deriving newtype instance Monad HoistM
 deriving newtype instance MonadReader HoistEnv HoistM
 deriving newtype instance MonadWriter ClosureDecls HoistM
-deriving newtype instance MonadState Int HoistM
+deriving newtype instance MonadState Unique HoistM
 
 data HoistEnv =
   HoistEnv {
@@ -118,7 +118,7 @@ hoistProgram (C.Program ds e) =
 runHoist :: HoistM a -> (a, ClosureDecls)
 runHoist =
   runWriter .
-  flip evalStateT 0 .
+  flip evalStateT (Unique 0) .
   flip runReaderT emptyEnv .
   runHoistM
   where
@@ -368,10 +368,15 @@ hoistPrimIO (C.GetLineC x) = PrimGetLine <$> hoistVarOcc x
 hoistPrimIO (C.PutLineC x y) = PrimPutLine <$> hoistVarOcc x <*> hoistVarOcc y
 
 
+freshUnique :: HoistM Unique
+freshUnique = do
+  u <- get
+  modify' (\ (Unique u) -> Unique (u+1))
+  pure u
+
 nameClosureCode :: C.Name -> HoistM CodeLabel
 nameClosureCode (C.Name x i) = do
-  u <- get
-  modify' (+1)
+  u <- freshUnique
   pure (CodeLabel (x ++ show i) u)
 
 withParameterList :: [C.ClosureParam] -> ([ClosureParam] -> HoistM a) -> HoistM a

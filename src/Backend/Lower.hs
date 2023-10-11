@@ -313,7 +313,7 @@ withEnvPtr envp k = withFreshPlace envp k
 -- Problem: this needs to be in scope for all subsequent closures, not just the
 -- body of the current closure. Think about how to do this.
 withCodeLabel :: H.CodeLabel -> (CodeLabel -> TyCon -> M a) -> M a
-withCodeLabel l@(H.CodeLabel x u) k = do
+withCodeLabel l@(H.CodeLabel x (H.Unique u)) k = do
   let l' = CodeLabel x u
   let envTyCon = TyCon ("env_" ++ show u)
   let extend env = env { envCodeLabels = Map.insert l l' (envCodeLabels env), envEnvTyCons = Map.insert l envTyCon (envEnvTyCons env) }
