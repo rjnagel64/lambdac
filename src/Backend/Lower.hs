@@ -122,7 +122,7 @@ lowerFieldLabel :: H.FieldLabel -> M FieldLabel
 lowerFieldLabel (H.FieldLabel f) = pure (FieldLabel f)
 
 lowerFieldName :: H.Id -> M FieldLabel
-lowerFieldName (H.Id f i u) = pure (FieldLabel (f ++ show i))
+lowerFieldName (H.Id f u) = pure (FieldLabel f)
 
 lowerTerm :: H.TermH -> M TermH
 lowerTerm (H.HaltH s x) = HaltH <$> lowerType s <*> lowerName x
@@ -393,7 +393,7 @@ withPlace (H.Place s x) k = do
     local (extendNames . extendThunk) $ k (Place s' x')
 
 freshenId :: Set Id -> H.Id -> (Set Id, Id)
-freshenId scope (H.Id x i u) = go (Id x i)
+freshenId scope (H.Id x u) = go (Id x 0)
   where
     go x' = if Set.member x' scope then go (primeId x') else (Set.insert x' scope, x')
 

@@ -2,7 +2,6 @@
 -- | A module describing the structure and syntactic operations on the Hoist IR.
 module Hoist.IR
     ( Id(..)
-    , primeId
     , Unique(..)
     , Name(..)
     , Place(..)
@@ -71,19 +70,16 @@ instance Show Unique where
 
 
 -- | An 'Id' is any type of identifier.
-data Id = Id String Int Unique
+data Id = Id String Unique
 
 instance Eq Id where
-  Id _x1 _i1 u1 == Id _x2 _i2 u2 = u1 == u2
+  Id _x1 u1 == Id _x2 u2 = u1 == u2
 
 instance Ord Id where
-  compare (Id _x1 _i1 u1) (Id _x2 _i2 u2) = compare u1 u2
+  compare (Id _x1 u1) (Id _x2 u2) = compare u1 u2
 
 instance Show Id where
-  show (Id x i u) = x ++ show i ++ "_" ++ show u
-
-primeId :: Id -> Id
-primeId (Id x i u) = Id x (i+1) u
+  show (Id x u) = x ++ "_" ++ show u
 
 -- | A 'Name' refers to a 'Place'. It is either a 'Place' in the local
 -- scope, or in the environment scope.

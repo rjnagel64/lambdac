@@ -42,7 +42,7 @@ asPlace :: C.Type -> C.Name -> HoistM Place
 asPlace s (C.Name x i) = do
   s' <- sortOf s
   u <- freshUnique
-  pure (Place s' (Id x i u))
+  pure (Place s' (Id (x ++ show i) u))
 
 sortOf :: C.Type -> HoistM Type
 sortOf C.Integer = pure IntegerH
@@ -147,7 +147,7 @@ hoistCtorDecl (C.CtorDecl (C.Ctor c) params args) =
     makeField (i, s) = do
       s' <- sortOf s
       u <- freshUnique
-      pure (Id "arg" i u, s')
+      pure (Id ("arg" ++ show i) u, s')
 
 
 
@@ -270,7 +270,7 @@ hoistFunClosure n p (C.FunClosureDef f env params body) = do
   -- is permissible in Hoist, just use numeric suffixes for the environment
   -- names.
   u <- freshUnique
-  envp <- pure (Id "env" n u)
+  envp <- pure (Id "env" u)
 
   -- Extend context with environment
   withEnvDef env $ \envd -> do
@@ -292,7 +292,7 @@ hoistContClosure n k def@(C.ContClosureDef env params body) = do
   -- Pick a name for the closure's code
   kcode <- nameClosureCode k
   u <- freshUnique
-  envp <- pure (Id "env" n u)
+  envp <- pure (Id "env" u)
 
   -- Extend context with environment
   withEnvDef env $ \envd -> do
@@ -405,7 +405,7 @@ withEnvironmentName cont = do
   -- pointer, because 'EnvName' uses the envptr implicitly.
   -- Thus, it does not matter if the environment name is shadowed.
   u <- freshUnique
-  cont (Id "env" 0 u)
+  cont (Id "env" u)
 
 
 hoistFieldLabel :: C.FieldLabel -> FieldLabel
