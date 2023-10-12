@@ -51,7 +51,6 @@ data TCError
   | KindMismatch Kind Kind
   | ArgumentCountMismatch
   | WrongClosureArg
-  -- | LabelMismatch Id Id
   | FieldLabelMismatch FieldLabel FieldLabel
 
   | NameNotInScope Id
@@ -81,11 +80,6 @@ instance Show TCError where
     , "actual kind:   " ++ pprintKind actual
     ]
   show ArgumentCountMismatch = "incorrect number of arguments to something"
-  -- show (LabelMismatch expected actual) = unlines
-  --   [ "incorrect field label:"
-  --   , "expected label: " ++ show expected
-  --   , "actual label:   " ++ show actual
-  --   ]
   show (FieldLabelMismatch expected actual) = unlines
     [ "incorrect field label:"
     , "expected label: " ++ show expected
