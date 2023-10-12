@@ -71,14 +71,19 @@ instance Show Unique where
 
 
 -- | An 'Id' is any type of identifier.
-data Id = Id String Int
-  deriving (Eq, Ord)
+data Id = Id String Int Unique
+
+instance Eq Id where
+  Id _x1 _i1 u1 == Id _x2 _i2 u2 = u1 == u2
+
+instance Ord Id where
+  compare (Id _x1 _i1 u1) (Id _x2 _i2 u2) = compare u1 u2
 
 instance Show Id where
-  show (Id x i) = x ++ show i
+  show (Id x i u) = x ++ show i ++ "_" ++ show u
 
 primeId :: Id -> Id
-primeId (Id x i) = Id x (i+1)
+primeId (Id x i u) = Id x (i+1) u
 
 -- | A 'Name' refers to a 'Place'. It is either a 'Place' in the local
 -- scope, or in the environment scope.

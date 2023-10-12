@@ -39,7 +39,10 @@ insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
 asPlace :: C.Type -> C.Name -> HoistM Place
-asPlace s (C.Name x i) = (\s' -> Place s' (Id x i)) <$> sortOf s
+asPlace s (C.Name x i) = do
+  s' <- sortOf s
+  u <- freshUnique
+  pure (Place s' (Id x i u))
 
 sortOf :: C.Type -> HoistM Type
 sortOf C.Integer = pure IntegerH
@@ -141,7 +144,10 @@ hoistCtorDecl (C.CtorDecl (C.Ctor c) params args) =
   withTyVars params $ \params' -> (CtorDecl (Ctor c) params' <$> (traverse makeField (zip [0..] args)))
   where
     makeField :: (Int, C.Type) -> HoistM (Id, Type)
-    makeField (i, s) = (,) (Id "arg" i) <$> sortOf s
+    makeField (i, s) = do
+      s' <- sortOf s
+      u <- freshUnique
+      pure (Id "arg" i u, s')
 
 
 
@@ -263,7 +269,8 @@ hoistFunClosure n p (C.FunClosureDef f env params body) = do
   -- Because closure environments are local to this bind group, and shadowing
   -- is permissible in Hoist, just use numeric suffixes for the environment
   -- names.
-  envp <- pure (Id "env" n)
+  u <- freshUnique
+  envp <- pure (Id "env" n u)
 
   -- Extend context with environment
   withEnvDef env $ \envd -> do
@@ -284,7 +291,8 @@ hoistContClosure n k def@(C.ContClosureDef env params body) = do
   kplace <- asPlace (C.contClosureType def) k
   -- Pick a name for the closure's code
   kcode <- nameClosureCode k
-  envp <- pure (Id "env" n)
+  u <- freshUnique
+  envp <- pure (Id "env" n u)
 
   -- Extend context with environment
   withEnvDef env $ \envd -> do
@@ -396,7 +404,8 @@ withEnvironmentName cont = do
   -- In Hoist, there are never actually any references to the environment
   -- pointer, because 'EnvName' uses the envptr implicitly.
   -- Thus, it does not matter if the environment name is shadowed.
-  cont (Id "env" 0)
+  u <- freshUnique
+  cont (Id "env" 0 u)
 
 
 hoistFieldLabel :: C.FieldLabel -> FieldLabel
