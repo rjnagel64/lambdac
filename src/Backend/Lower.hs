@@ -275,11 +275,12 @@ lowerTyCon tc = do
     Nothing -> error "tycon not in scope"
     Just tc' -> pure tc'
 
-newtype M a = M { getM :: Reader LowerEnv a }
+newtype M a = M { getM :: StateT Unique (Reader LowerEnv) a }
 deriving newtype instance Functor M
 deriving newtype instance Applicative M
 deriving newtype instance Monad M
 deriving newtype instance MonadReader LowerEnv M
+deriving newtype instance MonadState Unique M
 
 data LowerEnv
   = LowerEnv {
@@ -294,7 +295,7 @@ data LowerEnv
   }
 
 runM :: M a -> a
-runM = flip runReader emptyEnv . getM
+runM = flip runReader emptyEnv . flip evalStateT (Unique 0) . getM
   where
     emptyEnv = LowerEnv {
         envNames = Map.empty
@@ -391,6 +392,12 @@ withPlace (H.Place s x) k = do
           env { envThunkTypes = Map.insert occ (teleThunkType tele) (envThunkTypes env) }
         _ -> env
     local (extendNames . extendThunk) $ k (Place s' x')
+
+freshUnique :: M Unique
+freshUnique = do
+  u <- get
+  modify' (\ (Unique u) -> Unique (u+1))
+  pure u
 
 freshenId :: Set Id -> H.Id -> (Set Id, Id)
 freshenId scope (H.Id x u) = go (Id x 0)

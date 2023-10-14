@@ -1,6 +1,7 @@
 
 module Backend.IR
     ( Id(..)
+    , Unique(..)
     , primeId
     , Name(..)
     , Place(..)
@@ -115,6 +116,12 @@ thunkTypeCode (ThunkType ts) = concatMap argcode ts
     tycode (TyAppH t _) = tycode t
 
 
+
+newtype Unique = Unique Int
+  deriving (Eq, Ord)
+
+instance Show Unique where
+  show (Unique u) = show u
 
 
 -- | An 'Id' is any type of identifier.
