@@ -22,9 +22,6 @@ import Control.Monad.State
 insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
-mapAccumLM :: (Monad m, Traversable t) => (a -> s -> m (b, s)) -> t a -> s -> m (t b, s)
-mapAccumLM f xs s = flip runStateT s $ traverse (StateT . f) xs
-
 
 lowerProgram :: H.Program -> Program
 lowerProgram (H.Program ds e) = runM $ do
@@ -158,9 +155,7 @@ lowerTerm (H.LetProjectH p x proj e) = do
     e' <- lowerTerm e
     pure (LetProjectH p' x' proj' e')
 lowerTerm (H.AllocClosure cs e) = do
-  withClosures cs $ \es' cs' -> do
-    e' <- lowerTerm e
-    pure (AllocClosures es' cs' e')
+  lowerClosureAllocs cs e
 
 lowerClosureArg :: H.ClosureArg -> M ClosureArg
 lowerClosureArg (H.ValueArg x) = ValueArg <$> lowerName x
@@ -209,6 +204,42 @@ lowerIOPrimOp (H.PrimPutLine x y) = PrimPutLine <$> lowerName x <*> lowerName y
 
 lowerCaseAlt :: (H.Ctor, H.Name) -> M CaseAlt
 lowerCaseAlt (c, k) = CaseAlt <$> lowerCtor c <*> lookupThunkType k <*> lowerName k
+
+lowerClosureAllocs :: [H.ClosureAlloc] -> H.TermH -> M TermH
+lowerClosureAllocs cs e = do
+  -- forward-declare the closures (thunk type and name mapping) and environments
+  (pcs, xbinds, thbinds) <- fmap unzip3 $ for cs $ \ cl@(H.ClosureAlloc (H.Place s x) l _envp _enva) -> do
+    x' <- freshenId' x
+    s' <- lowerType s
+    let p' = Place s' x'
+    l' <- lowerCodeLabel l
+    tc <- lookupEnvTyCon l
+    let (occ, occ') = (H.LocalName x, LocalName x')
+    thunkTy <- case s' of
+      ClosureH tele -> pure (teleThunkType tele)
+      _ -> error "closure place must have closure type"
+    pure ((p', l', tc, cl), (occ, occ'), (occ, thunkTy))
+
+  let
+    extend env = env {
+        envNames = insertMany xbinds (envNames env)
+      , envThunkTypes = insertMany thbinds (envThunkTypes env)
+      }
+  (es', cs', e') <- local extend $ do
+    -- lower each individual alloc in an extended environment
+    (cs', es') <- fmap unzip $ for pcs $ \ (p', l', tc, H.ClosureAlloc _ _ envp (H.EnvAlloc tys xs)) -> do
+      envp' <- freshenId' envp
+      tys' <- traverse lowerType tys
+      xs' <- traverse (\ (fld, x) -> (,) <$> lowerFieldLabel fld <*> lowerName x) xs
+      let enva = EnvAlloc envp' tc xs'
+      let closa = ClosureAlloc p' l' tys' envp'
+      pure (closa, enva)
+
+    -- lower the body in the extended environment
+    e' <- lowerTerm e
+    pure (es', cs', e')
+
+  pure (AllocClosures es' cs' e')
 
 lowerType :: H.Type -> M Type
 lowerType (H.AllocH aa) = AllocH <$> lowerTyVar aa
@@ -306,7 +337,9 @@ runM = flip runReader emptyEnv . flip evalStateT (Unique 0) . getM
       }
 
 withEnvPtr :: H.Id -> (Id -> M a) -> M a
-withEnvPtr envp k = withFreshPlace envp k
+withEnvPtr envp k = do
+  envp' <- freshenId' envp
+  k envp'
 
 -- Problem: this needs to be in scope for all subsequent closures, not just the
 -- body of the current closure. Think about how to do this.
@@ -324,70 +357,22 @@ withParams (H.PlaceParam p : ps) k =
 withParams (H.TypeParam aa kk : ps) k =
   withTyVar aa kk $ \aa' kk' -> withParams ps (\ps' -> k (TypeParam aa' kk':ps'))
 
-withClosures :: [H.ClosureAlloc] -> ([EnvAlloc] -> [ClosureAlloc] -> M a) -> M a
-withClosures cs k = do
-  withClosurePlaces cs $ \pcs -> do
-    (es', cs') <- fmap unzip $ traverse lowerClosureAlloc pcs
-    k es' cs'
-
--- | Given a collection of closure allocations, ensure that each closure and
--- each closure environment has a unique name. The continuation is invoked in
--- an environment extended with the new closure and environment names.
-withClosurePlaces :: [H.ClosureAlloc] -> ([(Place, Id, H.ClosureAlloc)] -> M a) -> M a
-withClosurePlaces cs k = do
-  thunkTypes <- asks envThunkTypes
-  names <- asks envNames
-
-  (pcs, (thunkTypes', names')) <- mapAccumLM m cs (thunkTypes, names)
-
-  let extend env = env { envThunkTypes = thunkTypes', envNames = names' }
-  local extend $ k pcs
-  where
-    m c@(H.ClosureAlloc (H.Place s x) _l envp _enva) (th, ns) = do
-      -- Ensure the closure has a unique name
-      x' <- freshenId' x
-      -- Ensure the environment pointer has a unique name
-      envp' <- freshenId' envp
-      -- The closure has a closure type, so record its calling convention
-      s' <- lowerType s
-      th' <- case s' of
-        ClosureH tele -> pure (Map.insert (H.LocalName x) (teleThunkType tele) th)
-        _ -> pure th
-      -- Occurrences of 'x' in the Hoist program are translated to occurrences
-      -- of 'x'' in the Lower program.
-      let ns' = Map.insert (H.LocalName x) (LocalName x') ns
-      pure ((Place s' x', envp', c), (th', ns'))
-
-
--- This should take a Place for the closure an Id (pseudo-Place) for the
--- environment, and the closure alloc itself.
-lowerClosureAlloc :: (Place, Id, H.ClosureAlloc) -> M (EnvAlloc, ClosureAlloc)
-lowerClosureAlloc (p', envp', H.ClosureAlloc _p l _envp (H.EnvAlloc tys xs)) = do
-  l' <- lowerCodeLabel l
-  tc <- lookupEnvTyCon l
-  tys' <- traverse lowerType tys
-  xs' <- traverse (\ (fld, x) -> (,) <$> lowerFieldLabel fld <*> lowerName x) xs
-  let enva = EnvAlloc envp' tc xs'
-  let closa = ClosureAlloc p' l' tys' envp'
-  pure (enva, closa)
-
--- TODO: withPlace has duplication with withClosurePlaces. Find a way to unify them.
 withPlace :: H.Place -> (Place -> M a) -> M a
 withPlace (H.Place s x) k = do
   s' <- lowerType s
-  withFreshPlace x $ \x' -> do
-    let
-      (occ, occ') = (H.LocalName x, LocalName x')
-      -- Occurrences of the Hoist name 'occ' will be mapped to occurrences of the
-      -- new Lower name 'occ''.
-      extendNames env = env { envNames = Map.insert occ occ' (envNames env) }
-      -- Places that have a closure type are associated with a Thunk Type: the
-      -- calling convention used to invoke that closure.
-      extendThunk env = case s' of
-        ClosureH tele ->
-          env { envThunkTypes = Map.insert occ (teleThunkType tele) (envThunkTypes env) }
-        _ -> env
-    local (extendNames . extendThunk) $ k (Place s' x')
+  x' <- freshenId' x
+  let (occ, occ') = (H.LocalName x, LocalName x')
+  -- Occurrences of the Hoist name 'occ' will be mapped to occurrences of the
+  -- new Lower name 'occ''.
+  let extendNames env = env { envNames = Map.insert occ occ' (envNames env) }
+  -- Places that have a closure type are associated with a Thunk Type: the
+  -- calling convention used to invoke that closure.
+  let
+    extendThunk env = case s' of
+      ClosureH tele ->
+        env { envThunkTypes = Map.insert occ (teleThunkType tele) (envThunkTypes env) }
+      _ -> env
+  local (extendNames . extendThunk) $ k (Place s' x')
 
 freshUnique :: M Unique
 freshUnique = do
@@ -399,12 +384,6 @@ freshenId' :: H.Id -> M Id
 freshenId' (H.Id x _u) = do
   u <- freshUnique
   pure (Id x u)
-
-withFreshPlace :: H.Id -> (Id -> M a) -> M a
-withFreshPlace x k = do
-  x' <- freshenId' x
-  let extend env = env
-  local extend $ k x'
 
 withTyVar :: H.TyVar -> H.Kind -> (TyVar -> Kind -> M a) -> M a
 withTyVar aa@(H.TyVar x i) kk k = do
