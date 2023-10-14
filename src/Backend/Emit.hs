@@ -241,8 +241,10 @@ emitThunkArgs ns ty =
     declareFields = foldThunk consValue
       where
         consValue i s =
-          let p = Place s (Id "arg" i) in
-          "    " ++ emitPlace p ++ ";"
+          "    " ++ declareVar s ("arg" ++ show i) ++ ";"
+
+declareVar :: Type -> String -> String
+declareVar s x = typeFor s ++ x;
 
 emitThunkTrace :: ThunkNames -> ThunkType -> [Line]
 emitThunkTrace ns ty =
@@ -269,10 +271,7 @@ emitThunkSuspend ns ty =
     argsTy = "struct " ++ thunkArgsName ns ++ " *"
     paramList = "struct closure *closure" : foldThunk consValue ty
       where
-        consValue i s@(AllocH _) =
-          let p = Place s (Id "arg" i) in
-          emitPlace p
-        consValue i s = let p = Place s (Id "arg" i) in emitPlace p
+        consValue i s = declareVar s ("arg" ++ show i)
     assignFields = foldThunk consValue
       where
         consValue i _ =
@@ -380,15 +379,15 @@ emitEnvAlloc ns fs =
 emitEnvInfo :: EnvNames -> [(FieldLabel, Type)] -> [Line]
 emitEnvInfo ns fs =
   ["void " ++ envTraceName ns ++ "(struct alloc_header *alloc) {"
-  ,"    " ++ envTy ++ show envName ++ " = (" ++ envTy ++ ")alloc;"] ++
+  ,"    " ++ envTy ++ envName ++ " = (" ++ envTy ++ ")alloc;"] ++
   map traceField fs ++
   ["}"
   ,"const type_info " ++ envInfoName ns ++ " = { " ++ envTraceName ns ++ ", display_env };"]
   where
-    envName = Id "env" 0
+    envName = "env"
     envTy = "struct " ++ envTypeName ns ++ " *"
     traceField (x, _) =
-      let field = asAlloc (emitName (EnvName envName x)) in
+      let field = asAlloc (envName ++ "->" ++ show x) in
       "    mark_gray(" ++ field ++ ");"
 
 

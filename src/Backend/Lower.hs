@@ -208,8 +208,7 @@ lowerIOPrimOp (H.PrimGetLine x) = PrimGetLine <$> lowerName x
 lowerIOPrimOp (H.PrimPutLine x y) = PrimPutLine <$> lowerName x <*> lowerName y
 
 lowerCaseAlt :: (H.Ctor, H.Name) -> M CaseAlt
-lowerCaseAlt (c, k) =
-  CaseAlt <$> lowerCtor c <*> lookupThunkType k <*> lowerName k
+lowerCaseAlt (c, k) = CaseAlt <$> lowerCtor c <*> lookupThunkType k <*> lowerName k
 
 lowerType :: H.Type -> M Type
 lowerType (H.AllocH aa) = AllocH <$> lowerTyVar aa
@@ -336,20 +335,19 @@ withClosures cs k = do
 -- an environment extended with the new closure and environment names.
 withClosurePlaces :: [H.ClosureAlloc] -> ([(Place, Id, H.ClosureAlloc)] -> M a) -> M a
 withClosurePlaces cs k = do
-  scope <- asks envScope
   thunkTypes <- asks envThunkTypes
   names <- asks envNames
 
-  (pcs, (scope', thunkTypes', names')) <- mapAccumLM m cs (scope, thunkTypes, names)
+  (pcs, (thunkTypes', names')) <- mapAccumLM m cs (thunkTypes, names)
 
-  let extend env = env { envScope = scope', envThunkTypes = thunkTypes', envNames = names' }
+  let extend env = env { envThunkTypes = thunkTypes', envNames = names' }
   local extend $ k pcs
   where
-    m c@(H.ClosureAlloc (H.Place s x) _l envp _enva) (sc, th, ns) = do
+    m c@(H.ClosureAlloc (H.Place s x) _l envp _enva) (th, ns) = do
       -- Ensure the closure has a unique name
-      let (sc', x') = freshenId sc x
+      x' <- freshenId' x
       -- Ensure the environment pointer has a unique name
-      let (sc'', envp') = freshenId sc' envp
+      envp' <- freshenId' envp
       -- The closure has a closure type, so record its calling convention
       s' <- lowerType s
       th' <- case s' of
@@ -358,7 +356,7 @@ withClosurePlaces cs k = do
       -- Occurrences of 'x' in the Hoist program are translated to occurrences
       -- of 'x'' in the Lower program.
       let ns' = Map.insert (H.LocalName x) (LocalName x') ns
-      pure ((Place s' x', envp', c), (sc'', th', ns'))
+      pure ((Place s' x', envp', c), (th', ns'))
 
 
 -- This should take a Place for the closure an Id (pseudo-Place) for the
@@ -397,16 +395,15 @@ freshUnique = do
   modify' (\ (Unique u) -> Unique (u+1))
   pure u
 
-freshenId :: Set Id -> H.Id -> (Set Id, Id)
-freshenId scope (H.Id x u) = go (Id x 0)
-  where
-    go x' = if Set.member x' scope then go (primeId x') else (Set.insert x' scope, x')
+freshenId' :: H.Id -> M Id
+freshenId' (H.Id x _u) = do
+  u <- freshUnique
+  pure (Id x u)
 
 withFreshPlace :: H.Id -> (Id -> M a) -> M a
 withFreshPlace x k = do
-  scope <- asks envScope
-  let (scope', x') = freshenId scope x
-  let extend env = env { envScope = scope' }
+  x' <- freshenId' x
+  let extend env = env
   local extend $ k x'
 
 withTyVar :: H.TyVar -> H.Kind -> (TyVar -> Kind -> M a) -> M a

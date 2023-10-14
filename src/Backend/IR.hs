@@ -2,7 +2,6 @@
 module Backend.IR
     ( Id(..)
     , Unique(..)
-    , primeId
     , Name(..)
     , Place(..)
     , TyVar(..)
@@ -126,14 +125,11 @@ instance Show Unique where
 
 
 -- | An 'Id' is any type of identifier.
-data Id = Id String Int
+data Id = Id String Unique
   deriving (Eq, Ord)
 
 instance Show Id where
-  show (Id x i) = x ++ show i
-
-primeId :: Id -> Id
-primeId (Id x i) = Id x (i+1)
+  show (Id x u) = x ++ show u
 
 -- | A 'Name' references some in-scope value binding. It can be either a name
 -- in the local scope, or it can be a reference to some field from the
