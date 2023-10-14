@@ -6,8 +6,6 @@ module Backend.Lower
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
 
 import Data.Maybe (catMaybes)
 import Data.Traversable (for)
@@ -313,7 +311,6 @@ deriving newtype instance MonadState Unique M
 data LowerEnv
   = LowerEnv {
     envNames :: Map H.Name Name
-  , envScope :: Set Id
   , envTyVars :: Map H.TyVar TyVar
   , envTyCons :: Map H.TyCon TyCon
   , envCtors :: Map H.Ctor Ctor
@@ -327,7 +324,6 @@ runM = flip runReader emptyEnv . flip evalStateT (Unique 0) . getM
   where
     emptyEnv = LowerEnv {
         envNames = Map.empty
-      , envScope = Set.empty
       , envTyVars = Map.empty
       , envTyCons = Map.empty
       , envCtors = Map.empty
