@@ -40,6 +40,7 @@ module Backend.IR
     , Projection(..)
     , ClosureArg(..)
     , CaseAlt(..)
+    , IntCaseAlt(..)
     , ClosureAlloc(..)
     , EnvAlloc(..)
     , ValueH(..)
@@ -298,13 +299,16 @@ data TermH
   -- 'case x of { c1 -> k1 | c2 -> k2 | ... }'
   | CaseH Name TyConApp [CaseAlt]
   -- 'case x of { 17 -> k1 | 32 -> k2 | ... | default -> kd }'
-  | IntCaseH Name [(Int64, ThunkType, Name)] -- all thunktypes should be no-arg, ThunkType []
+  | IntCaseH Name [IntCaseAlt]
 
 data Projection = ProjectFst | ProjectSnd | ProjectField FieldLabel
 
 data ClosureArg = ValueArg Name | TypeArg Type
 
 data CaseAlt = CaseAlt Ctor ThunkType Name
+
+-- All thunktypes should be no-arg, ThunkType []
+data IntCaseAlt = IntCaseAlt Int64 ThunkType Name
 
 data ClosureAlloc
   = ClosureAlloc {
@@ -564,12 +568,12 @@ pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintType s ++ " " ++ show x ++ ";\n"
 pprintTerm n (OpenH _ty c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
-pprintTerm n (CaseH x _kind ks) =
-  let branches = intercalate " | " (map (\ (CaseAlt c _ty k) -> show c ++ " -> " ++ show k) ks) in
-  indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
-pprintTerm n (IntCaseH x ks) =
-  let branches = intercalate " | " (map (\ (i, _, k) -> show i ++ " -> " ++ show k) ks) in
-  indent n $ "case " ++ show x ++ " of " ++ branches ++ ";\n"
+pprintTerm n (CaseH x _kind alts) =
+  indent n $ "case " ++ show x ++ " of " ++ intercalate " | " (map pprintAlt alts) ++ ";\n"
+  where pprintAlt (CaseAlt c _ty k) = show c ++ " -> " ++ show k
+pprintTerm n (IntCaseH x alts) =
+  indent n $ "case " ++ show x ++ " of " ++ intercalate " | " (map pprintAlt alts) ++ ";\n"
+  where pprintAlt (IntCaseAlt i _ty k) = show i ++ " -> " ++ show k
 pprintTerm n (LetValH x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetProjectH x y p e) =

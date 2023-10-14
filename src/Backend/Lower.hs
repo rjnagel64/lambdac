@@ -46,10 +46,10 @@ lowerDecls (H.DeclCode cd : ds) k = do
       k (DeclEnv ed' : DeclCode cd' : ds')
 
 withCodeDecl :: H.CodeDecl -> (EnvDecl -> CodeDecl -> M a) -> M a
-withCodeDecl (H.CodeDecl l (envName, H.EnvDecl aas fields) params body) k = do
+withCodeDecl (H.CodeDecl l (envName, envDecl) params body) k = do
   withCodeLabel l $ \l' envTyCon -> do
     (ed', cd') <- do
-      withEnvironment (envName, H.EnvDecl aas fields) $ \aas' envName' fields' -> do
+      withEnvironment (envName, envDecl) $ \aas' envName' fields' -> do
         withParams params $ \params' -> do
           body' <- lowerTerm body
           let envd = EnvDecl envTyCon fields'
@@ -130,11 +130,9 @@ lowerTerm (H.OpenH f xs) =
   OpenH <$> lookupThunkType f <*> lowerName f <*> traverse lowerClosureArg xs
 lowerTerm (H.IfH x k1 k2) = do
   x' <- lowerName x
-  ty1 <- lookupThunkType k1
-  k1' <- lowerName k1
-  ty2 <- lookupThunkType k2
-  k2' <- lowerName k2
-  pure (IntCaseH x' [(0, ty1, k1'), (1, ty2, k2')])
+  alt1 <- IntCaseAlt 0 <$> lookupThunkType k1 <*> lowerName k1
+  alt2 <- IntCaseAlt 1 <$> lookupThunkType k2 <*> lowerName k2
+  pure (IntCaseH x' [alt1, alt2])
 lowerTerm (H.CaseH x tcapp ks) = do
   CaseH <$> lowerName x <*> lowerTyConApp tcapp <*> traverse lowerCaseAlt ks
 lowerTerm (H.LetValH p v e) = do

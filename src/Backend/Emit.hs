@@ -3,7 +3,6 @@ module Backend.Emit
     ( emitProgram
     ) where
 
-import Data.Int (Int64)
 import Data.List (intercalate, intersperse)
 import Data.Maybe (mapMaybe)
 import Data.Traversable (mapAccumL)
@@ -148,7 +147,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
     -- necessary thunk type must be recorded.
     termThunkTypes (OpenH ty _ _) = Set.singleton ty
     termThunkTypes (CaseH _ _ alts) = Set.fromList [ty | CaseAlt _ ty _ <- alts]
-    termThunkTypes (IntCaseH _ alts) = Set.fromList [ty | (_, ty, _) <- alts]
+    termThunkTypes (IntCaseH _ alts) = Set.fromList [ty | IntCaseAlt _ ty _ <- alts]
     termThunkTypes (LetValH _ _ e) = termThunkTypes e
     termThunkTypes (LetPrimH _ _ e) = termThunkTypes e
     termThunkTypes (LetBindH _ _ prim e) = termThunkTypes e -- can a primop record a thunk type?
@@ -507,7 +506,7 @@ emitCase desc x branches =
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
 
-emitIntCase :: Name -> [(Int64, ThunkType, Name)] -> [Line]
+emitIntCase :: Name -> [IntCaseAlt] -> [Line]
 emitIntCase x branches =
   ["    switch(" ++ emitName x ++ "->value) {"] ++
   concatMap emitCaseBranch branches ++
@@ -515,7 +514,7 @@ emitIntCase x branches =
   ,"        unreachable(\"invalid discriminant\");"
   ,"    }"]
   where
-    emitCaseBranch (i, ty, k) =
+    emitCaseBranch (IntCaseAlt i ty k) =
       let
         method = thunkSuspendName (namesForThunk ty)
       in
