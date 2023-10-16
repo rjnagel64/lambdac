@@ -11,8 +11,6 @@ module Hoist
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
 
 import Control.Monad.Reader
 import Control.Monad.Writer
@@ -249,21 +247,21 @@ withFunClosures fs cont = do
   let fsorts = [(f, placeType f') | (f, f') <- fbinds]
   let extend env = env { nameRefs = insertMany fnames (nameRefs env), nameTypes = insertMany fsorts (nameTypes env) }
   local extend $ do
-    allocs <- traverse (\ (n, (p, def)) -> hoistFunClosure n p def) (zip [0..] fs')
+    allocs <- traverse (\ (p, def) -> hoistFunClosure p def) fs'
     cont allocs
 
 withContClosures :: [(C.Name, C.ContClosureDef)] -> ([ClosureAlloc] -> HoistM a) -> HoistM a
 withContClosures ks cont = do
   -- Continuation closures are necessarily non-recursive, so this case is
   -- simpler than the case for LetFunC.
-  (kbinds, allocs) <- fmap unzip $ traverse (\ (n, (k, def)) -> hoistContClosure n k def) (zip [0..] ks)
+  (kbinds, allocs) <- fmap unzip $ traverse (\ (k, def) -> hoistContClosure k def) ks
   let knames = [(k, LocalName (placeName k')) | (k, k') <- kbinds]
   let ksorts = [(k, placeType k') | (k, k') <- kbinds]
   let extend env = env { nameRefs = insertMany knames (nameRefs env), nameTypes = insertMany ksorts (nameTypes env) }
   local extend $ cont allocs
 
-hoistFunClosure :: Int -> Place -> C.FunClosureDef -> HoistM ClosureAlloc
-hoistFunClosure n p (C.FunClosureDef f env params body) = do
+hoistFunClosure :: Place -> C.FunClosureDef -> HoistM ClosureAlloc
+hoistFunClosure p (C.FunClosureDef f env params body) = do
   -- Pick a name for the closure's code
   fcode <- nameClosureCode f
   -- Because closure environments are local to this bind group, and shadowing
@@ -286,8 +284,8 @@ hoistFunClosure n p (C.FunClosureDef f env params body) = do
   let alloc = ClosureAlloc p fcode envp enva
   pure alloc
 
-hoistContClosure :: Int -> C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
-hoistContClosure n k def@(C.ContClosureDef env params body) = do
+hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
+hoistContClosure k def@(C.ContClosureDef env params body) = do
   kplace <- asPlace (C.contClosureType def) k
   -- Pick a name for the closure's code
   kcode <- nameClosureCode k
@@ -457,7 +455,7 @@ hoistCoArgList ks = do
       pure (k', acc)
     f (C.ContCoArg def) (i, allocs) = do
       let k = C.Name "__anon_cont" i
-      ((_k, kplace), alloc) <- hoistContClosure i k def
+      ((_k, kplace), alloc) <- hoistContClosure k def
       let k' = LocalName (placeName kplace)
       pure (k', (i+1, alloc : allocs))
 
@@ -467,21 +465,16 @@ mapAccumLM f xs s = flip runStateT s $ traverse (StateT . f) xs
 -- | Extend the local scope with a new place with the given name and sort.
 withPlace :: C.Name -> C.Type -> (Place -> HoistM a) -> HoistM a
 withPlace x s cont = do
-  inScope <- asks (Map.keysSet . nameRefs)
-  x' <- go x inScope
+  x' <- asPlace s x
   let xname = LocalName (placeName x')
   let xsort = placeType x'
   let
     extend env =
-      env { nameRefs = Map.insert x xname (nameRefs env), nameTypes = Map.insert x xsort (nameTypes env) }
+      env {
+        nameRefs = Map.insert x xname (nameRefs env)
+      , nameTypes = Map.insert x xsort (nameTypes env)
+      }
   local extend $ cont x'
-  where
-    -- I think this is fine. We might shadow local names, which is bad, but
-    -- environment references are guarded by 'env->'.
-    go :: C.Name -> Set C.Name -> HoistM Place
-    go v ps = case Set.member v ps of
-      False -> asPlace s v
-      True -> go (C.prime v) ps
 
 -- I don't have scoping for tyvars yet, but this is where it would go.
 withTyVar :: C.TyVar -> C.Kind -> (TyVar -> Kind -> HoistM a) -> HoistM a
@@ -509,3 +502,39 @@ withEnvFields fields cont = do
   let extend env = env { nameRefs = insertMany newEnvRefs (nameRefs env), nameTypes = insertMany newEnvType (nameTypes env) }
   local extend $ cont fields'
 
+-- data CValue
+--   = CVVar C.Name
+--   | CVInt Int
+--   | CVPair CValue CValue
+--
+-- foo :: CValue -> C.Name -> C.Type -> ((TermH -> TermH) -> HoistM a) -> HoistM a
+-- foo (CVVar y) x _t kont = _ -- hoist y; extend env with x := y. letval unnecessary
+-- foo (CVInt i) x t kont = do
+--   withPlace x t $ \x' ->
+--     kont (\e' -> LetValH x' (IntH i) e')
+-- foo (CVPair v1 v2) x t kont =
+--   bar v1 $ \y _t addY -> do
+--     bar v2 $ \z _s addZ -> do
+--       withPlace x t $ \x' ->
+--         kont (\e' -> addY (addZ (LetValH x' (PairH y z) e')))
+--
+-- bar :: CValue -> (Name -> Type -> (TermH -> TermH) -> HoistM a) -> HoistM a
+-- bar (CVVar y) kont = do
+--   y' <- lookupName y
+--   s <- lookupType y
+--   kont y' s (\e' -> e')
+-- bar (CVInt i) kont = do
+--   t <- freshTmp
+--   let ty = IntegerH
+--   kont (LocalName t) ty (\e' -> LetValH (Place ty t) (IntH i) e')
+-- bar (CVPair v1 v2) kont = do
+--   bar v1 $ \x t addX -> do
+--     bar v2 $ \y s addY -> do
+--       t <- freshTmp
+--       let ty = ProductH t s
+--       kont (LocalName t) ty (\e' -> addX (addY (LetValH (Place ty t) (PairH x y) e')))
+--
+-- freshTmp :: HoistM Id
+-- freshTmp = do
+--   u <- freshUnique
+--   pure (Id "tmp" u)
