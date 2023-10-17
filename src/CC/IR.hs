@@ -104,6 +104,7 @@ instance Show TyCon where
   show (TyCon tc) = tc
 
 data Ctor = Ctor String
+  deriving (Eq, Ord)
 
 instance Show Ctor where
   show (Ctor c) = c

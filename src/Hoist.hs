@@ -79,7 +79,7 @@ caseKind (C.TyConApp tc args) = TyConApp <$> hoistTyConOcc tc <*> traverse sortO
 
 
 -- Hmm. Instead of 'Writer', would an 'Update' monad be applicable here?
-newtype HoistM a = HoistM { runHoistM :: ReaderT HoistEnv (StateT Unique (Writer ClosureDecls)) a }
+newtype HoistM a = HoistM { getHoistM :: ReaderT HoistEnv (StateT Unique (Writer ClosureDecls)) a }
 
 deriving newtype instance Functor HoistM
 deriving newtype instance Applicative HoistM
@@ -93,6 +93,16 @@ data HoistEnv =
     nameRefs :: Map C.Name Name
   , nameTypes :: Map C.Name Type
   , tyVarRefs :: Map C.TyVar TyVar
+  , ctorTyCons :: Map C.Ctor TyCon
+  }
+
+emptyEnv :: HoistEnv
+emptyEnv =
+  HoistEnv {
+    nameRefs = Map.empty
+  , nameTypes = Map.empty
+  , tyVarRefs = Map.empty
+  , ctorTyCons = Map.empty
   }
 
 -- Hmm. Might consider using a DList here. I think there might be a left-nested
@@ -118,29 +128,34 @@ hoistProgram (C.Program ds e) =
     Program (map DeclData dataDecls ++ map DeclCode (getClosureDecls cs)) mainExpr
 
 runHoist :: HoistM a -> (a, ClosureDecls)
-runHoist =
-  runWriter .
-  flip evalStateT (Unique 0) .
-  flip runReaderT emptyEnv .
-  runHoistM
-  where
-    emptyEnv = HoistEnv { nameRefs = Map.empty, nameTypes = Map.empty, tyVarRefs = Map.empty }
+runHoist m =
+  runWriter $
+  flip evalStateT (Unique 0) $
+  flip runReaderT emptyEnv $
+  getHoistM m
 
 withDataDecls :: [C.DataDecl] -> ([DataDecl] -> HoistM a) -> HoistM a
 withDataDecls [] cont = cont []
 withDataDecls (C.DataDecl (C.TyCon tc) kind ctors : ds) cont = do
   kind' <- kindOf kind
-  withCtorDecls ctors $ \ctors' ->
-    let d' = DataDecl (TyCon tc) kind' ctors' in
+  let tc' = TyCon tc
+  withCtorDecls tc' ctors $ \ctors' ->
+    let d' = DataDecl tc' kind' ctors' in
     withDataDecls ds $ \ds' ->
       cont (d' : ds')
 
-withCtorDecls :: [C.CtorDecl] -> ([CtorDecl] -> HoistM a) -> HoistM a
-withCtorDecls ctors cont = traverse hoistCtorDecl ctors >>= cont
+withCtorDecls :: TyCon -> [C.CtorDecl] -> ([CtorDecl] -> HoistM a) -> HoistM a
+withCtorDecls tc ctors cont = do
+  (binds, ctors') <- fmap unzip $ traverse (hoistCtorDecl tc) ctors
+  let extend env = env { ctorTyCons = insertMany binds (ctorTyCons env) }
+  local extend $ cont ctors'
 
-hoistCtorDecl :: C.CtorDecl -> HoistM CtorDecl
-hoistCtorDecl (C.CtorDecl (C.Ctor c) params args) =
-  withTyVars params $ \params' -> (CtorDecl (Ctor c) params' <$> (traverse makeField (zip [0..] args)))
+hoistCtorDecl :: TyCon -> C.CtorDecl -> HoistM ((C.Ctor, TyCon), CtorDecl)
+hoistCtorDecl tc (C.CtorDecl (C.Ctor c) params args) =
+  withTyVars params $ \params' -> do
+    args' <- traverse makeField (zip [0..] args)
+    let decl = CtorDecl (Ctor c) params' args'
+    pure ((C.Ctor c, tc), decl)
   where
     makeField :: (Int, C.Type) -> HoistM (Id, Type)
     makeField (i, s) = do
@@ -187,12 +202,8 @@ hoist (C.CaseC x t ks) = do
     pure $ CaseH x' kind ks'
   else
     pure $ AllocClosure allocs (CaseH x' kind ks')
--- hoist (C.LetValC (x, t) v e) = do
---   hoistValue'' (toCValue v) $ KNamed x t $ \addBinds -> do
---     e' <- hoist e
---     pure (addBinds e')
 hoist (C.LetValC (x, t) v e) = do
-  nameValue' (toCValue v) x t $ \addBinds -> do
+  hoistValue (toCValue v) $ KNamed x t $ \addBinds -> do
     e' <- hoist e
     pure (addBinds e')
 -- hoist (C.LetValC (x, s) v e) = do
@@ -344,20 +355,20 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
   let enva = EnvAlloc tyFields allocFields
   pure enva
 
-hoistValue :: C.ValueC -> HoistM ValueH
-hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
-hoistValue (C.BoolC b) = pure (BoolH b)
-hoistValue (C.PairC x y) =
-  PairH <$> hoistVarOcc x <*> hoistVarOcc y
-hoistValue (C.RecordC fields) =
-  RecordValH <$> traverse hoistField fields
-  where hoistField (f, x) = (,) <$> pure (hoistFieldLabel f) <*> hoistVarOcc x
-hoistValue C.NilC = pure NilH
-hoistValue C.WorldTokenC = pure WorldToken
-hoistValue (C.StringC s) = pure (StringValH s)
-hoistValue (C.CharC c) = pure (CharValH c)
-hoistValue (C.CtorAppC (C.Ctor c) tyargs args) =
-  CtorAppH (Ctor c) <$> traverse sortOf tyargs <*> traverse hoistVarOcc args
+-- hoistValue :: C.ValueC -> HoistM ValueH
+-- hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
+-- hoistValue (C.BoolC b) = pure (BoolH b)
+-- hoistValue (C.PairC x y) =
+--   PairH <$> hoistVarOcc x <*> hoistVarOcc y
+-- hoistValue (C.RecordC fields) =
+--   RecordValH <$> traverse hoistField fields
+--   where hoistField (f, x) = (,) <$> pure (hoistFieldLabel f) <*> hoistVarOcc x
+-- hoistValue C.NilC = pure NilH
+-- hoistValue C.WorldTokenC = pure WorldToken
+-- hoistValue (C.StringC s) = pure (StringValH s)
+-- hoistValue (C.CharC c) = pure (CharValH c)
+-- hoistValue (C.CtorAppC (C.Ctor c) tyargs args) =
+--   CtorAppH (Ctor c) <$> traverse sortOf tyargs <*> traverse hoistVarOcc args
 
 hoistArith :: C.ArithC -> HoistM PrimOp
 hoistArith (C.AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -387,7 +398,7 @@ hoistPrimIO (C.PutLineC x y) = PrimPutLine <$> hoistVarOcc x <*> hoistVarOcc y
 freshUnique :: HoistM Unique
 freshUnique = do
   u <- get
-  modify' (\ (Unique u) -> Unique (u+1))
+  modify' (\ (Unique i) -> Unique (i+1))
   pure u
 
 nameClosureCode :: C.Name -> HoistM CodeLabel
@@ -447,6 +458,13 @@ lookupType x = do
     Nothing -> error ("var not in scope: " ++ show x)
     Just s -> pure s
 
+lookupTyCon :: C.Ctor -> HoistM TyCon
+lookupTyCon c = do
+  env <- asks ctorTyCons
+  case Map.lookup c env of
+    Nothing -> error ("ctor not in scope: " ++ show c)
+    Just tc -> pure tc
+
 -- | Hoist a list of arguments.
 hoistArgList :: [C.Argument] -> HoistM [ClosureArg]
 hoistArgList xs = traverse f xs
@@ -505,7 +523,7 @@ withEnvFields :: [(C.Name, C.Type)] -> ([(FieldLabel, Type)] -> HoistM a) -> Hoi
 withEnvFields fields cont = do
   binds <- for fields $ \ (x, s) -> (,) x <$> asPlace s x
   let fields' = [(hoistFieldName x, placeType x') | (x, x') <- binds]
-  let newEnvRefs = [(x, EnvName (hoistFieldName x)) | (x, x') <- binds]
+  let newEnvRefs = [(x, EnvName (hoistFieldName x)) | (x, _x') <- binds]
   let newEnvType = [(x, placeType x') | (x, x') <- binds]
 
   let extend env = env { nameRefs = insertMany newEnvRefs (nameRefs env), nameTypes = insertMany newEnvType (nameTypes env) }
@@ -534,164 +552,71 @@ toCValue (C.StringC s) = CVString s
 toCValue (C.CharC c) = CVChar c
 toCValue (C.CtorAppC c ts xs) = CVCtor c ts (map CVVar xs)
 
-nameValue' :: CValue -> C.Name -> C.Type -> ((TermH -> TermH) -> HoistM a) -> HoistM a
-nameValue' (CVVar y) x t kont = do
-  y' <- hoistVarOcc y
-  t' <- sortOf t
-  let extend env = env { nameRefs = Map.insert x y' (nameRefs env), nameTypes = Map.insert x t' (nameTypes env) }
-  local extend $ kont (\e' -> e')
-nameValue' (CVInt i) x t kont = do
-  withPlace x t $ \x' ->
-    kont (\e' -> LetValH x' (IntH (fromIntegral i)) e')
-nameValue' (CVBool b) x t kont = do
-  withPlace x t $ \x' ->
-    kont (\e' -> LetValH x' (BoolH b) e')
-nameValue' (CVString s) x t kont = do
-  withPlace x t $ \x' ->
-    kont (\e' -> LetValH x' (StringValH s) e')
-nameValue' (CVChar c) x t kont = do
-  withPlace x t $ \x' ->
-    kont (\e' -> LetValH x' (CharValH c) e')
-nameValue' CVNil x t kont = do
-  withPlace x t $ \x' ->
-    kont (\e' -> LetValH x' NilH e')
-nameValue' CVWorldToken x t kont = do
-  withPlace x t $ \x' ->
-    kont (\e' -> LetValH x' WorldToken e')
-nameValue' (CVPair v1 v2) x t kont =
-  hoistValue' v1 $ \y _t addY -> do
-    hoistValue' v2 $ \z _s addZ -> do
-      withPlace x t $ \x' ->
-        kont (\e' -> addY (addZ (LetValH x' (PairH y z) e')))
-nameValue' (CVRecord ls) x t kont =
-  hoistRecordVal' ls $ \ls' ts addBinds ->
-    withPlace x t $ \x' ->
-      kont (\e' -> addBinds (LetValH x' (RecordValH ls') e'))
-nameValue' (CVCtor (C.Ctor c) ts vs) x t kont = do
-  ts' <- traverse sortOf ts
-  hoistCtorArgs' vs $ \vs' addBinds -> do
-    withPlace x t $ \x' -> do
-      kont (\e' -> addBinds (LetValH x' (CtorAppH (Ctor c) ts' vs') e'))
-
-withFreshTmp :: C.Type -> (Place -> HoistM a) -> HoistM a
-withFreshTmp t kont = withPlace (C.Name "tmp" 0) t $ kont
-
--- It's annoying how much duplication there is here.
--- The difference is mostly about variables, right?
-hoistValue' :: CValue -> (Name -> Type -> (TermH -> TermH) -> HoistM a) -> HoistM a
-hoistValue' (CVVar y) kont = do
-  y' <- hoistVarOcc y
-  s <- lookupType y
-  kont y' s (\e' -> e')
-hoistValue' (CVInt i) kont = do
-  t <- freshTmp
-  let ty = IntegerH
-  kont (LocalName t) ty (\e' -> LetValH (Place ty t) (IntH (fromIntegral i)) e')
-hoistValue' (CVBool b) kont = do
-  t <- freshTmp
-  let ty = BooleanH
-  kont (LocalName t) ty (\e' -> LetValH (Place ty t) (BoolH b) e')
-hoistValue' (CVString s) kont = do
-  t <- freshTmp
-  let ty = StringH
-  kont (LocalName t) ty (\e' -> LetValH (Place ty t) (StringValH s) e')
-hoistValue' (CVChar c) kont = do
-  t <- freshTmp
-  let ty = CharH
-  kont (LocalName t) ty (\e' -> LetValH (Place ty t) (CharValH c) e')
-hoistValue' CVNil kont = do
-  t <- freshTmp
-  let ty = UnitH
-  kont (LocalName t) ty (\e' -> LetValH (Place ty t) NilH e')
-hoistValue' CVWorldToken kont = do
-  t <- freshTmp
-  let ty = TokenH
-  kont (LocalName t) ty (\e' -> LetValH (Place ty t) WorldToken e')
-hoistValue' (CVPair v1 v2) kont = do
-  hoistValue' v1 $ \x t1 addX -> do
-    hoistValue' v2 $ \y t2 addY -> do
-      t <- freshTmp
-      let ty = ProductH t1 t2
-      kont (LocalName t) ty (\e' -> addX (addY (LetValH (Place ty t) (PairH x y) e')))
-hoistValue' (CVRecord fs) kont =
-  hoistRecordVal' fs $ \gs ts addGs -> do
-    z <- freshTmp
-    let ty = RecordH ts
-    kont (LocalName z) ty (\e' -> addGs (LetValH (Place ty z) (RecordValH gs) e'))
--- hoistValue' (CVCtor c ts vs) = do
---   c' <- _
---   ts' <- traverse sortOf ts
---   hoistCtorArgs' vs $ \vs' addBinds -> do
---     z <- freshTmp
---     let ty = _ -- ugh. need to map ctor to tycon
---     kont (LocalName z) ty (\e' -> addBinds (LetValH (Place ty z) (CtorAppH c' ts' vs') e'))
-
-hoistRecordVal' :: [(C.FieldLabel, CValue)] -> ([(FieldLabel, Name)] -> [(FieldLabel, Type)] -> (TermH -> TermH) -> HoistM a) -> HoistM a
-hoistRecordVal' [] kont = kont [] [] (\e' -> e')
-hoistRecordVal' ((l, v) : ls) kont =
-  hoistValue' v $ \x t addX ->
-    hoistRecordVal' ls $ \ls' ts addFields -> do
-      let l' = hoistFieldLabel l
-      kont ((l', x) : ls') ((l', t) : ts) (\e' -> addX (addFields e'))
-
-hoistCtorArgs' :: [CValue] -> ([Name] -> (TermH -> TermH) -> HoistM a) -> HoistM a
-hoistCtorArgs' [] kont = kont [] (\e' -> e')
-hoistCtorArgs' (v : vs) kont =
-  hoistValue' v $ \x _t addX ->
-    hoistCtorArgs' vs $ \xs addXs ->
-      kont (x : xs) (\e' -> addX (addXs e'))
-
-data K a
+-- A continuation, used for flattening values to ANF.
+data ANFKont a
+  -- Named continuations are used at the top level of a let-bound value
   = KNamed C.Name C.Type ((TermH -> TermH) -> HoistM a)
+  -- Anonymous continuations generate names for sub-values
   | KAnon (Name -> Type -> (TermH -> TermH) -> HoistM a)
 
-applyK :: K r -> Either Name ValueH -> Type -> (TermH -> TermH) -> HoistM r
-applyK (KNamed x t kont) (Left y') _t' addBinds = do
+applyKont :: ANFKont r -> Either Name ValueH -> Type -> (TermH -> TermH) -> HoistM r
+applyKont (KNamed x t kont) (Left y') _t' addBinds = do
   t' <- sortOf t
   let extend env = env { nameRefs = Map.insert x y' (nameRefs env), nameTypes = Map.insert x t' (nameTypes env) }
   local extend $ kont (\e' -> addBinds e')
-applyK (KNamed x t kont) (Right v) _t' addBinds =
+applyKont (KNamed x t kont) (Right v) _t' addBinds =
   withPlace x t $ \x' ->
     kont (\e' -> addBinds (LetValH x' v e'))
-applyK (KAnon kont) (Left y') t' addBinds = do
+applyKont (KAnon kont) (Left y') t' addBinds = do
   kont y' t' (\e' -> addBinds e')
-applyK (KAnon kont) (Right v) t' addBinds = do
+applyKont (KAnon kont) (Right v) t' addBinds = do
   z <- freshTmp
   kont (LocalName z) t' (\e' -> addBinds (LetValH (Place t' z) v e'))
 
-hoistValue'' :: CValue -> K a -> HoistM a
-hoistValue'' (CVVar y) kont = do
+hoistValue :: CValue -> ANFKont a -> HoistM a
+hoistValue (CVVar y) kont = do
   y' <- hoistVarOcc y
   t' <- lookupType y
-  applyK kont (Left y') t' (\e' -> e')
-hoistValue'' (CVInt i) kont =
-  applyK kont (Right (IntH (fromIntegral i))) IntegerH (\e' -> e')
-hoistValue'' (CVBool b) kont =
-  applyK kont (Right (BoolH b)) BooleanH (\e' -> e')
-hoistValue'' (CVString s) kont =
-  applyK kont (Right (StringValH s)) StringH (\e' -> e')
-hoistValue'' (CVChar c) kont =
-  applyK kont (Right (CharValH c)) CharH (\e' -> e')
-hoistValue'' CVNil kont =
-  applyK kont (Right NilH) UnitH (\e' -> e')
-hoistValue'' CVWorldToken kont =
-  applyK kont (Right WorldToken) TokenH (\e' -> e')
-hoistValue'' (CVPair v1 v2) kont =
-  hoistValue'' v1 $ KAnon $ \x1 t1 addX1 ->
-    hoistValue'' v2 $ KAnon $ \x2 t2 addX2 ->
-      applyK kont (Right (PairH x1 x2)) (ProductH t1 t2) (addX1 . addX2)
--- hoistValue'' (CVCtor c@(C.Ctor c') ts vs) kont = do
---   ts' <- traverse sortOf ts
---   tc <- lookupTyCon c
---   hoistCtorArgs'' vs $ \vs' addBinds -> do
---     let ty = fromTyConApp (TyConApp tc ts')
---     applyK kont (Right (CtorAppH (Ctor c') ts' vs')) ty addBinds
+  applyKont kont (Left y') t' (\e' -> e')
+hoistValue (CVInt i) kont =
+  applyKont kont (Right (IntH (fromIntegral i))) IntegerH (\e' -> e')
+hoistValue (CVBool b) kont =
+  applyKont kont (Right (BoolH b)) BooleanH (\e' -> e')
+hoistValue (CVString s) kont =
+  applyKont kont (Right (StringValH s)) StringH (\e' -> e')
+hoistValue (CVChar c) kont =
+  applyKont kont (Right (CharValH c)) CharH (\e' -> e')
+hoistValue CVNil kont =
+  applyKont kont (Right NilH) UnitH (\e' -> e')
+hoistValue CVWorldToken kont =
+  applyKont kont (Right WorldToken) TokenH (\e' -> e')
+hoistValue (CVPair v1 v2) kont =
+  hoistValue v1 $ KAnon $ \x1 t1 addX1 ->
+    hoistValue v2 $ KAnon $ \x2 t2 addX2 ->
+      applyKont kont (Right (PairH x1 x2)) (ProductH t1 t2) (addX1 . addX2)
+hoistValue (CVRecord fs) kont =
+  hoistRecordVal'' fs $ \gs ts addFields ->
+    applyKont kont (Right (RecordValH gs)) (RecordH ts) addFields
+hoistValue (CVCtor c@(C.Ctor c') ts vs) kont = do
+  ts' <- traverse sortOf ts
+  tc <- lookupTyCon c
+  hoistCtorArgs'' vs $ \vs' addBinds -> do
+    let ty = fromTyConApp (TyConApp tc ts')
+    applyKont kont (Right (CtorAppH (Ctor c') ts' vs')) ty addBinds
+
+hoistRecordVal'' :: [(C.FieldLabel, CValue)] -> ([(FieldLabel, Name)] -> [(FieldLabel, Type)] -> (TermH -> TermH) -> HoistM a) -> HoistM a
+hoistRecordVal'' [] kont = kont [] [] (\e' -> e')
+hoistRecordVal'' ((l, v) : ls) kont =
+  hoistValue v $ KAnon $ \x t addX ->
+    hoistRecordVal'' ls $ \ls' ts addFields -> do
+      let l' = hoistFieldLabel l
+      kont ((l', x) : ls') ((l', t) : ts) (\e' -> addX (addFields e'))
 
 hoistCtorArgs'' :: [CValue] -> ([Name] -> (TermH -> TermH) -> HoistM a) -> HoistM a
 hoistCtorArgs'' [] kont = kont [] (\e' -> e')
 hoistCtorArgs'' (v : vs) kont =
-  hoistValue'' v $ KAnon $ \x _t addX ->
-    hoistCtorArgs' vs $ \xs addXs ->
+  hoistValue v $ KAnon $ \x _t addX ->
+    hoistCtorArgs'' vs $ \xs addXs ->
       kont (x : xs) (\e' -> addX (addXs e'))
 
 freshTmp :: HoistM Id
