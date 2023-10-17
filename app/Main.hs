@@ -90,7 +90,7 @@ driver = DriverArgs
   <*> switch (long "check-cc" <> help "whether to run the typechecker on CC IR")
   <*> switch (long "check-hoist" <> help "whether to run the typechecker on Hoist IR")
   <*> switch (long "with-asan" <> help "compile binaries with AddressSanitizer (developer tool)")
-  <*> many (option (maybeReader parseOptPass) (long "opt-pass" <> help "apply a CPS optimizaiton pass" <> metavar "PASS"))
+  <*> many (option (maybeReader parseOptPass) (long "opt-pass" <> help "apply a CPS optimization pass" <> metavar "PASS"))
   <*> switch (long "dump-opt" <> help "whether to dump optimized CPS IR")
   <*> switch (long "check-opt" <> help "whether to run the typechecker on optimized CPS IR")
 
