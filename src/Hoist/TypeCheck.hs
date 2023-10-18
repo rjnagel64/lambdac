@@ -375,25 +375,25 @@ checkPrimIO (PrimPutLine x y) = checkName x TokenH *> checkName y StringH *> pur
 
 -- | Check that a value has the given sort.
 checkValue :: ValueH -> Type -> TC ()
-checkValue (IntH _) IntegerH = pure ()
-checkValue (IntH _) _ = throwError BadValue
-checkValue (BoolH _) BooleanH = pure ()
-checkValue (BoolH _) _ = throwError BadValue
-checkValue NilH UnitH = pure ()
-checkValue NilH _ = throwError BadValue
-checkValue (PairH x y) (ProductH s t) = do
+checkValue (IntValH _) IntegerH = pure ()
+checkValue (IntValH _) _ = throwError BadValue
+checkValue (BoolValH _) BooleanH = pure ()
+checkValue (BoolValH _) _ = throwError BadValue
+checkValue NilValH UnitH = pure ()
+checkValue NilValH _ = throwError BadValue
+checkValue (PairValH x y) (ProductH s t) = do
   checkName x s
   checkName y t
-checkValue (PairH _ _) _ = throwError BadValue
+checkValue (PairValH _ _) _ = throwError BadValue
 checkValue (StringValH _) StringH = pure ()
 checkValue (StringValH _) _ = throwError BadValue
 checkValue (CharValH _) CharH = pure ()
 checkValue (CharValH _) _ = throwError BadValue
-checkValue WorldToken TokenH = pure ()
-checkValue WorldToken _ = throwError BadValue
+checkValue TokenValH TokenH = pure ()
+checkValue TokenValH _ = throwError BadValue
 checkValue (RecordValH fieldVals) (RecordH fieldTys) = checkRecordValue fieldVals fieldTys
 checkValue (RecordValH _) _ = throwError BadValue
-checkValue (CtorAppH c tyargs args) s = do
+checkValue (CtorValH c tyargs args) s = do
   tcapp <- case asTyConApp s of
     Nothing -> throwError BadCtorApp
     Just tcapp -> pure tcapp

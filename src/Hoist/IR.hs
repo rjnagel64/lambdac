@@ -268,15 +268,15 @@ data EnvAlloc
   }
 
 data ValueH
-  = IntH Int64
-  | BoolH Bool
+  = IntValH Int64
+  | BoolValH Bool
   | StringValH String
   | CharValH Char
-  | PairH Name Name
-  | NilH
-  | WorldToken
+  | PairValH Name Name
+  | NilValH
+  | TokenValH
   | RecordValH [(FieldLabel, Name)]
-  | CtorAppH Ctor [Type] [Name]
+  | CtorValH Ctor [Type] [Name]
 
 data PrimOp
   = PrimAddInt64 Name Name
@@ -534,17 +534,17 @@ pprintClosureArg (TypeArg s) = '@' : pprintType s
 pprintClosureArg (ValueArg x) = show x
 
 pprintValue :: ValueH -> String
-pprintValue (PairH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (PairValH x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (RecordValH []) = "{}"
 pprintValue (RecordValH xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
   where pprintField (f, x) = show f ++ " = " ++ show x
-pprintValue NilH = "()"
-pprintValue (IntH i) = show i
-pprintValue (BoolH b) = if b then "true" else "false"
+pprintValue NilValH = "()"
+pprintValue (IntValH i) = show i
+pprintValue (BoolValH b) = if b then "true" else "false"
 pprintValue (StringValH s) = show s
 pprintValue (CharValH c) = show c
-pprintValue WorldToken = "WORLD#"
-pprintValue (CtorAppH c ss xs) =
+pprintValue TokenValH = "WORLD#"
+pprintValue (CtorValH c ss xs) =
   show c ++ "(" ++ intercalate ", @" (map pprintType ss) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
 
 pprintPrim :: PrimOp -> String

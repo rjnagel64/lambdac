@@ -165,16 +165,16 @@ lowerProjection H.ProjectSnd = pure ProjectSnd
 lowerProjection (H.ProjectField f) = ProjectField <$> lowerFieldLabel f
 
 lowerValue :: H.ValueH -> M ValueH
-lowerValue (H.IntH i) = pure (IntH i)
-lowerValue (H.BoolH b) = pure (BoolH b)
+lowerValue (H.IntValH i) = pure (IntH i)
+lowerValue (H.BoolValH b) = pure (BoolH b)
 lowerValue (H.StringValH s) = pure (StringValH s)
 lowerValue (H.CharValH c) = pure (CharValH c)
-lowerValue (H.PairH x y) = PairH <$> lowerName x <*> lowerName y
-lowerValue H.NilH = pure NilH
-lowerValue H.WorldToken = pure WorldToken
+lowerValue (H.PairValH x y) = PairH <$> lowerName x <*> lowerName y
+lowerValue H.NilValH = pure NilH
+lowerValue H.TokenValH = pure WorldToken
 lowerValue (H.RecordValH fields) = RecordH <$> traverse lowerField fields
   where lowerField (f, x) = (,) <$> lowerFieldLabel f <*> lowerName x
-lowerValue (H.CtorAppH c ss xs) = 
+lowerValue (H.CtorValH c ss xs) = 
   CtorAppH <$> lowerCtor c <*> traverse lowerType ss <*> traverse lowerName xs
 
 lowerTyConApp :: H.TyConApp -> M TyConApp

@@ -354,21 +354,6 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
   let enva = EnvAlloc tyFields allocFields
   pure enva
 
--- hoistValue :: C.ValueC -> HoistM ValueH
--- hoistValue (C.IntC i) = pure (IntH (fromIntegral i))
--- hoistValue (C.BoolC b) = pure (BoolH b)
--- hoistValue (C.PairC x y) =
---   PairH <$> hoistVarOcc x <*> hoistVarOcc y
--- hoistValue (C.RecordC fields) =
---   RecordValH <$> traverse hoistField fields
---   where hoistField (f, x) = (,) <$> pure (hoistFieldLabel f) <*> hoistVarOcc x
--- hoistValue C.NilC = pure NilH
--- hoistValue C.WorldTokenC = pure WorldToken
--- hoistValue (C.StringC s) = pure (StringValH s)
--- hoistValue (C.CharC c) = pure (CharValH c)
--- hoistValue (C.CtorAppC (C.Ctor c) tyargs args) =
---   CtorAppH (Ctor c) <$> traverse sortOf tyargs <*> traverse hoistVarOcc args
-
 hoistArith :: C.ArithC -> HoistM PrimOp
 hoistArith (C.AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
 hoistArith (C.SubC x y) = PrimSubInt64 <$> hoistVarOcc x <*> hoistVarOcc y
@@ -555,21 +540,21 @@ hoistValue (C.VarValC y) kont = do
   t' <- lookupType y
   applyKont kont (Left y') t' (\e' -> e')
 hoistValue (C.IntValC i) kont =
-  applyKont kont (Right (IntH (fromIntegral i))) IntegerH (\e' -> e')
+  applyKont kont (Right (IntValH (fromIntegral i))) IntegerH (\e' -> e')
 hoistValue (C.BoolValC b) kont =
-  applyKont kont (Right (BoolH b)) BooleanH (\e' -> e')
+  applyKont kont (Right (BoolValH b)) BooleanH (\e' -> e')
 hoistValue (C.StringValC s) kont =
   applyKont kont (Right (StringValH s)) StringH (\e' -> e')
 hoistValue (C.CharValC c) kont =
   applyKont kont (Right (CharValH c)) CharH (\e' -> e')
 hoistValue C.NilValC kont =
-  applyKont kont (Right NilH) UnitH (\e' -> e')
+  applyKont kont (Right NilValH) UnitH (\e' -> e')
 hoistValue C.TokenValC kont =
-  applyKont kont (Right WorldToken) TokenH (\e' -> e')
+  applyKont kont (Right TokenValH) TokenH (\e' -> e')
 hoistValue (C.PairValC v1 v2) kont =
   hoistValue v1 $ KAnon $ \x1 t1 addX1 ->
     hoistValue v2 $ KAnon $ \x2 t2 addX2 ->
-      applyKont kont (Right (PairH x1 x2)) (ProductH t1 t2) (addX1 . addX2)
+      applyKont kont (Right (PairValH x1 x2)) (ProductH t1 t2) (addX1 . addX2)
 hoistValue (C.RecordValC fs) kont =
   hoistRecordVal fs $ \gs ts addFields ->
     applyKont kont (Right (RecordValH gs)) (RecordH ts) addFields
@@ -578,7 +563,7 @@ hoistValue (C.CtorValC c@(C.Ctor c') ts vs) kont = do
   tc <- lookupTyCon c
   hoistCtorArgs vs $ \vs' addBinds -> do
     let ty = fromTyConApp (TyConApp tc ts')
-    applyKont kont (Right (CtorAppH (Ctor c') ts' vs')) ty addBinds
+    applyKont kont (Right (CtorValH (Ctor c') ts' vs')) ty addBinds
 
 hoistRecordVal :: [(C.FieldLabel, C.ValueC)] -> ([(FieldLabel, Name)] -> [(FieldLabel, Type)] -> (TermH -> TermH) -> HoistM a) -> HoistM a
 hoistRecordVal [] kont = kont [] [] (\e' -> e')
