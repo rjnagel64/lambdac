@@ -234,7 +234,7 @@ cconv (K.LetFieldK x t y f e) = do
   withTm (x, t) $ \b -> LetFieldC b y' f' <$> cconv e
 cconv (K.LetValK x t v e) = do
   v' <- cconvValue v
-  withTm (x, t) $ \b -> LetValC b (toCValue v') <$> cconv e
+  withTm (x, t) $ \b -> LetValC b v' <$> cconv e
 cconv (K.LetArithK x op e) = do
   op' <- cconvArith op
   withTm (x, K.IntK) $ \b -> LetArithC b op' <$> cconv e
@@ -322,17 +322,20 @@ makeClosureEnv flds = do
 
 
 cconvValue :: K.ValueK -> ConvM ValueC
-cconvValue K.NilK = pure NilC
-cconvValue K.WorldTokenK = pure WorldTokenC
-cconvValue (K.PairK x y) = PairC <$> cconvTmVar x <*> cconvTmVar y
-cconvValue (K.RecordValK fs) = RecordC <$> traverse cconvField fs
-  where cconvField (f, x) = (,) <$> cconvFieldLabel f <*> cconvTmVar x
-cconvValue (K.IntValK i) = pure (IntC i)
-cconvValue (K.BoolValK b) = pure (BoolC b)
-cconvValue (K.StringValK s) = pure (StringC s)
-cconvValue (K.CharValK s) = pure (CharC s)
+cconvValue K.NilK = pure NilValC
+cconvValue K.WorldTokenK = pure TokenValC
+cconvValue (K.PairK x y) = PairValC <$> cconvVarVal x <*> cconvVarVal y
+cconvValue (K.RecordValK fs) = RecordValC <$> traverse cconvField fs
+  where cconvField (f, x) = (,) <$> cconvFieldLabel f <*> cconvVarVal x
+cconvValue (K.IntValK i) = pure (IntValC i)
+cconvValue (K.BoolValK b) = pure (BoolValC b)
+cconvValue (K.StringValK s) = pure (StringValC s)
+cconvValue (K.CharValK s) = pure (CharValC s)
 cconvValue (K.CtorAppK (K.Ctor c) tyargs args) =
-  CtorAppC (Ctor c) <$> traverse cconvType tyargs <*> traverse cconvTmVar args
+  CtorValC (Ctor c) <$> traverse cconvType tyargs <*> traverse cconvVarVal args
+
+cconvVarVal :: K.TmVar -> ConvM ValueC
+cconvVarVal x = VarValC <$> cconvTmVar x
 
 cconvArith :: K.ArithK -> ConvM ArithC
 cconvArith (K.AddK x y) = AddC <$> cconvTmVar x <*> cconvTmVar y

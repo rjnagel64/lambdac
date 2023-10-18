@@ -549,50 +549,50 @@ applyKont (KAnon kont) (Right v) t' addBinds = do
   z <- freshTmp
   kont (LocalName z) t' (\e' -> addBinds (LetValH (Place t' z) v e'))
 
-hoistValue :: C.ValueC' -> ANFKont a -> HoistM a
-hoistValue (C.VarValC' y) kont = do
+hoistValue :: C.ValueC -> ANFKont a -> HoistM a
+hoistValue (C.VarValC y) kont = do
   y' <- hoistVarOcc y
   t' <- lookupType y
   applyKont kont (Left y') t' (\e' -> e')
-hoistValue (C.IntValC' i) kont =
+hoistValue (C.IntValC i) kont =
   applyKont kont (Right (IntH (fromIntegral i))) IntegerH (\e' -> e')
-hoistValue (C.BoolValC' b) kont =
+hoistValue (C.BoolValC b) kont =
   applyKont kont (Right (BoolH b)) BooleanH (\e' -> e')
-hoistValue (C.StringValC' s) kont =
+hoistValue (C.StringValC s) kont =
   applyKont kont (Right (StringValH s)) StringH (\e' -> e')
-hoistValue (C.CharValC' c) kont =
+hoistValue (C.CharValC c) kont =
   applyKont kont (Right (CharValH c)) CharH (\e' -> e')
-hoistValue C.NilValC' kont =
+hoistValue C.NilValC kont =
   applyKont kont (Right NilH) UnitH (\e' -> e')
-hoistValue C.TokenValC' kont =
+hoistValue C.TokenValC kont =
   applyKont kont (Right WorldToken) TokenH (\e' -> e')
-hoistValue (C.PairValC' v1 v2) kont =
+hoistValue (C.PairValC v1 v2) kont =
   hoistValue v1 $ KAnon $ \x1 t1 addX1 ->
     hoistValue v2 $ KAnon $ \x2 t2 addX2 ->
       applyKont kont (Right (PairH x1 x2)) (ProductH t1 t2) (addX1 . addX2)
-hoistValue (C.RecordValC' fs) kont =
-  hoistRecordVal'' fs $ \gs ts addFields ->
+hoistValue (C.RecordValC fs) kont =
+  hoistRecordVal fs $ \gs ts addFields ->
     applyKont kont (Right (RecordValH gs)) (RecordH ts) addFields
-hoistValue (C.CtorValC' c@(C.Ctor c') ts vs) kont = do
+hoistValue (C.CtorValC c@(C.Ctor c') ts vs) kont = do
   ts' <- traverse sortOf ts
   tc <- lookupTyCon c
-  hoistCtorArgs'' vs $ \vs' addBinds -> do
+  hoistCtorArgs vs $ \vs' addBinds -> do
     let ty = fromTyConApp (TyConApp tc ts')
     applyKont kont (Right (CtorAppH (Ctor c') ts' vs')) ty addBinds
 
-hoistRecordVal'' :: [(C.FieldLabel, C.ValueC')] -> ([(FieldLabel, Name)] -> [(FieldLabel, Type)] -> (TermH -> TermH) -> HoistM a) -> HoistM a
-hoistRecordVal'' [] kont = kont [] [] (\e' -> e')
-hoistRecordVal'' ((l, v) : ls) kont =
+hoistRecordVal :: [(C.FieldLabel, C.ValueC)] -> ([(FieldLabel, Name)] -> [(FieldLabel, Type)] -> (TermH -> TermH) -> HoistM a) -> HoistM a
+hoistRecordVal [] kont = kont [] [] (\e' -> e')
+hoistRecordVal ((l, v) : ls) kont =
   hoistValue v $ KAnon $ \x t addX ->
-    hoistRecordVal'' ls $ \ls' ts addFields -> do
+    hoistRecordVal ls $ \ls' ts addFields -> do
       let l' = hoistFieldLabel l
       kont ((l', x) : ls') ((l', t) : ts) (\e' -> addX (addFields e'))
 
-hoistCtorArgs'' :: [C.ValueC'] -> ([Name] -> (TermH -> TermH) -> HoistM a) -> HoistM a
-hoistCtorArgs'' [] kont = kont [] (\e' -> e')
-hoistCtorArgs'' (v : vs) kont =
+hoistCtorArgs :: [C.ValueC] -> ([Name] -> (TermH -> TermH) -> HoistM a) -> HoistM a
+hoistCtorArgs [] kont = kont [] (\e' -> e')
+hoistCtorArgs (v : vs) kont =
   hoistValue v $ KAnon $ \x _t addX ->
-    hoistCtorArgs'' vs $ \xs addXs ->
+    hoistCtorArgs vs $ \xs addXs ->
       kont (x : xs) (\e' -> addX (addXs e'))
 
 freshTmp :: HoistM Id
