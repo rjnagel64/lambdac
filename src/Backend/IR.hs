@@ -129,7 +129,7 @@ data Id = Id String Unique
   deriving (Eq, Ord)
 
 instance Show Id where
-  show (Id x u) = x ++ show u
+  show (Id x u) = x ++ "_" ++ show u
 
 -- | A 'Name' references some in-scope value binding. It can be either a name
 -- in the local scope, or it can be a reference to some field from the

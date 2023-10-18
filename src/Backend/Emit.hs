@@ -298,28 +298,35 @@ emitCtorDecl cd =
   emitCtorInfo cd ++
   emitCtorAllocate cd
 
+-- The stem of a C identifier for things related to a particular data
+-- constructor, qualified by its type constructor.
+-- Eh. could probably use a better name.
+ctorQualName :: Ctor -> String
+ctorQualName c = show (ctorTyCon c) ++ "_" ++ ctorName c
+
 emitCtorStruct :: CtorDecl -> [Line]
-emitCtorStruct (CtorDecl (Ctor tc c _i) _tys args) =
-  let ctorId = show tc ++ "_" ++ c in
-  ["struct " ++ ctorId ++ " {"
-  ,"    struct " ++ show tc ++ " header;"] ++
+emitCtorStruct (CtorDecl c _tys args) =
+  let ctorStructName = ctorQualName c in
+  ["struct " ++ ctorStructName ++ " {"
+  ,"    struct " ++ show (ctorTyCon c) ++ " header;"] ++
   map makeField args ++
   ["};"
-  ,"#define CAST_" ++ ctorId ++ "(v) ((struct " ++ ctorId ++ " *)(v))"]
+  ,"#define CAST_" ++ ctorStructName ++ "(v) ((struct " ++ ctorStructName ++ " *)(v))"]
   where makeField (f, s) = "    " ++ emitField f s ++ ";"
 
 emitCtorInfo :: CtorDecl -> [Line]
-emitCtorInfo (CtorDecl (Ctor tc c _i) _tys args) =
+emitCtorInfo (CtorDecl c _tys args) =
   -- Hmm. May need DataNames and CtorNames
-  let ctorId = show tc ++ "_" ++ c in
-  let ctorCast = "CAST_" ++ ctorId in
+  let ctorId = ctorQualName c in
+  let ctorCast = "CAST_" ++ ctorId ++ "(alloc)" in
+  let name = ctorName c in
   ["void trace_" ++ ctorId ++ "(struct alloc_header *alloc) {"
-  ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ "(alloc);"] ++
+  ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ ";"] ++
   map traceField args ++
   ["}"
   ,"void display_" ++ ctorId ++ "(struct alloc_header *alloc, struct string_buf *sb) {"
-  ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ "(alloc);"
-  ,"    string_buf_push_slice(sb, " ++ show c ++ ", " ++ show (length c) ++ ");"
+  ,"    struct " ++ ctorId ++ " *ctor = " ++ ctorCast ++ ";"
+  ,"    string_buf_push_slice(sb, " ++ show name ++ ", " ++ show (length name) ++ ");"
   ,"    string_buf_push_slice(sb, \"(\", 1);"] ++
   intersperse "string_buf_push_slice(sb, \", \", 2);" (map displayField args) ++
   ["    string_buf_push_slice(sb, \")\", 1);"
@@ -330,13 +337,15 @@ emitCtorInfo (CtorDecl (Ctor tc c _i) _tys args) =
     displayField (x, _s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(AS_ALLOC(ctor->" ++ show x ++ "), sb);"
 
 emitCtorAllocate :: CtorDecl -> [Line]
-emitCtorAllocate (CtorDecl (Ctor tc c i) _tys args) =
-  let ctorId = show tc ++ "_" ++ c in
-  ["struct " ++ show tc ++ " *allocate_" ++ ctorId ++ "(" ++ commaSep params ++ ") {"
-  ,"    struct " ++ ctorId ++ " *ctor = malloc(sizeof(struct " ++ ctorId ++ "));"
-  ,"    ctor->header.discriminant = " ++ show i ++ ";"] ++
+emitCtorAllocate (CtorDecl c _tys args) =
+  let ctorStructName = ctorQualName c in
+  let tc = ctorTyCon c in
+  -- let ctorStructName = show tc ++ "_" ++ c in
+  ["struct " ++ show tc ++ " *allocate_" ++ ctorStructName ++ "(" ++ commaSep params ++ ") {"
+  ,"    struct " ++ ctorStructName ++ " *ctor = malloc(sizeof(struct " ++ ctorStructName ++ "));"
+  ,"    ctor->header.discriminant = " ++ show (ctorDiscriminant c) ++ ";"] ++
   map assignField args ++
-  ["    cons_new_alloc(AS_ALLOC(ctor), &" ++ ctorId ++ "_info);"
+  ["    cons_new_alloc(AS_ALLOC(ctor), &" ++ ctorStructName ++ "_info);"
   ,"    return CAST_" ++ show tc ++ "(ctor);"
   ,"}"]
   where

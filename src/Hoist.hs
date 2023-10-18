@@ -282,12 +282,11 @@ withContClosures ks cont = do
 hoistFunClosure :: Place -> C.FunClosureDef -> HoistM ClosureAlloc
 hoistFunClosure p (C.FunClosureDef f env params body) = do
   -- Pick a name for the closure's code
-  fcode <- nameClosureCode f
+  fcode <- nameClosureCode p
   -- Because closure environments are local to this bind group, and shadowing
   -- is permissible in Hoist, just use numeric suffixes for the environment
   -- names.
-  u <- freshUnique
-  envp <- pure (Id "env" u)
+  envp <- freshTmp "env"
 
   -- Extend context with environment
   withEnvDef env $ \envd -> do
@@ -304,26 +303,26 @@ hoistFunClosure p (C.FunClosureDef f env params body) = do
   pure alloc
 
 hoistContClosure :: C.Name -> C.ContClosureDef -> HoistM ((C.Name, Place), ClosureAlloc)
-hoistContClosure k def@(C.ContClosureDef env params body) = do
+hoistContClosure k def = do
   kplace <- asPlace (C.contClosureType def) k
-  -- Pick a name for the closure's code
-  kcode <- nameClosureCode k
-  u <- freshUnique
-  envp <- pure (Id "env" u)
+  alloc <- hoistContClosure' kplace def
+  pure ((k, kplace), alloc)
 
-  -- Extend context with environment
+hoistContClosure' :: Place -> C.ContClosureDef -> HoistM ClosureAlloc
+hoistContClosure' p (C.ContClosureDef env params body) = do
+  kcode <- nameClosureCode p
+  envp <- freshTmp "env"
+
   withEnvDef env $ \envd -> do
-    -- Extend context with parameter list
     withParameterList (C.makeClosureParams [] params) $ \params' -> do
-      -- hoist the closure body and emit a code declaration
       withEnvironmentName $ \envn -> do
         body' <- hoist body
         let decl = CodeDecl kcode (envn, envd) params' body'
         tellClosure decl
 
   enva <- hoistEnvAlloc env
-  let alloc = ClosureAlloc kplace kcode envp enva
-  pure ((k, kplace), alloc)
+  let alloc = ClosureAlloc p kcode envp enva
+  pure alloc
 
 withEnvDef :: C.EnvDef -> (EnvDecl -> HoistM a) -> HoistM a
 withEnvDef (C.EnvDef tys xs) cont =
@@ -347,7 +346,6 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
   -- is)
   tyFields <- traverse (\ (aa, k) -> AllocH <$> hoistTyVarOcc aa) tyfields
   allocFields <- for fields $ \ (x, s) -> do
-    -- p <- asPlace s x -- TODO: Convert to field name.
     let f = hoistFieldName x
     x' <- hoistVarOcc x
     pure (f, x')
@@ -385,10 +383,10 @@ freshUnique = do
   modify' (\ (Unique i) -> Unique (i+1))
   pure u
 
-nameClosureCode :: C.Name -> HoistM CodeLabel
-nameClosureCode (C.Name x i) = do
-  u <- freshUnique
-  pure (CodeLabel (x ++ show i) u)
+nameClosureCode :: Place -> HoistM CodeLabel
+nameClosureCode (Place _s (Id x _u)) = do
+  u' <- freshUnique
+  pure (CodeLabel x u')
 
 withParameterList :: [C.ClosureParam] -> ([ClosureParam] -> HoistM a) -> HoistM a
 withParameterList [] cont = cont []
@@ -458,17 +456,21 @@ hoistArgList xs = traverse f xs
 
 hoistCoArgList :: Traversable t => t C.CoArgument -> HoistM ([ClosureAlloc], t Name)
 hoistCoArgList ks = do
-  (args, (_, allocs)) <- mapAccumLM f ks (0, [])
+  (args, allocs) <- mapAccumLM f ks []
   pure (allocs, args)
   where
+    -- Annoyingly, it does have to be mapAccumL here. I can't just use
+    -- traverse, because turning 't (Maybe ClosureAlloc)' into 't ClosureAlloc'
+    -- is Filterable from the 'witherable' package, and I don't feel like
+    -- adding a dependency.
     f (C.VarCoArg k) acc = do
       k' <- hoistVarOcc k
       pure (k', acc)
-    f (C.ContCoArg def) (i, allocs) = do
-      let k = C.Name "__anon_cont" i
-      ((_k, kplace), alloc) <- hoistContClosure k def
+    f (C.ContCoArg def) allocs = do
+      kplace <- Place <$> sortOf (C.contClosureType def) <*> freshTmp "__anon_cont"
+      alloc <- hoistContClosure' kplace def
       let k' = LocalName (placeName kplace)
-      pure (k', (i+1, alloc : allocs))
+      pure (k', alloc : allocs)
 
 mapAccumLM :: (Monad m, Traversable t) => (a -> s -> m (b, s)) -> t a -> s -> m (t b, s)
 mapAccumLM f xs s = flip runStateT s $ traverse (StateT . f) xs
@@ -531,7 +533,7 @@ applyKont (KNamed x t kont) (Right v) _t' addBinds =
 applyKont (KAnon kont) (Left y') t' addBinds = do
   kont y' t' (\e' -> addBinds e')
 applyKont (KAnon kont) (Right v) t' addBinds = do
-  z <- freshTmp
+  z <- freshTmp "tmp"
   kont (LocalName z) t' (\e' -> addBinds (LetValH (Place t' z) v e'))
 
 hoistValue :: C.ValueC -> ANFKont a -> HoistM a
@@ -580,7 +582,7 @@ hoistCtorArgs (v : vs) kont =
     hoistCtorArgs vs $ \xs addXs ->
       kont (x : xs) (\e' -> addX (addXs e'))
 
-freshTmp :: HoistM Id
-freshTmp = do
+freshTmp :: String -> HoistM Id
+freshTmp x = do
   u <- freshUnique
-  pure (Id "tmp" u)
+  pure (Id x u)
