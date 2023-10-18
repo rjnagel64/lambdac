@@ -234,7 +234,7 @@ cconv (K.LetFieldK x t y f e) = do
   withTm (x, t) $ \b -> LetFieldC b y' f' <$> cconv e
 cconv (K.LetValK x t v e) = do
   v' <- cconvValue v
-  withTm (x, t) $ \b -> LetValC b v' <$> cconv e
+  withTm (x, t) $ \b -> LetValC b (toCValue v') <$> cconv e
 cconv (K.LetArithK x op e) = do
   op' <- cconvArith op
   withTm (x, K.IntK) $ \b -> LetArithC b op' <$> cconv e

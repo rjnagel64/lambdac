@@ -16,7 +16,6 @@ import Control.Monad.Reader
 import Control.Monad.Writer
 import Control.Monad.State
 
-import Data.Bifunctor
 import Data.Traversable (for)
 import Data.Functor.Compose
 
@@ -203,7 +202,7 @@ hoist (C.CaseC x t ks) = do
   else
     pure $ AllocClosure allocs (CaseH x' kind ks')
 hoist (C.LetValC (x, t) v e) = do
-  hoistValue (toCValue v) $ KNamed x t $ \addBinds -> do
+  hoistValue v $ KNamed x t $ \addBinds -> do
     e' <- hoist e
     pure (addBinds e')
 -- hoist (C.LetValC (x, s) v e) = do
@@ -529,29 +528,6 @@ withEnvFields fields cont = do
   let extend env = env { nameRefs = insertMany newEnvRefs (nameRefs env), nameTypes = insertMany newEnvType (nameTypes env) }
   local extend $ cont fields'
 
-data CValue
-  = CVVar C.Name
-  | CVPair CValue CValue
-  | CVRecord [(C.FieldLabel, CValue)]
-  | CVCtor C.Ctor [C.Type] [CValue]
-  | CVInt Int
-  | CVBool Bool
-  | CVString String
-  | CVChar Char
-  | CVNil
-  | CVWorldToken
-
-toCValue :: C.ValueC -> CValue
-toCValue (C.PairC x y) = CVPair (CVVar x) (CVVar y)
-toCValue (C.RecordC fs) = CVRecord (map (second CVVar) fs)
-toCValue (C.IntC i) = CVInt i
-toCValue C.NilC = CVNil
-toCValue C.WorldTokenC = CVWorldToken
-toCValue (C.BoolC b) = CVBool b
-toCValue (C.StringC s) = CVString s
-toCValue (C.CharC c) = CVChar c
-toCValue (C.CtorAppC c ts xs) = CVCtor c ts (map CVVar xs)
-
 -- A continuation, used for flattening values to ANF.
 data ANFKont a
   -- Named continuations are used at the top level of a let-bound value
@@ -573,38 +549,38 @@ applyKont (KAnon kont) (Right v) t' addBinds = do
   z <- freshTmp
   kont (LocalName z) t' (\e' -> addBinds (LetValH (Place t' z) v e'))
 
-hoistValue :: CValue -> ANFKont a -> HoistM a
-hoistValue (CVVar y) kont = do
+hoistValue :: C.ValueC' -> ANFKont a -> HoistM a
+hoistValue (C.VarValC' y) kont = do
   y' <- hoistVarOcc y
   t' <- lookupType y
   applyKont kont (Left y') t' (\e' -> e')
-hoistValue (CVInt i) kont =
+hoistValue (C.IntValC' i) kont =
   applyKont kont (Right (IntH (fromIntegral i))) IntegerH (\e' -> e')
-hoistValue (CVBool b) kont =
+hoistValue (C.BoolValC' b) kont =
   applyKont kont (Right (BoolH b)) BooleanH (\e' -> e')
-hoistValue (CVString s) kont =
+hoistValue (C.StringValC' s) kont =
   applyKont kont (Right (StringValH s)) StringH (\e' -> e')
-hoistValue (CVChar c) kont =
+hoistValue (C.CharValC' c) kont =
   applyKont kont (Right (CharValH c)) CharH (\e' -> e')
-hoistValue CVNil kont =
+hoistValue C.NilValC' kont =
   applyKont kont (Right NilH) UnitH (\e' -> e')
-hoistValue CVWorldToken kont =
+hoistValue C.TokenValC' kont =
   applyKont kont (Right WorldToken) TokenH (\e' -> e')
-hoistValue (CVPair v1 v2) kont =
+hoistValue (C.PairValC' v1 v2) kont =
   hoistValue v1 $ KAnon $ \x1 t1 addX1 ->
     hoistValue v2 $ KAnon $ \x2 t2 addX2 ->
       applyKont kont (Right (PairH x1 x2)) (ProductH t1 t2) (addX1 . addX2)
-hoistValue (CVRecord fs) kont =
+hoistValue (C.RecordValC' fs) kont =
   hoistRecordVal'' fs $ \gs ts addFields ->
     applyKont kont (Right (RecordValH gs)) (RecordH ts) addFields
-hoistValue (CVCtor c@(C.Ctor c') ts vs) kont = do
+hoistValue (C.CtorValC' c@(C.Ctor c') ts vs) kont = do
   ts' <- traverse sortOf ts
   tc <- lookupTyCon c
   hoistCtorArgs'' vs $ \vs' addBinds -> do
     let ty = fromTyConApp (TyConApp tc ts')
     applyKont kont (Right (CtorAppH (Ctor c') ts' vs')) ty addBinds
 
-hoistRecordVal'' :: [(C.FieldLabel, CValue)] -> ([(FieldLabel, Name)] -> [(FieldLabel, Type)] -> (TermH -> TermH) -> HoistM a) -> HoistM a
+hoistRecordVal'' :: [(C.FieldLabel, C.ValueC')] -> ([(FieldLabel, Name)] -> [(FieldLabel, Type)] -> (TermH -> TermH) -> HoistM a) -> HoistM a
 hoistRecordVal'' [] kont = kont [] [] (\e' -> e')
 hoistRecordVal'' ((l, v) : ls) kont =
   hoistValue v $ KAnon $ \x t addX ->
@@ -612,7 +588,7 @@ hoistRecordVal'' ((l, v) : ls) kont =
       let l' = hoistFieldLabel l
       kont ((l', x) : ls') ((l', t) : ts) (\e' -> addX (addFields e'))
 
-hoistCtorArgs'' :: [CValue] -> ([Name] -> (TermH -> TermH) -> HoistM a) -> HoistM a
+hoistCtorArgs'' :: [C.ValueC'] -> ([Name] -> (TermH -> TermH) -> HoistM a) -> HoistM a
 hoistCtorArgs'' [] kont = kont [] (\e' -> e')
 hoistCtorArgs'' (v : vs) kont =
   hoistValue v $ KAnon $ \x _t addX ->

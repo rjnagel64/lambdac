@@ -13,6 +13,8 @@ module CC.IR
 
   , TermC(..)
   , ValueC(..)
+  , ValueC'(..)
+  , toCValue
   , ArithC(..)
   , CmpC(..)
   , StringOpC(..)
@@ -36,6 +38,7 @@ module CC.IR
   ) where
 
 import Data.List (intercalate)
+import Data.Bifunctor
 
 -- Closure conversion:
 -- https://gist.github.com/jozefg/652f1d7407b7f0266ae9
@@ -147,7 +150,7 @@ data CtorDecl
 -- Closure conversion is bottom-up (to get flat closures) traversal that
 -- replaces free variables with references to an environment parameter.
 data TermC
-  = LetValC (Name, Type) ValueC TermC -- let x = v in e, allocation
+  = LetValC (Name, Type) ValueC' TermC -- let x = v in e, allocation
   | LetFstC (Name, Type) Name TermC -- let x = fst y in e, projection
   | LetSndC (Name, Type) Name TermC
   | LetFieldC (Name, Type) Name FieldLabel TermC -- let x = y#field in e, projection
@@ -254,6 +257,29 @@ data ValueC
   | CharC Char
   | CtorAppC Ctor [Type] [Name]
 
+data ValueC'
+  = VarValC' Name
+  | PairValC' ValueC' ValueC'
+  | RecordValC' [(FieldLabel, ValueC')]
+  | CtorValC' Ctor [Type] [ValueC']
+  | IntValC' Int
+  | BoolValC' Bool
+  | StringValC' String
+  | CharValC' Char
+  | NilValC'
+  | TokenValC'
+
+toCValue :: ValueC -> ValueC'
+toCValue (PairC x y) = PairValC' (VarValC' x) (VarValC' y)
+toCValue (RecordC fs) = RecordValC' (map (second VarValC') fs)
+toCValue (IntC i) = IntValC' i
+toCValue NilC = NilValC'
+toCValue WorldTokenC = TokenValC'
+toCValue (BoolC b) = BoolValC' b
+toCValue (StringC s) = StringValC' s
+toCValue (CharC c) = CharValC' c
+toCValue (CtorAppC c ts xs) = CtorValC' c ts (map VarValC' xs)
+
 
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
@@ -289,7 +315,7 @@ pprintTerm n (LetFunC fs e) =
 pprintTerm n (LetContC ks e) =
   indent n "letcont\n" ++ concatMap (pprintContClosureDef (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetValC x v e) =
-  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue' v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFstC x y e) =
   indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndC x y e) =
@@ -354,6 +380,20 @@ pprintValue (BoolC b) = if b then "true" else "false"
 pprintValue (StringC s) = show s
 pprintValue (CharC c) = show c
 pprintValue (CtorAppC c ts xs) = show c ++ "(" ++ intercalate ", @" (map pprintType ts) ++ ", " ++ intercalate ", " (map show xs) ++ ")"
+
+pprintValue' :: ValueC' -> String
+pprintValue' (VarValC' x) = show x
+pprintValue' NilValC' = "()"
+pprintValue' TokenValC' = "WORLD#"
+pprintValue' (PairValC' v1 v2) = "(" ++ pprintValue' v1 ++ ", " ++ pprintValue' v2 ++ ")"
+pprintValue' (RecordValC' []) = "{}"
+pprintValue' (RecordValC' fs) = "{ " ++ intercalate ", " (map pprintField fs) ++ " }"
+  where pprintField (f, v) = show f ++ " = " ++ pprintValue' v
+pprintValue' (IntValC' i) = show i
+pprintValue' (BoolValC' b) = if b then "true" else "false"
+pprintValue' (StringValC' s) = show s
+pprintValue' (CharValC' c) = show c
+pprintValue' (CtorValC' c ts vs) = show c ++ "(" ++ intercalate ", @" (map pprintType ts) ++ ", " ++ intercalate ", " (map pprintValue' vs) ++ ")"
 
 pprintArith :: ArithC -> String
 pprintArith (AddC x y) = show x ++ " + " ++ show y
