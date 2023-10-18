@@ -329,8 +329,9 @@ checkIntBinOp x y = do
   checkTmVar y IntK
 
 checkValue :: ValueK -> TypeK -> TC ()
-checkValue NilK UnitK = pure ()
-checkValue (PairK x y) (ProdK t s) = do
+checkValue (VarValK x) t = checkTmVar x t
+checkValue NilValK UnitK = pure ()
+checkValue (PairValK x y) (ProdK t s) = do
   checkTmVar x t
   checkTmVar y s
 checkValue (RecordValK fs) (RecordK fs') = checkFields fs fs'
@@ -338,12 +339,12 @@ checkValue (IntValK _) IntK = pure ()
 checkValue (BoolValK _) BoolK = pure ()
 checkValue (StringValK _) StringK = pure ()
 checkValue (CharValK _) CharK = pure ()
-checkValue (CtorAppK c ts xs) t = do
+checkValue (CtorValK c ts xs) t = do
   CtorType aas ss tcapp <- lookupCtor c
   sub <- makeSubst aas ts
   checkTmArgs xs (map (substTypeK sub) ss)
   equalTypes (fromTyConApp $ substTyConApp sub tcapp) t
-checkValue WorldTokenK TokenK = pure ()
+checkValue TokenValK TokenK = pure ()
 checkValue v t = throwError (BadValue v t)
 
 checkFields :: [(FieldLabel, TmVar)] -> [(FieldLabel, TypeK)] -> TC ()

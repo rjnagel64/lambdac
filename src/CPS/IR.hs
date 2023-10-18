@@ -234,15 +234,16 @@ data FunParam = ValueParam TmVar TypeK | TypeParam TyVar KindK
 
 -- | Values require no evaluation.
 data ValueK
-  = NilK
-  | WorldTokenK
-  | PairK TmVar TmVar
+  = VarValK TmVar
+  | NilValK
+  | TokenValK
+  | PairValK TmVar TmVar
   | RecordValK [(FieldLabel, TmVar)]
   | IntValK Int
   | BoolValK Bool
   | StringValK String
   | CharValK Char
-  | CtorAppK Ctor [TypeK] [TmVar]
+  | CtorValK Ctor [TypeK] [TmVar]
 
 data CoValueK
   = CoVarK CoVar
@@ -572,9 +573,10 @@ pprintBranch :: (Ctor, CoValueK) -> String
 pprintBranch (c, k) = show c ++ " -> " ++ pprintCoValue k
 
 pprintValue :: ValueK -> String
-pprintValue NilK = "()"
-pprintValue WorldTokenK = "WORLD#"
-pprintValue (PairK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (VarValK x) = show x
+pprintValue NilValK = "()"
+pprintValue TokenValK = "WORLD#"
+pprintValue (PairValK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
 pprintValue (RecordValK []) = "{}"
 pprintValue (RecordValK xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
   where pprintField (f, x) = show f ++ " = " ++ show x
@@ -582,7 +584,7 @@ pprintValue (IntValK i) = show i
 pprintValue (BoolValK b) = if b then "true" else "false"
 pprintValue (StringValK s) = show s
 pprintValue (CharValK s) = show s
-pprintValue (CtorAppK c tyargs args) = show c ++ "(" ++ intercalate ", @" (map pprintType tyargs) ++ ", " ++ intercalate ", " (map show args) ++ ")"
+pprintValue (CtorValK c tyargs args) = show c ++ "(" ++ intercalate ", @" (map pprintType tyargs) ++ ", " ++ intercalate ", " (map show args) ++ ")"
 
 pprintCoValue :: CoValueK -> String
 pprintCoValue (CoVarK k) = show k

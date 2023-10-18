@@ -210,14 +210,15 @@ primIOAvoids av (PrimPutLine x y) = avoidTmVar av x && avoidTmVar av y
 
 -- Assert that the given names do not appear free in a ValueK
 valueAvoids :: Avoid -> ValueK -> Bool
-valueAvoids _ NilK = True
-valueAvoids _ WorldTokenK = True
-valueAvoids av (PairK x y) = avoidTmVar av x && avoidTmVar av y
+valueAvoids av (VarValK x) = avoidTmVar av x
+valueAvoids _ NilValK = True
+valueAvoids _ TokenValK = True
+valueAvoids av (PairValK x y) = avoidTmVar av x && avoidTmVar av y
 valueAvoids _ (IntValK _) = True
 valueAvoids _ (BoolValK _) = True
 valueAvoids _ (StringValK _) = True
 valueAvoids _ (CharValK _) = True
-valueAvoids av (CtorAppK _ ts xs) = all (typeAvoids av) ts && all (avoidTmVar av) xs
+valueAvoids av (CtorValK _ ts xs) = all (typeAvoids av) ts && all (avoidTmVar av) xs
 
 -- Assert that the given names do not appear free in a CoValueK
 coValueAvoids :: Avoid -> CoValueK -> Bool

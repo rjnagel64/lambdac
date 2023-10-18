@@ -127,7 +127,7 @@ inlineK (LetFstK x t y e) = do
   -- variable that refers to it.
   -- TODO: Use usage information to discard dead bindings.
   case Map.lookup y' (inlineValDefs env) of
-    Just (PairK p _) -> LetFstK x t y' <$> withTmSub (x, p) (inlineK e)
+    Just (PairValK p _) -> LetFstK x t y' <$> withTmSub (x, p) (inlineK e)
     Just _ -> error "fst on non-pair value"
     Nothing -> LetFstK x t y' <$> inlineK e
 inlineK (LetSndK x t y e) = do
@@ -137,7 +137,7 @@ inlineK (LetSndK x t y e) = do
   -- variable that refers to it.
   -- A DCE pass can remove it later.
   case Map.lookup y' (inlineValDefs env) of
-    Just (PairK _ q) -> LetSndK x t y' <$> withTmSub (x, q) (inlineK e)
+    Just (PairValK _ q) -> LetSndK x t y' <$> withTmSub (x, q) (inlineK e)
     Just _ -> error "snd on non-pair value"
     Nothing -> LetFstK x t y' <$> inlineK e
 -- Functions and continuations are the things that need to be inlined.
@@ -269,7 +269,7 @@ rebuildDefinition (x, IsProduct y1 t1 y2 t2) =
 -- Need to reconstitute x : t1 * t2 from y1 : t1 and y2 : t2 with a pair constructor
   rebuildDefinition (y1, t1) <>
     rebuildDefinition (y2, t2) <>
-      Endo (LetValK x (ProdK (unlabel t1) (unlabel t2)) (PairK y1 y2))
+      Endo (LetValK x (ProdK (unlabel t1) (unlabel t2)) (PairValK y1 y2))
 
 rebuildDefinitions :: [(TmVar, LabelledProduct)] -> Endo TermK
 rebuildDefinitions prods = foldMap rebuildDefinition prods

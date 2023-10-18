@@ -37,8 +37,8 @@ substVar :: Map TmVar TmVar -> TmVar -> TmVar
 substVar sub x = maybe x id (Map.lookup x sub)
 
 substValue :: Map TmVar TmVar -> ValueK -> ValueK
-substValue _ NilK = NilK
-substValue sub (PairK x y) = PairK (substVar sub x) (substVar sub y)
+substValue _ NilValK = NilValK
+substValue sub (PairValK x y) = PairValK (substVar sub x) (substVar sub y)
 
 -- Pass the environment under a binder.
 -- May rename things???
@@ -125,7 +125,7 @@ simplify env (LetFstK x t y e) =
   -- Check for redex
   case lookupValue y env of
     -- There is a redex: let x = fst (z1, z2) in e ~> e[x := z1]
-    (y', Just (PairK z1 z2)) ->
+    (y', Just (PairValK z1 z2)) ->
       -- TODO: We are passing under the binder for 'x'. Wat do.
       -- I don't think *both* defineSubst and under should be used here.
       -- 'under' would be for passing under a variable that should not be touched;
@@ -185,9 +185,9 @@ simplify env (LetContK ks e) =
   (LetContK ks' e', census <> census')
 
 simplifyVal :: SimplEnv -> ValueK -> (ValueK, Census)
-simplifyVal env (PairK y z) =
-  let y' = rename env y; z' = rename env z in (PairK y' z', recordList [y', z'])
-simplifyVal _ NilK = (NilK, mempty)
+simplifyVal env (PairValK y z) =
+  let y' = rename env y; z' = rename env z in (PairValK y' z', recordList [y', z'])
+simplifyVal _ NilValK = (NilValK, mempty)
 simplifyVal _ (IntValK i) = (IntValK i, mempty)
 simplifyVal _ (BoolValK b) = (BoolValK b, mempty)
 

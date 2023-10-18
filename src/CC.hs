@@ -322,16 +322,17 @@ makeClosureEnv flds = do
 
 
 cconvValue :: K.ValueK -> ConvM ValueC
-cconvValue K.NilK = pure NilValC
-cconvValue K.WorldTokenK = pure TokenValC
-cconvValue (K.PairK x y) = PairValC <$> cconvVarVal x <*> cconvVarVal y
+cconvValue (K.VarValK x) = VarValC <$> cconvTmVar x
+cconvValue K.NilValK = pure NilValC
+cconvValue K.TokenValK = pure TokenValC
+cconvValue (K.PairValK x y) = PairValC <$> cconvVarVal x <*> cconvVarVal y
 cconvValue (K.RecordValK fs) = RecordValC <$> traverse cconvField fs
   where cconvField (f, x) = (,) <$> cconvFieldLabel f <*> cconvVarVal x
 cconvValue (K.IntValK i) = pure (IntValC i)
 cconvValue (K.BoolValK b) = pure (BoolValC b)
 cconvValue (K.StringValK s) = pure (StringValC s)
 cconvValue (K.CharValK s) = pure (CharValC s)
-cconvValue (K.CtorAppK (K.Ctor c) tyargs args) =
+cconvValue (K.CtorValK (K.Ctor c) tyargs args) =
   CtorValC (Ctor c) <$> traverse cconvType tyargs <*> traverse cconvVarVal args
 
 cconvVarVal :: K.TmVar -> ConvM ValueC

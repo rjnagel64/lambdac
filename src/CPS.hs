@@ -164,6 +164,14 @@ applyCont (MetaCont f) x ty = f x ty
 -- rather than a TmVar, but that would probably take a major re-write.
 -- applyCont (LetCont y t e2 k) x ty = _ -- assert t ~ ty
 
+applyCont' :: Cont -> ValueK -> S.Type -> CPS (TermK, S.Type)
+applyCont' kont (VarValK x) ty = applyCont kont x ty
+applyCont' kont v ty = do
+  freshTm "x" $ \x -> do
+    ty' <- cpsType ty
+    (e', t') <- applyCont kont x ty
+    pure (LetValK x ty' v e', t')
+
 -- | A continuation can be /reified/ (turned into a 'CoValueK') by combining it
 -- with the (source) type of the value it expects.
 reifyCont :: Cont -> S.Type -> CPS (CoValueK, S.Type)
@@ -195,17 +203,17 @@ cps (S.TmVarOcc x) k = do
   env <- asks cpsEnvCtx
   case Map.lookup x env of
     Nothing -> error "scope error"
-    Just (x', t') -> applyCont k x' t'
+    Just (x', t') -> applyCont' k (VarValK x') t'
 cps (S.TmCtorOcc c) k = do
   env <- asks cpsEnvCtors
   case Map.lookup c env of
     Nothing -> error "scope error"
-    Just (c', t') -> applyCont k c' t'
-cps S.TmNil k = cpsValue NilK S.TyUnit k
-cps (S.TmInt i) k = cpsValue (IntValK i) S.TyInt k
-cps (S.TmBool b) k = cpsValue (BoolValK b) S.TyBool k
-cps (S.TmString s) k = cpsValue (StringValK s) S.TyString k
-cps (S.TmChar c) k = cpsValue (CharValK c) S.TyChar k
+    Just (c', t') -> applyCont' k (VarValK c') t'
+cps S.TmNil k = applyCont' k NilValK S.TyUnit
+cps (S.TmInt i) k = applyCont' k (IntValK i) S.TyInt
+cps (S.TmBool b) k = applyCont' k (BoolValK b) S.TyBool
+cps (S.TmString s) k = applyCont' k (StringValK s) S.TyString
+cps (S.TmChar c) k = applyCont' k (CharValK c) S.TyChar
 cps (S.TmLam x argTy e) k =
   freshTm "f" $ \f ->
     freshCo "k" $ \k' -> do
@@ -214,7 +222,7 @@ cps (S.TmLam x argTy e) k =
         s' <- cpsCoType retTy
         let fun = FunDef f (map (uncurry ValueParam) bs) [(k', s')] e'
         pure (fun, S.TyArr argTy retTy)
-      (e'', t'') <- applyCont k f ty
+      (e'', t'') <- applyCont' k (VarValK f) ty
       pure (LetFunK [fun] e'', t'')
 cps (S.TmTLam aa ki e) k =
   freshTm "f" $ \f ->
@@ -224,7 +232,7 @@ cps (S.TmTLam aa ki e) k =
         s' <- cpsCoType retTy
         let def = FunDef f (map (uncurry TypeParam) bs) [(k', s')] e'
         pure (def, S.TyAll aa ki retTy)
-      (e'', t'') <- applyCont k f ty
+      (e'', t'') <- applyCont' k (VarValK f) ty
       pure (LetFunK [def] e'', t'')
 cps (S.TmFst e) k = 
   cps e $ MetaCont $ \z t -> do
@@ -232,7 +240,7 @@ cps (S.TmFst e) k =
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
-      (e', t') <- applyCont k x ta
+      (e', t') <- applyCont' k (VarValK x) ta
       ta' <- cpsType ta
       let res = LetFstK x ta' z e'
       pure (res, t')
@@ -242,7 +250,7 @@ cps (S.TmSnd e) k =
       S.TyProd ta tb -> pure (ta, tb)
       _ -> error "type error"
     freshTm "x" $ \x -> do
-      (e', t') <- applyCont k x tb
+      (e', t') <- applyCont' k (VarValK x) tb
       tb' <- cpsType tb
       let res = LetSndK x tb' z e'
       pure (res, t')
@@ -254,7 +262,7 @@ cps (S.TmFieldProj e f) k =
         Just tf -> pure tf
       _ -> error "type error"
     freshTm "x" $ \x -> do
-      (e', t') <- applyCont k x tf
+      (e', t') <- applyCont' k (VarValK x) tf
       tf' <- cpsType tf
       let res = LetFieldK x tf' z (cpsFieldLabel f) e'
       pure (res, t')
@@ -262,20 +270,20 @@ cps (S.TmArith e1 op e2) k =
   cps e1 $ MetaCont $ \x _t1 -> do
     cps e2 $ MetaCont $ \y _t2 -> do
       freshTm "z" $ \z -> do
-        (e', t') <- applyCont k z S.TyInt
+        (e', t') <- applyCont' k (VarValK z) S.TyInt
         let res = LetArithK z (makeArith op x y) e'
         pure (res, t')
 cps (S.TmNegate e) k =
   cps e $ MetaCont $ \x _t -> do
     freshTm "z" $ \z -> do
-      (e', t') <- applyCont k z S.TyInt
+      (e', t') <- applyCont' k (VarValK z) S.TyInt
       let res = LetArithK z (NegK x) e'
       pure (res, t')
 cps (S.TmCmp e1 cmp e2) k =
   cps e1 $ MetaCont $ \x _t1 -> do
     cps e2 $ MetaCont $ \y _t2 -> do
       freshTm "z" $ \z -> do
-        (e', t') <- applyCont k z S.TyBool
+        (e', t') <- applyCont' k (VarValK z) S.TyBool
         let res = LetCompareK z (makeCompare cmp x y) e'
         pure (res, t')
 cps (S.TmStringOp e1 op e2) k =
@@ -283,34 +291,22 @@ cps (S.TmStringOp e1 op e2) k =
     cps e2 $ MetaCont $ \v2 _t2 -> do
       freshTm "x" $ \x -> do
         let (op', ty) = makeStringOp op v1 v2
-        (e', t') <- applyCont k x ty
+        (e', t') <- applyCont' k (VarValK x) ty
         ty' <- cpsType ty
         let res = LetStringOpK x ty' op' e'
         pure (res, t')
 cps (S.TmStringLength e) k =
   cps e $ MetaCont $ \x _t -> do
     freshTm "z" $ \z -> do
-      (e', t') <- applyCont k z S.TyInt
+      (e', t') <- applyCont' k (VarValK z) S.TyInt
       let res = LetStringOpK z IntK (LengthK x) e'
       pure (res, t')
 cps (S.TmPair e1 e2) k =
   cps e1 $ MetaCont $ \v1 t1 ->
     cps e2 $ MetaCont $ \v2 t2 ->
-      freshTm "x" $ \x -> do
-        let ty = S.TyProd t1 t2
-        (e', t') <- applyCont k x ty
-        ty' <- cpsType ty
-        let res = LetValK x ty' (PairK v1 v2) e'
-        pure (res, t')
+      applyCont' k (PairValK v1 v2) (S.TyProd t1 t2)
 cps (S.TmRecord fields) k =
   cpsRecord fields [] k
-  -- cpsFields fields $ \fields' fieldTys -> do
-  --   freshTm "x" $ \x -> do
-  --     let ty = S.TyRecord fieldTys
-  --     (e', t') <- applyCont k x ty
-  --     ty' <- cpsType ty
-  --     let res = LetValK x ty' (RecordValK fields') e'
-  --     pure (res, t')
 cps (S.TmLet x t e1 e2) k = do
   -- [[let x:t = e1 in e2]] k
   -- -->
@@ -358,7 +354,7 @@ cps (S.TmPure e) k =
             t' <- cpsType t
             let fun = FunDef f [ValueParam s TokenK] [(k', ContK [TokenK, t'])] body
             pure fun
-      (e', t') <- applyCont k (funDefName fun) (S.TyIO t)
+      (e', t') <- applyCont' k (VarValK (funDefName fun)) (S.TyIO t)
       let res = LetFunK [fun] e'
       pure (res, t')
 cps (S.TmBind x t e1 e2) k =
@@ -381,7 +377,7 @@ cps (S.TmBind x t e1 e2) k =
             let funDef = FunDef f [ValueParam s1 TokenK] [(k1, ContK [TokenK, t2'])] funBody
             pure (funDef, it2)
       -- dubious about the type here, but it seems to work.
-      (e', t') <- applyCont k (funDefName fun) it2
+      (e', t') <- applyCont' k (VarValK (funDefName fun)) it2
       let res = LetFunK [fun] e'
       pure (res, t')
 cps S.TmGetLine k = do
@@ -395,7 +391,7 @@ cps S.TmGetLine k = do
               let body = LetBindK s2 msg (PrimGetLine s1) (JumpK k1 [s2, msg])
               let fun = FunDef f [ValueParam s1 TokenK] [(k1, ContK [TokenK, StringK])] body
               pure fun
-    (e', t') <- applyCont k (funDefName fun) (S.TyIO S.TyString)
+    (e', t') <- applyCont' k (VarValK (funDefName fun)) (S.TyIO S.TyString)
     let res = LetFunK [fun] e'
     pure (res, t')
 cps (S.TmPutLine e) k = do
@@ -409,7 +405,7 @@ cps (S.TmPutLine e) k = do
                 let body = LetBindK s2 u (PrimPutLine s1 z) (JumpK k1 [s2, u])
                 let fun = FunDef f [ValueParam s1 TokenK] [(k1, ContK [TokenK, UnitK])] body
                 pure fun
-      (e', t') <- applyCont k (funDefName fun) (S.TyIO S.TyUnit)
+      (e', t') <- applyCont' k (VarValK (funDefName fun)) (S.TyIO S.TyUnit)
       let res = LetFunK [fun] e'
       pure (res, t')
 cps (S.TmRunIO e) k = do
@@ -419,10 +415,10 @@ cps (S.TmRunIO e) k = do
       _ -> error "cannot runIO non-monadic value"
     (cont, t') <- freshTm "s" $ \sv -> freshTm "x" $ \xv -> do
       retTy' <- cpsType retTy
-      (e', t') <- applyCont k xv retTy
+      (e', t') <- applyCont' k (VarValK xv) retTy
       pure (ContDef [(sv, TokenK), (xv, retTy')] e', t')
     freshTm "s" $ \s0 -> do
-      let res = LetValK s0 TokenK WorldTokenK (CallK m [ValueArg s0] [ContValK cont])
+      let res = LetValK s0 TokenK TokenValK (CallK m [ValueArg s0] [ContValK cont])
       pure (res, t')
 cps (S.TmIf e s et ef) k = do
   (coval, _) <- reifyCont k s
@@ -442,15 +438,11 @@ nameJoinPoint (CoVarK j) k = k j (\e -> e)
 nameJoinPoint (ContValK cont) k = freshCo "j" $ \j -> k j (\e -> LetContK [(j, cont)] e)
 
 cpsRecord :: [(S.FieldLabel, S.Term)] -> [(S.FieldLabel, S.Type, TmVar)] -> Cont -> CPS (TermK, S.Type)
-cpsRecord [] ss k =
-  freshTm "x" $ \x -> do
-    let fs = reverse ss
-    let ty = S.TyRecord [(f, t) | (f, t, _) <- fs]
-    (e, t) <- applyCont k x ty
-    ty' <- cpsType ty
-    let fields = [(cpsFieldLabel f, v) | (f, _, v) <- fs]
-    let e' = LetValK x ty' (RecordValK fields) e
-    pure (e', t)
+cpsRecord [] ss k = do
+  let fs = reverse ss
+  let ty = S.TyRecord [(f, t) | (f, t, _) <- fs]
+  let fields = [(cpsFieldLabel f, v) | (f, _, v) <- fs]
+  applyCont' k (RecordValK fields) ty
 cpsRecord ((f, e) : fs) ss k =
   cps e $ MetaCont $ \v t ->
     cpsRecord fs ((f, t, v) : ss) k
@@ -478,15 +470,6 @@ cpsFieldLabel (S.FieldLabel f) = FieldLabel f
 --
 -- ==> LetCont along with ObjCont and MetaCont? 'LetCont x t e c' means
 -- "after this, bind result value to x:t and pass result to CPS[e] c"??
-
--- | Translate a primtive value to continuation-passing style.
-cpsValue :: ValueK -> S.Type -> Cont -> CPS (TermK, S.Type)
-cpsValue v ty k =
-  freshTm "x" $ \x -> do
-    (e', t') <- applyCont k x ty
-    ty' <- cpsType ty
-    let res = LetValK x ty' v e'
-    pure (res, t')
 
 -- | An auxiliary type for named function definitions, produced while
 -- performing CPS translation of letrec-expressions.
@@ -604,8 +587,9 @@ makeCtorWrapper tc c ctorparams ctorargs e = do
   where
     go :: TmVar -> ([(TyVar, KindK)], [TypeK]) -> ([TypeK], [TmVar]) -> TermK -> CPS (TermK, TypeK)
     go name ([], []) (tyarglist, tmarglist) body = do
-      let val = CtorAppK c tyarglist tmarglist
-      let wrapperTy = foldl (\t (aa, _) -> TyAppK t (TyVarOccK aa)) (TyConOccK tc) ctorparams
+      let val = CtorValK c tyarglist tmarglist
+      let wrapperTy = fromTyConApp (TyConApp tc [TyVarOccK aa | (aa, _) <- ctorparams])
+      -- let wrapperTy = foldl (\t (aa, _) -> TyAppK t (TyVarOccK aa)) (TyConOccK tc) ctorparams
       let wrapper = LetValK name wrapperTy val body
       pure (wrapper, wrapperTy)
     go name ((aa, k) : tyargs, tmargs) (tyarglist, tmarglist) body = do

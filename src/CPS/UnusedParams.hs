@@ -317,11 +317,12 @@ coTypeUsage :: CoTypeK -> AllUsage
 coTypeUsage (ContK ts) = foldMap typeUsage ts
 
 valueUsage :: ValueK -> AllUsage
-valueUsage (PairK x y) = useTmVar x <> useTmVar y
+valueUsage (VarValK x) = useTmVar x
+valueUsage (PairValK x y) = useTmVar x <> useTmVar y
 valueUsage (RecordValK fs) = foldMap (useTmVar . snd) fs
-valueUsage (CtorAppK _c _ts xs) = foldMap useTmVar xs
-valueUsage NilK = mempty
-valueUsage WorldTokenK = mempty
+valueUsage (CtorValK _c _ts xs) = foldMap useTmVar xs
+valueUsage NilValK = mempty
+valueUsage TokenValK = mempty
 valueUsage (IntValK _) = mempty
 valueUsage (BoolValK _) = mempty
 valueUsage (StringValK _) = mempty
