@@ -278,21 +278,18 @@ hoistFunClosure :: Place -> C.FunClosureDef -> HoistM ClosureAlloc
 hoistFunClosure p (C.FunClosureDef f env params body) = do
   -- Pick a name for the closure's code
   fcode <- nameClosureCode p
-  -- Because closure environments are local to this bind group, and shadowing
-  -- is permissible in Hoist, just use numeric suffixes for the environment
-  -- names.
-  envp <- freshTmp "env"
 
   -- Extend context with environment
   withEnvDef env $ \envd -> do
     -- Extend context with parameter list
     withParameterList params $ \params' -> do
       -- hoist the closure body and emit a code declaration
-      withEnvironmentName $ \envn -> do
-        body' <- hoist body
-        let decl = CodeDecl fcode (envn, envd) params' body'
-        tellClosure decl
+      envn <- freshId "env"
+      body' <- hoist body
+      let decl = CodeDecl fcode (envn, envd) params' body'
+      tellClosure decl
 
+  envp <- freshId "env"
   enva <- hoistEnvAlloc env
   let alloc = ClosureAlloc p fcode envp enva
   pure alloc
@@ -306,15 +303,15 @@ hoistContClosure k def = do
 hoistContClosure' :: Place -> C.ContClosureDef -> HoistM ClosureAlloc
 hoistContClosure' p (C.ContClosureDef env params body) = do
   kcode <- nameClosureCode p
-  envp <- freshTmp "env"
 
   withEnvDef env $ \envd -> do
     withParameterList (C.makeClosureParams [] params) $ \params' -> do
-      withEnvironmentName $ \envn -> do
-        body' <- hoist body
-        let decl = CodeDecl kcode (envn, envd) params' body'
-        tellClosure decl
+      envn <- freshId "env"
+      body' <- hoist body
+      let decl = CodeDecl kcode (envn, envd) params' body'
+      tellClosure decl
 
+  envp <- freshId "env"
   enva <- hoistEnvAlloc env
   let alloc = ClosureAlloc p kcode envp enva
   pure alloc
@@ -394,14 +391,6 @@ withParameterList (C.TypeParam aa k : params) cont =
     withParameterList params $ \params' ->
       cont (TypeParam aa' k' : params')
 
-withEnvironmentName :: (Id -> HoistM a) -> HoistM a
-withEnvironmentName cont = do
-  -- In Hoist, there are never actually any references to the environment
-  -- pointer, because 'EnvName' uses the envptr implicitly.
-  -- Thus, it does not matter if the environment name is shadowed.
-  u <- freshUnique
-  cont (Id "env" u)
-
 
 hoistFieldLabel :: C.FieldLabel -> FieldLabel
 hoistFieldLabel (C.FieldLabel f) = FieldLabel f
@@ -462,7 +451,7 @@ hoistCoArgList ks = do
       k' <- hoistVarOcc k
       pure (k', acc)
     f (C.ContCoArg def) allocs = do
-      kplace <- Place <$> sortOf (C.contClosureType def) <*> freshTmp "__anon_cont"
+      kplace <- Place <$> sortOf (C.contClosureType def) <*> freshId "__anon_cont"
       alloc <- hoistContClosure' kplace def
       let k' = LocalName (placeName kplace)
       pure (k', alloc : allocs)
@@ -560,33 +549,33 @@ hoistValue (C.VarValC y) = do
   t <- lookupType y
   pure (y', t, \e' -> e')
 hoistValue C.NilValC = do
-  tmp <- freshTmp "tmp"
+  tmp <- freshId "tmp"
   let ty = UnitH
   pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) NilValH e')
 hoistValue C.TokenValC = do
-  tmp <- freshTmp "tmp"
+  tmp <- freshId "tmp"
   let ty = TokenH
   pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) TokenValH e')
 hoistValue (C.IntValC i) = do
-  tmp <- freshTmp "tmp"
+  tmp <- freshId "tmp"
   let ty = IntegerH
   pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) (IntValH (fromIntegral i)) e')
 hoistValue (C.BoolValC b) = do
-  tmp <- freshTmp "tmp"
+  tmp <- freshId "tmp"
   let ty = BooleanH
   pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) (BoolValH b) e')
 hoistValue (C.StringValC s) = do
-  tmp <- freshTmp "tmp"
+  tmp <- freshId "tmp"
   let ty = StringH
   pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) (StringValH s) e')
 hoistValue (C.CharValC c) = do
-  tmp <- freshTmp "tmp"
+  tmp <- freshId "tmp"
   let ty = CharH
   pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) (CharValH c) e')
 hoistValue (C.PairValC v1 v2) = do
   (x, t1, addX) <- hoistValue v1
   (y, t2, addY) <- hoistValue v2
-  tmp <- freshTmp "tmp"
+  tmp <- freshId "tmp"
   let ty = ProductH t1 t2
   pure (LocalName tmp, ty, addManyBinds [addX, addY] (Place ty tmp) (PairValH x y))
 hoistValue (C.RecordValC fs) = do
@@ -594,7 +583,7 @@ hoistValue (C.RecordValC fs) = do
     (x, t, addX) <- hoistValue v
     let f' = hoistFieldLabel f
     pure ((f', x), (f', t), addX)
-  tmp <- freshTmp "tmp"
+  tmp <- freshId "tmp"
   let ty = RecordH ts
   pure (LocalName tmp, ty, addManyBinds addFields (Place ty tmp) (RecordValH fs'))
 hoistValue (C.CtorValC c@(C.Ctor c') ts vs) = do
@@ -602,7 +591,7 @@ hoistValue (C.CtorValC c@(C.Ctor c') ts vs) = do
   ts' <- traverse sortOf ts
   (xs, _ss, addXs) <- fmap unzip3 $ traverse hoistValue vs
   let ty = fromTyConApp (TyConApp tc ts')
-  tmp <- freshTmp "tmp"
+  tmp <- freshId "tmp"
   pure (LocalName tmp, ty, addManyBinds addXs (Place ty tmp) (CtorValH (Ctor c') ts' xs))
 
 -- basically a concat + snoc for adding value binds
@@ -610,7 +599,7 @@ addManyBinds :: [TermH -> TermH] -> Place -> ValueH -> (TermH -> TermH)
 addManyBinds addBinds x v = foldr (.) (\e' -> LetValH x v e') addBinds
 
 
-freshTmp :: String -> HoistM Id
-freshTmp x = do
+freshId :: String -> HoistM Id
+freshId x = do
   u <- freshUnique
   pure (Id x u)
