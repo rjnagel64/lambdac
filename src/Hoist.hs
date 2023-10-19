@@ -211,26 +211,26 @@ hoist (C.LetFieldC (x, s) v f e) = do
     e' <- hoist e
     pure (addBinds (LetProjectH x' y (ProjectField f') e'))
 hoist (C.LetArithC (x, s) op e) = do
-  op' <- hoistArith op
+  (op', addBinds) <- hoistArith op
   withPlace x s $ \x' -> do
     e' <- hoist e
-    pure (LetPrimH x' op' e')
+    pure (addBinds (LetPrimH x' op' e'))
 hoist (C.LetCompareC (x, s) op e) = do
-  op' <- hoistCmp op
+  (op', addBinds) <- hoistCmp op
   withPlace x s $ \x' -> do
     e' <- hoist e
-    pure (LetPrimH x' op' e')
+    pure (addBinds (LetPrimH x' op' e'))
 hoist (C.LetStringOpC (x, s) op e) = do
-  op' <- hoistStringOp op
+  (op', addBinds) <- hoistStringOp op
   withPlace x s $ \x' -> do
     e' <- hoist e
-    pure (LetPrimH x' op' e')
+    pure (addBinds (LetPrimH x' op' e'))
 hoist (C.LetBindC (x1, s1) (x2, s2) op e) = do
-  op' <- hoistPrimIO op
+  (op', addBinds) <- hoistPrimIO op
   withPlace x1 s1 $ \x1' -> do
     withPlace x2 s2 $ \x2' -> do
       e' <- hoist e
-      pure (LetBindH x1' x2' op' e')
+      pure (addBinds (LetBindH x1' x2' op' e'))
 hoist (C.LetFunC fs e) = do
   withFunClosures fs $ \allocs -> do
     e' <- hoist e
@@ -333,29 +333,40 @@ hoistEnvAlloc (C.EnvDef tyfields fields) = do
   let enva = EnvAlloc tyFields allocFields
   pure enva
 
-hoistArith :: C.ArithC -> HoistM PrimOp
-hoistArith (C.AddC x y) = PrimAddInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistArith (C.SubC x y) = PrimSubInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistArith (C.MulC x y) = PrimMulInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistArith (C.NegC x) = PrimNegInt64 <$> hoistVarOcc x
+unaryPrim :: (Name -> a) -> C.ValueC -> HoistM (a, TermH -> TermH)
+unaryPrim f x = do
+  (x', _t, addX) <- hoistValue x
+  pure (f x', addX)
 
-hoistCmp :: C.CmpC -> HoistM PrimOp
-hoistCmp (C.EqC x y) = PrimEqInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (C.NeC x y) = PrimNeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (C.LtC x y) = PrimLtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (C.LeC x y) = PrimLeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (C.GtC x y) = PrimGtInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (C.GeC x y) = PrimGeInt64 <$> hoistVarOcc x <*> hoistVarOcc y
-hoistCmp (C.EqCharC x y) = PrimEqChar <$> hoistVarOcc x <*> hoistVarOcc y
+binaryPrim :: (Name -> Name -> a) -> C.ValueC -> C.ValueC -> HoistM (a, TermH -> TermH)
+binaryPrim f x y = do
+  (x', _t1, addX) <- hoistValue x
+  (y', _t2, addY) <- hoistValue y
+  pure (f x' y', addX . addY)
 
-hoistStringOp :: C.StringOpC -> HoistM PrimOp
-hoistStringOp (C.ConcatC x y) = PrimConcatenate <$> hoistVarOcc x <*> hoistVarOcc y
-hoistStringOp (C.IndexC x y) = PrimIndexStr <$> hoistVarOcc x <*> hoistVarOcc y
-hoistStringOp (C.LengthC x) = PrimStrlen <$> hoistVarOcc x
+hoistArith :: C.ArithC -> HoistM (PrimOp, TermH -> TermH)
+hoistArith (C.AddC x y) = binaryPrim PrimAddInt64 x y
+hoistArith (C.SubC x y) = binaryPrim PrimSubInt64 x y
+hoistArith (C.MulC x y) = binaryPrim PrimMulInt64 x y
+hoistArith (C.NegC x) = unaryPrim PrimNegInt64 x
 
-hoistPrimIO :: C.PrimIO -> HoistM PrimIO
-hoistPrimIO (C.GetLineC x) = PrimGetLine <$> hoistVarOcc x
-hoistPrimIO (C.PutLineC x y) = PrimPutLine <$> hoistVarOcc x <*> hoistVarOcc y
+hoistCmp :: C.CmpC -> HoistM (PrimOp, TermH -> TermH)
+hoistCmp (C.EqC x y) = binaryPrim PrimEqInt64 x y
+hoistCmp (C.NeC x y) = binaryPrim PrimNeInt64 x y
+hoistCmp (C.LtC x y) = binaryPrim PrimLtInt64 x y
+hoistCmp (C.LeC x y) = binaryPrim PrimLeInt64 x y
+hoistCmp (C.GtC x y) = binaryPrim PrimGtInt64 x y
+hoistCmp (C.GeC x y) = binaryPrim PrimGeInt64 x y
+hoistCmp (C.EqCharC x y) = binaryPrim PrimEqChar x y
+
+hoistStringOp :: C.StringOpC -> HoistM (PrimOp, TermH -> TermH)
+hoistStringOp (C.ConcatC x y) = binaryPrim PrimConcatenate x y
+hoistStringOp (C.IndexC x y) = binaryPrim PrimIndexStr x y
+hoistStringOp (C.LengthC x) = unaryPrim PrimStrlen x
+
+hoistPrimIO :: C.PrimIO -> HoistM (PrimIO, TermH -> TermH)
+hoistPrimIO (C.GetLineC x) = unaryPrim PrimGetLine x
+hoistPrimIO (C.PutLineC x y) = binaryPrim PrimPutLine x y
 
 
 freshUnique :: HoistM Unique

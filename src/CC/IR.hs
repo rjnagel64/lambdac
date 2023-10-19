@@ -173,28 +173,28 @@ data CoArgument = VarCoArg Name | ContCoArg ContClosureDef
 data TyConApp = TyConApp TyCon [Type]
 
 data ArithC
-  = AddC Name Name
-  | SubC Name Name
-  | MulC Name Name
-  | NegC Name
+  = AddC ValueC ValueC
+  | SubC ValueC ValueC
+  | MulC ValueC ValueC
+  | NegC ValueC
 
 data CmpC
-  = EqC Name Name
-  | NeC Name Name
-  | LtC Name Name
-  | LeC Name Name
-  | GtC Name Name
-  | GeC Name Name
-  | EqCharC Name Name
+  = EqC ValueC ValueC
+  | NeC ValueC ValueC
+  | LtC ValueC ValueC
+  | LeC ValueC ValueC
+  | GtC ValueC ValueC
+  | GeC ValueC ValueC
+  | EqCharC ValueC ValueC
 
 data StringOpC
-  = ConcatC Name Name -- y ^ z, concatenation
-  | IndexC Name Name -- char_at_index x i, indexing
-  | LengthC Name -- string_length x
+  = ConcatC ValueC ValueC -- y ^ z, concatenation
+  | IndexC ValueC ValueC -- char_at_index x i, indexing
+  | LengthC ValueC -- string_length x
 
 data PrimIO
-  = GetLineC Name
-  | PutLineC Name Name
+  = GetLineC ValueC
+  | PutLineC ValueC ValueC
 
 -- | A function definition, @f {aa+; x+} y+ k+ = e@.
 -- Both type and term parameters are permitted in the parameter list.
@@ -361,28 +361,28 @@ pprintValue (CharValC c) = show c
 pprintValue (CtorValC c ts vs) = show c ++ "(" ++ intercalate ", @" (map pprintType ts) ++ ", " ++ intercalate ", " (map pprintValue vs) ++ ")"
 
 pprintArith :: ArithC -> String
-pprintArith (AddC x y) = show x ++ " + " ++ show y
-pprintArith (SubC x y) = show x ++ " - " ++ show y
-pprintArith (MulC x y) = show x ++ " * " ++ show y
-pprintArith (NegC x) = "- " ++ show x
+pprintArith (AddC x y) = pprintValue x ++ " + " ++ pprintValue y
+pprintArith (SubC x y) = pprintValue x ++ " - " ++ pprintValue y
+pprintArith (MulC x y) = pprintValue x ++ " * " ++ pprintValue y
+pprintArith (NegC x) = "- " ++ pprintValue x
 
 pprintCompare :: CmpC -> String
-pprintCompare (EqC x y) = show x ++ " == " ++ show y
-pprintCompare (NeC x y) = show x ++ " != " ++ show y
-pprintCompare (LtC x y) = show x ++ " < " ++ show y
-pprintCompare (LeC x y) = show x ++ " <= " ++ show y
-pprintCompare (GtC x y) = show x ++ " > " ++ show y
-pprintCompare (GeC x y) = show x ++ " >= " ++ show y
-pprintCompare (EqCharC x y) = show x ++ " == " ++ show y
+pprintCompare (EqC x y) = pprintValue x ++ " == " ++ pprintValue y
+pprintCompare (NeC x y) = pprintValue x ++ " != " ++ pprintValue y
+pprintCompare (LtC x y) = pprintValue x ++ " < " ++ pprintValue y
+pprintCompare (LeC x y) = pprintValue x ++ " <= " ++ pprintValue y
+pprintCompare (GtC x y) = pprintValue x ++ " > " ++ pprintValue y
+pprintCompare (GeC x y) = pprintValue x ++ " >= " ++ pprintValue y
+pprintCompare (EqCharC x y) = pprintValue x ++ " == " ++ pprintValue y
 
 pprintStringOp :: StringOpC -> String
-pprintStringOp (ConcatC x y) = show x ++ " ^ " ++ show y
-pprintStringOp (IndexC x y) = show x ++ ".char_at_index " ++ show y
-pprintStringOp (LengthC x) = "string_length " ++ show x
+pprintStringOp (ConcatC x y) = pprintValue x ++ " ^ " ++ pprintValue y
+pprintStringOp (IndexC x y) = pprintValue x ++ ".char_at_index " ++ pprintValue y
+pprintStringOp (LengthC x) = "string_length " ++ pprintValue x
 
 pprintPrimIO :: PrimIO -> String
-pprintPrimIO (GetLineC x) = "getLine " ++ show x
-pprintPrimIO (PutLineC x y) = "putLine " ++ show x ++ " " ++ show y
+pprintPrimIO (GetLineC x) = "getLine " ++ pprintValue x
+pprintPrimIO (PutLineC x y) = "putLine " ++ pprintValue x ++ " " ++ pprintValue y
 
 pprintFunClosureDef :: Int -> FunClosureDef -> String
 pprintFunClosureDef n (FunClosureDef f env params e) =

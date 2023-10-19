@@ -339,30 +339,30 @@ cconvVarVal :: K.TmVar -> ConvM ValueC
 cconvVarVal x = VarValC <$> cconvTmVar x
 
 cconvArith :: K.ArithK -> ConvM ArithC
-cconvArith (K.AddK x y) = AddC <$> cconvTmVar x <*> cconvTmVar y
-cconvArith (K.SubK x y) = SubC <$> cconvTmVar x <*> cconvTmVar y
-cconvArith (K.MulK x y) = MulC <$> cconvTmVar x <*> cconvTmVar y
-cconvArith (K.NegK x) = NegC <$> cconvTmVar x
+cconvArith (K.AddK x y) = AddC <$> cconvVarVal x <*> cconvVarVal y
+cconvArith (K.SubK x y) = SubC <$> cconvVarVal x <*> cconvVarVal y
+cconvArith (K.MulK x y) = MulC <$> cconvVarVal x <*> cconvVarVal y
+cconvArith (K.NegK x) = NegC <$> cconvVarVal x
 
 cconvCmp :: K.CmpK -> ConvM CmpC
-cconvCmp (K.CmpEqK x y) = EqC <$> cconvTmVar x <*> cconvTmVar y
-cconvCmp (K.CmpNeK x y) = NeC <$> cconvTmVar x <*> cconvTmVar y
-cconvCmp (K.CmpLtK x y) = LtC <$> cconvTmVar x <*> cconvTmVar y
-cconvCmp (K.CmpLeK x y) = LeC <$> cconvTmVar x <*> cconvTmVar y
-cconvCmp (K.CmpGtK x y) = GtC <$> cconvTmVar x <*> cconvTmVar y
-cconvCmp (K.CmpGeK x y) = GeC <$> cconvTmVar x <*> cconvTmVar y
-cconvCmp (K.CmpEqCharK x y) = EqCharC <$> cconvTmVar x <*> cconvTmVar y
+cconvCmp (K.CmpEqK x y) = EqC <$> cconvVarVal x <*> cconvVarVal y
+cconvCmp (K.CmpNeK x y) = NeC <$> cconvVarVal x <*> cconvVarVal y
+cconvCmp (K.CmpLtK x y) = LtC <$> cconvVarVal x <*> cconvVarVal y
+cconvCmp (K.CmpLeK x y) = LeC <$> cconvVarVal x <*> cconvVarVal y
+cconvCmp (K.CmpGtK x y) = GtC <$> cconvVarVal x <*> cconvVarVal y
+cconvCmp (K.CmpGeK x y) = GeC <$> cconvVarVal x <*> cconvVarVal y
+cconvCmp (K.CmpEqCharK x y) = EqCharC <$> cconvVarVal x <*> cconvVarVal y
 
 cconvStringOp :: K.StringOpK -> ConvM StringOpC
-cconvStringOp (K.ConcatK x y) = ConcatC <$> cconvTmVar x <*> cconvTmVar y
-cconvStringOp (K.IndexK x y) = IndexC <$> cconvTmVar x <*> cconvTmVar y
-cconvStringOp (K.LengthK x) = LengthC <$> cconvTmVar x
+cconvStringOp (K.ConcatK x y) = ConcatC <$> cconvVarVal x <*> cconvVarVal y
+cconvStringOp (K.IndexK x y) = IndexC <$> cconvVarVal x <*> cconvVarVal y
+cconvStringOp (K.LengthK x) = LengthC <$> cconvVarVal x
 
 cconvPrimIO :: K.PrimIO -> ConvM (PrimIO, K.TypeK)
 cconvPrimIO (K.PrimGetLine x) =
-  (\x' -> (GetLineC x', K.StringK)) <$> cconvTmVar x
+  (\x' -> (GetLineC x', K.StringK)) <$> cconvVarVal x
 cconvPrimIO (K.PrimPutLine x y) =
-  (\x' y' -> (PutLineC x' y', K.UnitK)) <$> cconvTmVar x <*> cconvTmVar y
+  (\x' y' -> (PutLineC x' y', K.UnitK)) <$> cconvVarVal x <*> cconvVarVal y
 
 
 cconvTmVar :: K.TmVar -> ConvM Name
