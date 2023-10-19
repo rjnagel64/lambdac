@@ -168,39 +168,29 @@ hoistCtorDecl tc (C.CtorDecl (C.Ctor c) params args) =
 -- be lifted to the top level. Additionally, map value, continuation, and
 -- function names to C names.
 hoist :: C.TermC -> HoistM TermH
-hoist (C.HaltC x) = do
-  x' <- hoistVarOcc x
-  s <- lookupType x
-  pure (HaltH s x')
+hoist (C.HaltC v) = do
+  (x, t, addBinds) <- hoistValue v
+  pure (addBinds (HaltH t x))
 hoist (C.JumpC k xs) = do
   k' <- hoistVarOcc k
-  xs' <- hoistArgList (map C.ValueArg xs)
-  pure (OpenH k' xs')
+  (addBinds, xs') <- hoistArgList (map C.ValueArg xs)
+  pure (addBinds (OpenH k' xs'))
 hoist (C.CallC f xs ks) = do
   f' <- hoistVarOcc f
-  xs' <- hoistArgList xs
-  (allocs, ks') <- hoistCoArgList ks
-  if null allocs then
-    pure (OpenH f' (xs' ++ map ValueArg ks'))
-  else
-    pure (AllocClosure allocs (OpenH f' (xs' ++ map ValueArg ks')))
+  (addBinds, xs') <- hoistArgList xs
+  (addCoBinds, ks') <- hoistCoArgList ks
+  pure (addBinds (addCoBinds (OpenH f' (xs' ++ map ValueArg ks'))))
 hoist (C.IfC x k1 k2) = do
   x' <- hoistVarOcc x
-  (allocs, ks') <- hoistCoArgList [C.ContCoArg k1, C.ContCoArg k2]
+  (addCoBinds, ks') <- hoistCoArgList [C.ContCoArg k1, C.ContCoArg k2]
   let [k1', k2'] = ks'
-  if null allocs then
-    pure $ IfH x' k1' k2'
-  else
-    pure $ AllocClosure allocs (IfH x' k1' k2')
+  pure (addCoBinds (IfH x' k1' k2'))
 hoist (C.CaseC x t ks) = do
   x' <- hoistVarOcc x
   kind <- caseKind t
-  (allocs, ks0') <- hoistCoArgList (Compose ks)
+  (addCoBinds, ks0') <- hoistCoArgList (Compose ks)
   let ks' = [(Ctor c, k) | (C.Ctor c, k) <- getCompose ks0']
-  if null allocs then
-    pure $ CaseH x' kind ks'
-  else
-    pure $ AllocClosure allocs (CaseH x' kind ks')
+  pure (addCoBinds (CaseH x' kind ks'))
 hoist (C.LetValC (x, t) v e) = do
   withNamedValue x t v $ \addBinds -> do
     e' <- hoist e
@@ -431,17 +421,29 @@ lookupTyCon c = do
     Nothing -> error ("ctor not in scope: " ++ show c)
     Just tc -> pure tc
 
--- | Hoist a list of arguments.
-hoistArgList :: [C.Argument] -> HoistM [ClosureArg]
-hoistArgList xs = traverse f xs
-  where
-    f (C.TypeArg t) = TypeArg <$> sortOf t
-    f (C.ValueArg x) = ValueArg <$> hoistVarOcc x
+addCoBinds :: [ClosureAlloc] -> TermH -> TermH
+addCoBinds [] e = e
+addCoBinds allocs e = AllocClosure allocs e
 
-hoistCoArgList :: Traversable t => t C.CoArgument -> HoistM ([ClosureAlloc], t Name)
+hoistArgList :: Traversable t => t C.Argument -> HoistM (TermH -> TermH, t ClosureArg)
+hoistArgList xs = do
+  (args, binds) <- mapAccumLM f xs (\e' -> e')
+  pure (binds, args)
+  where
+    f (C.TypeArg t) acc = do
+      t' <- sortOf t
+      pure (TypeArg t', acc)
+    f (C.ValueArg v) acc = do
+      (x, _t, addBinds) <- hoistValue v
+      pure (ValueArg x, acc . addBinds)
+
+hoistCoArgList :: Traversable t => t C.CoArgument -> HoistM (TermH -> TermH, t Name)
 hoistCoArgList ks = do
   (args, allocs) <- mapAccumLM f ks []
-  pure (allocs, args)
+  if null allocs then
+    pure (\e' -> e', args)
+  else
+    pure (\e' -> AllocClosure allocs e', args)
   where
     -- Annoyingly, it does have to be mapAccumL here. I can't just use
     -- traverse, because turning 't (Maybe ClosureAlloc)' into 't ClosureAlloc'

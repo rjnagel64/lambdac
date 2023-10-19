@@ -202,10 +202,10 @@ cconvTyConApp :: K.TyConApp -> ConvM TyConApp
 cconvTyConApp (K.TyConApp (K.TyCon tc) args) = TyConApp (TyCon tc) <$> traverse cconvType args
 
 cconv :: K.TermK -> ConvM TermC
-cconv (K.HaltK x) = HaltC <$> cconvTmVar x
+cconv (K.HaltK x) = HaltC <$> cconvVarVal x
 cconv (K.JumpK k xs) = do
   k' <- cconvCoVar k
-  xs' <- traverse cconvTmVar xs
+  xs' <- traverse cconvVarVal xs
   pure (JumpC k' xs')
 cconv (K.CallK f args ks) = do
   f' <- cconvTmVar f
@@ -380,7 +380,7 @@ cconvCoVar x = do
     Just (x', s) -> writer (x', singleOcc x' s)
 
 cconvArgument :: K.Argument -> ConvM Argument
-cconvArgument (K.ValueArg x) = ValueArg <$> cconvTmVar x
+cconvArgument (K.ValueArg x) = ValueArg <$> cconvVarVal x
 cconvArgument (K.TypeArg t) = TypeArg <$> cconvType t
 
 cconvCoArgument :: K.CoValueK -> ConvM CoArgument

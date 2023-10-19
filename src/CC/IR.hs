@@ -158,13 +158,13 @@ data TermC
   | LetFunC [FunClosureDef] TermC
   | LetContC [(Name, ContClosureDef)] TermC
   -- Invoke a closure by providing values for the remaining arguments.
-  | JumpC Name [Name] -- k x...
+  | JumpC Name [ValueC] -- k x...
   | CallC Name [Argument] [CoArgument] -- f (x | @t)+ k+
-  | HaltC Name
+  | HaltC ValueC
   | IfC Name ContClosureDef ContClosureDef -- if x then k1 else k2
   | CaseC Name TyConApp [(Ctor, CoArgument)] -- case x of c1 -> k1 | c2 -> k2 | ...
 
-data Argument = ValueArg Name | TypeArg Type
+data Argument = ValueArg ValueC | TypeArg Type
 
 data CoArgument = VarCoArg Name | ContCoArg ContClosureDef
 
@@ -275,12 +275,12 @@ pprintCtorDecl n (CtorDecl c typarams args) =
     pprintTyBind (aa, k) = "@" ++ show aa ++ " : " ++ pprintKind k
 
 pprintTerm :: Int -> TermC -> String
-pprintTerm n (HaltC x) = indent n $ "HALT " ++ show x ++ ";\n"
-pprintTerm n (JumpC k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
+pprintTerm n (HaltC v) = indent n $ "HALT " ++ pprintValue v ++ ";\n"
+pprintTerm n (JumpC k vs) = indent n $ show k ++ " " ++ intercalate " " (map pprintValue vs) ++ ";\n"
 pprintTerm n (CallC f xs ks) =
   indent n $ show f ++ " " ++ intercalate " " (map pprintArg xs ++ map pprintCoArg ks) ++ ";\n"
   where
-    pprintArg (ValueArg x) = show x
+    pprintArg (ValueArg v) = pprintValue v
     pprintArg (TypeArg t) = pprintType t -- would probably benefit from parentheses
     -- hrrm. this has become utterly illegible.
     -- continuation values do *not* fit nicely in a one-line argument list.
