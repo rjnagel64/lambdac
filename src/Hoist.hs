@@ -202,14 +202,9 @@ hoist (C.CaseC x t ks) = do
   else
     pure $ AllocClosure allocs (CaseH x' kind ks')
 hoist (C.LetValC (x, t) v e) = do
-  hoistValue v $ KNamed x t $ \addBinds -> do
+  withNamedValue x t v $ \addBinds -> do
     e' <- hoist e
     pure (addBinds e')
--- hoist (C.LetValC (x, s) v e) = do
---   v' <- hoistValue v
---   withPlace x s $ \x' -> do
---     e' <- hoist e
---     pure (LetValH x' v' e')
 hoist (C.LetFstC (x, s) y e) = do
   y' <- hoistVarOcc y
   withPlace x s $ \x' -> do
@@ -515,72 +510,105 @@ withEnvFields fields cont = do
   let extend env = env { nameRefs = insertMany newEnvRefs (nameRefs env), nameTypes = insertMany newEnvType (nameTypes env) }
   local extend $ cont fields'
 
--- A continuation, used for flattening values to ANF.
-data ANFKont a
-  -- Named continuations are used at the top level of a let-bound value
-  = KNamed C.Name C.Type ((TermH -> TermH) -> HoistM a)
-  -- Anonymous continuations generate names for sub-values
-  | KAnon (Name -> Type -> (TermH -> TermH) -> HoistM a)
-
-applyKont :: ANFKont r -> Either Name ValueH -> Type -> (TermH -> TermH) -> HoistM r
-applyKont (KNamed x t kont) (Left y') _t' addBinds = do
+-- It's a bit annoying that I have to duplicate logic across these two
+-- functions, but the complexity to unify them is worse than the duplication.
+withNamedValue :: C.Name -> C.Type -> C.ValueC -> ((TermH -> TermH) -> HoistM a) -> HoistM a
+withNamedValue x t (C.VarValC y) kont = do
+  y' <- hoistVarOcc y
   t' <- sortOf t
   let extend env = env { nameRefs = Map.insert x y' (nameRefs env), nameTypes = Map.insert x t' (nameTypes env) }
-  local extend $ kont (\e' -> addBinds e')
-applyKont (KNamed x t kont) (Right v) _t' addBinds =
+  local extend $ kont (\e' -> e')
+withNamedValue x t (C.IntValC i) kont = do
   withPlace x t $ \x' ->
-    kont (\e' -> addBinds (LetValH x' v e'))
-applyKont (KAnon kont) (Left y') t' addBinds = do
-  kont y' t' (\e' -> addBinds e')
-applyKont (KAnon kont) (Right v) t' addBinds = do
-  z <- freshTmp "tmp"
-  kont (LocalName z) t' (\e' -> addBinds (LetValH (Place t' z) v e'))
-
-hoistValue :: C.ValueC -> ANFKont a -> HoistM a
-hoistValue (C.VarValC y) kont = do
-  y' <- hoistVarOcc y
-  t' <- lookupType y
-  applyKont kont (Left y') t' (\e' -> e')
-hoistValue (C.IntValC i) kont =
-  applyKont kont (Right (IntValH (fromIntegral i))) IntegerH (\e' -> e')
-hoistValue (C.BoolValC b) kont =
-  applyKont kont (Right (BoolValH b)) BooleanH (\e' -> e')
-hoistValue (C.StringValC s) kont =
-  applyKont kont (Right (StringValH s)) StringH (\e' -> e')
-hoistValue (C.CharValC c) kont =
-  applyKont kont (Right (CharValH c)) CharH (\e' -> e')
-hoistValue C.NilValC kont =
-  applyKont kont (Right NilValH) UnitH (\e' -> e')
-hoistValue C.TokenValC kont =
-  applyKont kont (Right TokenValH) TokenH (\e' -> e')
-hoistValue (C.PairValC v1 v2) kont =
-  hoistValue v1 $ KAnon $ \x1 t1 addX1 ->
-    hoistValue v2 $ KAnon $ \x2 t2 addX2 ->
-      applyKont kont (Right (PairValH x1 x2)) (ProductH t1 t2) (addX1 . addX2)
-hoistValue (C.RecordValC fs) kont =
-  hoistRecordVal fs $ \gs ts addFields ->
-    applyKont kont (Right (RecordValH gs)) (RecordH ts) addFields
-hoistValue (C.CtorValC c@(C.Ctor c') ts vs) kont = do
+    kont (\e' -> LetValH x' (IntValH (fromIntegral i)) e')
+withNamedValue x t (C.BoolValC b) kont = do
+  withPlace x t $ \x' ->
+    kont (\e' -> LetValH x' (BoolValH b) e')
+withNamedValue x t (C.StringValC s) kont = do
+  withPlace x t $ \x' ->
+    kont (\e' -> LetValH x' (StringValH s) e')
+withNamedValue x t (C.CharValC c) kont = do
+  withPlace x t $ \x' ->
+    kont (\e' -> LetValH x' (CharValH c) e')
+withNamedValue x t C.NilValC kont = do
+  withPlace x t $ \x' ->
+    kont (\e' -> LetValH x' NilValH e')
+withNamedValue x t C.TokenValC kont = do
+  withPlace x t $ \x' ->
+    kont (\e' -> LetValH x' TokenValH e')
+withNamedValue x t (C.PairValC v1 v2) kont = do
+  (y1, _t1, addY1) <- hoistValue v1
+  (y2, _t2, addY2) <- hoistValue v2
+  withPlace x t $ \x' ->
+    kont (addManyBinds [addY1, addY2] x' (PairValH y1 y2))
+withNamedValue x t (C.RecordValC fs) kont = do
+  (ys, addYs) <- fmap unzip $ for fs $ \ (f, v) -> do
+    let f' = hoistFieldLabel f
+    (y, _t, addY) <- hoistValue v
+    pure ((f', y), addY)
+  withPlace x t $ \x' ->
+    kont (addManyBinds addYs x' (RecordValH ys))
+withNamedValue x t (C.CtorValC (C.Ctor c) ts vs) kont = do
   ts' <- traverse sortOf ts
+  (ys, _ts, addYs) <- fmap unzip3 $ traverse hoistValue vs
+  withPlace x t $ \x' ->
+    kont (addManyBinds addYs x' (CtorValH (Ctor c) ts' ys))
+
+hoistValue :: C.ValueC -> HoistM (Name, Type, TermH -> TermH)
+hoistValue (C.VarValC y) = do
+  y' <- hoistVarOcc y
+  t <- lookupType y
+  pure (y', t, \e' -> e')
+hoistValue C.NilValC = do
+  tmp <- freshTmp "tmp"
+  let ty = UnitH
+  pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) NilValH e')
+hoistValue C.TokenValC = do
+  tmp <- freshTmp "tmp"
+  let ty = TokenH
+  pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) TokenValH e')
+hoistValue (C.IntValC i) = do
+  tmp <- freshTmp "tmp"
+  let ty = IntegerH
+  pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) (IntValH (fromIntegral i)) e')
+hoistValue (C.BoolValC b) = do
+  tmp <- freshTmp "tmp"
+  let ty = BooleanH
+  pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) (BoolValH b) e')
+hoistValue (C.StringValC s) = do
+  tmp <- freshTmp "tmp"
+  let ty = StringH
+  pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) (StringValH s) e')
+hoistValue (C.CharValC c) = do
+  tmp <- freshTmp "tmp"
+  let ty = CharH
+  pure (LocalName tmp, ty, \e' -> LetValH (Place ty tmp) (CharValH c) e')
+hoistValue (C.PairValC v1 v2) = do
+  (x, t1, addX) <- hoistValue v1
+  (y, t2, addY) <- hoistValue v2
+  tmp <- freshTmp "tmp"
+  let ty = ProductH t1 t2
+  pure (LocalName tmp, ty, addManyBinds [addX, addY] (Place ty tmp) (PairValH x y))
+hoistValue (C.RecordValC fs) = do
+  (fs', ts, addFields) <- fmap unzip3 $ for fs $ \ (f, v) -> do
+    (x, t, addX) <- hoistValue v
+    let f' = hoistFieldLabel f
+    pure ((f', x), (f', t), addX)
+  tmp <- freshTmp "tmp"
+  let ty = RecordH ts
+  pure (LocalName tmp, ty, addManyBinds addFields (Place ty tmp) (RecordValH fs'))
+hoistValue (C.CtorValC c@(C.Ctor c') ts vs) = do
   tc <- lookupTyCon c
-  hoistCtorArgs vs $ \vs' addBinds -> do
-    let ty = fromTyConApp (TyConApp tc ts')
-    applyKont kont (Right (CtorValH (Ctor c') ts' vs')) ty addBinds
+  ts' <- traverse sortOf ts
+  (xs, _ss, addXs) <- fmap unzip3 $ traverse hoistValue vs
+  let ty = fromTyConApp (TyConApp tc ts')
+  tmp <- freshTmp "tmp"
+  pure (LocalName tmp, ty, addManyBinds addXs (Place ty tmp) (CtorValH (Ctor c') ts' xs))
 
-hoistRecordVal :: [(C.FieldLabel, C.ValueC)] -> ([(FieldLabel, Name)] -> [(FieldLabel, Type)] -> (TermH -> TermH) -> HoistM a) -> HoistM a
-hoistRecordVal [] kont = kont [] [] (\e' -> e')
-hoistRecordVal ((l, v) : ls) kont =
-  hoistValue v $ KAnon $ \x t addX ->
-    hoistRecordVal ls $ \ls' ts addFields -> do
-      let l' = hoistFieldLabel l
-      kont ((l', x) : ls') ((l', t) : ts) (\e' -> addX (addFields e'))
+-- basically a concat + snoc for adding value binds
+addManyBinds :: [TermH -> TermH] -> Place -> ValueH -> (TermH -> TermH)
+addManyBinds addBinds x v = foldr (.) (\e' -> LetValH x v e') addBinds
 
-hoistCtorArgs :: [C.ValueC] -> ([Name] -> (TermH -> TermH) -> HoistM a) -> HoistM a
-hoistCtorArgs [] kont = kont [] (\e' -> e')
-hoistCtorArgs (v : vs) kont =
-  hoistValue v $ KAnon $ \x _t addX ->
-    hoistCtorArgs vs $ \xs addXs ->
-      kont (x : xs) (\e' -> addX (addXs e'))
 
 freshTmp :: String -> HoistM Id
 freshTmp x = do
