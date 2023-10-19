@@ -181,35 +181,35 @@ hoist (C.CallC f xs ks) = do
   (addCoBinds, ks') <- hoistCoArgList ks
   pure (addBinds (addCoBinds (OpenH f' (xs' ++ map ValueArg ks'))))
 hoist (C.IfC x k1 k2) = do
-  x' <- hoistVarOcc x
+  (x', _t, addBinds) <- hoistValue x
   (addCoBinds, Two k1' k2') <- hoistCoArgList (fmap C.ContCoArg (Two k1 k2))
-  pure (addCoBinds (IfH x' k1' k2'))
+  pure (addBinds (addCoBinds (IfH x' k1' k2')))
 hoist (C.CaseC x t ks) = do
-  x' <- hoistVarOcc x
-  kind <- caseKind t
+  (x', _t, addBinds) <- hoistValue x
+  kind <- caseKind t -- hmm. t is redundant now? hoistValue returns type of x
   (addCoBinds, ks0') <- hoistCoArgList (Compose ks)
   let ks' = [(Ctor c, k) | (C.Ctor c, k) <- getCompose ks0']
-  pure (addCoBinds (CaseH x' kind ks'))
+  pure (addBinds (addCoBinds (CaseH x' kind ks')))
 hoist (C.LetValC (x, t) v e) = do
   withNamedValue x t v $ \addBinds -> do
     e' <- hoist e
     pure (addBinds e')
-hoist (C.LetFstC (x, s) y e) = do
-  y' <- hoistVarOcc y
+hoist (C.LetFstC (x, s) v e) = do
+  (y, _t, addBinds) <- hoistValue v
   withPlace x s $ \x' -> do
     e' <- hoist e
-    pure (LetProjectH x' y' ProjectFst e')
-hoist (C.LetSndC (x, s) y e) = do
-  y' <- hoistVarOcc y
+    pure (addBinds (LetProjectH x' y ProjectFst e'))
+hoist (C.LetSndC (x, s) v e) = do
+  (y, _t, addBinds) <- hoistValue v
   withPlace x s $ \x' -> do
     e' <- hoist e
-    pure (LetProjectH x' y' ProjectSnd e')
-hoist (C.LetFieldC (x, s) y f e) = do
-  y' <- hoistVarOcc y
+    pure (addBinds (LetProjectH x' y ProjectSnd e'))
+hoist (C.LetFieldC (x, s) v f e) = do
+  (y, _t, addBinds) <- hoistValue v
   let f' = hoistFieldLabel f
   withPlace x s $ \x' -> do
     e' <- hoist e
-    pure (LetProjectH x' y' (ProjectField f') e')
+    pure (addBinds (LetProjectH x' y (ProjectField f') e'))
 hoist (C.LetArithC (x, s) op e) = do
   op' <- hoistArith op
   withPlace x s $ \x' -> do

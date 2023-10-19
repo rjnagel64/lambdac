@@ -148,9 +148,9 @@ data CtorDecl
 -- replaces free variables with references to an environment parameter.
 data TermC
   = LetValC (Name, Type) ValueC TermC -- let x = v in e, allocation
-  | LetFstC (Name, Type) Name TermC -- let x = fst y in e, projection
-  | LetSndC (Name, Type) Name TermC
-  | LetFieldC (Name, Type) Name FieldLabel TermC -- let x = y#field in e, projection
+  | LetFstC (Name, Type) ValueC TermC -- let x = fst y in e, projection
+  | LetSndC (Name, Type) ValueC TermC
+  | LetFieldC (Name, Type) ValueC FieldLabel TermC -- let x = y#field in e, projection
   | LetArithC (Name, Type) ArithC TermC
   | LetCompareC (Name, Type) CmpC TermC
   | LetStringOpC (Name, Type) StringOpC TermC
@@ -161,11 +161,13 @@ data TermC
   | JumpC Name [ValueC] -- k x...
   | CallC Name [Argument] [CoArgument] -- f (x | @t)+ k+
   | HaltC ValueC
-  | IfC Name ContClosureDef ContClosureDef -- if x then k1 else k2
-  | CaseC Name TyConApp [(Ctor, CoArgument)] -- case x of c1 -> k1 | c2 -> k2 | ...
+  | IfC ValueC ContClosureDef ContClosureDef -- if x then k1 else k2
+  | CaseC ValueC TyConApp [(Ctor, CoArgument)] -- case x of c1 -> k1 | c2 -> k2 | ...
 
 data Argument = ValueArg ValueC | TypeArg Type
 
+-- hmm. this is really more like CoValueC than CoArgument -- it's also used for CaseC
+-- LetContC -> LetCoValC?
 data CoArgument = VarCoArg Name | ContCoArg ContClosureDef
 
 data TyConApp = TyConApp TyCon [Type]
@@ -293,15 +295,15 @@ pprintTerm n (LetContC ks e) =
 pprintTerm n (LetValC x v e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFstC x y e) =
-  indent n ("let " ++ pprintPlace x ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace x ++ " = fst " ++ pprintValue y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndC x y e) =
-  indent n ("let " ++ pprintPlace x ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace x ++ " = snd " ++ pprintValue y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFieldC x y f e) =
-  indent n ("let " ++ pprintPlace x ++ " = " ++ show y ++ "#" ++ show f ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue y ++ "#" ++ show f ++ ";\n") ++ pprintTerm n e
 pprintTerm n (IfC x k1 k2) =
-  indent n $ "if " ++ show x ++ "\n" ++ concatMap (pprintAlt (n+2)) [(Ctor "false", ContCoArg k1), (Ctor "true", ContCoArg k2)]
+  indent n $ "if " ++ pprintValue x ++ "\n" ++ concatMap (pprintAlt (n+2)) [(Ctor "false", ContCoArg k1), (Ctor "true", ContCoArg k2)]
 pprintTerm n (CaseC x _ alts) =
-  indent n $ "case " ++ show x ++ " of \n" ++ concatMap (pprintAlt (n+2)) alts
+  indent n $ "case " ++ pprintValue x ++ " of \n" ++ concatMap (pprintAlt (n+2)) alts
 pprintTerm n (LetArithC x op e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareC x cmp e) =

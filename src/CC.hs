@@ -213,23 +213,23 @@ cconv (K.CallK f args ks) = do
   ks' <- traverse cconvCoArgument ks
   pure (CallC f' args' ks')
 cconv (K.IfK x contf contt) = do
-  x' <- cconvTmVar x
+  x' <- cconvVarVal x
   contf' <- cconvContDef contf
   contt' <- cconvContDef contt
   pure (IfC x' contf' contt')
 cconv (K.CaseK x kind ks) = do
-  x' <- cconvTmVar x
+  x' <- cconvVarVal x
   kind' <- cconvTyConApp kind
   ks' <- traverse (\ (K.Ctor c, k) -> (,) <$> pure (Ctor c) <*> cconvCoArgument k) ks
   pure (CaseC x' kind' ks')
 cconv (K.LetFstK x t y e) = do
-  y' <- cconvTmVar y
+  y' <- cconvVarVal y
   withTm (x, t) $ \b -> LetFstC b y' <$> cconv e
 cconv (K.LetSndK x t y e) = do
-  y' <- cconvTmVar y
+  y' <- cconvVarVal y
   withTm (x, t) $ \b -> LetSndC b y' <$> cconv e
 cconv (K.LetFieldK x t y f e) = do
-  y' <- cconvTmVar y
+  y' <- cconvVarVal y
   f' <- cconvFieldLabel f
   withTm (x, t) $ \b -> LetFieldC b y' f' <$> cconv e
 cconv (K.LetValK x t v e) = do
