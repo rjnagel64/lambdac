@@ -182,8 +182,7 @@ hoist (C.CallC f xs ks) = do
   pure (addBinds (addCoBinds (OpenH f' (xs' ++ map ValueArg ks'))))
 hoist (C.IfC x k1 k2) = do
   x' <- hoistVarOcc x
-  (addCoBinds, ks') <- hoistCoArgList [C.ContCoArg k1, C.ContCoArg k2]
-  let [k1', k2'] = ks'
+  (addCoBinds, Two k1' k2') <- hoistCoArgList (fmap C.ContCoArg (Two k1 k2))
   pure (addCoBinds (IfH x' k1' k2'))
 hoist (C.CaseC x t ks) = do
   x' <- hoistVarOcc x
@@ -421,10 +420,6 @@ lookupTyCon c = do
     Nothing -> error ("ctor not in scope: " ++ show c)
     Just tc -> pure tc
 
-addCoBinds :: [ClosureAlloc] -> TermH -> TermH
-addCoBinds [] e = e
-addCoBinds allocs e = AllocClosure allocs e
-
 hoistArgList :: Traversable t => t C.Argument -> HoistM (TermH -> TermH, t ClosureArg)
 hoistArgList xs = do
   (args, binds) <- mapAccumLM f xs (\e' -> e')
@@ -605,3 +600,15 @@ freshId :: String -> HoistM Id
 freshId x = do
   u <- freshUnique
   pure (Id x u)
+
+
+data Two a = Two a a
+
+instance Functor Two where
+  fmap f (Two x y) = Two (f x) (f y)
+
+instance Foldable Two where
+  foldMap f (Two x y) = f x <> f y
+
+instance Traversable Two where
+  traverse f (Two x y) = Two <$> f x <*> f y
