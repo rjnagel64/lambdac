@@ -169,7 +169,7 @@ data CtorDecl
   -- Third, I require each ctor argument to have a name (for fields in the ctor's struct),
   -- which doesn't fit in a 'ClosureTele' (but maybe 'ClosureParam' would work?
   -- Isomorphic, but semantically distinct, so not really.)
-  = CtorDecl Ctor [(TyVar, Kind)] [(Id, Type)]
+  = CtorDecl Ctor [(TyVar, Kind)] [Type]
 
 
 -- | A 'Type' describes the runtime layout of a value. It is static information.
@@ -502,7 +502,7 @@ pprintCtorDecl n (CtorDecl c tys args) =
   indent n (show c ++ "(" ++ intercalate ", " (map g tys ++ map f args) ++ ");")
   where
     g (aa, k) = "@" ++ show aa ++ " : " ++ pprintKind k
-    f (x, s) = show x ++ " : " ++ pprintType s
+    f s = pprintType s
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintType s ++ " " ++ show x ++ ";\n"

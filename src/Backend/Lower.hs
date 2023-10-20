@@ -93,11 +93,14 @@ withCtorDecl :: TyCon -> (Int, H.CtorDecl) -> (CtorDecl -> M a) -> M a
 withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
   withCtor tc' i c $ \c' -> do
     cd <- withTyVars tys $ \tys' -> do
-      -- TODO: It makes more sense to name ctor fields in Lower instead of Hoist
-      -- It's a C-backend specific restriction, so it should go here.
-      xs' <- traverse (\ (l, s) -> (,) <$> lowerFieldName l <*> lowerType s) xs
+      xs' <- traverse makeField (zip [0..] xs)
       pure (CtorDecl c' tys' xs')
     k cd
+    where
+      makeField :: (Int, H.Type) -> M (FieldLabel, Type)
+      makeField (j, s) = do
+        s' <- lowerType s
+        pure (FieldLabel ("arg" ++ show j), s')
 
 lowerCodeLabel :: H.CodeLabel -> M CodeLabel
 lowerCodeLabel l = do
@@ -115,9 +118,6 @@ lookupEnvTyCon l = do
 
 lowerFieldLabel :: H.FieldLabel -> M FieldLabel
 lowerFieldLabel (H.FieldLabel f) = pure (FieldLabel f)
-
-lowerFieldName :: H.Id -> M FieldLabel
-lowerFieldName (H.Id f u) = pure (FieldLabel f)
 
 lowerTerm :: H.TermH -> M TermH
 lowerTerm (H.HaltH s x) = HaltH <$> lowerType s <*> lowerName x

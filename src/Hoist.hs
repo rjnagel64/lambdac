@@ -150,19 +150,9 @@ withCtorDecls tc ctors cont = do
 hoistCtorDecl :: TyCon -> C.CtorDecl -> HoistM ((C.Ctor, TyCon), CtorDecl)
 hoistCtorDecl tc (C.CtorDecl c params args) =
   withTyVars params $ \params' -> do
-    let c' = hoistCtor c
-    args' <- traverse makeField (zip [0..] args)
-    let decl = CtorDecl c' params' args'
+    args' <- traverse sortOf args
+    let decl = CtorDecl (hoistCtor c) params' args'
     pure ((c, tc), decl)
-  where
-    makeField :: (Int, C.Type) -> HoistM (Id, Type)
-    makeField (i, s) = do
-      -- TODO: Ctor decls should get field names in Lower, not Hoist
-      s' <- sortOf s
-      u <- freshUnique
-      pure (Id ("arg" ++ show i) u, s')
-      -- arg <- freshId "arg"
-      -- pure (arg, s')
 
 hoistCtor :: C.Ctor -> Ctor
 hoistCtor (C.Ctor c) = Ctor c

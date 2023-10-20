@@ -210,8 +210,7 @@ checkDataDecl (DataDecl tc kind ctors) = do
 
 checkCtorDecl :: CtorDecl -> TC ()
 checkCtorDecl (CtorDecl _c tys args) = do
-  checkUniqueLabels (map fst args)
-  withTyVars tys $ traverse_ (\ (_x, s) -> checkType s Star) args
+  withTyVars tys $ traverse_ (\s -> checkType s Star) args
 
 -- | Type-check a top-level code declaration and add it to the signature.
 checkCodeDecl :: CodeDecl -> TC ()
@@ -441,7 +440,7 @@ instantiateTyConApp (TyConApp tc tys) = do
   ctors <- snd <$> lookupTyCon tc
   cs <- fmap Map.fromList $ for ctors $ \ (CtorDecl c typarams argTys) -> do
     sub <- parameterSubst typarams tys
-    pure (c, map (ValueTele . substType sub . snd) argTys)
+    pure (c, map (ValueTele . substType sub) argTys)
   pure cs
 
 -- | Check that a sort is well-formed w.r.t. the context
