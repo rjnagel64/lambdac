@@ -120,26 +120,26 @@ inlineK (CaseK x t [(c1, CoVarK k1), (c2, CoVarK k2)]) = do
   case Map.lookup x' (inlineValDefs env) of
     Just _ -> error "case on non-adt value"
     Nothing -> pure (CaseK x' t [(c1, CoVarK k1), (c2, CoVarK k2)])
-inlineK (LetFstK x t y e) = do
-  y' <- appTmSub y
-  env <- ask
-  -- We need to rebuild the LetFstK here because there still might be some
-  -- variable that refers to it.
-  -- TODO: Use usage information to discard dead bindings.
-  case Map.lookup y' (inlineValDefs env) of
-    Just (PairValK p _) -> LetFstK x t y' <$> withTmSub (x, p) (inlineK e)
-    Just _ -> error "fst on non-pair value"
-    Nothing -> LetFstK x t y' <$> inlineK e
-inlineK (LetSndK x t y e) = do
-  y' <- appTmSub y
-  env <- ask
-  -- We need to rebuild the LetFstK here because there still might be some
-  -- variable that refers to it.
-  -- A DCE pass can remove it later.
-  case Map.lookup y' (inlineValDefs env) of
-    Just (PairValK _ q) -> LetSndK x t y' <$> withTmSub (x, q) (inlineK e)
-    Just _ -> error "snd on non-pair value"
-    Nothing -> LetFstK x t y' <$> inlineK e
+-- inlineK (LetFstK x t y e) = do
+--   y' <- appTmSub y
+--   env <- ask
+--   -- We need to rebuild the LetFstK here because there still might be some
+--   -- variable that refers to it.
+--   -- TODO: Use usage information to discard dead bindings.
+--   case Map.lookup y' (inlineValDefs env) of
+--     Just (PairValK p _) -> LetFstK x t y' <$> withTmSub (x, p) (inlineK e)
+--     Just _ -> error "fst on non-pair value"
+--     Nothing -> LetFstK x t y' <$> inlineK e
+-- inlineK (LetSndK x t y e) = do
+--   y' <- appTmSub y
+--   env <- ask
+--   -- We need to rebuild the LetFstK here because there still might be some
+--   -- variable that refers to it.
+--   -- A DCE pass can remove it later.
+--   case Map.lookup y' (inlineValDefs env) of
+--     Just (PairValK _ q) -> LetSndK x t y' <$> withTmSub (x, q) (inlineK e)
+--     Just _ -> error "snd on non-pair value"
+--     Nothing -> LetFstK x t y' <$> inlineK e
 -- Functions and continuations are the things that need to be inlined.
 -- These two cases decide whether or not a binding should be added to the environment.
 -- When extending the environment:
@@ -265,11 +265,11 @@ unlabel (IsProduct _ t1 _ t2) = ProdK (unlabel t1) (unlabel t2)
 rebuildDefinition :: (TmVar, LabelledProduct) -> Endo TermK
 -- Nothing to do: x : t is already in scope
 rebuildDefinition (x, NotProduct t) = mempty
-rebuildDefinition (x, IsProduct y1 t1 y2 t2) =
--- Need to reconstitute x : t1 * t2 from y1 : t1 and y2 : t2 with a pair constructor
-  rebuildDefinition (y1, t1) <>
-    rebuildDefinition (y2, t2) <>
-      Endo (LetValK x (ProdK (unlabel t1) (unlabel t2)) (PairValK y1 y2))
+-- rebuildDefinition (x, IsProduct y1 t1 y2 t2) =
+-- -- Need to reconstitute x : t1 * t2 from y1 : t1 and y2 : t2 with a pair constructor
+--   rebuildDefinition (y1, t1) <>
+--     rebuildDefinition (y2, t2) <>
+--       Endo (LetValK x (ProdK (unlabel t1) (unlabel t2)) (PairValK y1 y2))
 
 rebuildDefinitions :: [(TmVar, LabelledProduct)] -> Endo TermK
 rebuildDefinitions prods = foldMap rebuildDefinition prods

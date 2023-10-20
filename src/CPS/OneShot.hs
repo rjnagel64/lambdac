@@ -226,9 +226,9 @@ instance CountUses ValueK where
   countUses (CharValK _) = mempty
   countUses (BoolValK _) = mempty
   countUses (StringValK _) = mempty
-  countUses (PairValK x y) = oneTmUse x <> oneTmUse y
-  countUses (RecordValK fs) = foldMap (oneTmUse . snd) fs
-  countUses (CtorValK _c _ts xs) = foldMap oneTmUse xs
+  countUses (PairValK x y) = countUses x <> countUses y
+  countUses (RecordValK fs) = foldMap (countUses . snd) fs
+  countUses (CtorValK _c _ts xs) = foldMap countUses xs
 
 instance CountUses ArithK where
   countUses (AddK x y) = oneTmUse x <> oneTmUse y
@@ -288,7 +288,7 @@ makeJumpSubst params args = emptySub { subTms = sub, scopeTms = sc }
 
 data Sub
   = Sub {
-    subTms :: Map TmVar TmVar
+    subTms :: Map TmVar TmVar -- TODO: Generalize to TmVar :-> ValueK, CoVar :-> CoValueK
   , scopeTms :: Set TmVar
   , subCos :: Map CoVar CoVar
   , scopeCos :: Set CoVar
@@ -459,9 +459,9 @@ instance Subst ValueK where
   subst _ (BoolValK b) = BoolValK b
   subst _ (StringValK s) = StringValK s
   subst _ (CharValK c) = CharValK c
-  subst sub (RecordValK fs) = RecordValK (map (second (substTmVar sub)) fs)
-  subst sub (CtorValK c ts xs) = CtorValK c (map (subst sub) ts) (map (substTmVar sub) xs)
-  subst sub (PairValK x y) = PairValK (substTmVar sub x) (substTmVar sub y)
+  subst sub (RecordValK fs) = RecordValK (map (second (subst sub)) fs)
+  subst sub (CtorValK c ts xs) = CtorValK c (map (subst sub) ts) (map (subst sub) xs)
+  subst sub (PairValK x y) = PairValK (subst sub x) (subst sub y)
 
 instance Subst CoValueK where
   subst sub (CoVarK k) = CoVarK (substCoVar sub k)

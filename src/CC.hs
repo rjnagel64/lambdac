@@ -323,15 +323,15 @@ cconvValue :: K.ValueK -> ConvM ValueC
 cconvValue (K.VarValK x) = VarValC <$> cconvTmVar x
 cconvValue K.NilValK = pure NilValC
 cconvValue K.TokenValK = pure TokenValC
-cconvValue (K.PairValK x y) = PairValC <$> cconvVarVal x <*> cconvVarVal y
+cconvValue (K.PairValK x y) = PairValC <$> cconvValue x <*> cconvValue y
 cconvValue (K.RecordValK fs) = RecordValC <$> traverse cconvField fs
-  where cconvField (f, x) = (,) <$> cconvFieldLabel f <*> cconvVarVal x
+  where cconvField (f, x) = (,) <$> cconvFieldLabel f <*> cconvValue x
 cconvValue (K.IntValK i) = pure (IntValC i)
 cconvValue (K.BoolValK b) = pure (BoolValC b)
 cconvValue (K.StringValK s) = pure (StringValC s)
 cconvValue (K.CharValK s) = pure (CharValC s)
 cconvValue (K.CtorValK (K.Ctor c) tyargs args) =
-  CtorValC (Ctor c) <$> traverse cconvType tyargs <*> traverse cconvVarVal args
+  CtorValC (Ctor c) <$> traverse cconvType tyargs <*> traverse cconvValue args
 
 cconvVarVal :: K.TmVar -> ConvM ValueC
 cconvVarVal x = VarValC <$> cconvTmVar x

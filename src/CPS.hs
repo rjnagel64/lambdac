@@ -304,7 +304,7 @@ cps (S.TmStringLength e) k =
 cps (S.TmPair e1 e2) k =
   cps e1 $ MetaCont $ \v1 t1 ->
     cps e2 $ MetaCont $ \v2 t2 ->
-      applyCont' k (PairValK v1 v2) (S.TyProd t1 t2)
+      applyCont' k (PairValK (VarValK v1) (VarValK v2)) (S.TyProd t1 t2)
 cps (S.TmRecord fields) k =
   cpsRecord fields [] k
 cps (S.TmLet x t e1 e2) k = do
@@ -441,7 +441,7 @@ cpsRecord :: [(S.FieldLabel, S.Term)] -> [(S.FieldLabel, S.Type, TmVar)] -> Cont
 cpsRecord [] ss k = do
   let fs = reverse ss
   let ty = S.TyRecord [(f, t) | (f, t, _) <- fs]
-  let fields = [(cpsFieldLabel f, v) | (f, _, v) <- fs]
+  let fields = [(cpsFieldLabel f, VarValK v) | (f, _, v) <- fs]
   applyCont' k (RecordValK fields) ty
 cpsRecord ((f, e) : fs) ss k =
   cps e $ MetaCont $ \v t ->
@@ -587,7 +587,7 @@ makeCtorWrapper tc c ctorparams ctorargs e = do
   where
     go :: TmVar -> ([(TyVar, KindK)], [TypeK]) -> ([TypeK], [TmVar]) -> TermK -> CPS (TermK, TypeK)
     go name ([], []) (tyarglist, tmarglist) body = do
-      let val = CtorValK c tyarglist tmarglist
+      let val = CtorValK c tyarglist (map VarValK tmarglist)
       let wrapperTy = fromTyConApp (TyConApp tc [TyVarOccK aa | (aa, _) <- ctorparams])
       -- let wrapperTy = foldl (\t (aa, _) -> TyAppK t (TyVarOccK aa)) (TyConOccK tc) ctorparams
       let wrapper = LetValK name wrapperTy val body

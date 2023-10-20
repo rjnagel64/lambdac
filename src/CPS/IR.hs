@@ -237,13 +237,13 @@ data ValueK
   = VarValK TmVar
   | NilValK
   | TokenValK
-  | PairValK TmVar TmVar
-  | RecordValK [(FieldLabel, TmVar)]
+  | PairValK ValueK ValueK
+  | RecordValK [(FieldLabel, ValueK)]
   | IntValK Int
   | BoolValK Bool
   | StringValK String
   | CharValK Char
-  | CtorValK Ctor [TypeK] [TmVar]
+  | CtorValK Ctor [TypeK] [ValueK]
 
 data CoValueK
   = CoVarK CoVar
@@ -576,15 +576,15 @@ pprintValue :: ValueK -> String
 pprintValue (VarValK x) = show x
 pprintValue NilValK = "()"
 pprintValue TokenValK = "WORLD#"
-pprintValue (PairValK x y) = "(" ++ show x ++ ", " ++ show y ++ ")"
+pprintValue (PairValK x y) = "(" ++ pprintValue x ++ ", " ++ pprintValue y ++ ")"
 pprintValue (RecordValK []) = "{}"
 pprintValue (RecordValK xs) = "{ " ++ intercalate ", " (map pprintField xs) ++ " }"
-  where pprintField (f, x) = show f ++ " = " ++ show x
+  where pprintField (f, x) = show f ++ " = " ++ pprintValue x
 pprintValue (IntValK i) = show i
 pprintValue (BoolValK b) = if b then "true" else "false"
 pprintValue (StringValK s) = show s
 pprintValue (CharValK s) = show s
-pprintValue (CtorValK c tyargs args) = show c ++ "(" ++ intercalate ", @" (map pprintType tyargs) ++ ", " ++ intercalate ", " (map show args) ++ ")"
+pprintValue (CtorValK c tyargs args) = show c ++ "(" ++ intercalate ", @" (map pprintType tyargs) ++ ", " ++ intercalate ", " (map pprintValue args) ++ ")"
 
 pprintCoValue :: CoValueK -> String
 pprintCoValue (CoVarK k) = show k

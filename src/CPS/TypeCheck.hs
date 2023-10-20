@@ -223,7 +223,7 @@ check (HaltK x) = do
   pure ()
 check (JumpK k xs) = do
   ContK ss <- lookupCoVar k
-  checkTmArgs xs ss
+  checkTmArgs (map VarValK xs) ss
 check (CallK f args ks) = do
   (tele, ss) <- lookupTmVar f >>= \case
     FunK tele ss -> pure (tele, ss)
@@ -332,8 +332,8 @@ checkValue :: ValueK -> TypeK -> TC ()
 checkValue (VarValK x) t = checkTmVar x t
 checkValue NilValK UnitK = pure ()
 checkValue (PairValK x y) (ProdK t s) = do
-  checkTmVar x t
-  checkTmVar y s
+  checkValue x t
+  checkValue y s
 checkValue (RecordValK fs) (RecordK fs') = checkFields fs fs'
 checkValue (IntValK _) IntK = pure ()
 checkValue (BoolValK _) BoolK = pure ()
@@ -347,12 +347,12 @@ checkValue (CtorValK c ts xs) t = do
 checkValue TokenValK TokenK = pure ()
 checkValue v t = throwError (BadValue v t)
 
-checkFields :: [(FieldLabel, TmVar)] -> [(FieldLabel, TypeK)] -> TC ()
+checkFields :: [(FieldLabel, ValueK)] -> [(FieldLabel, TypeK)] -> TC ()
 checkFields [] [] = pure ()
 checkFields ((f, x):fs) ((f', t):fs') = do
   when (f' /= f) $
     throwError (LabelMismatch f' f)
-  checkTmVar x t
+  checkValue x t
   checkFields fs fs'
 checkFields _ _ = throwError ArityMismatch
 
@@ -390,9 +390,9 @@ checkCoVar x t = do
   t' <- lookupCoVar x
   equalCoTypes t t'
 
-checkTmArgs :: [TmVar] -> [TypeK] -> TC ()
+checkTmArgs :: [ValueK] -> [TypeK] -> TC ()
 checkTmArgs [] [] = pure ()
-checkTmArgs (x:xs) (s:ss) = checkTmVar x s *> checkTmArgs xs ss
+checkTmArgs (x:xs) (s:ss) = checkValue x s *> checkTmArgs xs ss
 checkTmArgs _ _ = throwError ArityMismatch
 
 checkCoArgs :: [CoValueK] -> [CoTypeK] -> TC ()

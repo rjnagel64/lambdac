@@ -38,7 +38,7 @@ substVar sub x = maybe x id (Map.lookup x sub)
 
 substValue :: Map TmVar TmVar -> ValueK -> ValueK
 substValue _ NilValK = NilValK
-substValue sub (PairValK x y) = PairValK (substVar sub x) (substVar sub y)
+-- substValue sub (PairValK x y) = PairValK (substVar sub x) (substVar sub y)
 
 -- Pass the environment under a binder.
 -- May rename things???
@@ -121,34 +121,34 @@ simplify env (CallK f xs ks) =
   (CallK f (map ValueArg xs') ks, recordList xs') -- this is incorrect. do not discard type arguments.
 simplify env (CaseK x t ks) = simplifyCase env x t ks
 -- If there is a binding y := (z, w), substitute x := z in e
-simplify env (LetFstK x t y e) = 
-  -- Check for redex
-  case lookupValue y env of
-    -- There is a redex: let x = fst (z1, z2) in e ~> e[x := z1]
-    (y', Just (PairValK z1 z2)) ->
-      -- TODO: We are passing under the binder for 'x'. Wat do.
-      -- I don't think *both* defineSubst and under should be used here.
-      -- 'under' would be for passing under a variable that should not be touched;
-      -- 'defineSubst' is used to eliminate occurrences of 'x'
-      let env' = defineSubst x z1 (under x env) in
-      let (e', census) = simplify env' e in
-      case query x census of
-        -- No uses of this variable. Discard it.
-        -- The census of variable occurrences is unchanged.
-        NoUses -> (e', census)
-        -- cannot discard x.
-        SomeUses ->
-          -- Free occurrences of x in e' now refer to this binding.
-          -- there is an occurrence of y'.
-          let census' = record y' (bind x census) in
-          (LetFstK x t y' e', census')
-    (_, Just _) -> error "simplify: env contained invalid value for fst"
-    -- No redex
-    (y', Nothing) ->
-      let env' = under x env in
-      let (e', census) = simplify env' e in
-      let census' = record y' (bind x census) in
-      (LetFstK x t y' e', census')
+-- simplify env (LetFstK x t y e) = 
+--   -- Check for redex
+--   case lookupValue y env of
+--     -- There is a redex: let x = fst (z1, z2) in e ~> e[x := z1]
+--     (y', Just (PairValK z1 z2)) ->
+--       -- TODO: We are passing under the binder for 'x'. Wat do.
+--       -- I don't think *both* defineSubst and under should be used here.
+--       -- 'under' would be for passing under a variable that should not be touched;
+--       -- 'defineSubst' is used to eliminate occurrences of 'x'
+--       let env' = defineSubst x z1 (under x env) in
+--       let (e', census) = simplify env' e in
+--       case query x census of
+--         -- No uses of this variable. Discard it.
+--         -- The census of variable occurrences is unchanged.
+--         NoUses -> (e', census)
+--         -- cannot discard x.
+--         SomeUses ->
+--           -- Free occurrences of x in e' now refer to this binding.
+--           -- there is an occurrence of y'.
+--           let census' = record y' (bind x census) in
+--           (LetFstK x t y' e', census')
+--     (_, Just _) -> error "simplify: env contained invalid value for fst"
+--     -- No redex
+--     (y', Nothing) ->
+--       let env' = under x env in
+--       let (e', census) = simplify env' e in
+--       let census' = record y' (bind x census) in
+--       (LetFstK x t y' e', census')
 simplify env (LetValK x t v e) =
   let (v', census) = simplifyVal env v in
   let env' = defineValue x v (under x env) in
@@ -185,8 +185,8 @@ simplify env (LetContK ks e) =
   (LetContK ks' e', census <> census')
 
 simplifyVal :: SimplEnv -> ValueK -> (ValueK, Census)
-simplifyVal env (PairValK y z) =
-  let y' = rename env y; z' = rename env z in (PairValK y' z', recordList [y', z'])
+-- simplifyVal env (PairValK y z) =
+--   let y' = rename env y; z' = rename env z in (PairValK y' z', recordList [y', z'])
 simplifyVal _ NilValK = (NilValK, mempty)
 simplifyVal _ (IntValK i) = (IntValK i, mempty)
 simplifyVal _ (BoolValK b) = (BoolValK b, mempty)
