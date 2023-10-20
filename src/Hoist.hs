@@ -167,21 +167,21 @@ hoist (C.HaltC v) = do
   (x, t, addBinds) <- hoistValue v
   pure (addBinds (HaltH t x))
 hoist (C.JumpC k xs) = do
-  k' <- hoistVarOcc k
+  (addCoBinds, One k') <- hoistCoArgList (One k)
   (addBinds, xs') <- hoistArgList (map C.ValueArg xs)
-  pure (addBinds (OpenH k' xs'))
+  pure (addCoBinds (addBinds (OpenH k' xs')))
 hoist (C.CallC f xs ks) = do
-  f' <- hoistVarOcc f
+  (f', _t, addFunBinds) <- hoistValue f
   (addBinds, xs') <- hoistArgList xs
   (addCoBinds, ks') <- hoistCoArgList ks
-  pure (addBinds (addCoBinds (OpenH f' (xs' ++ map ValueArg ks'))))
+  pure (addFunBinds (addBinds (addCoBinds (OpenH f' (xs' ++ map ValueArg ks')))))
 hoist (C.IfC x k1 k2) = do
   (x', _t, addBinds) <- hoistValue x
   (addCoBinds, Two k1' k2') <- hoistCoArgList (fmap C.ContCoVal (Two k1 k2))
   pure (addBinds (addCoBinds (IfH x' k1' k2')))
 hoist (C.CaseC x t ks) = do
   (x', _t, addBinds) <- hoistValue x
-  kind <- caseKind t -- hmm. t is redundant now? hoistValue returns type of x
+  kind <- caseKind t -- hmm. t is redundant now? hoistValue returns type of x. Not quite t is tyconapp, type of x is general type.
   (addCoBinds, ks0') <- hoistCoArgList (Compose ks)
   let ks' = [(hoistCtor c, k) | (c, k) <- getCompose ks0']
   pure (addBinds (addCoBinds (CaseH x' kind ks')))
@@ -289,7 +289,7 @@ hoistContClosure' p (C.ContClosureDef env params body) = do
   kcode <- nameClosureCode p
 
   withEnvDef env $ \envd -> do
-    withParameterList (C.makeClosureParams [] params) $ \params' -> do
+    withParameterList (C.makeContinuationParams params) $ \params' -> do
       envn <- freshId "env"
       body' <- hoist body
       let decl = CodeDecl kcode (envn, envd) params' body'

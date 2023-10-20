@@ -369,7 +369,7 @@ bindAE aa bb (AE l lhs rhs) = AE (l+1) (Map.insert aa l lhs) (Map.insert bb l rh
 equalType :: AE -> Type -> Type -> Bool
 equalType ae (AllocH aa) (AllocH bb) = lookupAE ae aa bb
 equalType _ (AllocH _) _ = False
-equalType _e (TyConH tc1) (TyConH tc2) = tc1 == tc2
+equalType _ (TyConH tc1) (TyConH tc2) = tc1 == tc2
 equalType _ (TyConH _) _ = False
 equalType _ IntegerH IntegerH = True
 equalType _ IntegerH _ = False
@@ -385,16 +385,18 @@ equalType _ TokenH TokenH = True
 equalType _ TokenH _ = False
 equalType ae (ProductH s1 s2) (ProductH t1 t2) = equalType ae s1 t1 && equalType ae s2 t2
 equalType _ (ProductH _ _) _ = False
-equalType ae (RecordH fs1) (RecordH fs2) = go fs1 fs2
-  where
-    go [] [] = True
-    go ((f1, t1):fs1') ((f2, t2):fs2') = f1 == f2 && equalType ae t1 t2 && go fs1' fs2'
-    go _ _ = False
+equalType ae (RecordH fs1) (RecordH fs2) = equalFields ae fs1 fs2
 equalType _ (RecordH _) _ = False
 equalType ae (TyAppH s1 s2) (TyAppH t1 t2) = equalType ae s1 t1 && equalType ae s2 t2
 equalType _ (TyAppH _ _) _ = False
 equalType ae (ClosureH ss) (ClosureH ts) = equalTele ae ss ts
 equalType _ (ClosureH _) _ = False
+
+equalFields :: AE -> [(FieldLabel, Type)] -> [(FieldLabel, Type)] -> Bool
+equalFields _ [] [] = True
+equalFields ae ((f1, t1) : fs1) ((f2, t2) : fs2) =
+  f1 == f2 && equalType ae t1 t2 && equalFields ae fs1 fs2
+equalFields _ _ _ = False
 
 equalTele :: AE -> ClosureTele -> ClosureTele -> Bool
 equalTele ae0 (ClosureTele tele) (ClosureTele tele') = go ae0 tele tele'

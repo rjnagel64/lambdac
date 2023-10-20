@@ -17,6 +17,18 @@ mapAccumLM f xs s = flip runStateT s $ traverse (StateT . f) xs
 
 
 
+newtype One a = One a
+
+instance Functor One where
+  fmap f (One x) = One (f x)
+
+instance Foldable One where
+  foldMap f (One x) = f x
+
+instance Traversable One where
+  traverse f (One x) = One <$> f x
+
+
 data Two a = Two a a
 
 instance Functor Two where

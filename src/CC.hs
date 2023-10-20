@@ -202,11 +202,11 @@ cconvTyConApp (K.TyConApp (K.TyCon tc) args) = TyConApp (TyCon tc) <$> traverse 
 cconv :: K.TermK -> ConvM TermC
 cconv (K.HaltK x) = HaltC <$> cconvVarVal x
 cconv (K.JumpK k xs) = do
-  k' <- cconvCoVar k
+  k' <- cconvVarCoVal k
   xs' <- traverse cconvVarVal xs
   pure (JumpC k' xs')
 cconv (K.CallK f args ks) = do
-  f' <- cconvTmVar f
+  f' <- cconvVarVal f
   args' <- traverse cconvArgument args
   ks' <- traverse cconvCoValue ks
   pure (CallC f' args' ks')
@@ -335,6 +335,9 @@ cconvValue (K.CtorValK (K.Ctor c) tyargs args) =
 
 cconvVarVal :: K.TmVar -> ConvM ValueC
 cconvVarVal x = VarValC <$> cconvTmVar x
+
+cconvVarCoVal :: K.CoVar -> ConvM CoValueC
+cconvVarCoVal k = VarCoVal <$> cconvCoVar k
 
 cconvArith :: K.ArithK -> ConvM ArithC
 cconvArith (K.AddK x y) = AddC <$> cconvVarVal x <*> cconvVarVal y

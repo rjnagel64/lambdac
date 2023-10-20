@@ -23,7 +23,7 @@ module CC.IR
   , FunClosureDef(..)
   , funClosureType
   , ClosureParam(..)
-  , makeClosureParams
+  , makeContinuationParams
   , ContClosureDef(..)
   , contClosureType
   , EnvDef(..)
@@ -156,20 +156,16 @@ data TermC
   | LetStringOpC (Name, Type) StringOpC TermC
   | LetBindC (Name, Type) (Name, Type) PrimIO TermC
   | LetFunC [FunClosureDef] TermC
+  -- TODO: LetContC should bind CoValueC, not ContClosureDef
   | LetContC [(Name, ContClosureDef)] TermC
-  -- Invoke a closure by providing values for the remaining arguments.
-  | JumpC Name [ValueC] -- k x...
-  | CallC Name [Argument] [CoValueC] -- f (x | @t)+ k+
+  -- Invoke a closure by providing values for its arguments.
+  | JumpC CoValueC [ValueC] -- k x...
+  | CallC ValueC [Argument] [CoValueC] -- f (x | @t)+ k+
   | HaltC ValueC
   | IfC ValueC ContClosureDef ContClosureDef -- if x then k1 else k2
   | CaseC ValueC TyConApp [(Ctor, CoValueC)] -- case x of c1 -> k1 | c2 -> k2 | ...
 
 data Argument = ValueArg ValueC | TypeArg Type
-
--- hmm. this is really more like CoValueC than CoValueC -- it's also used for CaseC
--- LetContC -> LetCoValC? (will need to introduce analogue of withNamedValue
--- and hoistValue for co-values though, to deal with let cont k1 = k2 in e)
-data CoValueC = VarCoVal Name | ContCoVal ContClosureDef
 
 data TyConApp = TyConApp TyCon [Type]
 
@@ -207,19 +203,7 @@ data FunClosureDef
   , funClosureBody :: TermC
   }
 
-funClosureType :: FunClosureDef -> Type
-funClosureType (FunClosureDef _ _ params _) = paramsType params
-
 data ClosureParam = TypeParam TyVar Kind | ValueParam Name Type
-
-makeClosureParams :: [(TyVar, Kind)] -> [(Name, Type)] -> [ClosureParam]
-makeClosureParams aas xs = map (uncurry TypeParam) aas ++ map (uncurry ValueParam) xs
-
-paramsType :: [ClosureParam] -> Type
-paramsType params = Closure (map f params)
-  where
-    f (TypeParam aa k) = TypeTele aa k
-    f (ValueParam _ s) = ValueTele s
 
 -- | A continuation definition, @k {aa+; x+} y+ = e@.
 data ContClosureDef
@@ -235,8 +219,20 @@ data ContClosureDef
   , contClosureBody :: TermC
   }
 
+paramsType :: [ClosureParam] -> Type
+paramsType params = Closure (map f params)
+  where
+    f (TypeParam aa k) = TypeTele aa k
+    f (ValueParam _ s) = ValueTele s
+
+funClosureType :: FunClosureDef -> Type
+funClosureType (FunClosureDef _ _ params _) = paramsType params
+
+makeContinuationParams :: [(Name, Type)] -> [ClosureParam]
+makeContinuationParams xs = map (uncurry ValueParam) xs
+
 contClosureType :: ContClosureDef -> Type
-contClosureType (ContClosureDef _ params _) = paramsType (makeClosureParams [] params)
+contClosureType (ContClosureDef _ params _) = paramsType (makeContinuationParams params)
 
 -- | Closures environments capture two sets of names: those from outer scopes,
 -- and those from the same recursive bind group.
@@ -257,6 +253,8 @@ data ValueC
   | CharValC Char
   | NilValC
   | TokenValC
+
+data CoValueC = VarCoVal Name | ContCoVal ContClosureDef
 
 
 
@@ -279,11 +277,11 @@ pprintCtorDecl n (CtorDecl c typarams args) =
 
 pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC v) = indent n $ "HALT " ++ pprintValue v ++ ";\n"
-pprintTerm n (JumpC k vs) = indent n $ show k ++ " " ++ intercalate " " (map pprintValue vs) ++ ";\n"
+pprintTerm n (JumpC k vs) = indent n $ pprintCoValue k ++ " " ++ intercalate " " (map pprintValue vs) ++ ";\n"
 pprintTerm n (CallC f xs ks) =
   -- hrrm. this has become utterly illegible.
   -- continuation values do *not* fit nicely in a one-line argument list.
-  indent n $ show f ++ " " ++ intercalate " " (map pprintArgument xs ++ map pprintCoValue ks) ++ ";\n"
+  indent n $ pprintValue f ++ " " ++ intercalate " " (map pprintArgument xs ++ map pprintCoValue ks) ++ ";\n"
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContC ks e) =
