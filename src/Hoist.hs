@@ -148,17 +148,24 @@ withCtorDecls tc ctors cont = do
   local extend $ cont ctors'
 
 hoistCtorDecl :: TyCon -> C.CtorDecl -> HoistM ((C.Ctor, TyCon), CtorDecl)
-hoistCtorDecl tc (C.CtorDecl (C.Ctor c) params args) =
+hoistCtorDecl tc (C.CtorDecl c params args) =
   withTyVars params $ \params' -> do
+    let c' = hoistCtor c
     args' <- traverse makeField (zip [0..] args)
-    let decl = CtorDecl (Ctor c) params' args'
-    pure ((C.Ctor c, tc), decl)
+    let decl = CtorDecl c' params' args'
+    pure ((c, tc), decl)
   where
     makeField :: (Int, C.Type) -> HoistM (Id, Type)
     makeField (i, s) = do
+      -- TODO: Ctor decls should get field names in Lower, not Hoist
       s' <- sortOf s
       u <- freshUnique
       pure (Id ("arg" ++ show i) u, s')
+      -- arg <- freshId "arg"
+      -- pure (arg, s')
+
+hoistCtor :: C.Ctor -> Ctor
+hoistCtor (C.Ctor c) = Ctor c
 
 
 
@@ -186,7 +193,7 @@ hoist (C.CaseC x t ks) = do
   (x', _t, addBinds) <- hoistValue x
   kind <- caseKind t -- hmm. t is redundant now? hoistValue returns type of x
   (addCoBinds, ks0') <- hoistCoArgList (Compose ks)
-  let ks' = [(Ctor c, k) | (C.Ctor c, k) <- getCompose ks0']
+  let ks' = [(hoistCtor c, k) | (c, k) <- getCompose ks0']
   pure (addBinds (addCoBinds (CaseH x' kind ks')))
 hoist (C.LetValC (x, t) v e) = do
   withNamedValue x t v $ \addBinds -> do
@@ -453,6 +460,7 @@ hoistCoArgList ks = do
     -- traverse, because turning 't (Maybe ClosureAlloc)' into 't ClosureAlloc'
     -- is Filterable from the 'witherable' package, and I don't feel like
     -- adding a dependency.
+    -- ... but I can get [ClosureAlloc], because t is Foldable
     f (C.VarCoVal k) acc = do
       k' <- hoistVarOcc k
       pure (k', acc)
@@ -540,11 +548,11 @@ withNamedValue x t (C.RecordValC fs) kont = do
     pure ((f', y), addY)
   withPlace x t $ \x' ->
     kont (addManyBinds addYs x' (RecordValH ys))
-withNamedValue x t (C.CtorValC (C.Ctor c) ts vs) kont = do
+withNamedValue x t (C.CtorValC c ts vs) kont = do
   ts' <- traverse sortOf ts
   (ys, _ts, addYs) <- fmap unzip3 $ traverse hoistValue vs
   withPlace x t $ \x' ->
-    kont (addManyBinds addYs x' (CtorValH (Ctor c) ts' ys))
+    kont (addManyBinds addYs x' (CtorValH (hoistCtor c) ts' ys))
 
 hoistValue :: C.ValueC -> HoistM (Name, Type, TermH -> TermH)
 hoistValue (C.VarValC y) = do
@@ -589,13 +597,13 @@ hoistValue (C.RecordValC fs) = do
   tmp <- freshId "tmp"
   let ty = RecordH ts
   pure (LocalName tmp, ty, addManyBinds addFields (Place ty tmp) (RecordValH fs'))
-hoistValue (C.CtorValC c@(C.Ctor c') ts vs) = do
+hoistValue (C.CtorValC c ts vs) = do
   tc <- lookupTyCon c
   ts' <- traverse sortOf ts
   (xs, _ss, addXs) <- fmap unzip3 $ traverse hoistValue vs
   let ty = fromTyConApp (TyConApp tc ts')
   tmp <- freshId "tmp"
-  pure (LocalName tmp, ty, addManyBinds addXs (Place ty tmp) (CtorValH (Ctor c') ts' xs))
+  pure (LocalName tmp, ty, addManyBinds addXs (Place ty tmp) (CtorValH (hoistCtor c) ts' xs))
 
 -- basically a concat + snoc for adding value binds
 addManyBinds :: [TermH -> TermH] -> Place -> ValueH -> (TermH -> TermH)
