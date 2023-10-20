@@ -18,7 +18,7 @@ module CC.IR
   , StringOpC(..)
   , PrimIO(..)
   , Argument(..)
-  , CoArgument(..)
+  , CoValueC(..)
   , TyConApp(..)
   , FunClosureDef(..)
   , funClosureType
@@ -159,17 +159,17 @@ data TermC
   | LetContC [(Name, ContClosureDef)] TermC
   -- Invoke a closure by providing values for the remaining arguments.
   | JumpC Name [ValueC] -- k x...
-  | CallC Name [Argument] [CoArgument] -- f (x | @t)+ k+
+  | CallC Name [Argument] [CoValueC] -- f (x | @t)+ k+
   | HaltC ValueC
   | IfC ValueC ContClosureDef ContClosureDef -- if x then k1 else k2
-  | CaseC ValueC TyConApp [(Ctor, CoArgument)] -- case x of c1 -> k1 | c2 -> k2 | ...
+  | CaseC ValueC TyConApp [(Ctor, CoValueC)] -- case x of c1 -> k1 | c2 -> k2 | ...
 
 data Argument = ValueArg ValueC | TypeArg Type
 
--- hmm. this is really more like CoValueC than CoArgument -- it's also used for CaseC
+-- hmm. this is really more like CoValueC than CoValueC -- it's also used for CaseC
 -- LetContC -> LetCoValC? (will need to introduce analogue of withNamedValue
 -- and hoistValue for co-values though, to deal with let cont k1 = k2 in e)
-data CoArgument = VarCoArg Name | ContCoArg ContClosureDef
+data CoValueC = VarCoVal Name | ContCoVal ContClosureDef
 
 data TyConApp = TyConApp TyCon [Type]
 
@@ -283,10 +283,7 @@ pprintTerm n (JumpC k vs) = indent n $ show k ++ " " ++ intercalate " " (map ppr
 pprintTerm n (CallC f xs ks) =
   -- hrrm. this has become utterly illegible.
   -- continuation values do *not* fit nicely in a one-line argument list.
-  indent n $ show f ++ " " ++ intercalate " " (map pprintArg xs ++ map pprintCoValue ks) ++ ";\n"
-  where
-    pprintArg (ValueArg v) = pprintValue v
-    pprintArg (TypeArg t) = pprintType t -- would probably benefit from parentheses
+  indent n $ show f ++ " " ++ intercalate " " (map pprintArgument xs ++ map pprintCoValue ks) ++ ";\n"
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContC ks e) =
@@ -300,7 +297,7 @@ pprintTerm n (LetSndC x y e) =
 pprintTerm n (LetFieldC x y f e) =
   indent n ("let " ++ pprintPlace x ++ " = " ++ pprintValue y ++ "#" ++ show f ++ ";\n") ++ pprintTerm n e
 pprintTerm n (IfC x k1 k2) =
-  indent n $ "if " ++ pprintValue x ++ "\n" ++ concatMap (pprintAlt (n+2)) [(Ctor "false", ContCoArg k1), (Ctor "true", ContCoArg k2)]
+  indent n $ "if " ++ pprintValue x ++ "\n" ++ concatMap (pprintAlt (n+2)) [(Ctor "false", ContCoVal k1), (Ctor "true", ContCoVal k2)]
 pprintTerm n (CaseC x _ alts) =
   indent n $ "case " ++ pprintValue x ++ " of \n" ++ concatMap (pprintAlt (n+2)) alts
 pprintTerm n (LetArithC x op e) =
@@ -312,12 +309,16 @@ pprintTerm n (LetStringOpC x op e) =
 pprintTerm n (LetBindC x y prim e) =
   indent n ("let " ++ pprintPlace x ++ ", " ++ pprintPlace y ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
 
-pprintAlt :: Int -> (Ctor, CoArgument) -> String
+pprintArgument :: Argument -> String
+pprintArgument (ValueArg v) = pprintValue v
+pprintArgument (TypeArg t) = pprintType t -- should really have parentheses/precedence
+
+pprintAlt :: Int -> (Ctor, CoValueC) -> String
 pprintAlt n (c, k) = indent n $ "| " ++ show c ++ " -> " ++ pprintCoValue k ++ "\n"
 
-pprintCoValue :: CoArgument -> String
-pprintCoValue (VarCoArg k) = show k
-pprintCoValue (ContCoArg def) = "(" ++ pprintContClosure 0 def ++ ")" -- this looks terrible.
+pprintCoValue :: CoValueC -> String
+pprintCoValue (VarCoVal k) = show k
+pprintCoValue (ContCoVal def) = "(" ++ pprintContClosure 0 def ++ ")" -- this looks terrible.
 
 pprintType :: Type -> String
 pprintType (Closure ss) = "(" ++ intercalate ", " (map pprintTele ss) ++ ") -> !"

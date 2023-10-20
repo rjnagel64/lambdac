@@ -21,7 +21,8 @@ import Data.Functor.Compose
 
 import qualified CC.IR as C
 
-import Hoist.IR hiding (Subst, singleSubst, substType)
+import Hoist.IR
+import Util
 
 
 -- Note: Part of the confusion between type places and info places is that when
@@ -32,9 +33,6 @@ import Hoist.IR hiding (Subst, singleSubst, substType)
 -- binds into info bindings and ignoring the hoist-level tyvar bindings,
 -- because they do not impact code generation. The type-checker, however, cares
 -- more.
-
-insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
-insertMany xs m = foldr (uncurry Map.insert) m xs
 
 asPlace :: C.Type -> C.Name -> HoistM Place
 asPlace s (C.Name x i) = do
@@ -182,7 +180,7 @@ hoist (C.CallC f xs ks) = do
   pure (addBinds (addCoBinds (OpenH f' (xs' ++ map ValueArg ks'))))
 hoist (C.IfC x k1 k2) = do
   (x', _t, addBinds) <- hoistValue x
-  (addCoBinds, Two k1' k2') <- hoistCoArgList (fmap C.ContCoArg (Two k1 k2))
+  (addCoBinds, Two k1' k2') <- hoistCoArgList (fmap C.ContCoVal (Two k1 k2))
   pure (addBinds (addCoBinds (IfH x' k1' k2')))
 hoist (C.CaseC x t ks) = do
   (x', _t, addBinds) <- hoistValue x
@@ -443,7 +441,7 @@ hoistArgList xs = do
       (x, _t, addBinds) <- hoistValue v
       pure (ValueArg x, acc . addBinds)
 
-hoistCoArgList :: Traversable t => t C.CoArgument -> HoistM (TermH -> TermH, t Name)
+hoistCoArgList :: Traversable t => t C.CoValueC -> HoistM (TermH -> TermH, t Name)
 hoistCoArgList ks = do
   (args, allocs) <- mapAccumLM f ks []
   if null allocs then
@@ -455,17 +453,14 @@ hoistCoArgList ks = do
     -- traverse, because turning 't (Maybe ClosureAlloc)' into 't ClosureAlloc'
     -- is Filterable from the 'witherable' package, and I don't feel like
     -- adding a dependency.
-    f (C.VarCoArg k) acc = do
+    f (C.VarCoVal k) acc = do
       k' <- hoistVarOcc k
       pure (k', acc)
-    f (C.ContCoArg def) allocs = do
+    f (C.ContCoVal def) allocs = do
       kplace <- Place <$> sortOf (C.contClosureType def) <*> freshId "__anon_cont"
       alloc <- hoistContClosure' kplace def
       let k' = LocalName (placeName kplace)
       pure (k', alloc : allocs)
-
-mapAccumLM :: (Monad m, Traversable t) => (a -> s -> m (b, s)) -> t a -> s -> m (t b, s)
-mapAccumLM f xs s = flip runStateT s $ traverse (StateT . f) xs
 
 -- | Extend the local scope with a new place with the given name and sort.
 withPlace :: C.Name -> C.Type -> (Place -> HoistM a) -> HoistM a
@@ -613,13 +608,3 @@ freshId x = do
   pure (Id x u)
 
 
-data Two a = Two a a
-
-instance Functor Two where
-  fmap f (Two x y) = Two (f x) (f y)
-
-instance Foldable Two where
-  foldMap f (Two x y) = f x <> f y
-
-instance Traversable Two where
-  traverse f (Two x y) = Two <$> f x <*> f y

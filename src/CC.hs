@@ -19,6 +19,7 @@ import Prelude hiding (cos)
 
 import qualified CPS.IR as K
 import CC.IR
+import Util
 
 
 
@@ -85,9 +86,6 @@ deriving instance Monad ConvM
 
 deriving instance MonadReader Context ConvM
 deriving instance MonadWriter Fields ConvM
-
-insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
-insertMany xs m = foldr (uncurry Map.insert) m xs
 
 -- | Bind a sequence of term variables: both extending the typing context on
 -- the way down, and removing them from the free variable set on the way back
@@ -210,7 +208,7 @@ cconv (K.JumpK k xs) = do
 cconv (K.CallK f args ks) = do
   f' <- cconvTmVar f
   args' <- traverse cconvArgument args
-  ks' <- traverse cconvCoArgument ks
+  ks' <- traverse cconvCoValue ks
   pure (CallC f' args' ks')
 cconv (K.IfK x contf contt) = do
   x' <- cconvVarVal x
@@ -220,7 +218,7 @@ cconv (K.IfK x contf contt) = do
 cconv (K.CaseK x kind ks) = do
   x' <- cconvVarVal x
   kind' <- cconvTyConApp kind
-  ks' <- traverse (\ (K.Ctor c, k) -> (,) <$> pure (Ctor c) <*> cconvCoArgument k) ks
+  ks' <- traverse (\ (K.Ctor c, k) -> (,) <$> pure (Ctor c) <*> cconvCoValue k) ks
   pure (CaseC x' kind' ks')
 cconv (K.LetFstK x t y e) = do
   y' <- cconvVarVal y
@@ -383,9 +381,9 @@ cconvArgument :: K.Argument -> ConvM Argument
 cconvArgument (K.ValueArg x) = ValueArg <$> cconvVarVal x
 cconvArgument (K.TypeArg t) = TypeArg <$> cconvType t
 
-cconvCoArgument :: K.CoValueK -> ConvM CoArgument
-cconvCoArgument (K.CoVarK k) = VarCoArg <$> cconvCoVar k
-cconvCoArgument (K.ContValK cont) = ContCoArg <$> cconvContDef cont
+cconvCoValue :: K.CoValueK -> ConvM CoValueC
+cconvCoValue (K.CoVarK k) = VarCoVal <$> cconvCoVar k
+cconvCoValue (K.ContValK cont) = ContCoVal <$> cconvContDef cont
 
 cconvTyVar :: K.TyVar -> ConvM TyVar
 cconvTyVar aa = do
