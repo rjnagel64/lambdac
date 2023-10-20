@@ -167,7 +167,8 @@ data TermC
 data Argument = ValueArg ValueC | TypeArg Type
 
 -- hmm. this is really more like CoValueC than CoArgument -- it's also used for CaseC
--- LetContC -> LetCoValC?
+-- LetContC -> LetCoValC? (will need to introduce analogue of withNamedValue
+-- and hoistValue for co-values though, to deal with let cont k1 = k2 in e)
 data CoArgument = VarCoArg Name | ContCoArg ContClosureDef
 
 data TyConApp = TyConApp TyCon [Type]
@@ -280,14 +281,12 @@ pprintTerm :: Int -> TermC -> String
 pprintTerm n (HaltC v) = indent n $ "HALT " ++ pprintValue v ++ ";\n"
 pprintTerm n (JumpC k vs) = indent n $ show k ++ " " ++ intercalate " " (map pprintValue vs) ++ ";\n"
 pprintTerm n (CallC f xs ks) =
-  indent n $ show f ++ " " ++ intercalate " " (map pprintArg xs ++ map pprintCoArg ks) ++ ";\n"
+  -- hrrm. this has become utterly illegible.
+  -- continuation values do *not* fit nicely in a one-line argument list.
+  indent n $ show f ++ " " ++ intercalate " " (map pprintArg xs ++ map pprintCoValue ks) ++ ";\n"
   where
     pprintArg (ValueArg v) = pprintValue v
     pprintArg (TypeArg t) = pprintType t -- would probably benefit from parentheses
-    -- hrrm. this has become utterly illegible.
-    -- continuation values do *not* fit nicely in a one-line argument list.
-    pprintCoArg (VarCoArg k) = show k
-    pprintCoArg (ContCoArg def) = "(" ++ pprintContClosure 0 def ++ ")"
 pprintTerm n (LetFunC fs e) =
   indent n "letfun\n" ++ concatMap (pprintFunClosureDef (n+2)) fs ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetContC ks e) =
@@ -314,9 +313,11 @@ pprintTerm n (LetBindC x y prim e) =
   indent n ("let " ++ pprintPlace x ++ ", " ++ pprintPlace y ++ " = " ++ pprintPrimIO prim ++ ";\n") ++ pprintTerm n e
 
 pprintAlt :: Int -> (Ctor, CoArgument) -> String
-pprintAlt n (c, VarCoArg k) = indent n ("| " ++ show c ++ " -> " ++ show k ++ "\n")
-pprintAlt n (c, ContCoArg def) =
-  indent n ("| " ++ show c ++ "->\n" ++ pprintContClosure (n+2) def)
+pprintAlt n (c, k) = indent n $ "| " ++ show c ++ " -> " ++ pprintCoValue k ++ "\n"
+
+pprintCoValue :: CoArgument -> String
+pprintCoValue (VarCoArg k) = show k
+pprintCoValue (ContCoArg def) = "(" ++ pprintContClosure 0 def ++ ")" -- this looks terrible.
 
 pprintType :: Type -> String
 pprintType (Closure ss) = "(" ++ intercalate ", " (map pprintTele ss) ++ ") -> !"
