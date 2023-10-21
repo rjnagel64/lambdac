@@ -167,6 +167,7 @@ termAvoids :: Avoid -> TermK -> Bool
 termAvoids av (LetValK x t v e) = typeAvoids av t && valueAvoids av v && termAvoids (bindTm x av) e
 termAvoids av (LetFstK x t y e) = typeAvoids av t && valueAvoids av y && termAvoids (bindTm x av) e
 termAvoids av (LetSndK x t y e) = typeAvoids av t && valueAvoids av y && termAvoids (bindTm x av) e
+termAvoids av (LetFieldK x t y _f e) = typeAvoids av t && valueAvoids av y && termAvoids (bindTm x av) e
 termAvoids av (LetArithK x op e) = arithAvoids av op && termAvoids (bindTm x av) e
 termAvoids av (LetCompareK x op e) = cmpAvoids av op && termAvoids (bindTm x av) e
 termAvoids av (LetStringOpK x t op e) = typeAvoids av t && stringOpAvoids av op && termAvoids (bindTm x av) e
@@ -219,6 +220,7 @@ valueAvoids _ (BoolValK _) = True
 valueAvoids _ (StringValK _) = True
 valueAvoids _ (CharValK _) = True
 valueAvoids av (CtorValK _ ts xs) = all (typeAvoids av) ts && all (valueAvoids av) xs
+valueAvoids av (RecordValK fs) = all (valueAvoids av . snd) fs
 
 -- Assert that the given names do not appear free in a CoValueK
 coValueAvoids :: Avoid -> CoValueK -> Bool

@@ -335,10 +335,38 @@ valueUsage (CharValK _) = mempty
 
 covalueUsage :: CoValueK -> AllUsage
 covalueUsage (CoVarK k) = useCoVar k
--- covalueUsage (ContValK cont) = contUsage cont
+covalueUsage (ContValK cont) = contUsage cont
 
--- contUsage :: ContDef -> AllUsage
--- contUsage (ContDef xs e) = let usage = termUsage e in bind _ usage
+contUsage :: ContDef -> AllUsage
+contUsage (ContDef xs e) =
+  let usage = termUsage e in
+  foldr (\ (x, t) acc -> typeUsage t <> bindTmUsage x acc) usage xs
+
+funDefUsage :: FunDef -> AllUsage
+funDefUsage (FunDef _ xs ks e) = foldr f (foldr g (termUsage e) ks) xs
+  where
+    f (ValueParam x t) acc = typeUsage t <> bindTmUsage x acc
+    f (TypeParam aa _k) acc = bindTyUsage aa acc
+    g (k, s) acc = coTypeUsage s <> bindCoUsage k acc
+
+termUsage :: TermK -> AllUsage
+termUsage (HaltK x) = valueUsage x
+termUsage (JumpK k xs) = covalueUsage k <> foldMap valueUsage xs
+termUsage (CallK f xs ks) = valueUsage f <> foldMap argumentUsage xs <> foldMap covalueUsage ks
+termUsage (IfK x k1 k2) = valueUsage x <> contUsage k1 <> contUsage k2
+termUsage (CaseK x (TyConApp _ ts) alts) = valueUsage x <> foldMap (covalueUsage . snd) alts <> foldMap typeUsage ts
+termUsage (LetContK ks e) = foldMap (contUsage . snd) ks <> bindCos (map fst ks) (termUsage e)
+  where bindCos js usage = foldr (\k acc -> bindCoUsage k acc) usage js
+termUsage (LetFunK fs e) = bindTms (map funDefName fs) (foldMap funDefUsage fs <> termUsage e)
+  where bindTms ys usage = foldr (\x acc -> bindTmUsage x acc) usage ys
+termUsage (LetValK x t v e) = valueUsage v <> typeUsage t <> bindTmUsage x (termUsage e)
+termUsage (LetFstK x t v e) = valueUsage v <> typeUsage t <> bindTmUsage x (termUsage e)
+termUsage (LetSndK x t v e) = valueUsage v <> typeUsage t <> bindTmUsage x (termUsage e)
+termUsage (LetFieldK x t v _f e) = valueUsage v <> typeUsage t <> bindTmUsage x (termUsage e)
+termUsage (LetArithK x op e) = arithUsage op <> bindTmUsage x (termUsage e)
+termUsage (LetCompareK x op e) = cmpUsage op <> bindTmUsage x (termUsage e)
+termUsage (LetStringOpK x t op e) = stringOpUsage op <> typeUsage t <> bindTmUsage x (termUsage e)
+termUsage (LetBindK x y op e) = primIOUsage op <> bindTmUsage x (bindTmUsage y (termUsage e))
 
 
 arithUsage :: ArithK -> AllUsage
