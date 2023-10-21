@@ -100,7 +100,7 @@ uncurryContDef (ContDef xs e) = ContDef xs <$> (withTmBinds xs $ uncurryTerm e)
 -- Or Way FunDef FunDef: list of workers followed by wrapper at the tail
 rewriteFunction :: FunDef -> M [FunDef]
 rewriteFunction def@(FunDef f xs [(k, s)] e) = case e of
-  LetFunK [FunDef g ys ks body] (JumpK k' [g']) ->
+  LetFunK [FunDef g ys ks body] (JumpK (CoVarK k') [VarValK g']) ->
     if k == k' && g == g' then
       let mustAvoid = (Avoid (Set.singleton g) (Set.singleton k) Set.empty) in
       if termAvoids mustAvoid body then do
@@ -110,10 +110,10 @@ rewriteFunction def@(FunDef f xs [(k, s)] e) = case e of
         -- Hmm. I think doing so would mean returning multiple workers/wrappers.
         let worker = FunDef fwork (xs ++ ys) ks body
         let
-          argFor (ValueParam x s) = ValueArg x
+          argFor (ValueParam x s) = ValueArg (VarValK x)
           argFor (TypeParam aa k) = TypeArg (TyVarOccK aa)
         let coArgFor (k', _) = CoVarK k'
-        let wrapper = FunDef f xs [(k, s)] (LetFunK [FunDef g ys ks (CallK fwork (argFor <$> (xs ++ ys)) (coArgFor <$> ks))] (JumpK k [g]))
+        let wrapper = FunDef f xs [(k, s)] (LetFunK [FunDef g ys ks (CallK (VarValK fwork) (argFor <$> (xs ++ ys)) (coArgFor <$> ks))] (JumpK (CoVarK k) [VarValK g]))
         pure [worker, wrapper]
       else
         -- Occurs check fails: functions do not have form required by uncurrying.
@@ -165,8 +165,8 @@ data Avoid = Avoid (Set TmVar) (Set CoVar) (Set TyVar)
 -- Assert that the given names do not appear free in a TermK
 termAvoids :: Avoid -> TermK -> Bool
 termAvoids av (LetValK x t v e) = typeAvoids av t && valueAvoids av v && termAvoids (bindTm x av) e
-termAvoids av (LetFstK x t y e) = typeAvoids av t && avoidTmVar av y && termAvoids (bindTm x av) e
-termAvoids av (LetSndK x t y e) = typeAvoids av t && avoidTmVar av y && termAvoids (bindTm x av) e
+termAvoids av (LetFstK x t y e) = typeAvoids av t && valueAvoids av y && termAvoids (bindTm x av) e
+termAvoids av (LetSndK x t y e) = typeAvoids av t && valueAvoids av y && termAvoids (bindTm x av) e
 termAvoids av (LetArithK x op e) = arithAvoids av op && termAvoids (bindTm x av) e
 termAvoids av (LetCompareK x op e) = cmpAvoids av op && termAvoids (bindTm x av) e
 termAvoids av (LetStringOpK x t op e) = typeAvoids av t && stringOpAvoids av op && termAvoids (bindTm x av) e
@@ -175,38 +175,38 @@ termAvoids av (LetContK ks e) = all (contDefAvoids av . snd) ks && termAvoids av
   where av' = foldr bindCo av (map fst ks)
 termAvoids av (LetFunK fs e) = all (funDefAvoids av) fs && termAvoids av' e
   where av' = foldr bindTm av (map funDefName fs)
-termAvoids av (JumpK k xs) = avoidCoVar av k && all (avoidTmVar av) xs
-termAvoids av (CallK f xs ks) = avoidTmVar av f && all (avoidArgument av) xs && all (coValueAvoids av) ks
-termAvoids av (IfK x k1 k2) = avoidTmVar av x && contDefAvoids av k1 && contDefAvoids av k2
-termAvoids av (CaseK x tcapp alts) = avoidTmVar av x && typeAvoids av (fromTyConApp tcapp) && all (altAvoids av) alts
-termAvoids av (HaltK x) = avoidTmVar av x
+termAvoids av (JumpK k xs) = coValueAvoids av k && all (valueAvoids av) xs
+termAvoids av (CallK f xs ks) = valueAvoids av f && all (avoidArgument av) xs && all (coValueAvoids av) ks
+termAvoids av (IfK x k1 k2) = valueAvoids av x && contDefAvoids av k1 && contDefAvoids av k2
+termAvoids av (CaseK x tcapp alts) = valueAvoids av x && typeAvoids av (fromTyConApp tcapp) && all (altAvoids av) alts
+termAvoids av (HaltK x) = valueAvoids av x
 
 arithAvoids :: Avoid -> ArithK -> Bool
-arithAvoids av (AddK x y) = avoidTmVar av x && avoidTmVar av y
-arithAvoids av (SubK x y) = avoidTmVar av x && avoidTmVar av y
-arithAvoids av (MulK x y) = avoidTmVar av x && avoidTmVar av y
-arithAvoids av (NegK x) = avoidTmVar av x
+arithAvoids av (AddK x y) = valueAvoids av x && valueAvoids av y
+arithAvoids av (SubK x y) = valueAvoids av x && valueAvoids av y
+arithAvoids av (MulK x y) = valueAvoids av x && valueAvoids av y
+arithAvoids av (NegK x) = valueAvoids av x
 
 cmpAvoids :: Avoid -> CmpK -> Bool
-cmpAvoids av (CmpEqK x y) = avoidTmVar av x && avoidTmVar av y
-cmpAvoids av (CmpNeK x y) = avoidTmVar av x && avoidTmVar av y
-cmpAvoids av (CmpLtK x y) = avoidTmVar av x && avoidTmVar av y
-cmpAvoids av (CmpLeK x y) = avoidTmVar av x && avoidTmVar av y
-cmpAvoids av (CmpGtK x y) = avoidTmVar av x && avoidTmVar av y
-cmpAvoids av (CmpGeK x y) = avoidTmVar av x && avoidTmVar av y
-cmpAvoids av (CmpEqCharK x y) = avoidTmVar av x && avoidTmVar av y
+cmpAvoids av (CmpEqK x y) = valueAvoids av x && valueAvoids av y
+cmpAvoids av (CmpNeK x y) = valueAvoids av x && valueAvoids av y
+cmpAvoids av (CmpLtK x y) = valueAvoids av x && valueAvoids av y
+cmpAvoids av (CmpLeK x y) = valueAvoids av x && valueAvoids av y
+cmpAvoids av (CmpGtK x y) = valueAvoids av x && valueAvoids av y
+cmpAvoids av (CmpGeK x y) = valueAvoids av x && valueAvoids av y
+cmpAvoids av (CmpEqCharK x y) = valueAvoids av x && valueAvoids av y
 
 stringOpAvoids :: Avoid -> StringOpK -> Bool
-stringOpAvoids av (ConcatK x y) = avoidTmVar av x && avoidTmVar av y
-stringOpAvoids av (IndexK x y) = avoidTmVar av x && avoidTmVar av y
-stringOpAvoids av (LengthK x) = avoidTmVar av x
+stringOpAvoids av (ConcatK x y) = valueAvoids av x && valueAvoids av y
+stringOpAvoids av (IndexK x y) = valueAvoids av x && valueAvoids av y
+stringOpAvoids av (LengthK x) = valueAvoids av x
 
 altAvoids :: Avoid -> (Ctor, CoValueK) -> Bool
 altAvoids av (_, cv) = coValueAvoids av cv
 
 primIOAvoids :: Avoid -> PrimIO -> Bool
-primIOAvoids av (PrimGetLine x) = avoidTmVar av x
-primIOAvoids av (PrimPutLine x y) = avoidTmVar av x && avoidTmVar av y
+primIOAvoids av (PrimGetLine x) = valueAvoids av x
+primIOAvoids av (PrimPutLine x y) = valueAvoids av x && valueAvoids av y
 
 -- Assert that the given names do not appear free in a ValueK
 valueAvoids :: Avoid -> ValueK -> Bool
@@ -271,7 +271,7 @@ coParamsAvoid av ((k, s) : ks) = if coTypeAvoids av s then coParamsAvoid (bindCo
 
 
 avoidArgument :: Avoid -> Argument -> Bool
-avoidArgument av (ValueArg x) = avoidTmVar av x
+avoidArgument av (ValueArg x) = valueAvoids av x
 avoidArgument av (TypeArg t) = typeAvoids av t
 
 avoidTmVar :: Avoid -> TmVar -> Bool

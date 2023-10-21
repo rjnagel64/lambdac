@@ -38,7 +38,7 @@ dropUnusedParams (Program ds e) = runM $ do
 
 
 dropUnusedTerm :: TermK -> M (TermK, AllUsage)
-dropUnusedTerm (HaltK x) = pure (HaltK x, useTmVar x)
+dropUnusedTerm (HaltK x) = pure (HaltK x, valueUsage x)
 dropUnusedTerm (JumpK k xs) = transformJumpSite k xs
 dropUnusedTerm (CallK f xs ks) = transformCallSite f xs ks
 dropUnusedTerm (LetContK ks e) = do
@@ -59,12 +59,12 @@ dropUnusedTerm (LetFunK fs e) = do
 dropUnusedTerm (IfK x kt kf) = do
   (kt', ktusage) <- transformContDef kt
   (kf', kfusage) <- transformContDef kf
-  pure (IfK x kt' kf', useTmVar x <> ktusage <> kfusage)
+  pure (IfK x kt' kf', valueUsage x <> ktusage <> kfusage)
 dropUnusedTerm (CaseK x tcapp alts) = do
   (alts', usages) <- fmap unzip $ for alts $ \ (c, coval) -> do
     (coval', usage) <- transformCoValue coval
     pure ((c, coval'), usage)
-  pure (CaseK x tcapp alts', useTmVar x <> mconcat usages)
+  pure (CaseK x tcapp alts', valueUsage x <> mconcat usages)
 
 -- Other cases basically just recurse.
 dropUnusedTerm (LetValK x t v e) = do
@@ -81,13 +81,13 @@ dropUnusedTerm (LetStringOpK x t op e) = do
   pure (LetStringOpK x t op e', stringOpUsage op <> typeUsage t <> bindTmUsage x usage)
 dropUnusedTerm (LetFstK x t y e) = do
   (e', usage) <- dropUnusedTerm e
-  pure (LetFstK x t y e', useTmVar y <> bindTmUsage x usage)
+  pure (LetFstK x t y e', valueUsage y <> bindTmUsage x usage)
 dropUnusedTerm (LetSndK x t y e) = do
   (e', usage) <- dropUnusedTerm e
-  pure (LetSndK x t y e', useTmVar y <> bindTmUsage x usage)
+  pure (LetSndK x t y e', valueUsage y <> bindTmUsage x usage)
 dropUnusedTerm (LetFieldK x t y f e) = do
   (e', usage) <- dropUnusedTerm e
-  pure (LetFieldK x t y f e', useTmVar y <> bindTmUsage x usage)
+  pure (LetFieldK x t y f e', valueUsage y <> bindTmUsage x usage)
 dropUnusedTerm (LetBindK x y op e) = do
   (e', usage) <- dropUnusedTerm e
   pure (LetBindK x y op e', primIOUsage op <> bindTmUsage x (bindTmUsage y usage))
@@ -122,29 +122,31 @@ transformFunDef' wk (FunDef f xs ks e) = do
       go2 (ValueParam x t : xs') acc = typeUsage t <> bindTmUsage x (go2 xs' acc)
       go2 (TypeParam aa _k : xs') acc = bindTyUsage aa (go2 xs' acc)
 
-transformJumpSite :: CoVar -> [TmVar] -> M (TermK, AllUsage)
-transformJumpSite k xs = do
+transformJumpSite :: CoValueK -> [ValueK] -> M (TermK, AllUsage)
+transformJumpSite (CoVarK k) xs = do
   (Map.lookup k <$> asks jumpTFs) >>= \case
-    Nothing -> pure (JumpK k xs, useCoVar k <> foldMap useTmVar xs)
+    Nothing -> pure (JumpK (CoVarK k) xs, useCoVar k <> foldMap valueUsage xs)
     Just (JST tf) -> do
       let (xs', xusages) = unzip (go tf xs)
-      pure (JumpK k xs', useCoVar k <> mconcat xusages)
+      pure (JumpK (CoVarK k) xs', useCoVar k <> mconcat xusages)
   where
     go NoArgs [] = []
-    go (KeepArg tf') (y : ys) = (y, useTmVar y) : go tf' ys
+    go (KeepArg tf') (y : ys) = (y, valueUsage y) : go tf' ys
     go (DropArg tf') (_y : ys) = go tf' ys
     go _ _ = error "bad: jump site doesn't match pattern"
+transformJumpSite k xs = do
+  pure (JumpK k xs, covalueUsage k <> foldMap valueUsage xs)
 
-transformCallSite :: TmVar -> [Argument] -> [CoValueK] -> M (TermK, AllUsage)
-transformCallSite f xs ks = do
+transformCallSite :: ValueK -> [Argument] -> [CoValueK] -> M (TermK, AllUsage)
+transformCallSite (VarValK f) xs ks = do
   (Map.lookup f <$> asks callTFs) >>= \case
     Nothing -> do
       (ks', kusages) <- fmap unzip $ traverse transformCoValue ks
-      pure (CallK f xs ks', useTmVar f <> foldMap argumentUsage xs <> mconcat kusages)
+      pure (CallK (VarValK f) xs ks', useTmVar f <> foldMap argumentUsage xs <> mconcat kusages)
     Just (CST xtf ktf) -> do
       let (xs', xusages) = unzip (go1 xtf xs)
       (ks', kusages) <- fmap unzip $ go2 ktf ks
-      pure (CallK f xs' ks', useTmVar f <> mconcat xusages <> mconcat kusages)
+      pure (CallK (VarValK f) xs' ks', useTmVar f <> mconcat xusages <> mconcat kusages)
   where
     go1 NoArgs [] = []
     go1 (KeepArg tf') (arg : args) = (arg, argumentUsage arg) : go1 tf' args
@@ -155,6 +157,9 @@ transformCallSite f xs ks = do
     go2 (KeepArg tf') (coarg : coargs) = (:) <$> transformCoValue coarg <*> go2 tf' coargs
     go2 (DropArg tf') (_coarg : coargs) = go2 tf' coargs
     go2 _ _ = error "bad: call co-site doesn't match pattern"
+transformCallSite f xs ks = do
+  (ks', kusages) <- fmap unzip $ traverse transformCoValue ks
+  pure (CallK f xs ks', valueUsage f <> foldMap argumentUsage xs <> mconcat kusages)
 
 
 newtype JumpSiteTransformer = JST ArgsTransformer
@@ -291,7 +296,7 @@ bindTyUsage aa (AllUsage tms cos tys) = AllUsage tms cos (Map.delete aa tys)
 
 
 argumentUsage :: Argument -> AllUsage
-argumentUsage (ValueArg x) = useTmVar x
+argumentUsage (ValueArg x) = valueUsage x
 argumentUsage (TypeArg t) = typeUsage t
 
 typeUsage :: TypeK -> AllUsage
@@ -328,29 +333,37 @@ valueUsage (BoolValK _) = mempty
 valueUsage (StringValK _) = mempty
 valueUsage (CharValK _) = mempty
 
+covalueUsage :: CoValueK -> AllUsage
+covalueUsage (CoVarK k) = useCoVar k
+-- covalueUsage (ContValK cont) = contUsage cont
+
+-- contUsage :: ContDef -> AllUsage
+-- contUsage (ContDef xs e) = let usage = termUsage e in bind _ usage
+
+
 arithUsage :: ArithK -> AllUsage
-arithUsage (AddK x y) = useTmVar x <> useTmVar y
-arithUsage (SubK x y) = useTmVar x <> useTmVar y
-arithUsage (MulK x y) = useTmVar x <> useTmVar y
-arithUsage (NegK x) = useTmVar x
+arithUsage (AddK x y) = valueUsage x <> valueUsage y
+arithUsage (SubK x y) = valueUsage x <> valueUsage y
+arithUsage (MulK x y) = valueUsage x <> valueUsage y
+arithUsage (NegK x) = valueUsage x
 
 cmpUsage :: CmpK -> AllUsage
-cmpUsage (CmpEqK x y) = useTmVar x <> useTmVar y
-cmpUsage (CmpNeK x y) = useTmVar x <> useTmVar y
-cmpUsage (CmpLtK x y) = useTmVar x <> useTmVar y
-cmpUsage (CmpLeK x y) = useTmVar x <> useTmVar y
-cmpUsage (CmpGtK x y) = useTmVar x <> useTmVar y
-cmpUsage (CmpGeK x y) = useTmVar x <> useTmVar y
-cmpUsage (CmpEqCharK x y) = useTmVar x <> useTmVar y
+cmpUsage (CmpEqK x y) = valueUsage x <> valueUsage y
+cmpUsage (CmpNeK x y) = valueUsage x <> valueUsage y
+cmpUsage (CmpLtK x y) = valueUsage x <> valueUsage y
+cmpUsage (CmpLeK x y) = valueUsage x <> valueUsage y
+cmpUsage (CmpGtK x y) = valueUsage x <> valueUsage y
+cmpUsage (CmpGeK x y) = valueUsage x <> valueUsage y
+cmpUsage (CmpEqCharK x y) = valueUsage x <> valueUsage y
 
 stringOpUsage :: StringOpK -> AllUsage
-stringOpUsage (ConcatK x y) = useTmVar x <> useTmVar y
-stringOpUsage (IndexK x y) = useTmVar x <> useTmVar y
-stringOpUsage (LengthK x) = useTmVar x
+stringOpUsage (ConcatK x y) = valueUsage x <> valueUsage y
+stringOpUsage (IndexK x y) = valueUsage x <> valueUsage y
+stringOpUsage (LengthK x) = valueUsage x
 
 primIOUsage :: PrimIO -> AllUsage
-primIOUsage (PrimGetLine s) = useTmVar s
-primIOUsage (PrimPutLine s x) = useTmVar s <> useTmVar x
+primIOUsage (PrimGetLine s) = valueUsage s
+primIOUsage (PrimPutLine s x) = valueUsage s <> valueUsage x
 
 
 -- IsWellKnown is the three-point lattice bot <= well-known <= top
@@ -382,7 +395,8 @@ instance Monoid IsWellKnown where
 isWellKnownTerm :: CoVar -> TermK -> IsWellKnown
 -- Block terminators
 isWellKnownTerm _k (HaltK _x) = NeverCalled
-isWellKnownTerm k (JumpK k' _xs) = if k == k' then WellKnown else NeverCalled
+isWellKnownTerm k (JumpK (CoVarK k') _xs) = if k == k' then WellKnown else NeverCalled
+isWellKnownTerm k (JumpK (ContValK cont) _xs) = isWellKnownCont k cont
 isWellKnownTerm k (CallK _f _xs ks) = go ks
   where
     go [] = NeverCalled

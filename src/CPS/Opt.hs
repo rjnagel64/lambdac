@@ -100,26 +100,26 @@ inlineK :: TermK -> InlineM TermK
 -- Occurrences get inlined if their definition is in the environment.
 -- (TODO: Inline decision based on context of occurrence, not just context of
 -- definition?)
-inlineK (JumpK k xs) = do
-  env <- ask
-  case Map.lookup k (inlineCoDefs env) of
-    Nothing -> pure (JumpK k xs)
-    Just (ContDef [(y, _)] e) -> withTmSub (y, xs !! 0) $ inlineK e
-inlineK (CallK f [ValueArg x] [CoVarK k]) = do
-  env <- ask
-  case Map.lookup f (inlineFnDefs env) of
-    Nothing -> pure (CallK f [ValueArg x] [CoVarK k])
-    Just (FunDef _ [ValueParam y _] [(k', _)] e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
+-- inlineK (JumpK k xs) = do
+--   env <- ask
+--   case Map.lookup k (inlineCoDefs env) of
+--     Nothing -> pure (JumpK k xs)
+--     Just (ContDef [(y, _)] e) -> withTmSub (y, xs !! 0) $ inlineK e
+-- inlineK (CallK f [ValueArg x] [CoVarK k]) = do
+--   env <- ask
+--   case Map.lookup f (inlineFnDefs env) of
+--     Nothing -> pure (CallK f [ValueArg x] [CoVarK k])
+--     Just (FunDef _ [ValueParam y _] [(k', _)] e) -> withCoSub (k', k) $ withTmSub (y, x) $ inlineK e
 -- Eliminators use 'inlineValDefs' to beta-reduce, if possible.
 -- (A function parameter will not reduce, e.g.)
 -- Actually, isn't reducing @case inl x of ...@ and @fst (x, y)@ the
 -- responsibility of 'simplify', not 'inlineK'?
-inlineK (CaseK x t [(c1, CoVarK k1), (c2, CoVarK k2)]) = do
-  x' <- appTmSub x
-  env <- ask
-  case Map.lookup x' (inlineValDefs env) of
-    Just _ -> error "case on non-adt value"
-    Nothing -> pure (CaseK x' t [(c1, CoVarK k1), (c2, CoVarK k2)])
+-- inlineK (CaseK x t [(c1, CoVarK k1), (c2, CoVarK k2)]) = do
+--   x' <- appTmSub x
+--   env <- ask
+--   case Map.lookup x' (inlineValDefs env) of
+--     Just _ -> error "case on non-adt value"
+--     Nothing -> pure (CaseK x' t [(c1, CoVarK k1), (c2, CoVarK k2)])
 -- inlineK (LetFstK x t y e) = do
 --   y' <- appTmSub y
 --   env <- ask
@@ -295,18 +295,18 @@ flattenArgument (p, IsProduct y1 t1 y2 t2) = mconcat [
     -- Hmm. This only ever generates arguments for each leaf.
     -- Are there situations where intermediate values are still useful?
     -- Can this be adjusted to produce those?
-    (Endo (LetFstK y1 (unlabel t1) p), mempty)
+    (Endo (LetFstK y1 (unlabel t1) (VarValK p)), mempty)
   , flattenArgument (y1, t1)
-  , (Endo (LetSndK y2 (unlabel t2) p), mempty)
+  , (Endo (LetSndK y2 (unlabel t2) (VarValK p)), mempty)
   , flattenArgument (y2, t2)
   ]
 
 flattenCallSite :: TmVar -> [(TmVar, LabelledProduct)] -> [CoVar] -> TermK
 flattenCallSite fn prods ks =
   let (Endo build, xs') = foldMap flattenArgument prods in
-  build (CallK fn (map ValueArg xs') (map CoVarK ks))
+  build (CallK (VarValK fn) (map ValueArg (map VarValK xs')) (map CoVarK ks))
 
 flattenJumpSite :: CoVar -> [(TmVar, LabelledProduct)] -> TermK
 flattenJumpSite co prods =
   let (Endo build, xs') = foldMap flattenArgument prods in
-  build (JumpK co xs')
+  build (JumpK (CoVarK co) (map VarValK xs'))

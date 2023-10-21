@@ -166,11 +166,11 @@ data TermK
   -- let val x:t = v in e
   = LetValK TmVar TypeK ValueK TermK
   -- let x:t = fst y in e
-  | LetFstK TmVar TypeK TmVar TermK
+  | LetFstK TmVar TypeK ValueK TermK
   -- let x:t = snd y in e
-  | LetSndK TmVar TypeK TmVar TermK
+  | LetSndK TmVar TypeK ValueK TermK
   -- let x:t = y#field in e
-  | LetFieldK TmVar TypeK TmVar FieldLabel TermK
+  | LetFieldK TmVar TypeK ValueK FieldLabel TermK
   -- let z = x `op` y in e
   | LetArithK TmVar ArithK TermK
   -- let z = x `cmp` y in e 
@@ -186,17 +186,17 @@ data TermK
 
   -- Block terminators
   -- k x..., goto k(x...)
-  | JumpK CoVar [TmVar]
+  | JumpK CoValueK [ValueK]
   -- f arg+ k+
-  | CallK TmVar [Argument] [CoValueK]
+  | CallK ValueK [Argument] [CoValueK]
   -- if x then k1 else k2
-  | IfK TmVar ContDef ContDef
+  | IfK ValueK ContDef ContDef
   -- case x : s of c1 -> k1 | c2 -> k2 | ..., branch
-  | CaseK TmVar TyConApp [(Ctor, CoValueK)]
+  | CaseK ValueK TyConApp [(Ctor, CoValueK)]
   -- halt x
-  | HaltK TmVar
+  | HaltK ValueK
 
-data Argument = ValueArg TmVar | TypeArg TypeK
+data Argument = ValueArg ValueK | TypeArg TypeK
 
 -- Hmm. Idle thought:
 -- (in the long run) I think I should merge FunDef and AbsDef, using a
@@ -250,31 +250,31 @@ data CoValueK
   | ContValK ContDef
 
 data ArithK
-  = AddK TmVar TmVar
-  | SubK TmVar TmVar
-  | MulK TmVar TmVar
-  | NegK TmVar
+  = AddK ValueK ValueK
+  | SubK ValueK ValueK
+  | MulK ValueK ValueK
+  | NegK ValueK
 
 data CmpK
-  = CmpEqK TmVar TmVar
-  | CmpNeK TmVar TmVar
-  | CmpLtK TmVar TmVar
-  | CmpLeK TmVar TmVar
-  | CmpGtK TmVar TmVar
-  | CmpGeK TmVar TmVar
-  | CmpEqCharK TmVar TmVar
+  = CmpEqK ValueK ValueK
+  | CmpNeK ValueK ValueK
+  | CmpLtK ValueK ValueK
+  | CmpLeK ValueK ValueK
+  | CmpGtK ValueK ValueK
+  | CmpGeK ValueK ValueK
+  | CmpEqCharK ValueK ValueK
 
 data StringOpK
   -- x ^ y, concatenation
-  = ConcatK TmVar TmVar
+  = ConcatK ValueK ValueK
   -- char_at_idx x i
-  | IndexK TmVar TmVar
+  | IndexK ValueK ValueK
   -- string_length x
-  | LengthK TmVar
+  | LengthK ValueK
 
 data PrimIO
-  = PrimGetLine TmVar
-  | PrimPutLine TmVar TmVar
+  = PrimGetLine ValueK
+  | PrimPutLine ValueK ValueK
 
 data TypeK
   -- unit
@@ -535,19 +535,19 @@ pprintCtorDecl n (CtorDecl c tyargs args) =
   where f (aa, k) = "@" ++ show aa ++ " : " ++ pprintKind k
 
 pprintTerm :: Int -> TermK -> String
-pprintTerm n (HaltK x) = indent n $ "halt " ++ show x ++ ";\n"
-pprintTerm n (JumpK k xs) = indent n $ show k ++ " " ++ intercalate " " (map show xs) ++ ";\n"
+pprintTerm n (HaltK x) = indent n $ "halt " ++ pprintValue x ++ ";\n"
+pprintTerm n (JumpK k xs) = indent n $ pprintCoValue k ++ " " ++ intercalate " " (map pprintValue xs) ++ ";\n"
 pprintTerm n (CallK f args ks) =
-  indent n $ show f ++ " " ++ intercalate " " (map pprintArg args ++ map pprintCoValue ks) ++ ";\n"
+  indent n $ pprintValue f ++ " " ++ intercalate " " (map pprintArg args ++ map pprintCoValue ks) ++ ";\n"
   where
-    pprintArg (ValueArg x) = show x
+    pprintArg (ValueArg x) = pprintValue x
     pprintArg (TypeArg t) = pprintType t
 pprintTerm n (IfK x k1 k2) =
-  indent n $ "if " ++ show x ++ " then " ++ pprintContDef k1 ++ " else " ++ pprintContDef k2
+  indent n $ "if " ++ pprintValue x ++ " then " ++ pprintContDef k1 ++ " else " ++ pprintContDef k2
 pprintTerm n (CaseK x tcapp ks) =
   let branches = intercalate " | " (map pprintBranch ks) in
   let t = fromTyConApp tcapp in
-  indent n $ "case " ++ show x ++ " : " ++ pprintType t  ++ " of " ++ branches ++ ";\n"
+  indent n $ "case " ++ pprintValue x ++ " : " ++ pprintType t  ++ " of " ++ branches ++ ";\n"
 pprintTerm n (LetValK x t v e) =
   indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintValue v ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFunK fs e) =
@@ -555,11 +555,11 @@ pprintTerm n (LetFunK fs e) =
 pprintTerm n (LetContK ks e) =
   indent n "letcont\n" ++ concatMap (pprintContBind (n+2)) ks ++ indent n "in\n" ++ pprintTerm n e
 pprintTerm n (LetFstK x t y e) =
-  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = fst " ++ show y ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = fst " ++ pprintValue y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetSndK x t y e) =
-  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = snd " ++ show y ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = snd " ++ pprintValue y ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetFieldK x t y f e) =
-  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ show y ++ "#" ++ show f ++ ";\n") ++ pprintTerm n e
+  indent n ("let " ++ show x ++ " : " ++ pprintType t ++ " = " ++ pprintValue y ++ "#" ++ show f ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetArithK x op e) =
   indent n ("let " ++ show x ++ " = " ++ pprintArith op ++ ";\n") ++ pprintTerm n e
 pprintTerm n (LetCompareK x op e) =
@@ -591,28 +591,28 @@ pprintCoValue (CoVarK k) = show k
 pprintCoValue (ContValK cont) = pprintContDef cont
 
 pprintArith :: ArithK -> String
-pprintArith (AddK x y) = show x ++ " + " ++ show y
-pprintArith (SubK x y) = show x ++ " - " ++ show y
-pprintArith (MulK x y) = show x ++ " * " ++ show y
-pprintArith (NegK x) = "- " ++ show x
+pprintArith (AddK x y) = pprintValue x ++ " + " ++ pprintValue y
+pprintArith (SubK x y) = pprintValue x ++ " - " ++ pprintValue y
+pprintArith (MulK x y) = pprintValue x ++ " * " ++ pprintValue y
+pprintArith (NegK x) = "- " ++ pprintValue x
 
 pprintCompare :: CmpK -> String
-pprintCompare (CmpEqK x y) = show x ++ " == " ++ show y
-pprintCompare (CmpNeK x y) = show x ++ " != " ++ show y
-pprintCompare (CmpLtK x y) = show x ++ " < " ++ show y
-pprintCompare (CmpLeK x y) = show x ++ " <= " ++ show y
-pprintCompare (CmpGtK x y) = show x ++ " > " ++ show y
-pprintCompare (CmpGeK x y) = show x ++ " >= " ++ show y
-pprintCompare (CmpEqCharK x y) = show x ++ " == " ++ show y
+pprintCompare (CmpEqK x y) = pprintValue x ++ " == " ++ pprintValue y
+pprintCompare (CmpNeK x y) = pprintValue x ++ " != " ++ pprintValue y
+pprintCompare (CmpLtK x y) = pprintValue x ++ " < " ++ pprintValue y
+pprintCompare (CmpLeK x y) = pprintValue x ++ " <= " ++ pprintValue y
+pprintCompare (CmpGtK x y) = pprintValue x ++ " > " ++ pprintValue y
+pprintCompare (CmpGeK x y) = pprintValue x ++ " >= " ++ pprintValue y
+pprintCompare (CmpEqCharK x y) = pprintValue x ++ " == " ++ pprintValue y
 
 pprintStringOp :: StringOpK -> String
-pprintStringOp (ConcatK x y) = show x ++ " ^ " ++ show y
-pprintStringOp (IndexK x y) = show x ++ ".char_at_idx " ++ show y
-pprintStringOp (LengthK x) = "string_length " ++ show x
+pprintStringOp (ConcatK x y) = pprintValue x ++ " ^ " ++ pprintValue y
+pprintStringOp (IndexK x y) = pprintValue x ++ ".char_at_idx " ++ pprintValue y
+pprintStringOp (LengthK x) = "string_length " ++ pprintValue x
 
 pprintPrimIO :: PrimIO -> String
-pprintPrimIO (PrimGetLine x) = "getLine " ++ show x
-pprintPrimIO (PrimPutLine x y) = "putLine " ++ show x ++ " " ++ show y
+pprintPrimIO (PrimGetLine x) = "getLine " ++ pprintValue x
+pprintPrimIO (PrimPutLine x y) = "putLine " ++ pprintValue x ++ " " ++ pprintValue y
 
 pprintFunDef :: Int -> FunDef -> String
 pprintFunDef n (FunDef f params ks e) =

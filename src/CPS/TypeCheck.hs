@@ -218,13 +218,13 @@ checkCtorDecl tc (CtorDecl c params args) = do
 
 
 check :: TermK -> TC ()
-check (HaltK x) = do
+check (HaltK (VarValK x)) = do
   _ <- lookupTmVar x
   pure ()
-check (JumpK k xs) = do
+check (JumpK (CoVarK k) xs) = do
   ContK ss <- lookupCoVar k
-  checkTmArgs (map VarValK xs) ss
-check (CallK f args ks) = do
+  checkTmArgs xs ss
+check (CallK (VarValK f) args ks) = do
   (tele, ss) <- lookupTmVar f >>= \case
     FunK tele ss -> pure (tele, ss)
     t -> throwError (CannotCall f t)
@@ -232,7 +232,7 @@ check (CallK f args ks) = do
   let ss' = map (substCoTypeK sub) ss
   checkCoArgs ks ss'
 check (IfK x k1 k2) = do
-  checkTmVar x BoolK
+  checkValue x BoolK
   checkCoValue (ContValK k1) (ContK [])
   checkCoValue (ContValK k2) (ContK [])
 check (CaseK x s ks) = checkCase x s ks
@@ -260,17 +260,18 @@ check (LetStringOpK z t op e) = do
   t' <- checkStringOp op
   equalTypes t t'
   withTmVars [(z, t)] $ check e
-check (LetFstK x t y e) = do
+check (LetFstK x t (VarValK y) e) = do
   lookupTmVar y >>= \case
     ProdK t' _s -> equalTypes t t'
     t' -> throwError (BadProjection t')
   withTmVars [(x, t)] $ check e
-check (LetSndK x s y e) = do
+check (LetSndK x s (VarValK y) e) = do
   lookupTmVar y >>= \case
     ProdK _t s' -> equalTypes s s'
     t' -> throwError (BadProjection t')
   withTmVars [(x, s)] $ check e
-check (LetFieldK x s y f e) = do
+check (LetFieldK x s (VarValK y) f e) = do
+  -- TODO: Infer type of value y, inspect that
   lookupTmVar y >>= \case
     t'@(RecordK fs) -> case lookup f fs of
       Nothing -> throwError (BadProjection t')
@@ -286,9 +287,9 @@ inferContDef (ContDef xs e) = do
   withTmVars xs $ check e
   pure $ ContK [s | (_, s) <- xs]
 
-checkCase :: TmVar -> TyConApp -> [(Ctor, CoValueK)] -> TC ()
+checkCase :: ValueK -> TyConApp -> [(Ctor, CoValueK)] -> TC ()
 checkCase x tcapp ks = do
-  checkTmVar x (fromTyConApp tcapp)
+  checkValue x (fromTyConApp tcapp)
   branchTys <- instantiateTyConApp tcapp
   checkBranches ks branchTys
 
@@ -307,7 +308,7 @@ checkArith :: ArithK -> TC ()
 checkArith (AddK x y) = checkIntBinOp x y
 checkArith (SubK x y) = checkIntBinOp x y
 checkArith (MulK x y) = checkIntBinOp x y
-checkArith (NegK x) = checkTmVar x IntK
+checkArith (NegK x) = checkValue x IntK
 
 checkCompare :: CmpK -> TC ()
 checkCompare (CmpEqK x y) = checkIntBinOp x y
@@ -316,17 +317,17 @@ checkCompare (CmpLtK x y) = checkIntBinOp x y
 checkCompare (CmpLeK x y) = checkIntBinOp x y
 checkCompare (CmpGtK x y) = checkIntBinOp x y
 checkCompare (CmpGeK x y) = checkIntBinOp x y
-checkCompare (CmpEqCharK x y) = checkTmVar x CharK *> checkTmVar y CharK
+checkCompare (CmpEqCharK x y) = checkValue x CharK *> checkValue y CharK
 
 checkStringOp :: StringOpK -> TC TypeK
-checkStringOp (ConcatK x y) = checkTmVar x StringK *> checkTmVar y StringK *> pure StringK
-checkStringOp (IndexK x y) = checkTmVar x StringK *> checkTmVar y IntK *> pure CharK
-checkStringOp (LengthK x) = checkTmVar x StringK *> pure IntK
+checkStringOp (ConcatK x y) = checkValue x StringK *> checkValue y StringK *> pure StringK
+checkStringOp (IndexK x y) = checkValue x StringK *> checkValue y IntK *> pure CharK
+checkStringOp (LengthK x) = checkValue x StringK *> pure IntK
 
-checkIntBinOp :: TmVar -> TmVar -> TC ()
+checkIntBinOp :: ValueK -> ValueK -> TC ()
 checkIntBinOp x y = do
-  checkTmVar x IntK
-  checkTmVar y IntK
+  checkValue x IntK
+  checkValue y IntK
 
 checkValue :: ValueK -> TypeK -> TC ()
 checkValue (VarValK x) t = checkTmVar x t
@@ -358,11 +359,11 @@ checkFields _ _ = throwError ArityMismatch
 
 checkPrimIO :: PrimIO -> TC TypeK
 checkPrimIO (PrimGetLine s) = do
-  checkTmVar s TokenK
+  checkValue s TokenK
   pure StringK
 checkPrimIO (PrimPutLine s x) = do
-  checkTmVar s TokenK
-  checkTmVar x StringK
+  checkValue s TokenK
+  checkValue x StringK
   pure UnitK
 
 instantiateTyConApp :: TyConApp -> TC (Map Ctor [TypeK])
@@ -411,7 +412,7 @@ checkArguments = go idSubst
   where
     go sub [] [] = pure sub
     go sub (ValueArg x : args) (ValueTele t : tele) =
-      checkTmVar x (substTypeK sub t) *> go sub args tele
+      checkValue x (substTypeK sub t) *> go sub args tele
     go sub (TypeArg t : args) (TypeTele aa k : tele) =
       checkType t k *> go (extendSubst aa t sub) args tele
     go _ (TypeArg _ : _) (ValueTele _ : _) = throwError (WrongKindOfArgument ValueArgKind TypeArgKind)

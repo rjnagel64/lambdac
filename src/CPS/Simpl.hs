@@ -106,20 +106,20 @@ ifLive x rebuildTm rebuildCensus (e, census) = case query x census of
 --
 -- TODO: Annotate fun/cont definition with OneShot/MultiShot (for inlining)
 simplify :: SimplEnv -> TermK -> (TermK, Census)
-simplify env (HaltK x) =
+simplify env (HaltK (VarValK x)) =
   let x' = rename env x in
-  (HaltK x', recordOne x')
-simplify env (JumpK k xs) =
-  -- Note: This assumes that a jump uses all its arguments.
-  -- A more sophisticated analysis would require iterating to a fixpoint.
-  let xs' = map (rename env) xs in
-  (JumpK k xs', recordList xs')
+  (HaltK (VarValK x'), recordOne x')
+-- simplify env (JumpK k xs) =
+--   -- Note: This assumes that a jump uses all its arguments.
+--   -- A more sophisticated analysis would require iterating to a fixpoint.
+--   let xs' = map (rename env) xs in
+--   (JumpK k (VarValK xs'), recordList xs')
 simplify env (CallK f xs ks) =
   -- Note: This assumes that a function call uses all its arguments.
   -- A more sophisticated analysis would require iterating to a fixpoint.
-  let xs' = map (rename env) [x | ValueArg x <- xs] in
-  (CallK f (map ValueArg xs') ks, recordList xs') -- this is incorrect. do not discard type arguments.
-simplify env (CaseK x t ks) = simplifyCase env x t ks
+  let xs' = map (rename env) [x | ValueArg (VarValK x) <- xs] in
+  (CallK f (map ValueArg (map VarValK xs')) ks, recordList xs') -- this is incorrect. do not discard type arguments.
+-- simplify env (CaseK x t ks) = simplifyCase env x t ks
 -- If there is a binding y := (z, w), substitute x := z in e
 -- simplify env (LetFstK x t y e) = 
 --   -- Check for redex
@@ -159,22 +159,22 @@ simplify env (LetValK x t v e) =
 -- if y := int, z := int, rewrite to let x = int(y op z) in ...
 -- If only one is an integer, it is still possible to commute/assoc to simplify
 -- arithmetic expressions. Maybe later.
-simplify env (LetArithK x op e) =
-  case simplifyArith env op of
-    -- Could not simplify
-    Left (op', census) ->
-      let env' = under x env in -- pass under x
-      let (e', census') = simplify env' e in
-      case query x census' of
-        NoUses -> (e', census')
-        SomeUses -> (LetArithK x op' e', census <> bind x census')
-    -- Simplified to an integer
-    Right i ->
-      let env' = defineValue x (IntValK i) (under x env) in
-      let (e', census) = simplify env' e in
-      case query x census of
-        NoUses -> (e', census)
-        SomeUses -> (LetValK x IntK (IntValK i) e', bind x census)
+-- simplify env (LetArithK x op e) =
+--   case simplifyArith env op of
+--     -- Could not simplify
+--     Left (op', census) ->
+--       let env' = under x env in -- pass under x
+--       let (e', census') = simplify env' e in
+--       case query x census' of
+--         NoUses -> (e', census')
+--         SomeUses -> (LetArithK x op' e', census <> bind x census')
+--     -- Simplified to an integer
+--     Right i ->
+--       let env' = defineValue x (IntValK i) (under x env) in
+--       let (e', census) = simplify env' e in
+--       case query x census of
+--         NoUses -> (e', census)
+--         SomeUses -> (LetValK x IntK (IntValK i) e', bind x census)
 -- if y := int, rewrite 'let x = -y in e' into 'let x = -int in e'.
 simplify env (LetContK ks e) =
   let f (kont, cen) (ks', census) = (kont : ks', cen <> census) in
@@ -191,17 +191,17 @@ simplifyVal _ NilValK = (NilValK, mempty)
 simplifyVal _ (IntValK i) = (IntValK i, mempty)
 simplifyVal _ (BoolValK b) = (BoolValK b, mempty)
 
-simplifyArith :: SimplEnv -> ArithK -> Either (ArithK, Census) Int
-simplifyArith env op = arith (renameOp op)
-  where
-    renameOp (AddK x y) = (AddK, (+), x, y)
-    renameOp (SubK x y) = (SubK, (-), x, y)
-    renameOp (MulK x y) = (MulK, (*), x, y)
-    -- renameOp (NegK x) = (NegK
-
-    arith (g, f, x, y) = case (lookupValue x env, lookupValue y env) of
-      ((_, Just (IntValK i)), (_, Just (IntValK j))) -> Right (f i j)
-      ((x', _), (y', _)) -> Left (g x' y', recordList [x', y'])
+-- simplifyArith :: SimplEnv -> ArithK -> Either (ArithK, Census) Int
+-- simplifyArith env op = arith (renameOp op)
+--   where
+--     renameOp (AddK x y) = (AddK, (+), x, y)
+--     renameOp (SubK x y) = (SubK, (-), x, y)
+--     renameOp (MulK x y) = (MulK, (*), x, y)
+--     -- renameOp (NegK x) = (NegK
+--
+--     arith (g, f, x, y) = case (lookupValue x env, lookupValue y env) of
+--       ((_, Just (IntValK i)), (_, Just (IntValK j))) -> Right (f i j)
+--       ((x', _), (y', _)) -> Left (g x' y', recordList [x', y'])
 
 simplifyContDef :: SimplEnv -> (CoVar, ContDef) -> ((CoVar, ContDef), Census)
 simplifyContDef env (k, ContDef xs e) =

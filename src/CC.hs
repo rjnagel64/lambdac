@@ -200,34 +200,34 @@ cconvTyConApp :: K.TyConApp -> ConvM TyConApp
 cconvTyConApp (K.TyConApp (K.TyCon tc) args) = TyConApp (TyCon tc) <$> traverse cconvType args
 
 cconv :: K.TermK -> ConvM TermC
-cconv (K.HaltK x) = HaltC <$> cconvVarVal x
+cconv (K.HaltK x) = HaltC <$> cconvValue x
 cconv (K.JumpK k xs) = do
-  k' <- cconvVarCoVal k
-  xs' <- traverse cconvVarVal xs
+  k' <- cconvCoValue k
+  xs' <- traverse cconvValue xs
   pure (JumpC k' xs')
 cconv (K.CallK f args ks) = do
-  f' <- cconvVarVal f
+  f' <- cconvValue f
   args' <- traverse cconvArgument args
   ks' <- traverse cconvCoValue ks
   pure (CallC f' args' ks')
 cconv (K.IfK x contf contt) = do
-  x' <- cconvVarVal x
+  x' <- cconvValue x
   contf' <- cconvContDef contf
   contt' <- cconvContDef contt
   pure (IfC x' contf' contt')
 cconv (K.CaseK x kind ks) = do
-  x' <- cconvVarVal x
+  x' <- cconvValue x
   kind' <- cconvTyConApp kind
   ks' <- traverse (\ (K.Ctor c, k) -> (,) <$> pure (Ctor c) <*> cconvCoValue k) ks
   pure (CaseC x' kind' ks')
 cconv (K.LetFstK x t y e) = do
-  y' <- cconvVarVal y
+  y' <- cconvValue y
   withTm (x, t) $ \b -> LetFstC b y' <$> cconv e
 cconv (K.LetSndK x t y e) = do
-  y' <- cconvVarVal y
+  y' <- cconvValue y
   withTm (x, t) $ \b -> LetSndC b y' <$> cconv e
 cconv (K.LetFieldK x t y f e) = do
-  y' <- cconvVarVal y
+  y' <- cconvValue y
   f' <- cconvFieldLabel f
   withTm (x, t) $ \b -> LetFieldC b y' f' <$> cconv e
 cconv (K.LetValK x t v e) = do
@@ -333,37 +333,31 @@ cconvValue (K.CharValK s) = pure (CharValC s)
 cconvValue (K.CtorValK (K.Ctor c) tyargs args) =
   CtorValC (Ctor c) <$> traverse cconvType tyargs <*> traverse cconvValue args
 
-cconvVarVal :: K.TmVar -> ConvM ValueC
-cconvVarVal x = VarValC <$> cconvTmVar x
-
-cconvVarCoVal :: K.CoVar -> ConvM CoValueC
-cconvVarCoVal k = VarCoVal <$> cconvCoVar k
-
 cconvArith :: K.ArithK -> ConvM ArithC
-cconvArith (K.AddK x y) = AddC <$> cconvVarVal x <*> cconvVarVal y
-cconvArith (K.SubK x y) = SubC <$> cconvVarVal x <*> cconvVarVal y
-cconvArith (K.MulK x y) = MulC <$> cconvVarVal x <*> cconvVarVal y
-cconvArith (K.NegK x) = NegC <$> cconvVarVal x
+cconvArith (K.AddK x y) = AddC <$> cconvValue x <*> cconvValue y
+cconvArith (K.SubK x y) = SubC <$> cconvValue x <*> cconvValue y
+cconvArith (K.MulK x y) = MulC <$> cconvValue x <*> cconvValue y
+cconvArith (K.NegK x) = NegC <$> cconvValue x
 
 cconvCmp :: K.CmpK -> ConvM CmpC
-cconvCmp (K.CmpEqK x y) = EqC <$> cconvVarVal x <*> cconvVarVal y
-cconvCmp (K.CmpNeK x y) = NeC <$> cconvVarVal x <*> cconvVarVal y
-cconvCmp (K.CmpLtK x y) = LtC <$> cconvVarVal x <*> cconvVarVal y
-cconvCmp (K.CmpLeK x y) = LeC <$> cconvVarVal x <*> cconvVarVal y
-cconvCmp (K.CmpGtK x y) = GtC <$> cconvVarVal x <*> cconvVarVal y
-cconvCmp (K.CmpGeK x y) = GeC <$> cconvVarVal x <*> cconvVarVal y
-cconvCmp (K.CmpEqCharK x y) = EqCharC <$> cconvVarVal x <*> cconvVarVal y
+cconvCmp (K.CmpEqK x y) = EqC <$> cconvValue x <*> cconvValue y
+cconvCmp (K.CmpNeK x y) = NeC <$> cconvValue x <*> cconvValue y
+cconvCmp (K.CmpLtK x y) = LtC <$> cconvValue x <*> cconvValue y
+cconvCmp (K.CmpLeK x y) = LeC <$> cconvValue x <*> cconvValue y
+cconvCmp (K.CmpGtK x y) = GtC <$> cconvValue x <*> cconvValue y
+cconvCmp (K.CmpGeK x y) = GeC <$> cconvValue x <*> cconvValue y
+cconvCmp (K.CmpEqCharK x y) = EqCharC <$> cconvValue x <*> cconvValue y
 
 cconvStringOp :: K.StringOpK -> ConvM StringOpC
-cconvStringOp (K.ConcatK x y) = ConcatC <$> cconvVarVal x <*> cconvVarVal y
-cconvStringOp (K.IndexK x y) = IndexC <$> cconvVarVal x <*> cconvVarVal y
-cconvStringOp (K.LengthK x) = LengthC <$> cconvVarVal x
+cconvStringOp (K.ConcatK x y) = ConcatC <$> cconvValue x <*> cconvValue y
+cconvStringOp (K.IndexK x y) = IndexC <$> cconvValue x <*> cconvValue y
+cconvStringOp (K.LengthK x) = LengthC <$> cconvValue x
 
 cconvPrimIO :: K.PrimIO -> ConvM (PrimIO, K.TypeK)
 cconvPrimIO (K.PrimGetLine x) =
-  (\x' -> (GetLineC x', K.StringK)) <$> cconvVarVal x
+  (\x' -> (GetLineC x', K.StringK)) <$> cconvValue x
 cconvPrimIO (K.PrimPutLine x y) =
-  (\x' y' -> (PutLineC x' y', K.UnitK)) <$> cconvVarVal x <*> cconvVarVal y
+  (\x' y' -> (PutLineC x' y', K.UnitK)) <$> cconvValue x <*> cconvValue y
 
 
 cconvTmVar :: K.TmVar -> ConvM Name
@@ -381,7 +375,7 @@ cconvCoVar x = do
     Just (x', s) -> writer (x', singleOcc x' s)
 
 cconvArgument :: K.Argument -> ConvM Argument
-cconvArgument (K.ValueArg x) = ValueArg <$> cconvVarVal x
+cconvArgument (K.ValueArg x) = ValueArg <$> cconvValue x
 cconvArgument (K.TypeArg t) = TypeArg <$> cconvType t
 
 cconvCoValue :: K.CoValueK -> ConvM CoValueC

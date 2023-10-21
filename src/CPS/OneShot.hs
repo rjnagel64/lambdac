@@ -27,11 +27,11 @@ inlineOneShot (Program ds e) = runM $ do
 
 inlineTerm :: TermK -> M TermK
 inlineTerm (HaltK x) = pure (HaltK x)
-inlineTerm (JumpK k xs) = do
+inlineTerm (JumpK (CoVarK k) xs) = do
   env <- asks envConts
   case Map.lookup k env of
     Just cont -> pure (applyContDef cont xs)
-    Nothing -> pure (JumpK k xs)
+    Nothing -> pure (JumpK (CoVarK k) xs)
 -- TODO(later): Inline one-shot functions as well
 inlineTerm (CallK f xs ks) = do
   ks' <- for ks $ \case
@@ -120,7 +120,7 @@ inlineCoValue (CoVarK k) = pure (CoVarK k)
 inlineCoValue (ContValK cont) = ContValK <$> inlineCont cont
 
 
-applyContDef :: ContDef -> [TmVar] -> TermK
+applyContDef :: ContDef -> [ValueK] -> TermK
 applyContDef (ContDef xs e) as =
   let sub = makeJumpSubst xs as in
   subst sub e
@@ -202,16 +202,16 @@ class CountUses a where
   countUses :: a -> Usage
 
 instance CountUses TermK where
-  countUses (HaltK x) = oneTmUse x
-  countUses (JumpK k xs) = oneCoUse k <> foldMap oneTmUse xs
-  countUses (CallK f xs ks) = oneTmUse f <> foldMap countUses xs <> foldMap countUses ks
-  countUses (IfK x k1 k2) = oneTmUse x <> countUses k1 <> countUses k2
-  countUses (CaseK x _tcapp alts) = oneTmUse x <> foldMap (countUses . snd) alts
+  countUses (HaltK x) = countUses x
+  countUses (JumpK k xs) = countUses k <> foldMap countUses xs
+  countUses (CallK f xs ks) = countUses f <> foldMap countUses xs <> foldMap countUses ks
+  countUses (IfK x k1 k2) = countUses x <> countUses k1 <> countUses k2
+  countUses (CaseK x _tcapp alts) = countUses x <> foldMap (countUses . snd) alts
   countUses (LetContK ks e) = foldMap (countUses . snd) ks <> bindCoUses (map fst ks) (countUses e)
   countUses (LetFunK fs e) = foldMap countUses fs <> bindTmUses (map funDefName fs) (countUses e)
-  countUses (LetFstK x _t y e) = oneTmUse y <> bindTmUse x (countUses e)
-  countUses (LetSndK x _t y e) = oneTmUse y <> bindTmUse x (countUses e)
-  countUses (LetFieldK x _t y _f e) = oneTmUse y <> bindTmUse x (countUses e)
+  countUses (LetFstK x _t y e) = countUses y <> bindTmUse x (countUses e)
+  countUses (LetSndK x _t y e) = countUses y <> bindTmUse x (countUses e)
+  countUses (LetFieldK x _t y _f e) = countUses y <> bindTmUse x (countUses e)
   countUses (LetValK x _t v e) = countUses v <> bindTmUse x (countUses e)
   countUses (LetArithK x op e) = countUses op <> bindTmUse x (countUses e)
   countUses (LetCompareK x op e) = countUses op <> bindTmUse x (countUses e)
@@ -231,31 +231,31 @@ instance CountUses ValueK where
   countUses (CtorValK _c _ts xs) = foldMap countUses xs
 
 instance CountUses ArithK where
-  countUses (AddK x y) = oneTmUse x <> oneTmUse y
-  countUses (SubK x y) = oneTmUse x <> oneTmUse y
-  countUses (MulK x y) = oneTmUse x <> oneTmUse y
-  countUses (NegK x) = oneTmUse x
+  countUses (AddK x y) = countUses x <> countUses y
+  countUses (SubK x y) = countUses x <> countUses y
+  countUses (MulK x y) = countUses x <> countUses y
+  countUses (NegK x) = countUses x
 
 instance CountUses CmpK where
-  countUses (CmpEqK x y) = oneTmUse x <> oneTmUse y
-  countUses (CmpNeK x y) = oneTmUse x <> oneTmUse y
-  countUses (CmpLtK x y) = oneTmUse x <> oneTmUse y
-  countUses (CmpLeK x y) = oneTmUse x <> oneTmUse y
-  countUses (CmpGtK x y) = oneTmUse x <> oneTmUse y
-  countUses (CmpGeK x y) = oneTmUse x <> oneTmUse y
-  countUses (CmpEqCharK x y) = oneTmUse x <> oneTmUse y
+  countUses (CmpEqK x y) = countUses x <> countUses y
+  countUses (CmpNeK x y) = countUses x <> countUses y
+  countUses (CmpLtK x y) = countUses x <> countUses y
+  countUses (CmpLeK x y) = countUses x <> countUses y
+  countUses (CmpGtK x y) = countUses x <> countUses y
+  countUses (CmpGeK x y) = countUses x <> countUses y
+  countUses (CmpEqCharK x y) = countUses x <> countUses y
 
 instance CountUses StringOpK where
-  countUses (ConcatK x y) = oneTmUse x <> oneTmUse y
-  countUses (IndexK x y) = oneTmUse x <> oneTmUse y
-  countUses (LengthK x) = oneTmUse x
+  countUses (ConcatK x y) = countUses x <> countUses y
+  countUses (IndexK x y) = countUses x <> countUses y
+  countUses (LengthK x) = countUses x
 
 instance CountUses PrimIO where
-  countUses (PrimGetLine x) = oneTmUse x
-  countUses (PrimPutLine x y) = oneTmUse x <> oneTmUse y
+  countUses (PrimGetLine x) = countUses x
+  countUses (PrimPutLine x y) = countUses x <> countUses y
 
 instance CountUses Argument where
-  countUses (ValueArg x) = oneTmUse x
+  countUses (ValueArg x) = countUses x
   countUses (TypeArg _t) = mempty
 
 instance CountUses CoValueK where
@@ -273,12 +273,23 @@ instance CountUses FunDef where
 
 
 -- assume that parameters and arguments have same length.
-makeJumpSubst :: [(TmVar, TypeK)] -> [TmVar] -> Sub
+makeJumpSubst :: [(TmVar, TypeK)] -> [ValueK] -> Sub
 makeJumpSubst params args = emptySub { subTms = sub, scopeTms = sc }
   where
-    sub = Map.fromList (zipWith (\ (x, _t) y -> (x, y)) params args)
-    sc = Set.fromList args
+    sub = Map.fromList (zipWith (\ (x, _t) v -> (x, v)) params args)
+    sc = foldMap valueFV args
 
+valueFV :: ValueK -> Set TmVar
+valueFV (VarValK x) = Set.singleton x
+valueFV NilValK = mempty
+valueFV TokenValK = mempty
+valueFV (IntValK _) = mempty
+valueFV (BoolValK _) = mempty
+valueFV (StringValK _) = mempty
+valueFV (CharValK _) = mempty
+valueFV (PairValK x y) = valueFV x <> valueFV y
+valueFV (RecordValK fs) = foldMap (valueFV . snd) fs
+valueFV (CtorValK _c _ts xs) = foldMap valueFV xs
 
 
 
@@ -288,7 +299,7 @@ makeJumpSubst params args = emptySub { subTms = sub, scopeTms = sc }
 
 data Sub
   = Sub {
-    subTms :: Map TmVar TmVar -- TODO: Generalize to TmVar :-> ValueK, CoVar :-> CoValueK
+    subTms :: Map TmVar ValueK -- TODO: Generalize to TmVar :-> ValueK, CoVar :-> CoValueK
   , scopeTms :: Set TmVar
   , subCos :: Map CoVar CoVar
   , scopeCos :: Set CoVar
@@ -299,9 +310,9 @@ data Sub
 emptySub :: Sub
 emptySub = Sub { subTms = Map.empty, scopeTms = Set.empty, subCos = Map.empty, scopeCos = Set.empty, subTys = Map.empty, scopeTys = Set.empty }
 
-substTmVar :: Sub -> TmVar -> TmVar
+substTmVar :: Sub -> TmVar -> ValueK
 substTmVar sub x = case Map.lookup x (subTms sub) of
-  Nothing -> x
+  Nothing -> VarValK x
   Just y -> y
 
 substCoVar :: Sub -> CoVar -> CoVar
@@ -318,7 +329,7 @@ underTm :: Sub -> TmVar -> (TmVar, Sub)
 underTm sub x =
   if Set.member x (scopeTms sub) then
     let x' = go (prime x) in
-    (x', sub { subTms = Map.insert x x' (subTms sub), scopeTms = Set.insert x' (scopeTms sub) })
+    (x', sub { subTms = Map.insert x (VarValK x') (subTms sub), scopeTms = Set.insert x' (scopeTms sub) })
   else
     (x, sub { subTms = Map.delete x (subTms sub), scopeTms = Set.insert x (scopeTms sub) })
   where
@@ -407,11 +418,11 @@ class Subst a where
   subst :: Sub -> a -> a
 
 instance Subst TermK where
-  subst sub (HaltK x) = HaltK (substTmVar sub x)
-  subst sub (JumpK k xs) = JumpK (substCoVar sub k) (map (substTmVar sub) xs)
-  subst sub (CallK f xs ks) = CallK (substTmVar sub f) (map (subst sub) xs) (map (subst sub) ks)
-  subst sub (IfK x k1 k2) = IfK (substTmVar sub x) (subst sub k1) (subst sub k2)
-  subst sub (CaseK x tcapp alts) = CaseK (substTmVar sub x) (subst sub tcapp) (map (second (subst sub)) alts)
+  subst sub (HaltK x) = HaltK (subst sub x)
+  subst sub (JumpK k xs) = JumpK (subst sub k) (map (subst sub) xs)
+  subst sub (CallK f xs ks) = CallK (subst sub f) (map (subst sub) xs) (map (subst sub) ks)
+  subst sub (IfK x k1 k2) = IfK (subst sub x) (subst sub k1) (subst sub k2)
+  subst sub (CaseK x tcapp alts) = CaseK (subst sub x) (subst sub tcapp) (map (second (subst sub)) alts)
   subst sub (LetContK ks e) =
     let conts' = map (subst sub . snd) ks in
     let (ks', sub') = underCos sub (map fst ks) in
@@ -426,13 +437,13 @@ instance Subst TermK where
     LetValK x' (subst sub t) (subst sub v) (subst sub' e)
   subst sub (LetFstK x t y e) =
     let (x', sub') = underTm sub x in
-    LetFstK x' (subst sub t) (substTmVar sub y) (subst sub' e)
+    LetFstK x' (subst sub t) (subst sub y) (subst sub' e)
   subst sub (LetSndK x t y e) =
     let (x', sub') = underTm sub x in
-    LetSndK x' (subst sub t) (substTmVar sub y) (subst sub' e)
+    LetSndK x' (subst sub t) (subst sub y) (subst sub' e)
   subst sub (LetFieldK x t y f e) =
     let (x', sub') = underTm sub x in
-    LetFieldK x' (subst sub t) (substTmVar sub y) f (subst sub' e)
+    LetFieldK x' (subst sub t) (subst sub y) f (subst sub' e)
   subst sub (LetArithK x op e) =
     let (x', sub') = underTm sub x in
     LetArithK x' (subst sub op) (subst sub' e)
@@ -448,11 +459,11 @@ instance Subst TermK where
     LetBindK x' y' (subst sub op) (subst sub'' e)
 
 instance Subst Argument where
-  subst sub (ValueArg x) = ValueArg (substTmVar sub x)
+  subst sub (ValueArg x) = ValueArg (subst sub x)
   subst sub (TypeArg t) = TypeArg (subst sub t)
 
 instance Subst ValueK where
-  subst sub (VarValK x) = VarValK (substTmVar sub x)
+  subst sub (VarValK x) = substTmVar sub x
   subst _ NilValK = NilValK
   subst _ TokenValK = TokenValK
   subst _ (IntValK i) = IntValK i
@@ -468,28 +479,28 @@ instance Subst CoValueK where
   subst sub (ContValK cont) = ContValK (subst sub cont)
 
 instance Subst ArithK where
-  subst sub (AddK x y) = AddK (substTmVar sub x) (substTmVar sub y)
-  subst sub (SubK x y) = SubK (substTmVar sub x) (substTmVar sub y)
-  subst sub (MulK x y) = MulK (substTmVar sub x) (substTmVar sub y)
-  subst sub (NegK x) = NegK (substTmVar sub x)
+  subst sub (AddK x y) = AddK (subst sub x) (subst sub y)
+  subst sub (SubK x y) = SubK (subst sub x) (subst sub y)
+  subst sub (MulK x y) = MulK (subst sub x) (subst sub y)
+  subst sub (NegK x) = NegK (subst sub x)
 
 instance Subst CmpK where
-  subst sub (CmpEqK x y) = CmpEqK (substTmVar sub x) (substTmVar sub y)
-  subst sub (CmpNeK x y) = CmpNeK (substTmVar sub x) (substTmVar sub y)
-  subst sub (CmpLtK x y) = CmpLtK (substTmVar sub x) (substTmVar sub y)
-  subst sub (CmpLeK x y) = CmpLeK (substTmVar sub x) (substTmVar sub y)
-  subst sub (CmpGtK x y) = CmpGtK (substTmVar sub x) (substTmVar sub y)
-  subst sub (CmpGeK x y) = CmpGeK (substTmVar sub x) (substTmVar sub y)
-  subst sub (CmpEqCharK x y) = CmpEqCharK (substTmVar sub x) (substTmVar sub y)
+  subst sub (CmpEqK x y) = CmpEqK (subst sub x) (subst sub y)
+  subst sub (CmpNeK x y) = CmpNeK (subst sub x) (subst sub y)
+  subst sub (CmpLtK x y) = CmpLtK (subst sub x) (subst sub y)
+  subst sub (CmpLeK x y) = CmpLeK (subst sub x) (subst sub y)
+  subst sub (CmpGtK x y) = CmpGtK (subst sub x) (subst sub y)
+  subst sub (CmpGeK x y) = CmpGeK (subst sub x) (subst sub y)
+  subst sub (CmpEqCharK x y) = CmpEqCharK (subst sub x) (subst sub y)
 
 instance Subst StringOpK where
-  subst sub (ConcatK x y) = ConcatK (substTmVar sub x) (substTmVar sub y)
-  subst sub (IndexK x y) = IndexK (substTmVar sub x) (substTmVar sub y)
-  subst sub (LengthK x) = LengthK (substTmVar sub x)
+  subst sub (ConcatK x y) = ConcatK (subst sub x) (subst sub y)
+  subst sub (IndexK x y) = IndexK (subst sub x) (subst sub y)
+  subst sub (LengthK x) = LengthK (subst sub x)
 
 instance Subst PrimIO where
-  subst sub (PrimGetLine x) = PrimGetLine (substTmVar sub x)
-  subst sub (PrimPutLine x y) = PrimPutLine (substTmVar sub x) (substTmVar sub y)
+  subst sub (PrimGetLine x) = PrimGetLine (subst sub x)
+  subst sub (PrimPutLine x y) = PrimPutLine (subst sub x) (subst sub y)
 
 instance Subst ContDef where
   subst sub (ContDef xs e) =
@@ -500,7 +511,10 @@ instance Subst FunDef where
   subst sub (FunDef f xs ks e) =
     let (xs', sub') = underFunParams sub xs in
     let (ks', sub'') = underFunCoParams sub' ks in
-    FunDef (substTmVar sub f) xs' ks' (subst sub'' e)
+    -- Ugh. this should only ever be a renaming, but unfortunately I can only
+    -- express substitution.
+    let VarValK f' = substTmVar sub f in
+    FunDef f' xs' ks' (subst sub'' e)
 
 instance Subst TypeK where
   subst sub (TyVarOccK aa) = substTyVar sub aa
