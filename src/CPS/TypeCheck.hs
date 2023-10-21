@@ -34,9 +34,9 @@ data TypeError
   | BadValue ValueK TypeK
   | InvalidCtor Ctor TyCon
   | BadProjection TypeK
-  | CannotCall TmVar TypeK
+  | CannotCall ValueK TypeK
+  | CannotInst ValueK TypeK
   | WrongKindOfArgument ArgumentKind ArgumentKind
-  | CannotInst TmVar TypeK
   | CannotTyApp TypeK
 
 data ArgumentKind = ValueArgKind | TypeArgKind
@@ -77,13 +77,13 @@ instance Show TypeError where
   show (BadValue v t) = "value " ++ pprintValue v ++ " does not have expected type " ++ pprintType t
   show (BadProjection t) = "cannot project a field from value of type " ++ pprintType t
   show (CannotCall f t) = 
-    "variable " ++ show f ++ " is applied to arguments but its type is not a function: "
+    "value " ++ pprintValue f ++ " is applied to arguments but its type is not a function: "
+    ++ pprintType t
+  show (CannotInst f t) = 
+    "value " ++ pprintValue f ++ " is applied to type arguments but its type is not a forall: "
     ++ pprintType t
   show (WrongKindOfArgument expected actual) =
     "wrong kind of argument: expected a " ++ show expected ++ " but got a " ++ show actual
-  show (CannotInst f t) = 
-    "variable " ++ show f ++ " is applied to type arguments but its type is not a forall: "
-    ++ pprintType t
   show (CannotTyApp t) =
     "cannot apply argument to type " ++ pprintType t ++ " because it does not have an arrow kind"
   show (InvalidCtor c tc) =
@@ -218,14 +218,14 @@ checkCtorDecl tc (CtorDecl c params args) = do
 
 
 check :: TermK -> TC ()
-check (HaltK (VarValK x)) = do
-  _ <- lookupTmVar x
+check (HaltK x) = do
+  _ <- inferValue x
   pure ()
-check (JumpK (CoVarK k) xs) = do
-  ContK ss <- lookupCoVar k
+check (JumpK k xs) = do
+  ContK ss <- inferCoValue k
   checkTmArgs xs ss
-check (CallK (VarValK f) args ks) = do
-  (tele, ss) <- lookupTmVar f >>= \case
+check (CallK f args ks) = do
+  (tele, ss) <- inferValue f >>= \case
     FunK tele ss -> pure (tele, ss)
     t -> throwError (CannotCall f t)
   sub <- checkArguments args tele
@@ -260,19 +260,18 @@ check (LetStringOpK z t op e) = do
   t' <- checkStringOp op
   equalTypes t t'
   withTmVars [(z, t)] $ check e
-check (LetFstK x t (VarValK y) e) = do
-  lookupTmVar y >>= \case
+check (LetFstK x t y e) = do
+  inferValue y >>= \case
     ProdK t' _s -> equalTypes t t'
     t' -> throwError (BadProjection t')
   withTmVars [(x, t)] $ check e
-check (LetSndK x s (VarValK y) e) = do
-  lookupTmVar y >>= \case
+check (LetSndK x s y e) = do
+  inferValue y >>= \case
     ProdK _t s' -> equalTypes s s'
     t' -> throwError (BadProjection t')
   withTmVars [(x, s)] $ check e
-check (LetFieldK x s (VarValK y) f e) = do
-  -- TODO: Infer type of value y, inspect that
-  lookupTmVar y >>= \case
+check (LetFieldK x s y f e) = do
+  inferValue y >>= \case
     t'@(RecordK fs) -> case lookup f fs of
       Nothing -> throwError (BadProjection t')
       Just s' -> equalTypes s s'
@@ -329,6 +328,27 @@ checkIntBinOp x y = do
   checkValue x IntK
   checkValue y IntK
 
+inferValue :: ValueK -> TC TypeK
+inferValue (VarValK x) = lookupTmVar x 
+inferValue NilValK = pure UnitK
+inferValue TokenValK = pure TokenK
+inferValue (IntValK _) = pure IntK
+inferValue (BoolValK _) = pure BoolK
+inferValue (StringValK _) = pure StringK
+inferValue (CharValK _) = pure CharK
+inferValue (PairValK x y) = ProdK <$> inferValue x <*> inferValue y
+inferValue (RecordValK fs) = RecordK <$> traverse (\ (f, v) -> (,) f <$> inferValue v) fs
+inferValue (CtorValK c ts vs) = do
+  CtorType aas ss tcapp <- lookupCtor c
+  sub <- makeSubst aas ts
+  checkTmArgs vs (map (substTypeK sub) ss)
+  pure (fromTyConApp (substTyConApp sub tcapp))
+
+inferCoValue :: CoValueK -> TC CoTypeK
+inferCoValue (CoVarK k) = lookupCoVar k
+inferCoValue (ContValK cont) = inferContDef cont
+
+-- Hmm. redundant/repetetive with inferValue? replace with inferValue >>= equalTypes?
 checkValue :: ValueK -> TypeK -> TC ()
 checkValue (VarValK x) t = checkTmVar x t
 checkValue NilValK UnitK = pure ()

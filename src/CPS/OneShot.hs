@@ -32,6 +32,9 @@ inlineTerm (JumpK (CoVarK k) xs) = do
   case Map.lookup k env of
     Just cont -> pure (applyContDef cont xs)
     Nothing -> pure (JumpK (CoVarK k) xs)
+-- It is always safe to reduce a continuation beta-redex.
+inlineTerm (JumpK (ContValK cont) xs) = do
+  pure (applyContDef cont xs)
 -- TODO(later): Inline one-shot functions as well
 inlineTerm (CallK f xs ks) = do
   ks' <- for ks $ \case
@@ -120,6 +123,10 @@ inlineCoValue (CoVarK k) = pure (CoVarK k)
 inlineCoValue (ContValK cont) = ContValK <$> inlineCont cont
 
 
+-- hmm. now that the arguments are values instead of just variables, I may want
+-- to introduce let-bindings to avoid duplicating the value at each occurrence.
+-- (It's still semantically correct, because values are pure and do not reduce,
+-- but it may lead to code bloat)
 applyContDef :: ContDef -> [ValueK] -> TermK
 applyContDef (ContDef xs e) as =
   let sub = makeJumpSubst xs as in
@@ -383,8 +390,11 @@ underTy sub x =
 -- This function passes a substitution under the declarations, producing an
 -- extend substitution to apply to each of the assignments/definitions and the
 -- body.
-underRecFunDecls :: Sub -> [FunDef] -> Sub
-underRecFunDecls sub fs = let (_fs', sub') = underTms sub (map funDefName fs) in sub'
+underRecFunDecls :: Sub -> [FunDef] -> ([FunDef], Sub)
+underRecFunDecls sub fs =
+  let (fnames, sub') = underTms sub (map funDefName fs) in
+  (zipWith replaceName fnames fs, sub')
+  where replaceName f' (FunDef _ xs ks e) = FunDef f' xs ks e
 
 underFunParams :: Sub -> [FunParam] -> ([FunParam], Sub)
 underFunParams sub [] = ([], sub)
@@ -428,10 +438,10 @@ instance Subst TermK where
     let (ks', sub') = underCos sub (map fst ks) in
     LetContK (zip ks' conts') (subst sub' e)
   subst sub (LetFunK fs e) =
-    let sub' = underRecFunDecls sub fs in
-    let fs' = map (subst sub') fs in
+    let (fs', sub') = underRecFunDecls sub fs in
+    let fs'' = map (subst sub') fs' in
     let e' = subst sub' e in
-    LetFunK fs' e'
+    LetFunK fs'' e'
   subst sub (LetValK x t v e) =
     let (x', sub') = underTm sub x in
     LetValK x' (subst sub t) (subst sub v) (subst sub' e)
@@ -508,13 +518,12 @@ instance Subst ContDef where
     ContDef xs' (subst sub' e)
 
 instance Subst FunDef where
+  -- The FunDef name is kind of annoying. It is logically part of the LetFunK,
+  -- and so gets renamed in instance Subst TermK. Thus, we ignore it here.
   subst sub (FunDef f xs ks e) =
     let (xs', sub') = underFunParams sub xs in
     let (ks', sub'') = underFunCoParams sub' ks in
-    -- Ugh. this should only ever be a renaming, but unfortunately I can only
-    -- express substitution.
-    let VarValK f' = substTmVar sub f in
-    FunDef f' xs' ks' (subst sub'' e)
+    FunDef f xs' ks' (subst sub'' e)
 
 instance Subst TypeK where
   subst sub (TyVarOccK aa) = substTyVar sub aa
