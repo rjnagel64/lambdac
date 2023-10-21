@@ -155,3 +155,42 @@ Likewise, I believe this opens up the possibility of non-uniform closures
 environment parameters), because such a closure can receive an info table that
 matches its layout rather than needing to use the same 'closure_info' for every
 closure.
+
+
+
+
+Constructor Tags/Discriminants in Info Tables
+=============================================
+
+Values, once created, are immutable. In particular, which variant a value
+consists of is unchanging. Right now, I store a 'discriminant' field in all sum
+types, but this is somewhat redundant, because this value is a constant, and
+replicated across every instance of that variant.
+
+Idea: store the discriminant in the info table instead. 
+
+struct _type_info {
+    void (*trace)(struct alloc_header *alloc);
+    void (*display)(struct alloc_header *alloc, struct string_buf *sb);
+    // new field:
+    uintptr_t tag;
+    // Could be a smaller integer type instead of uintptr_t, but
+    // padding+alignment concerns mean that it doesn't make a difference.
+};
+typedef struct _type_info type_info;
+
+Note that this means that *every* value now has a constructor tag: even single-variant data types, records, and product types. However, this is not as bad as it seems, because info tables are shared across all values, so this adds eight bytes per *type*, not per *value*.
+
+I could work around this by doing "struct subtyping" with a sum_type_info with
+type_info as first field, but that adds extra pointer-casting for not much
+gain.
+
+Potential downside: getting the tag now requires an indirection. Who cares. I
+have bigger performance issues.
+
+
+Changes:
+* codegen for ctor decls references the ctor index in the type_info instead of
+  the allocate method.
+* codegen for case analysis needs to reference the info table instead of the
+  object's discriminant field.
