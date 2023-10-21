@@ -115,7 +115,7 @@ instance Ord CodeLabel where
   compare (CodeLabel _ u1) (CodeLabel _ u2) = compare u1 u2
 
 instance Show CodeLabel where
-  show (CodeLabel d u) = '#' : d ++ "@" ++ show u
+  show (CodeLabel d u) = '#' : d ++ "_" ++ show u
 
 
 newtype TyCon = TyCon String
