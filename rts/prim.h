@@ -8,7 +8,7 @@ struct int64_value {
     int64_t value;
 };
 
-// Corresponds to Int64# constructor? No discriminant, though.
+// Corresponds to Int64# constructor?
 struct int64_value *allocate_int64(int64_t x);
 
 #define CAST_INT64(v) ((struct int64_value *)(v))

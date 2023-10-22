@@ -288,7 +288,6 @@ emitDataStruct :: TyCon -> [Line]
 emitDataStruct tc =
   ["struct " ++ show tc ++ " {"
   ,"    struct alloc_header header;"
-  ,"    uint32_t discriminant;"
   ,"};"
   ,"#define CAST_" ++ show tc ++ "(v) ((struct " ++ show tc ++ " *)(v))"]
 
@@ -331,7 +330,7 @@ emitCtorInfo (CtorDecl c _tys args) =
   intersperse "string_buf_push_slice(sb, \", \", 2);" (map displayField args) ++
   ["    string_buf_push_slice(sb, \")\", 1);"
   ,"}"
-  ,"const type_info " ++ ctorId ++ "_info = { trace_" ++ ctorId ++ ", display_" ++ ctorId ++ " };"]
+  ,"const type_info " ++ ctorId ++ "_info = { trace_" ++ ctorId ++ ", display_" ++ ctorId ++ ", " ++ show (ctorDiscriminant c) ++ " };"]
   where
     traceField (x, _s) = "    mark_gray(AS_ALLOC(ctor->" ++ show x ++ "));"
     displayField (x, _s) = "    AS_ALLOC(ctor->" ++ show x ++ ")->info->display(AS_ALLOC(ctor->" ++ show x ++ "), sb);"
@@ -340,10 +339,8 @@ emitCtorAllocate :: CtorDecl -> [Line]
 emitCtorAllocate (CtorDecl c _tys args) =
   let ctorStructName = ctorQualName c in
   let tc = ctorTyCon c in
-  -- let ctorStructName = show tc ++ "_" ++ c in
   ["struct " ++ show tc ++ " *allocate_" ++ ctorStructName ++ "(" ++ commaSep params ++ ") {"
-  ,"    struct " ++ ctorStructName ++ " *ctor = malloc(sizeof(struct " ++ ctorStructName ++ "));"
-  ,"    ctor->header.discriminant = " ++ show (ctorDiscriminant c) ++ ";"] ++
+  ,"    struct " ++ ctorStructName ++ " *ctor = malloc(sizeof(struct " ++ ctorStructName ++ "));"] ++
   map assignField args ++
   ["    cons_new_alloc(AS_ALLOC(ctor), &" ++ ctorStructName ++ "_info);"
   ,"    return CAST_" ++ show tc ++ "(ctor);"
@@ -391,7 +388,7 @@ emitEnvInfo ns fs =
   ,"    " ++ envTy ++ envName ++ " = (" ++ envTy ++ ")alloc;"] ++
   map traceField fs ++
   ["}"
-  ,"const type_info " ++ envInfoName ns ++ " = { " ++ envTraceName ns ++ ", display_env };"]
+  ,"const type_info " ++ envInfoName ns ++ " = { " ++ envTraceName ns ++ ", display_env, 0 };"]
   where
     envName = "env"
     envTy = "struct " ++ envTypeName ns ++ " *"
@@ -494,7 +491,7 @@ emitSuspend ty cl xs =
 -- so they can stay here.
 emitCase :: DataDesc -> Name -> [CaseAlt] -> [Line]
 emitCase desc x branches =
-  ["    switch (" ++ emitName x ++ "->discriminant) {"] ++
+  ["    switch (" ++ emitName x ++ "->header.info->discriminant) {"] ++
   concatMap emitCaseBranch branches ++
   ["    default:"
   ,"        unreachable(\"invalid discriminant\");"

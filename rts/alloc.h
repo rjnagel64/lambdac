@@ -13,6 +13,7 @@ struct alloc_header;
 struct _type_info {
     void (*trace)(struct alloc_header *alloc);
     void (*display)(struct alloc_header *alloc, struct string_buf *sb);
+    uintptr_t discriminant;
 };
 typedef struct _type_info type_info;
 

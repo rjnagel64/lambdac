@@ -194,3 +194,5 @@ Changes:
   the allocate method.
 * codegen for case analysis needs to reference the info table instead of the
   object's discriminant field.
+
+Status: Implemented. (This turned out to be an incredibly simple change -- less than 10 lines total)
