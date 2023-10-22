@@ -226,6 +226,10 @@ data CtorDecl
   = CtorDecl Ctor [(TyVar, Kind)] [(FieldLabel, Type)]
 
 
+data ConstDecl
+  = ConstClosure Place CodeLabel -- assume environment == empty
+
+
 -- | A 'Type' describes the runtime layout of a value. It is static information.
 data Type
   = AllocH TyVar

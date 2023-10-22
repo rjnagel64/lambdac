@@ -37,12 +37,20 @@ struct closure {
     void (*enter)(void);
 };
 
-// Public b/c generated code needs to define info for environment types.
-void display_env(struct alloc_header *alloc, struct string_buf *sb);
-
 struct closure *allocate_closure(struct alloc_header *env, void (*enter)(void));
 
 #define CAST_CLOSURE(v) ((struct closure *)(v))
+
+struct empty_env {
+    struct alloc_header header;
+};
+
+// Public b/c generated code needs to define info for environment types.
+void display_env(struct alloc_header *alloc, struct string_buf *sb);
+
+extern struct empty_env *the_empty_env;
+
+#define CAST_EMPTY_ENV(v) ((struct empty_env *)(v))
 
 struct pair {
     struct alloc_header header;

@@ -1,0 +1,241 @@
+
+Hoist Optimization: Static Allocation of Empty-Env Closures
+===========================================================
+
+According to Optimizing Closures in O(0) time, a closure that has no free
+variables can be statically allocated (because the value <#foo, {}> is a
+compile-time constant). This is true even for closures that are not well-known.
+
+Experimentally, about 7%-10% of closures seem to be empty-env, so this should
+make things a bit better.
+
+This will require revision to the Hoist/Backend IRs to represent these new
+"Constant Declarations". I also need to consider how the GC will deal with
+them. They are basically roots, but also don't reference any other data (just a
+non-traced code pointer, and a no-field environment). Thus, let tracing mark
+the static objects, but because they are not present in the object list, they
+will never be collected? Sure.
+
+
+Note: OptClos paper states that static allocation requires an empty
+environment. I think this can be generalized: a closure can be statically
+allocated if it has a *constant* environment. (The empty environment is merely
+the most common form of an empty environment)
+
+
+
+Example: adder.lamc (after applying CPS oneshot optimization)
+
+--- Hoisting ---
+code #f1_6[](env_10 : {x0 : int}; y0_8 : int, k1_9 : closure(int)) =
+  let z0_11 : int = prim_addint64(@.x0, y0_8);
+  k1_9 z0_11;
+code #f0_1[](env_4 : {}; x0_2 : int, k0_3 : closure(closure(int, closure(int)))) =
+  let
+    f1_5 : closure(int, closure(int)) = #f1_6 {x0 = x0_2}
+  in
+  k0_3 f1_5;
+code #__anon_cont_21[](env_23 : {}; x0_22 : int) =
+  HALT @int x0_22;
+code #__anon_cont_16[](env_18 : {}; add30_17 : closure(int, closure(int))) =
+  let tmp_19 : int = 5;
+  let
+    __anon_cont_20 : closure(int) = #__anon_cont_21 {}
+  in
+  add30_17 tmp_19 __anon_cont_20;
+;;
+let
+  f0_0 : closure(int, closure(closure(int, closure(int)))) = #f0_1 {}
+in
+let tmp_14 : int = 3;
+let
+  __anon_cont_15 : closure(closure(int, closure(int))) = #__anon_cont_16 {}
+in
+f0_0 tmp_14 __anon_cont_15;
+
+* f0_0 (#f0_1),
+  __anon_cont_20 (#__anon_cont_21),
+  and __anon_cont_15 (#__anon_cont_16)
+  can all be statically allocated.
+
+So, we might revise the program to this:
+
+code #f1_6[](env_10 : {x0 : int}; y0_8 : int, k1_9 : closure(int)) =
+  let z0_11 : int = prim_addint64(@.x0, y0_8);
+  k1_9 z0_11;
+code #f0_1[](env_4 : {}; x0_2 : int, k0_3 : closure(closure(int, closure(int)))) =
+  let
+    f1_5 : closure(int, closure(int)) = #f1_6 {x0 = x0_2}
+  in
+  k0_3 f1_5;
+code #__anon_cont_21[](env_23 : {}; x0_22 : int) =
+  HALT @int x0_22;
+code #__anon_cont_16[](env_18 : {}; add30_17 : closure(int, closure(int))) =
+  let tmp_19 : int = 5;
+  add30_17 tmp_19 __anon_cont_20;
+const f0_0 : _ = #f_0 {}
+const __anon_cont_15 : _ = #__anon_cont_16 {}
+const __anon_cont_20 : closure(int) = #__anon_cont_21 {}
+;;
+let tmp_14 : int = 3;
+f0_0 tmp_14 __anon_cont_15;
+
+* Note that code and const decls can be mixed together, since the body of a
+  const might (and likely will) refer to a code decl, whose body refers to
+  another const decl (e.g. const __anon_cont_15 -> code __anon_cont_16 -> const __anon_cont_20)
+* Note that the closure allocations (let-bindings) for these closures have been removed
+
+
+
+Removing Global Variable References from Environments
+=====================================================
+
+Statically allocating closures can remove free variables from other closures? I
+think so. Static allocation ==> the closure is a global constant ==> it can be
+referenced directly ==> it does not need to be in the environment ==> more
+things can be statically allocated.
+
+I think the primary example of this is constructor wrapper functions. Once they
+are top-level constants, users of the constructor functions do not need to
+store the wrapper in their environments.
+
+Hmm. This may end up being kind of tricky. We need to rewrite/remove callsites
+(closure allocations). ... Or is it? We need to do a second pass to replace
+closure allocations with references to globals, so this shouldn't be a huge
+problem.
+
+Example:
+--- Source ---
+data Pair = {
+  mkpair(bool, int)
+}
+let foo : bool -> Pair = \ (x : bool) -> mkpair x 17
+in
+foo false
+
+--- Hoisting ---
+data Pair : * where
+  mkpair(bool, int);
+code #w0_6[](env_10 : {arg0 : bool}; arg1_8 : int, k1_9 : closure(Pair)) =
+  let w1_11 : Pair = mkpair(, @.arg0, arg1_8);
+  k1_9 w1_11;
+code #mkpair0_1[](env_4 : {}; arg0_2 : bool, k0_3 : closure(closure(int, closure(Pair)))) =
+  let
+    w0_5 : closure(int, closure(Pair)) = #w0_6 {arg0 = arg0_2}
+  in
+  k0_3 w0_5;
+code #__anon_cont_21[](env_24 : {k0 : closure(Pair)}; x1_23 : closure(int, closure(Pair))) =
+  let tmp_25 : int = 17;
+  x1_23 tmp_25 @.k0;
+code #f0_15[](env_19 : {mkpair0 : closure(bool, closure(closure(int, closure(Pair))))}; x0_17 : bool, k0_18 : closure(Pair)) =
+  let
+    __anon_cont_20 : closure(closure(int, closure(Pair))) = #__anon_cont_21 {k0 = k0_18}
+  in
+  @.mkpair0 x0_17 __anon_cont_20;
+code #__anon_cont_30[](env_32 : {}; x0_31 : Pair) =
+  HALT @Pair x0_31;
+;;
+let
+  mkpair0_0 : closure(bool, closure(closure(int, closure(Pair)))) = #mkpair0_1 {}
+in
+let
+  f0_14 : closure(bool, closure(Pair)) = #f0_15 {mkpair0 = mkpair0_0}
+in
+let tmp_28 : bool = false;
+let
+  __anon_cont_29 : closure(Pair) = #__anon_cont_30 {}
+in
+f0_14 tmp_28 __anon_cont_29;
+
+-- 2 empty-env closures, 1 closure that only references "globals"
+
+--- Optimized ---
+data Pair : * where
+  mkpair(bool, int);
+code #w0_6[](env_10 : {arg0 : bool}; arg1_8 : int, k1_9 : closure(Pair)) =
+  let w1_11 : Pair = mkpair(, @.arg0, arg1_8);
+  k1_9 w1_11;
+code #mkpair0_1[](env_4 : {}; arg0_2 : bool, k0_3 : closure(closure(int, closure(Pair)))) =
+  let
+    w0_5 : closure(int, closure(Pair)) = #w0_6 {arg0 = arg0_2}
+  in
+  k0_3 w0_5;
+code #__anon_cont_21[](env_24 : {k0 : closure(Pair)}; x1_23 : closure(int, closure(Pair))) =
+  let tmp_25 : int = 17;
+  x1_23 tmp_25 @.k0;
+code #f0_15[](env_19 : {mkpair0 : closure(bool, closure(closure(int, closure(Pair))))}; x0_17 : bool, k0_18 : closure(Pair)) =
+  let
+    __anon_cont_20 : closure(closure(int, closure(Pair))) = #__anon_cont_21 {k0 = k0_18}
+  in
+  @.mkpair0 x0_17 __anon_cont_20;
+code #__anon_cont_30[](env_32 : {}; x0_31 : Pair) =
+  HALT @Pair x0_31;
+const mkpair0_0 : _ = #mkpair0_1 {}
+const __anon_cont_29 : closure(Pair) = #__anon_cont_30 {}
+-- const f0_14 : _ = #f0_15 {mkpair0 = mkpair0_0}
+;;
+let
+  -- hrrm. I *should* be able to remove this, but don't I need to guarantee
+  -- that mkpair0_0 is the only value that ever flows to #f0_15.env.mkpair0?
+  f0_14 : closure(bool, closure(Pair)) = #f0_15 {mkpair0 = mkpair0_0}
+in
+let tmp_28 : bool = false;
+f0_14 tmp_28 __anon_cont_29;
+
+
+Static Constant Initialization Order
+====================================
+
+An important implementation detail is "how do these static constants/closures
+get initialized?". Simple constants are obvious:
+
+static int64_value *my_val = { .header = { ... }, .value = 17 };
+
+(Note lack of 'const' modifier: this is because most of my pointers are 'struct
+int64_value *', and you cannot have a mutable pointer to a const object.
+Honestly, I probably should be using const everywhere, because my objects are
+immutable, but I don't right now.)
+
+However, things become more complex if constants may refer to other constants:
+
+static int64_value *my_val1 = { .header = { ... }, .value = 17 };
+static int64_value *my_val2 = { .header = { ... }, .value = 19 };
+static pair_value *my_pair = { .header = { ... }, .fst = my_val1, .snd = my_val2 };
+
+Topological sorting of constant declarations is one possibility. I *think*
+forward declaration may be possible as well? If all else fails, I can insert an
+"initialization block" into 'void program_entry(void)' or a related hook into
+the RTS.
+
+
+General Constant Promotion
+==========================
+
+While I am mainly concerned with static allocation of constant closures, it is
+perfectly reasonable to statically allocate other constant data structures.
+
+code #foo(env_0 : {}, arg0: int * (bool * int), arg1: bool) =
+  ...
+;;
+let five : int = 5;
+let three : int = 3;
+let fal : bool = false;
+let p : bool * int = (fal, three);
+let q : int * (bool * int) = (five, p);
+let
+  foo : closure(int * (bool * int), bool) = #foo {}
+in
+foo(q, fal)
+...
+
+===>
+code #foo(env_0 : {}, arg0: int * (bool * int), arg1: bool) =
+  ...
+const five : int = 5;
+const three : int = 3;
+const fal : bool = false;
+const p : bool * int = (fal, three);
+const q : int * (bool * int) = (five, p);
+const foo : closure(int * (bool * int), bool) = #foo {}
+;;
+foo(q, fal)

@@ -18,7 +18,7 @@ void display_int64_value(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push_slice(sb, buf, num_len);
 }
 
-const type_info int64_value_info = { trace_int64_value, display_int64_value };
+const type_info int64_value_info = { trace_int64_value, display_int64_value, 0 };
 
 struct int64_value *allocate_int64(int64_t x) {
     struct int64_value *v = malloc(sizeof(struct int64_value));
@@ -40,7 +40,7 @@ void display_bool_value(struct alloc_header *alloc, struct string_buf *sb) {
     }
 }
 
-const type_info bool_value_info = { trace_bool_value, display_bool_value };
+const type_info bool_value_info = { trace_bool_value, display_bool_value, 0 };
 
 struct bool_value *allocate_bool_value(uint8_t x) {
     struct bool_value *v = malloc(sizeof(struct bool_value));
@@ -81,7 +81,7 @@ void display_char_value(struct alloc_header *alloc, struct string_buf *sb) {
     }
 }
 
-const type_info char_value_info = { trace_char_value, display_char_value };
+const type_info char_value_info = { trace_char_value, display_char_value, 0 };
 
 struct char_value *allocate_char(uint32_t x) {
     struct char_value *v = malloc(sizeof(struct char_value));
@@ -100,11 +100,19 @@ void display_closure(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push_slice(sb, "<closure>", 9);
 }
 
-const type_info closure_info = { trace_closure, display_closure };
+const type_info closure_info = { trace_closure, display_closure, 0 };
+
+void trace_empty_env(struct alloc_header *alloc) {
+    struct empty_env *env = CAST_EMPTY_ENV(alloc);
+}
 
 void display_env(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push_slice(sb, "<env>", 5);
 }
+
+const type_info empty_env_info = { trace_empty_env, display_env, 0 };
+struct empty_env _the_empty_env = { { 0, NULL, &empty_env_info } };
+struct empty_env *the_empty_env = &_the_empty_env;
 
 struct closure *allocate_closure(
         struct alloc_header *env,
@@ -132,7 +140,7 @@ void display_pair(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push_slice(sb, ")", 1);
 }
 
-const type_info pair_info = { trace_pair, display_pair };
+const type_info pair_info = { trace_pair, display_pair, 0 };
 
 struct pair *allocate_pair(struct alloc_header *x, struct alloc_header *y) {
     struct pair *p = malloc(sizeof(struct pair));
@@ -149,7 +157,7 @@ void display_unit(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push_slice(sb, "()", 2);
 }
 
-const type_info unit_info = { trace_unit, display_unit };
+const type_info unit_info = { trace_unit, display_unit, 0 };
 
 struct unit *allocate_unit(void) {
     struct unit *n = malloc(sizeof(struct unit));
@@ -169,7 +177,7 @@ void display_string(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push_slice(sb, "\"", 1);
 }
 
-const type_info string_info = { trace_string, display_string };
+const type_info string_info = { trace_string, display_string, 0 };
 
 struct string_value *allocate_string(const char *src, size_t len) {
     struct string_value *s = malloc(sizeof(struct string_value) + (len + 1) * sizeof(char));
@@ -191,7 +199,7 @@ void display_token(struct alloc_header *alloc, struct string_buf *sb) {
     string_buf_push_slice(sb, "WORLD#", 6);
 }
 
-const type_info token_info = { trace_token, display_token };
+const type_info token_info = { trace_token, display_token, 0 };
 
 struct token *allocate_token(void) {
     struct token *n = malloc(sizeof(struct token));

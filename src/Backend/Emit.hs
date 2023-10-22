@@ -184,6 +184,10 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
 
 type DataEnv = Map TyCon DataDecl
 
+-- TODO: Code generation requires Decl:s in a Program to be in dependency order.
+-- This is rather clumsy, and easily broken in the face of optimizations.
+-- This probably involves generating prototypes for things (every decl, or
+-- maybe just for cyclic SCCs)
 emitProgram :: Program -> String
 emitProgram pgm@(Program ds e) = unlines $
   prologue ++
@@ -660,6 +664,8 @@ emitClosureGroup envs closures =
     recNames = Set.fromList [LocalName (placeName p) | ClosureAlloc p _ _ _ <- closures]
 
 allocEnv :: Set Name -> EnvAlloc -> Line
+allocEnv _ (EnvAlloc envPlace _ []) =
+  "    " ++ emitPlace (Place (TyConH (TyCon "empty_env")) envPlace) ++ " = the_empty_env;"
 allocEnv recNames (EnvAlloc envPlace tc fields) =
   "    " ++ emitPlace (Place (TyConH tc) envPlace) ++ " = " ++ call ++ ";"
   where
