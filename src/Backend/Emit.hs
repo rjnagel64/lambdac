@@ -5,7 +5,6 @@ module Backend.Emit
 
 import Data.List (intercalate, intersperse)
 import Data.Maybe (mapMaybe)
-import Data.Traversable (mapAccumL)
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -192,24 +191,102 @@ emitProgram :: Program -> String
 emitProgram pgm@(Program ds e) = unlines $
   prologue ++
   concatMap emitThunkDecl ts ++
-  concat decls ++
+  concatMap emitDeclPrototype ds ++
+  concatMap (emitDecl denv) ds ++
   emitEntryPoint denv e
   where
     ts = Set.toList (programThunkTypes pgm)
-    (denv, decls) = mapAccumL emitDecl Map.empty ds
+    denv = collectDataEnv ds Map.empty
+
+collectDataEnv :: [Decl] -> DataEnv -> DataEnv
+collectDataEnv [] acc = acc
+collectDataEnv (DeclEnv ed : ds) acc = collectDataEnv ds acc
+collectDataEnv (DeclCode cd : ds) acc = collectDataEnv ds acc
+collectDataEnv (DeclData dd : ds) acc = collectDataEnv ds (extendDataEnv dd acc)
+
+extendDataEnv :: DataDecl -> DataEnv -> DataEnv
+extendDataEnv dd@(DataDecl tc _) env = Map.insert tc dd env
+
+
+emitDeclPrototype :: Decl -> [Line]
+emitDeclPrototype (DeclEnv ed) = emitEnvPrototype ed
+emitDeclPrototype (DeclCode cd) = emitCodePrototype cd
+emitDeclPrototype (DeclData dd) = emitDataPrototype dd
+
+-- Emit prototypes for all structs/functions defined by this code decl
+emitCodePrototype :: CodeDecl -> [Line]
+emitCodePrototype (CodeDecl l _aas (_envp, envtc) params _e) = [codePrototype, enterPrototype]
+  where
+    codePrototype = "void " ++ closureCodeName cns ++ "(" ++ paramList ++ ");"
+    enterPrototype = "void " ++ closureEnterName cns ++ "(void);"
+    cns = namesForClosure l
+    paramList = if null paramTypes then "void" else commaSep paramTypes
+    paramTypes = envParam : mapMaybe f params
+    f (PlaceParam p) = Just (typeFor (placeType p))
+    f (TypeParam _ _) = Nothing
+    envParam = "struct " ++ show envtc ++ " *"
+
+emitEnvPrototype :: EnvDecl -> [Line]
+emitEnvPrototype (EnvDecl tc fields) = [declPrototype, allocPrototype, infoPrototype]
+  where
+    ens = namesForEnv tc
+    -- TODO: environment prototypes have to include the definition of the env struct
+    -- (Remember, it's the stuff that would have to go in a header file)
+    envty = "struct " ++ envTypeName ens
+    declPrototype = envty ++ ";"
+    allocPrototype = makeFunctionPrototype (envty ++ " *") (envAllocName ens) [typeFor t | (_f, t) <- fields]
+    infoPrototype = "const type_info " ++ envInfoName ens ++ ";"
+    -- Hmm. Should 'trace' really be included? It's basically an implementation detail of 'info'.
+    -- declPrototype = "// " ++ show tc ++ "::decl"
+    -- allocPrototype = "// " ++ show tc ++ "::alloc"
+    -- tracePrototype = "// " ++ show tc ++ "::trace"
+    -- infoPrototype = "// " ++ show tc ++ "::info"
+
+-- Hmm. A potential problem. The casts for a datatype are macros, so they do
+-- not have a notion of a "prototype". If I declare prototypes, I need to
+-- declare the cast macros with them.
+emitDataPrototype :: DataDecl -> [Line]
+emitDataPrototype (DataDecl tc ctors) = [dataPrototype, dataCast] ++ concatMap emitCtorPrototype ctors
+  where
+    -- dataty = "struct " ++ show tc
+    -- dataPrototype = dataty ++ ";"
+    -- dataCast = "#define CAST_" ++ show tc ++ "(v) ((" ++ dataty ++ " *)(v))"
+    dataPrototype = "// " ++ show tc ++ "::struct"
+    dataCast = "// " ++ show tc ++ "::cast"
+
+emitCtorPrototype :: CtorDecl -> [Line]
+emitCtorPrototype (CtorDecl c aas fields) =
+  [ ctorPrototype
+  , ctorCast
+  , ctorTrace
+  , ctorDisplay
+  , ctorInfo
+  , ctorAllocate
+  ]
+  where
+    -- Hmm. 'trace' and 'display' should be private to 'info'.
+    ctorPrototype = "// " ++ show c ++ "::struct"
+    ctorCast = "// " ++ show c ++ "::cast"
+    ctorTrace = "// " ++ show c ++ "::trace"
+    ctorDisplay = "// " ++ show c ++ "::display"
+    ctorInfo = "// " ++ show c ++ "::info"
+    ctorAllocate = "// " ++ show c ++ "::alloc"
+
+makeFunctionPrototype :: String -> String -> [String] -> Line
+makeFunctionPrototype retTy name argTys = retTy ++ name ++ "(" ++ paramList ++ ");"
+  where
+    paramList = if null argTys then "void" else commaSep argTys
+
+
+
 
 prologue :: [Line]
 prologue = ["#include \"rts.h\""]
 
-emitDecl :: DataEnv -> Decl -> (DataEnv, [Line])
-emitDecl denv (DeclEnv ed) =
-  (denv, emitClosureEnv ed)
-emitDecl denv (DeclCode cd) =
-  (denv, emitCodeDecl denv cd)
-emitDecl denv (DeclData dd@(DataDecl tc _)) =
-  let denv' = Map.insert tc dd denv in
-  (denv', emitDataDecl dd)
-
+emitDecl :: DataEnv -> Decl -> [Line]
+emitDecl denv (DeclEnv ed) = emitClosureEnv ed
+emitDecl denv (DeclCode cd) = emitCodeDecl denv cd
+emitDecl denv (DeclData dd) = emitDataDecl dd
 
 emitEntryPoint :: DataEnv -> TermH -> [Line]
 emitEntryPoint denv e =
