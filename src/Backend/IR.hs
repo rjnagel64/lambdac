@@ -29,6 +29,7 @@ module Backend.IR
     , codeDeclName
     , codeDeclTele
     , ClosureParam(..)
+    , ConstDecl(..)
 
     , DataDecl(..)
     , TyCon(..)
@@ -157,6 +158,7 @@ prime (TyVar aa i) = TyVar aa (i+1)
 -- | 'CodeLabel's are used to reference top-level code definitions. In
 -- particular, a closure is constructed by pairing a code name with an
 -- appropriate closure environment.
+-- TODO: Rename CodeLabel to something like GlobalLabel
 data CodeLabel = CodeLabel String Int
   deriving (Eq, Ord)
 
@@ -190,6 +192,7 @@ data Decl
   = DeclData DataDecl
   | DeclEnv EnvDecl
   | DeclCode CodeDecl
+  | DeclConst ConstDecl
 
 
 data EnvDecl
@@ -227,7 +230,9 @@ data CtorDecl
 
 
 data ConstDecl
-  = ConstClosure Place CodeLabel -- assume environment == empty
+  -- ConstClosure l0 l1 represents a C declaration:
+  -- struct closure *l0 = STATIC_CLOSURE(l1, the_empty_env);
+  = ConstClosure CodeLabel CodeLabel -- assume environment == empty
 
 
 -- | A 'Type' describes the runtime layout of a value. It is static information.
@@ -536,6 +541,7 @@ pprintDecls ds = concatMap pprintDecl ds
     pprintDecl (DeclEnv ed) = pprintEnvDecl 0 ed
     pprintDecl (DeclCode cd) = pprintClosureDecl 0 cd
     pprintDecl (DeclData dd) = pprintDataDecl 0 dd
+    pprintDecl (DeclConst cd) = pprintConstDecl 0 cd
 
 pprintEnvDecl :: Int -> EnvDecl -> String
 pprintEnvDecl n (EnvDecl l fields) =
@@ -563,6 +569,9 @@ pprintCtorDecl n (CtorDecl c tys args) =
   where
     f (x, s) = show x ++ " : " ++ pprintType s
     g (aa, k) = "@" ++ show aa ++ " : " ++ pprintKind k
+
+pprintConstDecl :: Int -> ConstDecl -> String
+pprintConstDecl n (ConstClosure l l') = indent n ("const " ++ show l ++ " = #" ++ show l' ++ " {}")
 
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintType s ++ " " ++ show x ++ ";\n"
