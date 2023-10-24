@@ -340,8 +340,9 @@ withEnvPtr envp k = do
 -- Problem: this needs to be in scope for all subsequent closures, not just the
 -- body of the current closure. Think about how to do this.
 withCodeLabel :: H.CodeLabel -> (GlobalLabel -> TyCon -> M a) -> M a
-withCodeLabel l@(H.CodeLabel x (H.Unique u)) k = do
-  let l' = GlobalLabel x u -- TODO: Why do I not generate a new unique here?
+withCodeLabel l@(H.CodeLabel x _) k = do
+  u <- freshUnique
+  let l' = GlobalLabel x u
   let envTyCon = TyCon ("env_" ++ show u)
   let extend env = env { envCodeLabels = Map.insert l l' (envCodeLabels env), envEnvTyCons = Map.insert l envTyCon (envEnvTyCons env) }
   local extend $ k l' envTyCon

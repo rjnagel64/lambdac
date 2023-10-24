@@ -158,11 +158,11 @@ prime (TyVar aa i) = TyVar aa (i+1)
 -- | 'GlobalLabel's are used to reference top-level definitions. In particular,
 -- a closure is constructed by pairing a global code label with an appropriate
 -- closure environment.
-data GlobalLabel = GlobalLabel String Int
+data GlobalLabel = GlobalLabel String Unique
   deriving (Eq, Ord)
 
-instance Show GlobalLabel where
-  show (GlobalLabel d u) = '#' : d ++ "@" ++ show u -- TODO: I don't like this.
+instance Show GlobalLabel where -- only used for printing?
+  show (GlobalLabel d u) = d ++ "_" ++ show u
 
 
 newtype TyCon = TyCon String
@@ -529,6 +529,8 @@ substTele subst (ClosureTele tele) = ClosureTele (go subst tele)
 
 
 -- Pretty-printing
+-- Hmm. This is just copy-pasted from Hoist. I don't actually use it for anything?
+-- I don't think backend-internal IRs really need to be printable.
 
 indent :: Int -> String -> String
 indent n s = replicate n ' ' ++ s
