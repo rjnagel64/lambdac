@@ -46,8 +46,8 @@ data ClosureNames
   , closureEnterName :: String
   }
 
-namesForClosure :: CodeLabel -> ClosureNames
-namesForClosure (CodeLabel f u) =
+namesForClosure :: GlobalLabel -> ClosureNames
+namesForClosure (GlobalLabel f u) =
   ClosureNames {
     closureCodeName = f ++ "_" ++ show u ++ "_code"
   , closureEnterName = "enter_" ++ f ++ "_" ++ show u
@@ -213,7 +213,7 @@ partitionDecls ds = partitionWith f ds
     f (DeclData dd) = Left (DataTypeDecl dd)
     f (DeclEnv ed) = Left (EnvTypeDecl ed)
 
--- hmm. maybe have large combined graph keyed by Either TyCon CodeLabel?
+-- hmm. maybe have large combined graph keyed by Either TyCon GlobalLabel?
 
 data TypeDecl = DataTypeDecl DataDecl | EnvTypeDecl EnvDecl -- | RecordTypeDecl RecordDecl
 
@@ -282,7 +282,7 @@ tycons (ClosureH (ClosureTele tele)) = go tele
     go (ValueTele t : tele') = tycons t <> go tele'
     go (TypeTele _ _ : tele') = go tele'
 
-globalRefs :: TermH -> Set CodeLabel
+globalRefs :: TermH -> Set GlobalLabel
 globalRefs (HaltH _ _) = Set.empty
 globalRefs (OpenH _ _ _) = Set.empty
 globalRefs (CaseH _ _ _) = Set.empty

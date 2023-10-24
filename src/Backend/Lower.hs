@@ -102,7 +102,7 @@ withCtorDecl tc' (i, H.CtorDecl c tys xs) k = do
         s' <- lowerType s
         pure (FieldLabel ("arg" ++ show j), s')
 
-lowerCodeLabel :: H.CodeLabel -> M CodeLabel
+lowerCodeLabel :: H.CodeLabel -> M GlobalLabel
 lowerCodeLabel l = do
   env <- asks envCodeLabels
   case Map.lookup l env of
@@ -315,7 +315,7 @@ data LowerEnv
   , envTyCons :: Map H.TyCon TyCon
   , envCtors :: Map H.Ctor Ctor
   , envThunkTypes :: Map H.Name ThunkType
-  , envCodeLabels :: Map H.CodeLabel CodeLabel
+  , envCodeLabels :: Map H.CodeLabel GlobalLabel
   , envEnvTyCons :: Map H.CodeLabel TyCon
   }
 
@@ -339,9 +339,9 @@ withEnvPtr envp k = do
 
 -- Problem: this needs to be in scope for all subsequent closures, not just the
 -- body of the current closure. Think about how to do this.
-withCodeLabel :: H.CodeLabel -> (CodeLabel -> TyCon -> M a) -> M a
+withCodeLabel :: H.CodeLabel -> (GlobalLabel -> TyCon -> M a) -> M a
 withCodeLabel l@(H.CodeLabel x (H.Unique u)) k = do
-  let l' = CodeLabel x u
+  let l' = GlobalLabel x u -- TODO: Why do I not generate a new unique here?
   let envTyCon = TyCon ("env_" ++ show u)
   let extend env = env { envCodeLabels = Map.insert l l' (envCodeLabels env), envEnvTyCons = Map.insert l envTyCon (envEnvTyCons env) }
   local extend $ k l' envTyCon

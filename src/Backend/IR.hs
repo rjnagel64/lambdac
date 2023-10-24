@@ -5,7 +5,7 @@ module Backend.IR
     , Name(..)
     , Place(..)
     , TyVar(..)
-    , CodeLabel(..)
+    , GlobalLabel(..)
     , FieldLabel(..)
 
     , Type(..)
@@ -155,15 +155,14 @@ instance Show TyVar where
 prime :: TyVar -> TyVar
 prime (TyVar aa i) = TyVar aa (i+1)
 
--- | 'CodeLabel's are used to reference top-level code definitions. In
--- particular, a closure is constructed by pairing a code name with an
--- appropriate closure environment.
--- TODO: Rename CodeLabel to something like GlobalLabel
-data CodeLabel = CodeLabel String Int
+-- | 'GlobalLabel's are used to reference top-level definitions. In particular,
+-- a closure is constructed by pairing a global code label with an appropriate
+-- closure environment.
+data GlobalLabel = GlobalLabel String Int
   deriving (Eq, Ord)
 
-instance Show CodeLabel where
-  show (CodeLabel d u) = '#' : d ++ "@" ++ show u
+instance Show GlobalLabel where
+  show (GlobalLabel d u) = '#' : d ++ "@" ++ show u -- TODO: I don't like this.
 
 
 newtype TyCon = TyCon String
@@ -199,9 +198,9 @@ data EnvDecl
   = EnvDecl TyCon [(FieldLabel, Type)]
 
 data CodeDecl
-  = CodeDecl CodeLabel [(TyVar, Kind)] (Id, TyCon) [ClosureParam] TermH
+  = CodeDecl GlobalLabel [(TyVar, Kind)] (Id, TyCon) [ClosureParam] TermH
 
-codeDeclName :: CodeDecl -> CodeLabel
+codeDeclName :: CodeDecl -> GlobalLabel
 codeDeclName (CodeDecl c _ _ _ _) = c 
 
 codeDeclTele :: CodeDecl -> ClosureTele
@@ -232,7 +231,7 @@ data CtorDecl
 data ConstDecl
   -- ConstClosure l0 l1 represents a C declaration:
   -- struct closure *l0 = STATIC_CLOSURE(l1, the_empty_env);
-  = ConstClosure CodeLabel CodeLabel -- assume environment == empty
+  = ConstClosure GlobalLabel GlobalLabel -- assume environment == empty
 
 
 -- | A 'Type' describes the runtime layout of a value. It is static information.
@@ -249,6 +248,8 @@ data Type
   | TyConH TyCon
   | TyAppH Type Type
   | TokenH
+  -- | CodeH ClosureTele -- represents 'struct code X;', where struct code { void (*enter(void) };
+  -- Code decl declares a global label for a value of type 'CodeH _'
 
 -- It's a bit unfortunate, but I do need to have separate telescopes for
 -- parameters and types. The difference is that parameters need names for each
@@ -318,7 +319,7 @@ data IntCaseAlt = IntCaseAlt Int64 ThunkType Name
 data ClosureAlloc
   = ClosureAlloc {
     closurePlace :: Place
-  , closureDecl :: CodeLabel
+  , closureDecl :: GlobalLabel
   , closureCodeInst :: [Type]
   , closureEnvRef :: Id
   }
