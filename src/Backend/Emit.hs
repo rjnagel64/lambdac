@@ -3,7 +3,7 @@ module Backend.Emit
     ( emitProgram
     ) where
 
-import Data.List (intercalate, intersperse)
+import Data.List (intersperse)
 import Data.Maybe (mapMaybe)
 
 import qualified Data.Map as Map
@@ -11,7 +11,10 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
+import Data.Graph (SCC(..), stronglyConnComp)
+
 import Backend.IR
+import Util
 
 -- TODO: Something smarter than string and list concatenation.
 -- builders? text? environment?
@@ -33,9 +36,6 @@ import Backend.IR
 -- line s = Emit $ \env -> B.fromText (T.replicate (indentLevel env) ' ') <> s <> B.singleton '\n'
 -- text :: String -> Emit
 -- text s = Emit $ \_ -> B.fromText (T.pack s)
-
-commaSep :: [String] -> String
-commaSep = intercalate ", "
 
 type Line = String
 
@@ -183,110 +183,119 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
 
 type DataEnv = Map TyCon DataDecl
 
--- TODO: Code generation requires Decl:s in a Program to be in dependency order.
--- This is rather clumsy, and easily broken in the face of optimizations.
--- This probably involves generating prototypes for things (every decl, or
--- maybe just for cyclic SCCs)
 emitProgram :: Program -> String
 emitProgram pgm@(Program ds e) = unlines $
   prologue ++
   concatMap emitThunkDecl ts ++
-  concatMap emitDeclPrototype ds ++
-  concatMap (emitDecl denv) ds ++
+  concatMap emitTypeDecls (orderTypeDecls typeDecls) ++
+  concatMap (emitGlobalDecls denv) (orderGlobalDecls globalDecls) ++
   emitEntryPoint denv e
   where
     ts = Set.toList (programThunkTypes pgm)
     denv = collectDataEnv ds Map.empty
+    (typeDecls, globalDecls) = partitionDecls ds
 
 collectDataEnv :: [Decl] -> DataEnv -> DataEnv
 collectDataEnv [] acc = acc
-collectDataEnv (DeclEnv ed : ds) acc = collectDataEnv ds acc
-collectDataEnv (DeclCode cd : ds) acc = collectDataEnv ds acc
-collectDataEnv (DeclData dd : ds) acc = collectDataEnv ds (extendDataEnv dd acc)
+collectDataEnv (DeclEnv _ed : ds) acc = collectDataEnv ds acc
+collectDataEnv (DeclCode _cd : ds) acc = collectDataEnv ds acc
+collectDataEnv (DeclData dd@(DataDecl tc _) : ds) acc = collectDataEnv ds (Map.insert tc dd acc)
 
-extendDataEnv :: DataDecl -> DataEnv -> DataEnv
-extendDataEnv dd@(DataDecl tc _) env = Map.insert tc dd env
-
-
-emitDeclPrototype :: Decl -> [Line]
-emitDeclPrototype (DeclEnv ed) = emitEnvPrototype ed
-emitDeclPrototype (DeclCode cd) = emitCodePrototype cd
-emitDeclPrototype (DeclData dd) = emitDataPrototype dd
-
--- Emit prototypes for all structs/functions defined by this code decl
-emitCodePrototype :: CodeDecl -> [Line]
-emitCodePrototype (CodeDecl l _aas (_envp, envtc) params _e) = [codePrototype, enterPrototype]
+partitionDecls :: [Decl] -> ([TypeDecl], [GlobalDecl])
+partitionDecls ds = partitionWith f ds
   where
-    codePrototype = "void " ++ closureCodeName cns ++ "(" ++ paramList ++ ");"
-    enterPrototype = "void " ++ closureEnterName cns ++ "(void);"
-    cns = namesForClosure l
-    paramList = if null paramTypes then "void" else commaSep paramTypes
-    paramTypes = envParam : mapMaybe f params
-    f (PlaceParam p) = Just (typeFor (placeType p))
-    f (TypeParam _ _) = Nothing
-    envParam = "struct " ++ show envtc ++ " *"
+    f (DeclCode cd) = Right (GlobalCode cd)
+    f (DeclData dd) = Left (DataTypeDecl dd)
+    f (DeclEnv ed) = Left (EnvTypeDecl ed)
 
-emitEnvPrototype :: EnvDecl -> [Line]
-emitEnvPrototype (EnvDecl tc fields) = [declPrototype, allocPrototype, infoPrototype]
-  where
-    ens = namesForEnv tc
-    -- TODO: environment prototypes have to include the definition of the env struct
-    -- (Remember, it's the stuff that would have to go in a header file)
-    envty = "struct " ++ envTypeName ens
-    declPrototype = envty ++ ";"
-    allocPrototype = makeFunctionPrototype (envty ++ " *") (envAllocName ens) [typeFor t | (_f, t) <- fields]
-    infoPrototype = "const type_info " ++ envInfoName ens ++ ";"
-    -- Hmm. Should 'trace' really be included? It's basically an implementation detail of 'info'.
-    -- declPrototype = "// " ++ show tc ++ "::decl"
-    -- allocPrototype = "// " ++ show tc ++ "::alloc"
-    -- tracePrototype = "// " ++ show tc ++ "::trace"
-    -- infoPrototype = "// " ++ show tc ++ "::info"
+-- hmm. maybe have large combined graph keyed by Either TyCon CodeLabel?
 
--- Hmm. A potential problem. The casts for a datatype are macros, so they do
--- not have a notion of a "prototype". If I declare prototypes, I need to
--- declare the cast macros with them.
-emitDataPrototype :: DataDecl -> [Line]
-emitDataPrototype (DataDecl tc ctors) = [dataPrototype, dataCast] ++ concatMap emitCtorPrototype ctors
-  where
-    -- dataty = "struct " ++ show tc
-    -- dataPrototype = dataty ++ ";"
-    -- dataCast = "#define CAST_" ++ show tc ++ "(v) ((" ++ dataty ++ " *)(v))"
-    dataPrototype = "// " ++ show tc ++ "::struct"
-    dataCast = "// " ++ show tc ++ "::cast"
+data TypeDecl = DataTypeDecl DataDecl | EnvTypeDecl EnvDecl -- | RecordTypeDecl RecordDecl
 
-emitCtorPrototype :: CtorDecl -> [Line]
-emitCtorPrototype (CtorDecl c aas fields) =
-  [ ctorPrototype
-  , ctorCast
-  , ctorTrace
-  , ctorDisplay
-  , ctorInfo
-  , ctorAllocate
-  ]
-  where
-    -- Hmm. 'trace' and 'display' should be private to 'info'.
-    ctorPrototype = "// " ++ show c ++ "::struct"
-    ctorCast = "// " ++ show c ++ "::cast"
-    ctorTrace = "// " ++ show c ++ "::trace"
-    ctorDisplay = "// " ++ show c ++ "::display"
-    ctorInfo = "// " ++ show c ++ "::info"
-    ctorAllocate = "// " ++ show c ++ "::alloc"
+data GlobalDecl = GlobalCode CodeDecl -- | GlobalConst ConstDecl
 
-makeFunctionPrototype :: String -> String -> [String] -> Line
-makeFunctionPrototype retTy name argTys = retTy ++ name ++ "(" ++ paramList ++ ");"
+typeDeclTyCon :: TypeDecl -> TyCon
+typeDeclTyCon (DataTypeDecl (DataDecl tc _)) = tc
+typeDeclTyCon (EnvTypeDecl (EnvDecl tc _)) = tc
+
+orderTypeDecls :: [TypeDecl] -> [SCC TypeDecl]
+orderTypeDecls ds = stronglyConnComp graph
   where
-    paramList = if null argTys then "void" else commaSep argTys
+    graph = [node d | d <- ds]
+    node d@(DataTypeDecl (DataDecl tc ctors)) = (d, tc, Set.toList (foldMap deps ctors))
+    node d@(EnvTypeDecl (EnvDecl tc fields)) = (d, tc, Set.toList (foldMap fieldDeps fields))
+    deps (CtorDecl _c _aas fs) = foldMap fieldDeps fs
+    fieldDeps (_, t) = tycons t
+
+orderGlobalDecls :: [GlobalDecl] -> [SCC GlobalDecl]
+orderGlobalDecls ds = stronglyConnComp graph
+  where
+    graph = [node d | d <- ds]
+    node d@(GlobalCode cd) = (d, codeDeclName cd, Set.toList (deps cd))
+    deps (CodeDecl _l _aas _env _params e) = globalRefs e
+
+
+emitTypeDecls :: SCC TypeDecl -> [Line]
+emitTypeDecls (AcyclicSCC td) = emitTypeDecl td
+-- emit forward declaration of each tycon, then the actual struct
+-- declarations+prototypes+type info.
+emitTypeDecls (CyclicSCC tds) = forwards ++ concatMap emitTypeDecl tds
+  where
+    forwards = ["struct " ++ show (typeDeclTyCon td) ++ ";" | td <- tds]
+
+emitTypeDecl :: TypeDecl -> [Line]
+emitTypeDecl (DataTypeDecl dd) = emitDataDecl dd
+emitTypeDecl (EnvTypeDecl ed) = emitClosureEnv ed
+
+emitGlobalDecls :: DataEnv -> SCC GlobalDecl -> [Line]
+emitGlobalDecls denv (AcyclicSCC gd) = emitGlobalDecl denv gd
+emitGlobalDecls denv (CyclicSCC gds) = forwards ++ concatMap (emitGlobalDecl denv) gds
+  where
+    forwards = ["void enter_" ++ show (codeDeclName cd) ++ "(void);" | GlobalCode cd <- gds]
+
+emitGlobalDecl :: DataEnv -> GlobalDecl -> [Line]
+emitGlobalDecl denv (GlobalCode cd) = emitCodeDecl denv cd
+
+
+tycons :: Type -> Set TyCon
+tycons (TyConH tc) = Set.singleton tc
+tycons (AllocH _) = Set.empty
+tycons IntegerH = Set.empty
+tycons BooleanH = Set.empty
+tycons StringH = Set.empty
+tycons UnitH = Set.empty
+tycons CharH = Set.empty
+tycons TokenH = Set.empty
+tycons (TyAppH t1 t2) = tycons t1 <> tycons t2
+tycons (ProductH t1 t2) = tycons t1 <> tycons t2
+tycons (TyRecordH fs) = foldMap (tycons . snd) fs
+tycons (ClosureH (ClosureTele tele)) = go tele
+  where
+    go [] = Set.empty
+    go (ValueTele t : tele') = tycons t <> go tele'
+    go (TypeTele _ _ : tele') = go tele'
+
+globalRefs :: TermH -> Set CodeLabel
+globalRefs (HaltH _ _) = Set.empty
+globalRefs (OpenH _ _ _) = Set.empty
+globalRefs (CaseH _ _ _) = Set.empty
+globalRefs (IntCaseH _ _) = Set.empty
+globalRefs (LetValH _ _ e) = globalRefs e
+globalRefs (LetPrimH _ prim e) = globalRefs e
+globalRefs (LetBindH _ _ prim e) = globalRefs e
+globalRefs (LetProjectH _ _ _ e) = globalRefs e
+globalRefs (AllocClosures es cs e) =
+  foldMap envGlobalRefs es <> foldMap closureGlobalRefs cs <> globalRefs e
+  where
+    envGlobalRefs (EnvAlloc _x _tc _fs) = Set.empty -- I think. No code labels here.
+    closureGlobalRefs (ClosureAlloc _p l _ts _env) = Set.singleton l
+
 
 
 
 
 prologue :: [Line]
 prologue = ["#include \"rts.h\""]
-
-emitDecl :: DataEnv -> Decl -> [Line]
-emitDecl denv (DeclEnv ed) = emitClosureEnv ed
-emitDecl denv (DeclCode cd) = emitCodeDecl denv cd
-emitDecl denv (DeclData dd) = emitDataDecl dd
 
 emitEntryPoint :: DataEnv -> TermH -> [Line]
 emitEntryPoint denv e =

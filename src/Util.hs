@@ -15,7 +15,13 @@ insertMany xs m = foldr (uncurry Map.insert) m xs
 mapAccumLM :: (Monad m, Traversable t) => (a -> s -> m (b, s)) -> t a -> s -> m (t b, s)
 mapAccumLM f xs s = flip runStateT s $ traverse (StateT . f) xs
 
-
+partitionWith :: (a -> Either b c) -> [a] -> ([b], [c])
+partitionWith _ [] = ([],[])
+partitionWith f (x:xs) =
+  case f x of
+    Left b -> (b:bs, cs)
+    Right c -> (bs, c:cs)
+  where (bs,cs) = partitionWith f xs
 
 newtype One a = One a
 
