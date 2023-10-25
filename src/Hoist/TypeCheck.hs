@@ -25,11 +25,16 @@ deriving newtype instance MonadError TCError TC
 deriving newtype instance MonadReader Context TC
 deriving newtype instance MonadState Signature TC
 
+-- TODO: Declarations should be order-independent
+-- (I.E., collect data types first, then code signatures, and only then
+-- type-check the bodies of each code declaration)
+
 -- | The signature stores information about top-level declarations.
 data Signature
   = Signature {
     sigClosures :: Map CodeLabel ClosureDeclType
-  , sigTyCons :: Map TyCon (Kind, [CtorDecl])
+  , sigTyConKinds :: Map TyCon Kind
+  , sigTyConCtors :: Map TyCon [CtorDecl]
   }
 
 -- | Represents the type of a closure, a code pointer with environment
@@ -104,7 +109,13 @@ runTC :: TC a -> Either TCError a
 runTC = runExcept . flip runReaderT emptyContext . flip evalStateT emptySignature . getTC
   where
     emptyContext = Context { ctxPlaces = Map.empty, ctxTypes = Map.empty, ctxEnvFields = [] }
-    emptySignature = Signature { sigClosures = Map.empty, sigTyCons = Map.empty }
+
+emptySignature :: Signature
+emptySignature = Signature {
+    sigClosures = Map.empty
+  , sigTyConKinds = Map.empty
+  , sigTyConCtors = Map.empty
+  }
 
 
 lookupName :: Name -> TC Type
@@ -127,12 +138,19 @@ lookupTyVar aa = do
     Nothing -> do
       throwError $ TyVarNotInScope aa
 
-lookupTyCon :: TyCon -> TC (Kind, [CtorDecl])
-lookupTyCon tc = do
-  ctx <- gets sigTyCons
-  case Map.lookup tc ctx of
-    Just dd -> pure dd
+lookupTyConKind :: TyCon -> TC Kind
+lookupTyConKind tc = do
+  env <- gets sigTyConKinds
+  case Map.lookup tc env of
     Nothing -> throwError $ TyConNotInScope tc
+    Just k -> pure k
+
+lookupTyConCtors :: TyCon -> TC [CtorDecl]
+lookupTyConCtors tc = do
+  env <- gets sigTyConCtors
+  case Map.lookup tc env of
+    Nothing -> throwError $ TyConNotInScope tc
+    Just ctors -> pure ctors
 
 lookupCodeDecl :: CodeLabel -> TC ClosureDeclType
 lookupCodeDecl c = do
@@ -205,7 +223,12 @@ checkEntryPoint e = checkTerm e
 
 checkDataDecl :: DataDecl -> TC ()
 checkDataDecl (DataDecl tc kind ctors) = do
-  modify (\ (Signature clos tcs) -> Signature clos (Map.insert tc (kind, ctors) tcs))
+  let
+    extend sig = sig {
+        sigTyConKinds = Map.insert tc kind (sigTyConKinds sig)
+      , sigTyConCtors = Map.insert tc ctors (sigTyConCtors sig)
+      }
+  modify extend
   traverse_ checkCtorDecl ctors
 
 checkCtorDecl :: CtorDecl -> TC ()
@@ -221,7 +244,7 @@ checkCodeDecl decl@(CodeDecl cl (_envp, envd) params body) = do
     withParams params $
       checkTerm body
   let declTy = codeDeclType decl
-  modify (\ (Signature clos tcs) -> Signature (Map.insert cl declTy clos) tcs)
+  modify (\sig -> sig { sigClosures = Map.insert cl declTy (sigClosures sig) })
 
 -- | Check that all field labels are disjoint, and that each field type is
 -- well-formed.
@@ -437,7 +460,7 @@ checkBranches branches branchTys = do
 -- instantiated type of that constructor.
 instantiateTyConApp :: TyConApp -> TC (Map Ctor [TeleEntry])
 instantiateTyConApp (TyConApp tc tys) = do
-  ctors <- snd <$> lookupTyCon tc
+  ctors <- lookupTyConCtors tc
   cs <- fmap Map.fromList $ for ctors $ \ (CtorDecl c typarams argTys) -> do
     sub <- parameterSubst typarams tys
     pure (c, map (ValueTele . substType sub) argTys)
@@ -446,7 +469,7 @@ instantiateTyConApp (TyConApp tc tys) = do
 -- | Check that a sort is well-formed w.r.t. the context
 inferType :: Type -> TC Kind
 inferType (AllocH aa) = lookupTyVar aa
-inferType (TyConH tc) = fst <$> lookupTyCon tc
+inferType (TyConH tc) = lookupTyConKind tc
 inferType (TyAppH t s) = do
   inferType t >>= \case
     KArr k1 k2 -> checkType s k1 *> pure k2

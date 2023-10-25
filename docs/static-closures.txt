@@ -73,8 +73,8 @@ code #__anon_cont_21[](env_23 : {}; x0_22 : int) =
 code #__anon_cont_16[](env_18 : {}; add30_17 : closure(int, closure(int))) =
   let tmp_19 : int = 5;
   add30_17 tmp_19 __anon_cont_20;
-const f0_0 : _ = #f_0 {}
-const __anon_cont_15 : _ = #__anon_cont_16 {}
+const f0_0 : closure(int, closure(closure(int, closure(int)))) = #f_0 {}
+const __anon_cont_15 : closure(closure(int, closure(int))) = #__anon_cont_16 {}
 const __anon_cont_20 : closure(int) = #__anon_cont_21 {}
 ;;
 let tmp_14 : int = 3;
