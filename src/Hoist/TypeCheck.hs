@@ -4,6 +4,8 @@ module Hoist.TypeCheck (checkProgram, TCError(..)) where
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
+import Data.Set (Set)
+import Data.Graph (SCC(..), stronglyConnComp)
 
 import Data.Foldable (traverse_, for_)
 import Data.Traversable (for)
@@ -14,6 +16,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import Hoist.IR
+import Util
 
 
 newtype TC a = TC { getTC :: StateT Signature (ReaderT Context (Except TCError)) a }
@@ -24,10 +27,6 @@ deriving newtype instance Monad TC
 deriving newtype instance MonadError TCError TC
 deriving newtype instance MonadReader Context TC
 deriving newtype instance MonadState Signature TC
-
--- TODO: Declarations should be order-independent
--- (I.E., collect data types first, then code signatures, and only then
--- type-check the bodies of each code declaration)
 
 -- | The signature stores information about top-level declarations.
 data Signature
@@ -116,6 +115,93 @@ emptySignature = Signature {
   , sigTyConKinds = Map.empty
   , sigTyConCtors = Map.empty
   }
+
+
+checkProgram :: Program -> Either TCError ()
+checkProgram (Program decls e) = runTC $ do
+  let f (DeclData dd) = Left dd; f (DeclCode cd) = Right cd
+  let (ds, cs) = partitionWith f decls
+  traverse_ checkDataDecls (orderDataDecls ds)
+  traverse_ checkCodeDecls (orderCodeDecls cs)
+  checkTerm e
+
+checkDataDecls :: SCC DataDecl -> TC ()
+checkDataDecls (AcyclicSCC d) = do
+  let DataDecl tc k ctors = d
+  let extend sig = sig { sigTyConKinds = Map.insert tc k (sigTyConKinds sig), sigTyConCtors = Map.insert tc ctors (sigTyConCtors sig) }
+  modify extend
+  checkDataDecl d
+checkDataDecls (CyclicSCC ds) = do
+  let tcBinds = [(tc, k) | DataDecl tc k _ <- ds]
+  let ctorBinds = [(tc, ctors) | DataDecl tc _ ctors <- ds]
+  let extend sig = sig { sigTyConKinds = insertMany tcBinds (sigTyConKinds sig), sigTyConCtors = insertMany ctorBinds (sigTyConCtors sig) }
+  modify extend
+  traverse_ checkDataDecl ds
+
+checkDataDecl :: DataDecl -> TC ()
+checkDataDecl (DataDecl _tc _k ctors) = do
+  -- Hmm. Why do I not record ctor types in the signature?
+  traverse_ checkCtorDecl ctors
+
+checkCodeDecls :: SCC CodeDecl -> TC ()
+checkCodeDecls (AcyclicSCC d) = do
+  checkCodeDecl d
+  let l = codeDeclName d
+  let ty = codeDeclType d
+  let extend sig = sig { sigClosures = Map.insert l ty (sigClosures sig) }
+  modify extend
+  checkCodeDecl d
+checkCodeDecls (CyclicSCC ds) = do
+  let codeBinds = [(codeDeclName d, codeDeclType d) | d <- ds]
+  let extend sig = sig { sigClosures = insertMany codeBinds (sigClosures sig) }
+  modify extend
+  traverse_ checkCodeDecl ds
+
+orderDataDecls :: [DataDecl] -> [SCC DataDecl]
+orderDataDecls ds = stronglyConnComp graph
+  where
+    graph = [node d | d <- ds]
+    node d@(DataDecl tc _k ctors) = (d, tc, Set.toList (foldMap deps ctors))
+    deps (CtorDecl _c _aas argTys) = foldMap tycons argTys
+
+orderCodeDecls :: [CodeDecl] -> [SCC CodeDecl]
+orderCodeDecls ds = stronglyConnComp graph
+  where
+    graph = [node d | d <- ds]
+    node cd = (cd, codeDeclName cd, Set.toList (deps cd))
+    deps (CodeDecl _l _env _params e) = globalRefs e
+
+tycons :: Type -> Set TyCon
+tycons (TyConH tc) = Set.singleton tc
+tycons (AllocH _) = Set.empty
+tycons IntegerH = Set.empty
+tycons BooleanH = Set.empty
+tycons StringH = Set.empty
+tycons UnitH = Set.empty
+tycons CharH = Set.empty
+tycons TokenH = Set.empty
+tycons (TyAppH t1 t2) = tycons t1 <> tycons t2
+tycons (ProductH t1 t2) = tycons t1 <> tycons t2
+tycons (RecordH fs) = foldMap (tycons . snd) fs
+tycons (ClosureH (ClosureTele tele)) = go tele
+  where
+    go [] = Set.empty
+    go (ValueTele t : tele') = tycons t <> go tele'
+    go (TypeTele _ _ : tele') = go tele'
+
+globalRefs :: TermH -> Set CodeLabel
+globalRefs (HaltH _ _) = Set.empty
+globalRefs (OpenH _ _) = Set.empty
+globalRefs (IfH _ _ _) = Set.empty
+globalRefs (CaseH _ _ _) = Set.empty
+globalRefs (LetValH _ _ e) = globalRefs e
+globalRefs (LetPrimH _ prim e) = globalRefs e
+globalRefs (LetBindH _ _ prim e) = globalRefs e
+globalRefs (LetProjectH _ _ _ e) = globalRefs e
+globalRefs (AllocClosure cs e) =
+  foldMap closureGlobalRefs cs <> globalRefs e
+  where closureGlobalRefs (ClosureAlloc _p l _ts _env) = Set.singleton l
+
 
 
 lookupName :: Name -> TC Type
@@ -209,42 +295,18 @@ checkUniqueLabels ls = do
 
 
 
-checkProgram :: Program -> Either TCError ()
-checkProgram (Program ds e) = runTC $ do
-  traverse_ checkDecl ds 
-  checkEntryPoint e
-
-checkDecl :: Decl -> TC ()
-checkDecl (DeclData dd) = checkDataDecl dd
-checkDecl (DeclCode cd) = checkCodeDecl cd
-
-checkEntryPoint :: TermH -> TC ()
-checkEntryPoint e = checkTerm e
-
-checkDataDecl :: DataDecl -> TC ()
-checkDataDecl (DataDecl tc kind ctors) = do
-  let
-    extend sig = sig {
-        sigTyConKinds = Map.insert tc kind (sigTyConKinds sig)
-      , sigTyConCtors = Map.insert tc ctors (sigTyConCtors sig)
-      }
-  modify extend
-  traverse_ checkCtorDecl ctors
-
 checkCtorDecl :: CtorDecl -> TC ()
 checkCtorDecl (CtorDecl _c tys args) = do
   withTyVars tys $ traverse_ (\s -> checkType s Star) args
 
--- | Type-check a top-level code declaration and add it to the signature.
+-- | Type-check a top-level code declaration.
 checkCodeDecl :: CodeDecl -> TC ()
-checkCodeDecl decl@(CodeDecl cl (_envp, envd) params body) = do
+checkCodeDecl (CodeDecl _cl (_envp, envd) params body) = do
   -- Check the environment and parameters to populate the environment scope for
   -- the typing context
   withEnvDecl envd $ 
     withParams params $
       checkTerm body
-  let declTy = codeDeclType decl
-  modify (\sig -> sig { sigClosures = Map.insert cl declTy (sigClosures sig) })
 
 -- | Check that all field labels are disjoint, and that each field type is
 -- well-formed.
