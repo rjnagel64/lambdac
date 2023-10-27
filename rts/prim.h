@@ -31,13 +31,17 @@ struct char_value *allocate_char(uint32_t x);
 
 #define CAST_CHAR(v) ((struct char_value *)(v))
 
-struct closure {
-    struct alloc_header header;
-    struct alloc_header *env;
+struct code {
     void (*enter)(void);
 };
 
-struct closure *allocate_closure(struct alloc_header *env, void (*enter)(void));
+struct closure {
+    struct alloc_header header;
+    struct alloc_header *env;
+    struct code code;
+};
+
+struct closure *allocate_closure(struct alloc_header *env, struct code code);
 
 #define CAST_CLOSURE(v) ((struct closure *)(v))
 

@@ -116,10 +116,10 @@ struct empty_env *the_empty_env = &_the_empty_env;
 
 struct closure *allocate_closure(
         struct alloc_header *env,
-        void (*enter)(void)) {
+        struct code code) {
     struct closure *cl = malloc(sizeof(struct closure));
     cl->env = env;
-    cl->enter = enter;
+    cl->code = code;
 
     cons_new_alloc(AS_ALLOC(cl), &closure_info);
     return cl;

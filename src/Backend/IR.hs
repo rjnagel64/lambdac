@@ -161,8 +161,8 @@ prime (TyVar aa i) = TyVar aa (i+1)
 data GlobalLabel = GlobalLabel String Unique
   deriving (Eq, Ord)
 
-instance Show GlobalLabel where -- only used for printing?
-  show (GlobalLabel d u) = d ++ "_" ++ show u
+instance Show GlobalLabel where
+  show (GlobalLabel l u) = l ++ "_" ++ show u
 
 
 newtype TyCon = TyCon String
@@ -250,6 +250,7 @@ data Type
   | TokenH
   -- | CodeH ClosureTele -- represents 'struct code X;', where struct code { void (*enter(void) };
   -- Code decl declares a global label for a value of type 'CodeH _'
+  -- (Does a CodeH type require the pseudo-forall? In Hoist maybe, in Lower probably not.)
 
 -- It's a bit unfortunate, but I do need to have separate telescopes for
 -- parameters and types. The difference is that parameters need names for each

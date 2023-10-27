@@ -40,17 +40,21 @@ import Util
 type Line = String
 
 
+-- TODO: ClosureNames is actually the names associated with a code decl, not a
+-- closure decl.
 data ClosureNames
   = ClosureNames {
     closureCodeName :: String
   , closureEnterName :: String
+  , closureGlobalName :: String
   }
 
-namesForClosure :: GlobalLabel -> ClosureNames
-namesForClosure (GlobalLabel f u) =
+namesForCode :: GlobalLabel -> ClosureNames
+namesForCode l =
   ClosureNames {
-    closureCodeName = f ++ "_" ++ show u ++ "_code"
-  , closureEnterName = "enter_" ++ f ++ "_" ++ show u
+    closureCodeName = show l ++ "_code"
+  , closureEnterName = "enter_" ++ show l
+  , closureGlobalName = show l
   }
 
 data EnvNames
@@ -362,7 +366,7 @@ emitThunkSuspend ns ty =
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
   ,"    args->closure = closure;"]++
   assignFields ty ++
-  ["    set_next(closure->enter, " ++ thunkTraceName ns ++ ");"
+  ["    set_next(closure->code.enter, " ++ thunkTraceName ns ++ ");"
   ,"}"]
   where
     argsTy = "struct " ++ thunkArgsName ns ++ " *"
@@ -495,11 +499,11 @@ emitEnvInfo ns fs =
 
 
 emitCodeDecl :: DataEnv -> CodeDecl -> [Line]
-emitCodeDecl denv cd@(CodeDecl d _aas (envName, envTyCon) params e) =
+emitCodeDecl denv cd@(CodeDecl l _aas (envName, envTyCon) params e) =
   emitClosureCode denv envTyCon cns envName params e ++
   emitClosureEnter tns envTyCon cns ty
   where
-    cns = namesForClosure d
+    cns = namesForCode l
     tns = namesForThunk ty
     ty = codeDeclType cd
 
@@ -522,7 +526,8 @@ emitClosureEnter tns envTyCon cns ty =
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
   ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")args->closure->env;"
   ,"    " ++ closureCodeName cns ++ "(" ++ commaSep argList ++ ");"
-  ,"}"]
+  ,"}"
+  ,"struct code " ++ closureGlobalName cns ++ " = { " ++ closureEnterName cns ++ " };"]
   where
     argsTy = "struct " ++ thunkArgsName tns ++ " *"
     envTy = "struct " ++ show envTyCon ++ " *"
@@ -534,7 +539,7 @@ emitConstDecl :: ConstDecl -> [Line]
 emitConstDecl (ConstClosure l l') =
   -- hmm. How can I avoid needing a separate declaration for the closure and
   -- the closure reference?
-  ["struct closure __static_" ++ show l' ++ " = { { 0, NULL, closure_info }, the_empty_env, " ++ closureEnterName (namesForClosure l') ++ " };"
+  ["struct closure __static_" ++ show l' ++ " = { { 0, NULL, closure_info }, the_empty_env, " ++ closureGlobalName (namesForCode l') ++ " };"
   ,"struct closure *" ++ show l ++ " = &__static_" ++ show l' ++ ";"]
 
 
@@ -745,6 +750,24 @@ emitPrimCall fn xs = emitBuiltinCall fn xs
 emitBuiltinCall :: String -> [Name] -> String
 emitBuiltinCall fn args = fn ++ "(" ++ commaSep (map emitName args) ++ ")"
 
+
+-- TODO: Use SCC-based analysis to codegen allocations of recursive value groups
+-- (This would let me generalize ClosureAlloc/EnvAlloc to just being ordinary
+-- groups of value bindings -- assuming I make environments just named record
+-- types as I plan to)
+
+-- emitValueGroup :: [(Place, ValueH)] -> [Line]
+-- emitValueGroup binds = _
+--
+-- orderValueGroup :: [(Place, ValueH)] -> [SCC (Place, ValueH)] -- key on Id
+-- orderValueGroup binds = _
+--
+-- assignValueGroup :: SCC (Place, ValueH) -> [Line]
+-- assignValueGroup (AcyclicSCC (p, v)) = _ -- normal assignment
+-- -- have to pick loop breakers somehow, I think.
+-- -- Alternatively, DFS, and emit a NULL/patch for each back edge encountered(?)
+-- assignValueGroup (CyclicSCC ps) = _
+
 -- | Allocate a group of (mutually recursive) closures.
 --
 -- This is a three-step process.
@@ -787,9 +810,8 @@ allocClosure :: ClosureAlloc -> Line
 allocClosure (ClosureAlloc p l _tys envRef) =
   "    " ++ emitPlace p ++ " = allocate_closure(" ++ commaSep [envArg, enterArg] ++ ");"
   where
-    ns = namesForClosure l
     envArg = asAlloc (emitName (LocalName envRef))
-    enterArg = closureEnterName ns
+    enterArg = closureGlobalName (namesForCode l)
 
 patchEnv :: Set Name -> EnvAlloc -> [Line]
 patchEnv recNames (EnvAlloc envPlace _ fields) = mapMaybe patchField fields
