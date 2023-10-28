@@ -337,7 +337,7 @@ foldThunk consValue ty = go 0 (thunkArgs ty)
 emitThunkArgs :: ThunkNames -> ThunkType -> [Line]
 emitThunkArgs ns ty =
   ["struct " ++ thunkArgsName ns ++ " {"
-  ,"    struct closure *closure;"] ++
+  ,"    struct alloc_header *env;"] ++
   declareFields ty ++
   ["};"]
   where
@@ -353,7 +353,7 @@ emitThunkTrace :: ThunkNames -> ThunkType -> [Line]
 emitThunkTrace ns ty =
   ["void " ++ thunkTraceName ns ++ "(void) {"
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
-  ,"    mark_gray(AS_ALLOC(args->closure));"] ++
+  ,"    mark_gray(args->env);"] ++
   body ++
   ["}"]
   where
@@ -366,7 +366,7 @@ emitThunkSuspend ns ty =
   ["void " ++ thunkSuspendName ns ++ "(" ++ commaSep paramList ++ ") {"
   ,"    reserve_args(sizeof(struct " ++ thunkArgsName ns ++ "));"
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
-  ,"    args->closure = closure;"]++
+  ,"    args->env = closure->env;"] ++
   assignFields ty ++
   ["    set_next(closure->code.enter, " ++ thunkTraceName ns ++ ");"
   ,"}"]
@@ -527,7 +527,7 @@ emitClosureEnter :: ThunkNames -> TyCon -> ClosureNames -> ThunkType -> [Line]
 emitClosureEnter tns envTyCon cns ty =
   ["void " ++ closureEnterName cns ++ "(void) {"
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
-  ,"    " ++ emitPlace (Place envTy envId) ++ " = " ++ asType envTy "args->closure->env" ++ ";"
+  ,"    " ++ emitPlace (Place envTy envId) ++ " = " ++ asType envTy "args->env" ++ ";"
   ,"    " ++ closureCodeName cns ++ "(" ++ commaSep argList ++ ");"
   ,"}"
   ,"struct code " ++ closureGlobalName cns ++ " = { " ++ closureEnterName cns ++ " };"]
