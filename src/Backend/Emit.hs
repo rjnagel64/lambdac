@@ -63,15 +63,17 @@ data EnvNames
   , envInfoName :: String
   , envAllocName :: String
   , envTraceName :: String
+  , envCastName :: String
   }
 
 namesForEnv :: TyCon -> EnvNames
-namesForEnv (TyCon f) =
+namesForEnv (TyCon tc) =
   EnvNames {
-    envTypeName = f
-  , envInfoName = f ++ "_info"
-  , envAllocName = "allocate_" ++ f
-  , envTraceName = "trace_" ++ f
+    envTypeName = tc
+  , envInfoName = tc ++ "_info"
+  , envAllocName = "allocate_" ++ tc
+  , envTraceName = "trace_" ++ tc
+  , envCastName = "CAST_" ++ tc
   }
 
 data ThunkNames
@@ -466,7 +468,8 @@ emitEnvDecl ns fs =
   ["struct " ++ envTypeName ns ++ " {"
   ,"    struct alloc_header header;"] ++
   map mkField fs ++
-  ["};"]
+  ["};"
+  ,"#define " ++ envCastName ns ++ "(v) ((struct " ++ envTypeName ns ++ " *)(v))"]
   where
     mkField (f, s) = "    " ++ emitField f s ++ ";"
 
@@ -486,7 +489,7 @@ emitEnvAlloc ns fs =
 emitEnvInfo :: EnvNames -> [(FieldLabel, Type)] -> [Line]
 emitEnvInfo ns fs =
   ["void " ++ envTraceName ns ++ "(struct alloc_header *alloc) {"
-  ,"    " ++ envTy ++ envName ++ " = (" ++ envTy ++ ")alloc;"] ++
+  ,"    " ++ envTy ++ envName ++ " = " ++ envCastName ns ++ "(alloc);"] ++
   map traceField fs ++
   ["}"
   ,"const type_info " ++ envInfoName ns ++ " = { " ++ envTraceName ns ++ ", display_env, 0 };"]
@@ -515,8 +518,8 @@ emitClosureCode denv envTyCon cns envName xs e =
   emitTerm denv e ++
   ["}"]
   where
-    paramList = commaSep (envParam : mapMaybe emitParam xs)
-    envParam = "struct " ++ show envTyCon ++ " *" ++ show envName
+    paramList = commaSep (emitPlace envParam : mapMaybe emitParam xs)
+    envParam = Place (TyConH envTyCon) envName
     emitParam (TypeParam _ _) = Nothing
     emitParam (PlaceParam p) = Just (emitPlace p)
 
@@ -524,14 +527,16 @@ emitClosureEnter :: ThunkNames -> TyCon -> ClosureNames -> ThunkType -> [Line]
 emitClosureEnter tns envTyCon cns ty =
   ["void " ++ closureEnterName cns ++ "(void) {"
   ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
-  ,"    " ++ envTy ++ "env = (" ++ envTy ++ ")args->closure->env;"
+  ,"    " ++ emitPlace (Place envTy envId) ++ " = " ++ asType envTy "args->closure->env" ++ ";"
   ,"    " ++ closureCodeName cns ++ "(" ++ commaSep argList ++ ");"
   ,"}"
   ,"struct code " ++ closureGlobalName cns ++ " = { " ++ closureEnterName cns ++ " };"]
   where
     argsTy = "struct " ++ thunkArgsName tns ++ " *"
-    envTy = "struct " ++ show envTyCon ++ " *"
-    argList = "env" : foldThunk consValue ty
+    envTy = TyConH envTyCon
+    -- This unique is cheating. But this is confined to a local scope, so it's alright.
+    envId = Id "env" (Unique 0)
+    argList = emitName (LocalName envId) : foldThunk consValue ty
       where consValue i _ = "args->arg" ++ show i
 
 
@@ -608,16 +613,16 @@ emitCase desc x branches =
   ,"    }"]
   where
     emitCaseBranch :: CaseAlt -> [String]
-    emitCaseBranch (CaseAlt c@(Ctor tc ctor i) ty k) =
+    emitCaseBranch (CaseAlt c ty k) =
       let
         argCasts = ctorArgCasts (dataCtors desc Map.! c)
-        ctorVal = "CAST_" ++ show tc ++ "_" ++ ctor ++ "(" ++ emitName x ++ ")"
+        ctorVal = "CAST_" ++ ctorQualName c ++ "(" ++ emitName x ++ ")"
         method = thunkSuspendName (namesForThunk ty)
         args = emitName k : map mkArg argCasts
         mkArg (argName, Nothing) = ctorVal ++ "->" ++ argName
         mkArg (argName, Just argType) = asType argType (ctorVal ++ "->" ++ argName)
       in
-        ["    case " ++ show i ++ ":"
+        ["    case " ++ show (ctorDiscriminant c) ++ ":"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        break;"]
 
