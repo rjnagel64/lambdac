@@ -616,15 +616,17 @@ emitCase desc x branches =
     emitCaseBranch (CaseAlt c y ty k) =
       let
         argCasts = ctorArgCasts (dataCtors desc Map.! c)
+        ctorTy = "struct " ++ ctorQualName c ++ " *"
         ctorVal = "CAST_" ++ ctorQualName c ++ "(" ++ emitName x ++ ")"
         method = thunkSuspendName (namesForThunk ty)
-        args = emitName k : map mkArg argCasts
-        mkArg (argName, Nothing) = ctorVal ++ "->" ++ argName
-        mkArg (argName, Just argType) = asType argType (ctorVal ++ "->" ++ argName)
+        args = map emitCtorArg (NormalArg k : map mkArg argCasts)
+        mkArg (argName, Nothing) = NormalArg (FieldRef (LocalName y) (FieldLabel argName))
+        mkArg (argName, Just argType) = DownCastArg argType (FieldRef (LocalName y) (FieldLabel argName))
       in
-        ["    case " ++ show (ctorDiscriminant c) ++ ":"
+        ["    case " ++ show (ctorDiscriminant c) ++ ": {"
+        ,"        " ++ ctorTy ++ show y ++ " = " ++ ctorVal ++ ";"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
-        ,"        break;"]
+        ,"        } break;"]
 
 emitIntCase :: Name -> [IntCaseAlt] -> [Line]
 emitIntCase x branches =
