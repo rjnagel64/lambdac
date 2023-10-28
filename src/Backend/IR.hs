@@ -46,6 +46,7 @@ module Backend.IR
     , ValueH(..)
     , PrimOp(..)
     , PrimIO(..)
+    , CtorArg(..)
 
     , Program(..)
     , Decl(..)
@@ -198,6 +199,9 @@ data EnvDecl
   = EnvDecl TyCon [(FieldLabel, Type)]
 
 data CodeDecl
+  -- The [(TyVar, Kind)] here is never used for anything.
+  -- (Only for the pretty-printing Backend.IR, which I am already inclined to
+  -- remove)
   = CodeDecl GlobalLabel [(TyVar, Kind)] (Id, TyCon) [ClosureParam] TermH
 
 codeDeclName :: CodeDecl -> GlobalLabel
@@ -339,6 +343,13 @@ data ValueH
   | WorldToken
   | RecordH [(FieldLabel, Name)]
   | CtorAppH Ctor [Type] [Name]
+
+-- TODO: refine CtorAppH. Remove type arguments, replace value args with these:
+-- (Could also use these for PairH args)
+data CtorArg
+  = NormalArg Name -- ^ x
+  | UpCastArg Name -- ^ AS_ALLOC(x)
+  | DownCastArg Type Name -- ^ CAST_int64_value(x)
 
 data PrimOp
   = PrimAddInt64 Name Name

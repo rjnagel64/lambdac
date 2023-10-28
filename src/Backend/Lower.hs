@@ -174,6 +174,11 @@ lowerValue H.NilValH = pure NilH
 lowerValue H.TokenValH = pure WorldToken
 lowerValue (H.RecordValH fields) = RecordH <$> traverse lowerField fields
   where lowerField (f, x) = (,) <$> lowerFieldLabel f <*> lowerName x
+-- TODO: Lower should be responsible for inserting argument casts on ctors and
+-- case analysis. (This would let me get rid of DataDesc, of substitution
+-- machinery, and AllocH-with-TyVar-field)
+-- (Hmm. refine "Argument" to be "OrdinaryArgument Name | UpcastArgument Name |
+-- DownCastArgument Name Type"?)
 lowerValue (H.CtorValH c ss xs) = 
   CtorAppH <$> lowerCtor c <*> traverse lowerType ss <*> traverse lowerName xs
 

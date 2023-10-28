@@ -642,7 +642,7 @@ emitValue _ (IntH i) = "allocate_int64(" ++ show i ++ ")"
 emitValue _ (BoolH b) = if b then "allocate_bool_value(1)" else "allocate_bool_value(0)"
 emitValue _ (StringValH s) = "allocate_string(" ++ show s ++ ", " ++ show (length s) ++ ")"
 emitValue _ (CharValH c) = "allocate_char(" ++ show c ++ ")"
-emitValue _ (PairH x y) = "allocate_pair(" ++ asAlloc (emitName x) ++ ", " ++ asAlloc (emitName y) ++ ")"
+emitValue _ (PairH x y) = emitBuiltinCall "allocate_pair" [UpCastArg x, UpCastArg y]
 emitValue _ NilH = "allocate_unit()"
 emitValue _ WorldToken = "allocate_token()"
 emitValue _ (RecordH fields) =
@@ -666,9 +666,14 @@ emitCtorAlloc desc (ctor, xs) = method ++ "(" ++ commaSep args' ++ ")"
     method = "allocate_" ++ show (ctorTyCon ctor) ++ "_" ++ ctorName ctor
 
     argCasts = ctorArgCasts (dataCtors desc Map.! ctor)
-    args' = zipWith makeArg xs argCasts
-    makeArg x (_, Nothing) = emitName x
-    makeArg x (_, Just _) = asAlloc (emitName x)
+    args' = map emitCtorArg (zipWith makeArg xs argCasts)
+    makeArg x (_, Nothing) = NormalArg x
+    makeArg x (_, Just _) = UpCastArg x
+
+emitCtorArg :: CtorArg -> String
+emitCtorArg (NormalArg x) = emitName x
+emitCtorArg (UpCastArg x) = asAlloc (emitName x)
+emitCtorArg (DownCastArg s x) = asType s (emitName x)
 
 data DataDesc
   = DataDesc {
@@ -740,15 +745,15 @@ emitPrimIO (PrimPutLine x y) p1 p2 =
   "prim_putLine(" ++ commaSep [emitName x, emitName y, '&' : show (placeName p1), '&' : show (placeName p2)] ++ ")"
 
 emitPrimCall :: String -> [Name] -> String
-emitPrimCall fn xs = emitBuiltinCall fn xs
+emitPrimCall fn xs = emitBuiltinCall fn (map NormalArg xs)
 
 -- Hmm. I can't quite use this for emitValueAlloc, because I cannot specify
 -- primitives like unboxed integers or c string literals.
 --
 -- I also can't use this for emitValueAlloc because if the sort of a parameter
 -- is 'AllocH', I need to cast the argument with AS_ALLOC.
-emitBuiltinCall :: String -> [Name] -> String
-emitBuiltinCall fn args = fn ++ "(" ++ commaSep (map emitName args) ++ ")"
+emitBuiltinCall :: String -> [CtorArg] -> String
+emitBuiltinCall fn args = fn ++ "(" ++ commaSep (map emitCtorArg args) ++ ")"
 
 
 -- TODO: Use SCC-based analysis to codegen allocations of recursive value groups
