@@ -136,12 +136,13 @@ instance Show Id where
 -- | A 'Name' references some in-scope value binding. It can be either a name
 -- in the local scope, or it can be a reference to some field from the
 -- environment. 
-data Name = LocalName Id | EnvName Id FieldLabel
+data Name = LocalName Id | EnvName Id FieldLabel | FieldRef Name FieldLabel
   deriving (Eq, Ord)
 
 instance Show Name where
   show (LocalName x) = show x
   show (EnvName envp x) = show envp ++ "." ++ show x
+  show (FieldRef x l) = show x ++ "." ++ show l
 
 -- | A 'Place' is a location that can hold a value. It has an identifier and a
 -- sort that specifies what values can be stored there.

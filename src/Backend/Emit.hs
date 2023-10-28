@@ -356,8 +356,10 @@ emitThunkTrace ns ty =
   ["}"]
   where
     argsTy = "struct " ++ thunkArgsName ns ++ " *"
+    argsId = Id "args" (Unique 0) -- cheating.
     body = foldThunk consValue ty
-      where consValue i _ = "    mark_gray(" ++ asAlloc ("args->arg" ++ show i) ++ ");"
+      where
+        consValue i _ = "    mark_gray(" ++ emitCtorArg (UpCastArg (FieldRef (LocalName argsId) (FieldLabel ("arg" ++ show i)))) ++ ");"
 
 emitThunkSuspend :: ThunkNames -> ThunkType -> [Line]
 emitThunkSuspend ns ty =
@@ -826,7 +828,7 @@ patchEnv recNames (EnvAlloc envPlace _ fields) = mapMaybe patchField fields
   where
     patchField (f, x) =
       if Set.member x recNames then
-        let envf = EnvName envPlace f in
+        let envf = FieldRef (LocalName envPlace) f in
         Just ("    " ++ emitName envf ++ " = " ++ emitName x ++ ";")
       else
         Nothing
@@ -844,6 +846,7 @@ emitPlace (Place s x) = typeFor s ++ show x
 emitName :: Name -> String
 emitName (LocalName x) = show x
 emitName (EnvName envp x) = show envp ++ "->" ++ show x
+emitName (FieldRef x l) = emitName x ++ "->" ++ show l
 
 emitField :: FieldLabel -> Type -> String
 emitField f s = typeFor s ++ show f
