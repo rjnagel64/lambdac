@@ -317,7 +317,11 @@ data Projection = ProjectFst | ProjectSnd | ProjectField FieldLabel
 
 data ClosureArg = ValueArg Name | TypeArg Type
 
-data CaseAlt = CaseAlt Ctor ThunkType Name
+-- | A case alternative consists of a constructor that identifies this branch,
+-- an identifier/place used to assign the scrutinee after it has been downcast
+-- to the ctor type, a calling convention for the continuation, and a reference
+-- to that continuation.
+data CaseAlt = CaseAlt Ctor Id ThunkType Name
 
 -- All thunktypes should be no-arg, ThunkType []
 data IntCaseAlt = IntCaseAlt Int64 ThunkType Name
@@ -595,7 +599,7 @@ pprintTerm n (OpenH _ty c args) =
   indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
 pprintTerm n (CaseH x _kind alts) =
   indent n $ "case " ++ show x ++ " of " ++ intercalate " | " (map pprintAlt alts) ++ ";\n"
-  where pprintAlt (CaseAlt c _ty k) = show c ++ " -> " ++ show k
+  where pprintAlt (CaseAlt c x _ty k) = show c ++ " " ++ show x ++ " -> " ++ show k
 pprintTerm n (IntCaseH x alts) =
   indent n $ "case " ++ show x ++ " of " ++ intercalate " | " (map pprintAlt alts) ++ ";\n"
   where pprintAlt (IntCaseAlt i _ty k) = show i ++ " -> " ++ show k

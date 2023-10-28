@@ -152,7 +152,7 @@ programThunkTypes (Program decls mainExpr) = declThunks <> termThunkTypes mainEx
     -- Closure invocations and case analysis suspend a closure, so the
     -- necessary thunk type must be recorded.
     termThunkTypes (OpenH ty _ _) = Set.singleton ty
-    termThunkTypes (CaseH _ _ alts) = Set.fromList [ty | CaseAlt _ ty _ <- alts]
+    termThunkTypes (CaseH _ _ alts) = Set.fromList [ty | CaseAlt _ _ ty _ <- alts]
     termThunkTypes (IntCaseH _ alts) = Set.fromList [ty | IntCaseAlt _ ty _ <- alts]
     termThunkTypes (LetValH _ _ e) = termThunkTypes e
     termThunkTypes (LetPrimH _ _ e) = termThunkTypes e
@@ -350,8 +350,8 @@ declareVar s x = typeFor s ++ x;
 emitThunkTrace :: ThunkNames -> ThunkType -> [Line]
 emitThunkTrace ns ty =
   ["void " ++ thunkTraceName ns ++ "(void) {"
-  ,"    " ++ argsTy ++ "args = (" ++ argsTy ++ ")argument_data;"
-  ,"    mark_gray(args->env);"] ++
+  ,"    " ++ argsTy ++ show argsId ++ " = (" ++ argsTy ++ ")argument_data;"
+  ,"    mark_gray(" ++ emitName (FieldRef (LocalName argsId) (FieldLabel "env")) ++ ");"] ++
   body ++
   ["}"]
   where
@@ -613,7 +613,7 @@ emitCase desc x branches =
   ,"    }"]
   where
     emitCaseBranch :: CaseAlt -> [String]
-    emitCaseBranch (CaseAlt c ty k) =
+    emitCaseBranch (CaseAlt c y ty k) =
       let
         argCasts = ctorArgCasts (dataCtors desc Map.! c)
         ctorVal = "CAST_" ++ ctorQualName c ++ "(" ++ emitName x ++ ")"

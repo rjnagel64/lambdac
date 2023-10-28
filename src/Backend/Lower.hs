@@ -206,7 +206,8 @@ lowerIOPrimOp (H.PrimGetLine x) = PrimGetLine <$> lowerName x
 lowerIOPrimOp (H.PrimPutLine x y) = PrimPutLine <$> lowerName x <*> lowerName y
 
 lowerCaseAlt :: (H.Ctor, H.Name) -> M CaseAlt
-lowerCaseAlt (c, k) = CaseAlt <$> lowerCtor c <*> lookupThunkType k <*> lowerName k
+lowerCaseAlt (c, k) =
+  CaseAlt <$> lowerCtor c <*> (Id "x" <$> freshUnique) <*> lookupThunkType k <*> lowerName k
 
 lowerClosureAllocs :: [H.ClosureAlloc] -> H.TermH -> M TermH
 lowerClosureAllocs cs e = do
