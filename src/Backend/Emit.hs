@@ -617,14 +617,13 @@ emitCase desc x branches =
       let
         argCasts = ctorArgCasts (dataCtors desc Map.! c)
         ctorTy = "struct " ++ ctorQualName c ++ " *"
-        ctorVal = "CAST_" ++ ctorQualName c ++ "(" ++ emitName x ++ ")"
         method = thunkSuspendName (namesForThunk ty)
         args = map emitCtorArg (NormalArg k : map mkArg argCasts)
-        mkArg (argName, Nothing) = NormalArg (FieldRef (LocalName y) (FieldLabel argName))
-        mkArg (argName, Just argType) = DownCastArg argType (FieldRef (LocalName y) (FieldLabel argName))
+        mkArg (argName, Nothing) = NormalArg (FieldRef (LocalName y) argName)
+        mkArg (argName, Just argType) = DownCastArg argType (FieldRef (LocalName y) argName)
       in
         ["    case " ++ show (ctorDiscriminant c) ++ ": {"
-        ,"        " ++ ctorTy ++ show y ++ " = " ++ ctorVal ++ ";"
+        ,"        " ++ ctorTy ++ show y ++ " = CAST_" ++ ctorQualName c ++ "(" ++ emitName x ++ ");"
         ,"        " ++ method ++ "(" ++ commaSep args ++ ");"
         ,"        } break;"]
 
@@ -666,7 +665,6 @@ emitValue denv (CtorAppH c ss xs) =
   let desc = dataDescFor denv tcapp in
   emitCtorAlloc desc (c, xs)
 
-
 emitCtorAlloc :: DataDesc -> (Ctor, [Name]) -> String
 emitCtorAlloc desc (ctor, xs) = method ++ "(" ++ commaSep args' ++ ")"
   where
@@ -701,7 +699,7 @@ data DataDesc
 -- aa', then that field should be cast to 't', where the case kind specifies
 -- that '[aa := t]'
 data CtorDesc
-  = CtorDesc { ctorArgCasts :: [(String, Maybe Type)] }
+  = CtorDesc { ctorArgCasts :: [(FieldLabel, Maybe Type)] }
 
 dataDesc :: DataDecl -> [Type] -> DataDesc
 dataDesc (DataDecl _tycon ctors) tyargs =
@@ -723,8 +721,8 @@ dataDesc (DataDecl _tycon ctors) tyargs =
           -- 'AllocH bb', where 'bb' is existentially bound. In that case, the
           -- argument should be cast to 'struct alloc_header *', I think.
           Nothing -> error "missing argument in tyconapp"
-          Just s' -> (show fld, Just s')
-        f (fld, _s) = (show fld, Nothing)
+          Just s' -> (fld, Just s')
+        f (fld, _s) = (fld, Nothing)
 
 dataDescFor :: DataEnv -> TyConApp -> DataDesc
 dataDescFor denv (TyConApp tc args) = dataDesc (denv Map.! tc) args
