@@ -239,3 +239,73 @@ const q : int * (bool * int) = (five, p);
 const foo : closure(int * (bool * int), bool) = #foo {}
 ;;
 foo(q, fal)
+
+
+Constant Promotion as a Dataflow Problem
+========================================
+
+All Place:s in the program are keyed by a Unique id.
+  - ... except that closure environments don't have their own Place until Backend.IR.
+  - I suppose a closure allocation #foo { x = x_17, y = y_32 } should be
+    treated as allocation of a single value for purposes of constant promotion?
+We can extract a system of dataflow equations from the program term.
+abstract domain: Bottom | Constant ConstRef | Top
+  * Bottom: empty set of values. represents unreachable code.
+  * Constant: only a single value ever flows to this place. Promote it.
+  * Top: two or more values flow to this place. Nothing can be done about this place.
+All places start initialized to Bottom
+  (except parameters of public functions, which start initialized to Top)
+
+
+Every value binding/projection/etc. introduces a dataflow equation that relates
+its LHS to the values from its RHS.
+  - let x = 5 in ...
+    is associated with the equation 'x = f(in_scope_vars)', where 'f({}) = I# 5#'.
+  - let z = fst w in ...
+    is associated with the equation 'z = g(w)', where
+    'g(Bottom) = Bottom';
+    'g((c1, c2)) = c1';
+    'g(Top) = Top'
+  - let t = (u, v) in ...
+    is associated with the equation 't = h(u, v)', where
+    'h(Bottom, _) = h(_, Bottom) = Bottom';
+    'h(c1, c2) = hashcons((,), [c1, c2])';
+    'h(Top, _) = h(_, Top) = Top'
+  See the note on hash-consing promoted constants for more details about this.
+  - code decl parameters are equal to the join of all their callsites, or Top
+    if some call sites are unknown (e.g., because that code decl is exported)
+
+
+We can use dataflow iteration to solve these equations. The lattice has no
+infinite ascending chains, so the algorithm terminates. I believe that it will
+take a maximum of 3 or 4 iterations, so this should be pretty efficient.
+
+Once all abstract values have converged, we can use them to transform the program.
+- If a place has a value of Bottom, it was unreachable/never-used. It can
+  probably be discarded.
+- If a place has a value of Top, it has to be left alone. Its behaviour is
+  dependent on runtime things.
+- If a place has a value of Constant c, all occurrences can be replaced with a
+  reference to the global constant declaration 'c'.
+  (This involves performing a substitution x := c that doesn't need to worry
+  about shadowing -- all names are unique AND there are no global-decl
+  binders.) (This also involves adding a new constructor for 'ConstantRef' to
+  'Name' -- maybe I should rename 'Name' to 'Atom' à la KCC: what I really want
+  is for arguments to be simple/atomic.  Having arguments be names only is
+  merely one way to achieve this property)
+
+
+
+Hash-Consing for Deduplication of Promoted Constants:
+=====================================================
+
+Consider 'let z = (x, y) in ...', where x is known to have constant value c1, y
+is known to have constant value c2.
+
+'z = (c1, c2)' is also a constant value, and should be promoted to the top
+level for static allocation. However, there may already be some top-level defn
+with the value '(c1, c2)'. So, we use hash-consing. We look up ((,); [c1, c2])
+in a side table. If the lookup returns an existing constant reference c0, we
+add z :-> Constant c0 to the dataflow lattice. Otherwise, we create a fresh
+global label c3, a new global decl 'const c3 = (c1, c2)' and add z :-> Constant
+c3 to the lattice.

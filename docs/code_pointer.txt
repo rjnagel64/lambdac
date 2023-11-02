@@ -212,3 +212,26 @@ j0 f0;
 // They're closer now (TyCon instead of list of field types), but a TyCon is
 // still not a Sort, so I can't properly create the type annotation when
 // projecting the environment from the closure.
+
+
+Tentative Implementation Path for Code Pointers
+===============================================
+
+Add two new constructors to Hoist.IR.TermH
+- LetUnpackH, that represents unpacking a closure into code pointer+environment
+  let <a, e : a, f : code(a, ...)> = unpack x in ...
+- InvokeH, that represents tail-calling a code pointer with an argument telescope
+  f(@int, x, y, @bool, k1, k2)
+- AllocClosure is now reinterpreted as allocating a (cyclic) group of closure values.
+
+These will need to be lowered to Backend.IR somehow. (LetUnpackH introduces two
+values; InvokeH requires tailcall_$ty instead of suspend_$ty)
+
+Type-checking for these two constructs also needs to be implemented, but the
+rules are straightforward.
+
+Now, CallC can be desugared into LetUnpackH+InvokeH (plus some fresh temporaries).
+
+The old OpenH constructor is now unused and can be deprecated/removed.
+
+InvokeH can be renamed to (Tail)CallH.
