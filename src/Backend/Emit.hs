@@ -489,16 +489,16 @@ emitEnvAlloc ns fs =
 emitEnvInfo :: EnvNames -> [(FieldLabel, Type)] -> [Line]
 emitEnvInfo ns fs =
   ["void " ++ envTraceName ns ++ "(struct alloc_header *alloc) {"
-  ,"    " ++ envTy ++ envName ++ " = " ++ envCastName ns ++ "(alloc);"] ++
+  ,"    " ++ envTy ++ show envId ++ " = " ++ envCastName ns ++ "(alloc);"] ++
   map traceField fs ++
   ["}"
   ,"const type_info " ++ envInfoName ns ++ " = { " ++ envTraceName ns ++ ", display_env, 0 };"]
   where
-    envName = "env"
+    envId = Id "env" (Unique 0)
     envTy = "struct " ++ envTypeName ns ++ " *"
     traceField (x, _) =
-      let field = asAlloc (envName ++ "->" ++ show x) in
-      "    mark_gray(" ++ field ++ ");"
+      let field = UpCastArg (FieldRef (LocalName envId) x) in
+      "    mark_gray(" ++ emitCtorArg field ++ ");"
 
 
 emitCodeDecl :: DataEnv -> CodeDecl -> [Line]

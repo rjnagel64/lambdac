@@ -71,6 +71,22 @@ import Data.Int (Int64)
 import Data.List (intercalate)
 
 
+-- The essence of Backend.IR is runtime representations: how are values
+-- represented at runtime? How are code pointers called?
+--
+-- This is loosely related to "Kinds are Calling Conventions" in that types in
+-- this IR are somewhat akin to representation kinds in Hoist.IR, but
+-- dissimilar in that most basic types and user-defined data types tend to get
+-- their own representation (i.e. singleton representation kinds in Hoist)
+--
+-- The biggest difference is how polymorphism is represented. In Hoist.IR, you
+-- have type variables that quanitify over types with a particular
+-- represetation kind (usually over boxed gced values). In Backend.IR, there is
+-- a type 'Alloc' for boxed, gced values, with types like 'Int64' (boxed 64-bit
+-- integer) being a subtype of Alloc. This mirrors the C implementation of
+-- Alloc and Int64, using struct subtyping.
+
+
 -- | A thunk type is a calling convention for closures: the set of arguments
 -- that must be provided to open it. This information is used to generate
 -- trampolined tail calls.
