@@ -61,6 +61,8 @@ import Data.Bifunctor
 import Data.Int (Int64)
 import Data.List (intercalate)
 
+import Util
+
 
 newtype Unique = Unique Int
   deriving (Eq, Ord)
@@ -509,7 +511,7 @@ pprintCtorDecl n (CtorDecl c tys args) =
 pprintTerm :: Int -> TermH -> String
 pprintTerm n (HaltH s x) = indent n $ "HALT @" ++ pprintType s ++ " " ++ show x ++ ";\n"
 pprintTerm n (OpenH c args) =
-  indent n $ intercalate " " (show c : map pprintClosureArg args) ++ ";\n"
+  indent n $ show c ++ "(" ++ commaSep (map pprintClosureArg args) ++ ");\n"
 pprintTerm n (IfH x k1 k2) =
   indent n $ "if " ++ show x ++ " then " ++ show k1 ++ " else " ++ show k2
 pprintTerm n (CaseH x _kind ks) =

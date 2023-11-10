@@ -571,6 +571,7 @@ cpsBranch xs e k = freshenVarBinds xs $ \xs' -> do
 -- Nullary constructors (no value args, no type params) are merely let-expressions:
 -- let mkbar : bar = mkbar() in ...
 
+-- TODO: Now that CtorValK is a ValueK, try to simplify makeCtorWrapper
 makeCtorWrapper :: TyCon -> Ctor -> [(TyVar, KindK)] -> [TypeK] -> TermK -> CPS TermK
 makeCtorWrapper tc c ctorparams ctorargs e = do
   (w, _) <- go (let Ctor tmp = c in TmVar tmp 0) (ctorparams, ctorargs) ([], []) e

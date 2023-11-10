@@ -20,6 +20,10 @@ import Control.Monad.State
 insertMany :: (Foldable f, Ord k) => f (k, v) -> Map k v -> Map k v
 insertMany xs m = foldr (uncurry Map.insert) m xs
 
+-- TODO: Like Hoist.TypeCheck and Backend.Emit, Backend.Lower should process
+-- declarations in SCC order.
+-- (Also, use a stateful signature for global decls, as opposed to the scoped
+-- context for local bindings)
 
 lowerProgram :: H.Program -> Program
 lowerProgram (H.Program ds e) = runM $ do

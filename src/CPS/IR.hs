@@ -219,6 +219,8 @@ contDefType (ContDef xs _) = ContK (map snd xs)
 
 -- | Function definitions: either term functions @f (x:τ) (k:σ) := e@,
 -- or type functions @f \@a (k:σ) := e@
+-- TODO: Separate FunDef into an anonymous function definition, and a named
+-- recursive group.
 data FunDef = FunDef TmVar [FunParam] [(CoVar, CoTypeK)] TermK
 
 funDefName :: FunDef -> TmVar
@@ -244,6 +246,7 @@ data ValueK
   | StringValK String
   | CharValK Char
   | CtorValK Ctor [TypeK] [ValueK]
+  -- TODO: make FunDef a ValueK, analogous to how ContDef is a CoValueK
 
 data CoValueK
   = CoVarK CoVar
